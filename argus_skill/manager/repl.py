@@ -439,6 +439,45 @@ def _type_out_line(line: str, *, stream: Any = None) -> None:
         print(line, flush=True, file=out)
 
 
+def _wrap_plain(text: str, width: int, indent: str = "    ") -> list[str]:
+    """Word-wrap PLAIN ``text`` to at most ``width`` DISPLAY columns per row so
+    nothing is truncated at the terminal edge (the reasoning pane's fix for the
+    "仍有截断" chop). Display-width aware (CJK / full-width count as 2), breaks on
+    spaces where possible and hard-breaks an over-long token; continuation rows
+    are indented. Colour is applied by the caller (one hue per role entry)."""
+    import unicodedata
+
+    def _cw(ch: str) -> int:
+        return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+    if width <= 6 or not text:
+        return [text]
+    rows: list[str] = []
+    cur: list[str] = []
+    cur_w = 0
+    last_space = -1  # index in `cur` just AFTER the most recent space
+    for ch in text:
+        c = _cw(ch)
+        if cur_w + c > width and cur:
+            if last_space > 0:
+                head = "".join(cur[:last_space]).rstrip()
+                tail = "".join(cur[last_space:])
+                rows.append(head)
+                cur = list(indent + tail)
+            else:
+                rows.append("".join(cur))
+                cur = list(indent)
+            cur_w = sum(_cw(x) for x in cur)
+            last_space = -1
+        cur.append(ch)
+        cur_w += c
+        if ch == " ":
+            last_space = len(cur)
+    if cur:
+        rows.append("".join(cur))
+    return rows or [text]
+
+
 class _TailPrinter:
     """Prints tail event lines, collapsing copilot-style streamed messages.
 
@@ -695,7 +734,12 @@ def follow_mission_live_roles(
     keeps running). TTY-only — the caller falls back to the scrolling tail for
     non-interactive / piped output.
     """
-    from ..cli.roles_status import render_roles_snapshot
+    from ..cli.roles_status import (
+        _clip_ansi_line,
+        role_activity,
+        role_paint,
+        render_roles_snapshot,
+    )
     from ..apps.cli._follow import (
         _FollowCoalescer,
         _follow_layer_from_event,
@@ -717,17 +761,19 @@ def follow_mission_live_roles(
     # Claude Code's transcript toggle) unfolds a live, coalesced feed of the
     # agents' thinking below it. Starts collapsed unless ARGUS_SKILL_FOLLOW_EXPAND=1.
     expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
-    feed_lines: "_deque[str]" = _deque(maxlen=400)
+    feed_lines: "_deque[tuple[str, str]]" = _deque(maxlen=400)
     current_layer = "engineer"
+    pane_start = time.monotonic()  # anchors the -ing verb rotation
 
     def _emit_feed(ev: dict) -> None:
         nonlocal current_layer
         current_layer = _follow_layer_from_event(ev, current_layer)
-        # Plain (theme=None) so the fixed-width in-place redraw never desyncs on
-        # ANSI width; the coalescer already collapsed streamed fragments.
+        # Store the PLAIN line + its role; the pane word-wraps it (display-width
+        # aware, no truncation) and paints the whole entry in the role's hue at
+        # render time. The coalescer already collapsed streamed fragments.
         line = _format_follow_event(ev, current_layer, theme=None)
         if line:
-            feed_lines.append(line)
+            feed_lines.append((current_layer, line))
 
     coalescer = _FollowCoalescer(_emit_feed)
 
@@ -771,7 +817,34 @@ def follow_mission_live_roles(
         s = "○ no daemon"
         return theme.gray(s) if theme is not None else s
 
-    def _build_block(width: int, spin_p: str) -> str:
+    def _verb_line(width: int, glyph: str) -> str | None:
+        """An animated ``⠹ Planner planning…`` line: the ACTIVE role + a
+        slowly-rotating -ing verb from its own vocabulary, in the role's colour.
+        Reuses the scrolling-tail verb maps so the whole CLI speaks one language.
+        Returns ``None`` when no role is currently working (so we don't fake it).
+        """
+        try:
+            acts = role_activity(life_dir)
+        except Exception:  # noqa: BLE001
+            return None
+        active = next(
+            (r for r, a in acts.items() if getattr(a, "active", False)), None
+        )
+        if not active:
+            return None
+        title = _TAIL_ROLE_TITLES.get(active, active.title())
+        verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
+        step = int((time.monotonic() - pane_start) / _TAIL_PHRASE_INTERVAL)
+        verb = verbs[step % len(verbs)]
+        g = theme.bold_cyan(glyph) if theme is not None else glyph
+        label = f"{title} {verb}…"
+        if theme is not None:
+            label = role_paint(theme, active, label)
+        line = f"  {g} {label}"
+        return _clip_ansi_line(line, max(1, width - 1)) if theme is not None \
+            else line[: max(1, width - 1)]
+
+    def _build_block(width: int, spin_p: str, glyph: str) -> str:
         panel = render_roles_snapshot(
             life_dir, theme, width=width,
             header_right=spin_p + "  " + _daemon_right(),
@@ -781,18 +854,32 @@ def follow_mission_live_roles(
             if expanded:
                 rows = shutil.get_terminal_size((80, 24)).lines
                 panel_h = panel.count("\n") + 1
-                budget = max(3, rows - panel_h - 3)
-                window = list(feed_lines)[-budget:]
+                budget = max(3, rows - panel_h - 4)
                 sep = "  ── reasoning · Ctrl+O collapse "
                 sep = sep + "─" * max(0, width - len(sep) - 1)
                 lines.append(theme.gray(sep) if theme is not None else sep)
+                # Word-wrap the most recent entries (display-width aware, so
+                # nothing is chopped at the edge), paint each in its role hue,
+                # then show the last `budget` VISUAL rows.
+                visual: list[str] = []
+                for role, plain in list(feed_lines)[-budget:]:
+                    for vr in _wrap_plain(plain, max(8, width - 1)):
+                        visual.append(
+                            role_paint(theme, role, vr) if theme is not None else vr
+                        )
+                window = visual[-budget:]
                 if window:
-                    for ln in window:
-                        lines.append(ln[: max(1, width - 1)])
+                    lines.extend(window)
                 else:
                     hint = "  (waiting for the agents' first thoughts…)"
                     lines.append(theme.gray(hint) if theme is not None else hint)
+                verb = _verb_line(width, glyph)
+                if verb is not None:
+                    lines.append(verb)
             else:
+                verb = _verb_line(width, glyph)
+                if verb is not None:
+                    lines.append(verb)
                 hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
                 lines.append(theme.dim(hint) if theme is not None else hint)
         return "\n".join(lines)
@@ -841,7 +928,7 @@ def follow_mission_live_roles(
             # desyncing the "move up N rows" erase (same class of bug fixed
             # for the idle-prompt panel via ``Theme.live_width``).
             width = theme.live_width() if theme is not None else 80
-            block = _build_block(width, spin_p)
+            block = _build_block(width, spin_p, spin)
             n = block.count("\n") + 1
             if prev_lines:
                 # cursor up + clear to end of screen (robust against any wrap)

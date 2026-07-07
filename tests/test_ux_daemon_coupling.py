@@ -815,3 +815,30 @@ def test_live_roles_panel_feeds_coalescer_and_returns_completion(tmp_path):
         result = follow_mission_live_roles(tmp_path, "it1", theme=None, timeout=5.0)
     assert result is not None and result.get("type") == "life.mission.completed"
     assert "roles" in sink.getvalue()  # the dashboard rendered
+
+
+def test_wrap_plain_is_width_aware_and_lossless():
+    """The reasoning pane must NOT truncate: _wrap_plain word-wraps to the
+    display width (CJK = 2 cols), hard-breaks an over-long token, and loses no
+    characters — so a long thought is fully readable across rows."""
+    import unicodedata
+    from argus_skill.manager.repl import _wrap_plain
+
+    def dispw(s):
+        return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+                   for c in s)
+
+    en = "alpha beta gamma delta epsilon zeta eta theta iota kappa " * 3
+    rows = _wrap_plain(en, 40)
+    assert all(dispw(r) <= 40 for r in rows), [dispw(r) for r in rows]
+    # word-boundary: no row ends by splitting a word it could have kept whole
+    assert len(rows) > 1
+
+    cjk = "判断任务归属然后决定交给哪个角色处理这个二十四乘七的长期任务并持续运行下去"
+    crows = _wrap_plain(cjk, 20)
+    assert all(dispw(r) <= 20 for r in crows), [dispw(r) for r in crows]
+    # lossless: every CJK char survives (ignoring the continuation indent spaces)
+    assert "".join(r.strip() for r in crows) == cjk
+
+    # Short text passes through untouched.
+    assert _wrap_plain("hi there", 40) == ["hi there"]
