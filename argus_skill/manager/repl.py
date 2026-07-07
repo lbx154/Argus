@@ -2807,6 +2807,55 @@ def _maybe_auto_promote_to_continuous(
     return True
 
 
+def _render_live_role_overlay(
+    life_dir: Path | str, theme: Any, *, active_role: str, label: str,
+) -> str:
+    """A truthful "roles · activity" snapshot for the SELF quick-reply spinner
+    (the ``LiveStatus`` block in ``_free_text_cmd``), marking ``active_role``
+    active directly from the SAME phase signal the spinner itself is driven
+    by — NOT from ``events.jsonl``.
+
+    The SELF quick-reply path (Manager answers a simple chat turn itself, no
+    Planner/Engineer/Reviewer hand-off) deliberately never journals its
+    progress to ``events.jsonl`` (see ``_Capture``/``_simple_quick_reply`` —
+    avoids mission-log noise for a one-line "你好"). That means
+    ``role_activity()`` — the ONLY data source the pre-turn panel
+    (``read_message_prompt_toolkit`` / ``read_message_with_live_cockpit``)
+    reads — has no way to know this turn is happening at all, so that panel
+    keeps showing every role "idle" for the entire live turn: not just stale,
+    a direct, visible self-contradiction with the correctly-labeled spinner
+    right below it (live-confirmed: "Manager idle" shown while "Manager ·
+    SELF: ... 6s" spun beneath it, prompting "你不要只做摆设" — don't just
+    make this decorative). This builds a SEPARATE, correct snapshot for that
+    narrow window by overriding just one role's entry in an otherwise-real
+    ``role_activity()`` read (so Planner/Engineer/Reviewer still show their
+    true last-known state, not a blanket fake "idle")."""
+    from ..cli.roles_status import (
+        ROLES,
+        RoleActivity,
+        format_roles_panel,
+        resolve_all_roles,
+        role_activity,
+    )
+
+    try:
+        activities = dict(role_activity(life_dir))
+    except Exception:  # noqa: BLE001
+        activities = {}
+    for r in ROLES:
+        activities.setdefault(
+            r, RoleActivity(role=r, active=False, label="idle", status="idle", age_s=None),
+        )
+    role = (active_role or "").strip().lower()
+    if role in activities:
+        activities[role] = RoleActivity(
+            role=role, active=True, label=label, status="running", age_s=0.0,
+        )
+    configs = resolve_all_roles(env=os.environ)
+    width = theme.live_width() if theme is not None and hasattr(theme, "live_width") else 80
+    return format_roles_panel(theme, configs, activities, width=width)
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
@@ -2867,28 +2916,72 @@ def _free_text_cmd(
         _manager_backend_label = resolve_role_config(
             "manager", env=os.environ,
         ).backend_label
-        with LiveStatus(
-            "Deciding SELF / TEAM…",
-            theme=theme,
-            phrases=[
-                "Deciding SELF / TEAM…",
-                f"Waiting for {_manager_backend_label}'s first event…",
-            ],
-            phrase_interval=10.0,
-            accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
-        ) as _live:
-            # Retint the spinner glyph to whichever role drove this update (the
-            # SAME hue it wears in the banner / /roles panel / follow feed) —
-            # the label text itself stays plain, so there is no risk of a
-            # nested ANSI reset truncating its styling.
-            def _on_phase(label: str, *, role: str | None = None) -> None:
-                accent = ROLE_COLOR_BOLD.get((role or "").strip().lower())
-                if accent:
-                    _live.update_role(accent, label)
-                else:
-                    _live.update(label)
 
-            reply = manager_triage(mem, body, chat_state, on_phase=_on_phase)
+        # Print a TRUTHFUL "roles" snapshot above the spinner, marking Manager
+        # active from the first phase onward (see _render_live_role_overlay's
+        # docstring for why: the SELF quick-reply path never journals to
+        # events.jsonl, so without this override the panel printed before this
+        # prompt keeps claiming every role "idle" for the WHOLE live turn —
+        # not just stale, a direct on-screen contradiction of the spinner
+        # right below it). Gated by the same _live_cockpit_enabled() flag as
+        # the rest of the live-panel feature (an extension of it, not a
+        # separate one) plus the usual TTY/theme guards — never shown on
+        # piped output, and always cleaned up in `finally` even if the
+        # Manager's turn raises or is Ctrl-C'd.
+        _overlay_lines = 0
+        if (
+            _live_cockpit_enabled()
+            and theme is not None and theme.enabled
+            and sys.stdout.isatty()
+        ):
+            try:
+                _overlay_life_dir = _life_dir_for(mem)
+                _overlay = _render_live_role_overlay(
+                    _overlay_life_dir, theme,
+                    active_role="manager", label="Deciding SELF / TEAM…",
+                )
+                if _overlay:
+                    sys.stdout.write(_overlay + "\n")
+                    sys.stdout.flush()
+                    _overlay_lines = _overlay.count("\n") + 1
+            except Exception:  # noqa: BLE001 — this overlay must never break chat
+                _overlay_lines = 0
+
+        reply = None
+        try:
+            with LiveStatus(
+                "Deciding SELF / TEAM…",
+                theme=theme,
+                phrases=[
+                    "Deciding SELF / TEAM…",
+                    f"Waiting for {_manager_backend_label}'s first event…",
+                ],
+                phrase_interval=10.0,
+                accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
+            ) as _live:
+                # Retint the spinner glyph to whichever role drove this update (the
+                # SAME hue it wears in the banner / /roles panel / follow feed) —
+                # the label text itself stays plain, so there is no risk of a
+                # nested ANSI reset truncating its styling.
+                def _on_phase(label: str, *, role: str | None = None) -> None:
+                    accent = ROLE_COLOR_BOLD.get((role or "").strip().lower())
+                    if accent:
+                        _live.update_role(accent, label)
+                    else:
+                        _live.update(label)
+
+                reply = manager_triage(mem, body, chat_state, on_phase=_on_phase)
+        finally:
+            # Erase the overlay (LiveStatus already erased its OWN line on
+            # exit — it uses "\r\x1b[2K", which clears in place without
+            # moving the cursor to a new row — so the cursor is sitting
+            # exactly _overlay_lines rows below the overlay's first row).
+            if _overlay_lines:
+                try:
+                    sys.stdout.write(f"\r\x1b[{_overlay_lines}A\x1b[J")
+                    sys.stdout.flush()
+                except Exception:  # noqa: BLE001
+                    pass
         if reply is not None:
             line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
                     if theme is not None else f"  argus ↳ {reply}")

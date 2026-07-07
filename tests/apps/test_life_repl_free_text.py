@@ -1674,6 +1674,63 @@ def test_free_text_chat_short_circuits_backlog(mem: LifeMemory) -> None:
     assert chat_state.get("last_thread_id") == "tid-after-chat"
 
 
+def test_free_text_chat_shows_manager_active_not_idle(
+    mem: LifeMemory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regression: while the SELF quick-reply chat fast-path is running (the
+    ``LiveStatus`` spinner labeled "Manager · ..."), the "roles · activity"
+    overlay printed above it must show Manager ACTIVE — never "idle". The
+    SELF path deliberately never journals its progress to ``events.jsonl``
+    (avoids mission-log noise for a one-line chat reply), so without an
+    explicit override the only data source ``role_activity()`` has says
+    every role is idle for the ENTIRE duration of a real, live turn — a
+    direct, visible self-contradiction with the correctly-labeled spinner
+    right below it (live-confirmed: "Manager idle" shown on-screen at the
+    same time as "Manager · SELF: ... 6s", prompting the operator's "你不要
+    只做摆设" — don't just make this decorative)."""
+    from argus_skill.cli.theme import Theme
+
+    class _ChattyRunner:
+        last_thread_id = "tid-after-chat"
+
+        def chat_reply_if_conversational(
+            self, *, objective: str, sink: Any, seed_thread_id: Any = None,
+            phase_cb: Any = None,
+        ) -> bool:
+            sink.handle_event({"type": "loop.start", "text": "SELF: one Copilot handling 你好"})
+            sink.handle_event({"type": "round.main.completed", "last_message": "hi there"})
+            return True
+
+    fake = _ChattyRunner()
+    theme = Theme(enabled=True, width=80)
+    chat_state: dict[str, Any] = {"backend": "codex", "theme": theme}
+
+    monkeypatch.setattr(manager_repl, "_live_cockpit_enabled", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    with patch.object(manager_repl, "_ensure_manager_runner", return_value=fake):
+        manager_repl._free_text_cmd(mem, "你好", chat_state=chat_state)
+
+    out = capsys.readouterr().out
+    # The overlay's Manager row must show the ACTIVE dot/status, not "idle".
+    assert "Manager" in out
+    manager_line = next(
+        (ln for ln in out.splitlines() if "Manager" in ln), ""
+    )
+    assert "idle" not in manager_line, (
+        f"Manager row must not say idle while the chat fast-path is running: {manager_line!r}"
+    )
+    # The other three roles are genuinely idle for a SELF-only reply — the
+    # override must be scoped to Manager, not a blanket fake "everyone busy".
+    for role_title in ("Planner", "Engineer", "Reviewer"):
+        role_line = next((ln for ln in out.splitlines() if role_title in ln), "")
+        assert "idle" in role_line, f"{role_title} should still show idle: {role_line!r}"
+    # The overlay must be cleaned up afterward: an erase-to-end-of-screen
+    # escape (cursor up N rows + \x1b[J) appears somewhere in the output.
+    assert "\x1b[J" in out
+    # The final reply still prints normally, unaffected by the overlay.
+    assert "hi there" in out
+
+
 def test_free_text_task_falls_through_when_not_conversational(
     mem: LifeMemory,
 ) -> None:
