@@ -673,6 +673,21 @@ class TelegramStreamReporter:
         next_action = str(event.get("next_action") or "").strip()
         if next_action:
             lines.append(f"next：{_esc(_truncate_display(next_action, 220))}")
+        # The ONLY headless-daemon channel an operator has for a mission that
+        # just blocked waiting on THEM specifically — reviewer_schema.json's
+        # ``operator_question`` was already flowing through this exact event
+        # (``to_event_payload`` in core/models.py always includes it) but this
+        # card silently dropped it, so a 7×24 unattended daemon run could sit
+        # blocked indefinitely with no signal anywhere that it was waiting on
+        # a human. Bold + a distinct ❓ marker (vs. the plain "reason"/"next"
+        # lines above) so it does not read as just more routine review
+        # narration when skimming a busy chat.
+        operator_question = str(event.get("operator_question") or "").strip()
+        if operator_question:
+            lines.append(
+                "❓ <b>需要你回复才能继续：</b>"
+                f"{_esc(_truncate_display(operator_question, 400))}"
+            )
         return "\n".join(lines)
 
     def _append_progress_locked(self, event: dict[str, Any]) -> None:
