@@ -58,8 +58,13 @@ dev = [
   # tests/team/test_result_provenance.py + tests/team/test_teammate_entry.py +
   # tests/test_eval_signing.py exercise the signing path directly, so `dev`
   # needs it too — otherwise `pip install -e ".[dev]" && pytest -q` (the
-  # README's documented test setup) fails those 10 tests on a clean checkout.
+  # README's documented test setup) fails those tests on a clean checkout.
   "cryptography>=41",
+  # tests/planner/test_planner.py::test_planner_schema_accepts_dag_and_flat_tasks
+  # validates the planner's structured-output JSON schema directly. Not used
+  # anywhere in argus_skill/ runtime code — test-only, so it belongs here
+  # rather than as its own installable extra.
+  "jsonschema>=4",
 ]
 
 [project.scripts]

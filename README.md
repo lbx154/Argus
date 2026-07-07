@@ -139,13 +139,24 @@ miss 的能力由 distiller 在线蒸馏（复用 engineer backend，不是独�
 
 ### 1. 前置依赖
 
-**Python ≥ 3.11** + **Codex CLI**（OpenAI 官方非交互推理 CLI）：
+**Python ≥ 3.11** + 一个受支持的 agent CLI 后端（三选一，装哪个由
+`ARGUS_SKILL_RUNNER_BACKEND` 决定，见下）：
+
+| 后端 | 值 | 安装 | 认证 |
+|---|---|---|---|
+| **Copilot**（当前团队默认） | `copilot` | `npm install -g @github/copilot`（需 Node.js ≥ 22） | 首次运行 `copilot` 走一次交互式设备授权（用你的 GitHub Copilot 订阅，无需单独配置 API key） |
+| Codex | `codex`（省略此变量时的历史默认） | `npm install -g @openai/codex` | `codex --version` 验证；API key 走 `docs/API_CONFIG.md` 的 vault 配置 |
+| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 首次运行 `claude` 走一次交互式登录 |
 
 ```bash
-npm install -g @openai/codex
-codex --version   # 验证可用
+export ARGUS_SKILL_RUNNER_BACKEND=copilot   # 三个都装了也没关系，这个开关决定用哪个
+copilot --version   # 验证可用
 ```
 
+> 后端和模型不需要提前想好——装好 CLI 之后，在 cockpit 里直接说"换成 copilot 后端"
+> 或"把模型换成 claude-sonnet-5"就行，不用改配置文件。三个后端的细节（premium
+> request 计费、per-role 独立配置等）见 `docs/API_CONFIG.md`。
+>
 > `codex_autoloop` 监督循环已 **vendored** 在本仓库（`argus_skill/agent_cli/`），无需单独安装 ArgusBot。
 
 ### 2. 安装
@@ -156,6 +167,9 @@ cd argus-skill
 python -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
+
+> 装好之后 `argus` 和 `argus-skill` 是同一个命令（`argus` 是简写别名），本文档下面
+> 统一用 `argus-skill`，两个可以互换。
 
 ### 3. 初始配置（交互式向导）
 
@@ -307,8 +321,9 @@ loginctl enable-linger $USER   # 登出/重启后仍存活 = 真 7×24
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `ARGUS_SKILL_LIFE_BACKEND` | 后端：`codex`（生产） / `memory`（测试） | `codex` |
-| `ARGUS_SKILL_RUNNER_BIN` | codex CLI 路径 | `$PATH` |
+| `ARGUS_SKILL_LIFE_BACKEND` | 真实 agent 循环（`codex`，命名沿用历史上第一个支持的 CLI，实际会走 `RUNNER_BACKEND` 选的那个） vs 确定性测试替身（`memory`） | `codex` |
+| `ARGUS_SKILL_RUNNER_BACKEND` | 实际驱动哪个 CLI：`codex` / `claude` / `copilot`（也可以直接在 cockpit 里说"换成 xx 后端"，无需改环境变量重启） | `codex` |
+| `ARGUS_SKILL_RUNNER_BIN` | 对应 CLI 可执行文件的路径 | `$PATH` |
 | `ARGUS_SKILL_PER_MISSION_CAP_USD` | 单任务预算上限 | `30` |
 | `ARGUS_SKILL_DAILY_CAP_USD` | 每日预算上限 | `180` |
 | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | Telegram bot token | — |

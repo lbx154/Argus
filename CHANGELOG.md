@@ -7,6 +7,70 @@ the project adheres to semantic versioning once it leaves 0.x.
 ## [Unreleased]
 
 ### Added
+- **Zero-config "who's driving right now" status.** The always-visible
+  per-turn prompt status line (previously backend/model only) now also
+  appends which of the four roles (Manager/Planner/Engineer/Reviewer) is
+  currently active — `cli/roles_status.format_prompt_activity_suffix`,
+  reusing the same `role_activity()` source and `●`/colour convention as
+  `/roles` and the live cockpit panel. This is the one status question a
+  single-agent tool (Codex CLI, Claude Code) structurally never needs to
+  answer, since it only ever has one actor; previously it was only visible
+  behind the undiscovered `ARGUS_SKILL_COCKPIT_LIVE=1` opt-in or by manually
+  typing `/roles`.
+- **`/status` lists every unanswered reviewer question, durably.** A
+  reviewer's `operator_question` (reviewer_schema.json) used to live only in
+  the current REPL/TUI process's in-memory `chat_state` — invisible after a
+  restart, and only the single most recent one if several missions blocked
+  at once. `BacklogItem` gained a persisted `pending_question` field
+  (`life/supervisor/_core.py` writes it whenever a mission's terminal
+  status is `"blocked"` with a non-empty question — covering headless 7×24
+  daemon runs, not just REPL-attached ones); `/status` now leads with a
+  "questions: N awaiting your answer" section before the backlog listing
+  every one, and `enqueue_mission` clears the original item's flag once the
+  operator's reply is folded into a follow-up item.
+- **Telegram now surfaces a blocked mission's question, not just its
+  verdict.** `round.review.completed` already carried `operator_question` in
+  its payload, but `TelegramStreamReporter._format_review_card_locked` only
+  ever rendered `reason`/`next_action`, silently dropping it — meaning a
+  headless 7×24 daemon that hit a mission blocked waiting on the operator
+  sent no signal anywhere that it needed a human. The card now appends a
+  distinct `❓ 需要你回复才能继续：` line whenever the field is non-empty.
+
+### Fixed
+- **Manager's SELF replies are grounded in recent history even when nothing
+  is running.** `_live_mission_status_block` gave the Manager real
+  visibility into a mission the daemon is running *right now*, but returned
+  `""` the instant nothing was `running` — so "what just happened?" asked
+  right after a mission finished (or blocked) had zero grounding. It now
+  falls back to the most recent event derived from `EventJournal`
+  (`events.jsonl` — the real, always-populated journal; the legacy `Journal`
+  write API over a separate `journal.jsonl` is retired and always empty in
+  production) so the Manager still has something concrete to reason from,
+  or verify itself, before answering.
+- **`pip install -e ".[dev]" && pytest -q` (the README's documented test
+  setup) no longer fails 13 tests on a clean checkout.** `cryptography` and
+  `jsonschema` were exercised directly by `tests/team/test_result_
+  provenance.py`, `tests/team/test_teammate_entry.py`, `tests/
+  test_eval_signing.py`, and `tests/planner/test_planner.py` but were never
+  listed as `dev` dependencies. Added both; also added a new, separately
+  installable `argus-skill[signing]` extra for the Ed25519 result-
+  provenance feature itself (inert by default, off the base dependency
+  list).
+
+### Removed
+- **4 tests asserting engineer-prompt content deleted by `7d20af7`**
+  ("refactor(prompts): simplify role context and restore scientist
+  skills") — confirmed via full-source grep that none of the asserted
+  strings (`"Pipeline stage is Manager-owned"`, `"## Long-horizon paper
+  execution contract"`, `"## SETUP STAGE — action control (HARD
+  OVERRIDE)"`) remain anywhere in `argus_skill/`. Root-caused all 26
+  pre-existing failing tests in the suite before removing anything;
+  the other 22 were either a missing optional dependency (see above,
+  now fixed) or a small stale-assertion fix with the underlying behavior
+  still exercised elsewhere (left as-is — tracked separately, not
+  "outdated").
+
+### Added
 - **Daemon-resident Curator owns the teammate pool (replaces the detached coordinator).**
   `team/curator.py` is a managed thread in the daemon that keeps N teammates in
   flight, owns each as a retained `Popen` handle, and is the single reaper
