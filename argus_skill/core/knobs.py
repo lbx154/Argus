@@ -57,6 +57,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_TEAMMATE_RESULT_FILE", "(unset)", "path the mission writes {metric,mechanism} to → the leaderboard shard", "team"),
     Knob("ARGUS_LEADERBOARD_LOWER_IS_BETTER", "off (higher-is-better)", "global leaderboard direction; a task's lower_is_better overrides it per target", "team"),
     # --- models ---
+    Knob("ARGUS_SKILL_MODEL", "gpt-5.5", "shared default model for roles without a role-specific model", "models"),
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.5", "model for the L1 engineer", "models"),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.5", "model for the L2 reviewer", "models"),
     Knob("ARGUS_SKILL_PLAN_MODEL", "gpt-5.5", "model for the L4 planner", "models"),
@@ -111,3 +112,29 @@ def format_config_help(env: Mapping[str, str] | None = None) -> str:
         out.append(f"  {k.name}  (default: {k.default})  {cur_str}")
         out.append(f"      {k.doc}")
     return "\n".join(out) + "\n"
+
+
+def resolve_role_model(
+    route: str,
+    *,
+    role_env: str = "",
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve a role model using Argus's runtime model precedence.
+
+    Precedence is role-specific override -> ``ARGUS_SKILL_MODEL`` -> route
+    default. The Manager's free-text model switch writes the shared default, so
+    every execution path should use this helper rather than reading the vault
+    directly.
+    """
+    env_map = env if env is not None else os.environ
+    if role_env:
+        explicit = str(env_map.get(role_env, "") or "").strip()
+        if explicit:
+            return explicit
+    shared = str(env_map.get("ARGUS_SKILL_MODEL", "") or "").strip()
+    if shared:
+        return shared
+    from ..tools.capability_vault import resolve_route_model
+
+    return resolve_route_model(route, env_map)

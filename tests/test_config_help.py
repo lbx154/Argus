@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from argus_skill.core.knobs import KNOBS, format_config_help
+from argus_skill.core.knobs import KNOBS, format_config_help, resolve_role_model
 
 
 def test_registry_is_well_formed() -> None:
@@ -23,6 +23,7 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     names = {k.name for k in KNOBS}
     for must in (
         "ARGUS_SKILL_LIFE_BACKEND",
+        "ARGUS_SKILL_MODEL",
         "ARGUS_SKILL_PER_MISSION_CAP_USD",
         "ARGUS_SKILL_DAILY_CAP_USD",
         "ARGUS_SKILL_MAX_ROUNDS",
@@ -63,6 +64,31 @@ def test_format_shows_default_when_unset() -> None:
 def test_format_shows_current_value_when_set() -> None:
     out = format_config_help(env={"ARGUS_SKILL_PER_MISSION_CAP_USD": "50"})
     assert "= 50" in out  # current effective value surfaced
+
+
+def test_shared_model_default_feeds_role_model_resolution() -> None:
+    env = {"ARGUS_SKILL_MODEL": "claude-sonnet-5"}
+
+    assert (
+        resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env=env)
+        == "claude-sonnet-5"
+    )
+    assert (
+        resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL", env=env)
+        == "claude-sonnet-5"
+    )
+
+
+def test_role_model_override_beats_shared_default() -> None:
+    env = {
+        "ARGUS_SKILL_MODEL": "claude-sonnet-5",
+        "ARGUS_SKILL_ENGINEER_MODEL": "gpt-5.4-mini",
+    }
+
+    assert (
+        resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env=env)
+        == "gpt-5.4-mini"
+    )
 
 
 def test_cli_config_help_exits_zero_and_prints_knobs() -> None:

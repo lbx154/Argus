@@ -49,12 +49,12 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
                      stop_event=None) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
     from argus_skill.core import paths as core_paths
-    from argus_skill.tools.capability_vault import resolve_route_model
+    from argus_skill.core.knobs import resolve_role_model
 
     ns = argparse.Namespace()
     ns.backend = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model("engineer")
-    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or resolve_route_model("reviewer")
+    ns.engineer_model = resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL")
+    ns.reviewer_model = resolve_role_model("reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL")
     ns.engineer_reasoning_effort = os.environ.get("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh")
     ns.reviewer_reasoning_effort = os.environ.get("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", str(core_paths.skills_global_root()))

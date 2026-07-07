@@ -372,8 +372,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"argus-skill: {entry_error}\n")
             return 2
 
+    from ...core.knobs import resolve_role_model
     from ...manager.repl import run_manager_repl
-    from ...tools.capability_vault import resolve_route_model
 
     # Session resolution: a bare `argus-skill` opens a FRESH session; --resume /
     # --continue reuse a previous one. The resolved id keys the project/daemon.
@@ -384,9 +384,14 @@ def main(argv: list[str] | None = None) -> int:
         life_dir=args.life_dir,
         color=None,
         backend=backend_default,
-        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
-        or resolve_route_model("engineer"),
-        reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
+        engineer_model=resolve_role_model(
+            "engineer",
+            role_env="ARGUS_SKILL_ENGINEER_MODEL",
+        ),
+        reviewer_model=resolve_role_model(
+            "reviewer",
+            role_env="ARGUS_SKILL_REVIEWER_MODEL",
+        ),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
         ),
@@ -427,7 +432,7 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
-    from ...tools.capability_vault import resolve_route_model
+    from ...core.knobs import resolve_role_model
 
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
@@ -436,10 +441,14 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         project_fingerprint=bundle.project.fingerprint,
         project_label=bundle.project.label,
         backend=backend,
-        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
-        or resolve_route_model("engineer"),
-        reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
-        or resolve_route_model("reviewer"),
+        engineer_model=resolve_role_model(
+            "engineer",
+            role_env="ARGUS_SKILL_ENGINEER_MODEL",
+        ),
+        reviewer_model=resolve_role_model(
+            "reviewer",
+            role_env="ARGUS_SKILL_REVIEWER_MODEL",
+        ),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
         ),
