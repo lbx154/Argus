@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pytest
 from unittest.mock import patch
 
 from argus_skill.life import MemoryBundle
@@ -362,3 +363,180 @@ def test_free_text_cmd_end_to_end_auto_promotes_standing_task(tmp_path, capsys, 
     assert continuous["objective"] == body
     # BOUNDED path untouched: no backlog item was created for this objective.
     assert mem.backlog.all() == []
+
+
+# ---- follow-panel animation: no dead/frozen window while observing ---------
+
+def test_follow_mission_live_roles_animates_spinner(tmp_path, capsys):
+    """The live four-role panel must visibly ANIMATE while it waits for the
+    daemon's first event — otherwise the pre-first-event window looks frozen
+    ("无动画空窗期 / 卡住"). Assert several DISTINCT braille frames are drawn
+    over a short observe window that never sees a completion event."""
+    from argus_skill.cli.live_status import FRAMES
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    # No events.jsonl completion → the loop just refreshes until it times out.
+    final = follow_mission_live_roles(
+        tmp_path, item_id="nope", theme=None, timeout=0.5,
+    )
+    assert final is None  # timed out without a completion, daemon keeps running
+
+    out = capsys.readouterr().out
+    # At least two DIFFERENT spinner frames must have been drawn (proves the
+    # header spinner advanced across refreshes instead of a static panel).
+    frames_seen = {ch for ch in FRAMES if ch in out}
+    assert len(frames_seen) >= 2, f"spinner did not animate; frames seen={frames_seen!r}"
+
+def test_with_manager_spinner_runs_fn_exactly_once():
+    """The TEAM-handoff spinner helper wraps a blocking model call
+    (``Manager.divide`` / daemon auto-spawn). It MUST run ``fn`` exactly once
+    (a naive try/except spinner would re-run ``fn`` on error — a double model
+    call) and return its value. theme=None → animation is a no-op, logic same."""
+    from argus_skill.manager.repl import _with_manager_spinner
+
+    calls = []
+
+    def _fn():
+        calls.append(1)
+        return "vertical:research"
+
+    result = _with_manager_spinner(None, "Manager choosing the vertical…", _fn)
+    assert result == "vertical:research"
+    assert calls == [1]  # exactly once — never re-invoked
+
+
+def test_with_manager_spinner_propagates_fn_error_without_rerun():
+    """An exception raised by ``fn`` must propagate unchanged and ``fn`` must
+    NOT be retried (guards the double-execution bug: a blocking model call
+    running twice on failure)."""
+    from argus_skill.manager.repl import _with_manager_spinner
+
+    calls = []
+
+    def _boom():
+        calls.append(1)
+        raise RuntimeError("vertical decision failed")
+
+    with pytest.raises(RuntimeError, match="vertical decision failed"):
+        _with_manager_spinner(None, "Manager choosing the vertical…", _boom)
+    assert calls == [1]  # ran once, not retried by the spinner wrapper
+
+def test_tail_wait_spinner_animates_and_reflects_real_activity():
+    """The passive event tail is the DEFAULT follow path; without an indicator
+    its idle gaps are a frozen blinking cursor ("只有光标闪烁没有内容"). The
+    spinner must paint a braille glyph and a role-appropriate -ing verb driven
+    by the REAL current role (set_activity), rotating that role's own
+    vocabulary — and it must NOT echo the raw log line."""
+    import io
+    from argus_skill.manager.repl import (
+        _TailWaitSpinner, _TAIL_ROLE_VERBS, _TAIL_WAIT_VERBS,
+    )
+    from argus_skill.cli.live_status import FRAMES
+
+    buf = io.StringIO()
+    spin = _TailWaitSpinner(theme=None, stream=buf, enabled=True)
+
+    # Before any event: rotates a "waiting for the daemon" phrase.
+    spin.tick()
+    assert any(v[:6] in buf.getvalue().lower() for v in _TAIL_WAIT_VERBS)
+
+    # Once a real engineer action is known, the label shows the Engineer role +
+    # one of ITS verbs — and never the passed-in log note.
+    buf.truncate(0); buf.seek(0)
+    spin.set_activity("engineer", "running the baseline check")
+    spin.tick()
+    out = buf.getvalue()
+    assert any(f in out for f in FRAMES), "no braille frame painted"
+    assert "Engineer" in out
+    assert any(v in out for v in _TAIL_ROLE_VERBS["engineer"]), "no engineer verb"
+    assert "running the baseline check" not in out, "must not echo the log note"
+    assert "\x1b[2K" in out, "spinner did not use an in-place erase"
+
+    # A different role rotates its OWN vocabulary.
+    buf.truncate(0); buf.seek(0)
+    spin.set_activity("reviewer")
+    spin.tick()
+    rout = buf.getvalue()
+    assert "Reviewer" in rout
+    assert any(v in rout for v in _TAIL_ROLE_VERBS["reviewer"]), "no reviewer verb"
+
+    buf.truncate(0); buf.seek(0)
+    spin.clear()
+    assert "\x1b[2K" in buf.getvalue(), "clear() did not erase the status line"
+
+
+def test_tail_wait_spinner_is_noop_when_disabled():
+    """No-op on non-TTY / piped / NO_COLOR: writes NOTHING, so the scrolling
+    tail's captured (piped) output stays byte-for-byte unchanged."""
+    import io
+    from argus_skill.manager.repl import _TailWaitSpinner
+
+    buf = io.StringIO()
+    spin = _TailWaitSpinner(theme=None, stream=buf, enabled=False)
+    spin.tick()
+    spin.tick()
+    spin.clear()
+    assert buf.getvalue() == "", "disabled spinner must not write anything"
+
+def test_tail_printer_collapses_streamed_message_fragments():
+    """Copilot forwards a streamed agent message as several ``replace``+
+    ``message_id`` beats (growing prefixes, then a duplicate final copy). The
+    tail must show ONE clean line per message — not the fragmented + duplicated
+    '💭' spam the operator reported."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+    from argus_skill.apps.cli._follow import _format_follow_event
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "engineer",
+            "replace": True, "message_id": mid,
+        }
+
+    events = [
+        ev("The report reused the same", "m1"),
+        ev("The report reused the same bash fixture approach", "m1"),
+        ev("The report reused the same bash fixture approach — insufficient.", "m1"),
+        ev("The report reused the same bash fixture approach — insufficient.", "m1"),  # dup final
+        {"type": "engineer.progress", "kind": "command_execution",
+         "text": "ls", "action_summary": "ls -la", "agent_layer": "engineer"},
+        ev("I'll start by checking the baseline.", "m2"),
+        ev("I'll start by checking the baseline.", "m2"),  # short: delta==final dup
+    ]
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)  # non-TTY: no spinner
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        for e in events:
+            printer.feed(e, _format_follow_event(e, "engineer", theme=None))
+        printer.flush()
+
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 3, f"expected 3 coalesced lines, got {lines!r}"
+    # The m1 message shows once, only its FINAL (longest) form, before the tool.
+    assert lines[0].endswith("insufficient.")
+    assert "▸ ls -la" in lines[1]
+    assert lines[2].endswith("I'll start by checking the baseline.")
+    # No fragment / duplicate leaked through.
+    assert sink.getvalue().count("checking the baseline") == 1
+
+
+def test_tail_printer_prints_complete_lines_immediately():
+    """A line WITHOUT ``replace`` (codex/claude complete beats, tool/mission
+    events) must print immediately and unchanged — the coalescer only holds
+    streamed ``replace`` messages."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 hello")
+        printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 world")
+    # Both printed right away (nothing held back), in order.
+    assert sink.getvalue() == "  [Engineer] 💭 hello\n  [Engineer] 💭 world\n"
