@@ -796,6 +796,35 @@ _ROLE_ALIASES: dict[str, tuple[str, ...]] = {
 _EFFORT_VALUES = ("xhigh", "max", "high", "medium", "low")
 
 
+def _print_role_config_confirmation(
+    theme: Any, roles: list[str] | None = None
+) -> None:
+    """Print a compact ``now: role backend/model`` line right after a
+    backend/model/effort switch.
+
+    Without this, `_maybe_handle_backend_switch_text` /
+    `_maybe_handle_model_switch_text` / `_maybe_handle_role_effort_text`
+    only printed a plain-English sentence describing the change — the
+    operator had to separately run `/roles` to actually SEE the new value
+    took effect, and "it says it changed but the display still shows the
+    old model" was exactly the confusion this caused live. Re-resolves from
+    the just-updated env (same source `/roles` reads), so it can never show
+    something other than what `/roles` would.
+    """
+    from ..cli.roles_status import resolve_all_roles
+
+    names = roles or list(_ROLE_MODEL_ENVS)  # unspecified => all 4 resident roles
+    try:
+        cfgs = resolve_all_roles(names)
+    except Exception:  # noqa: BLE001 — this is a confirmation nicety, never fatal
+        return
+    parts = [f"{c.role} {c.backend_label}/{c.model}" for c in cfgs]
+    if not parts:
+        return
+    line = "now: " + "  ·  ".join(parts)
+    print(theme.gray("  " + line) if theme is not None else line, flush=True)
+
+
 def _live_cockpit_enabled() -> bool:
     return os.environ.get("ARGUS_SKILL_COCKPIT_LIVE", "0").strip() == "1"
 
@@ -852,6 +881,7 @@ def _maybe_handle_role_effort_text(
     role_names = " / ".join(role.title() for role in roles)
     line = f"Set {role_names} default reasoning effort to {effort}."
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+    _print_role_config_confirmation(theme, roles)
 
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -956,6 +986,7 @@ def _maybe_handle_backend_switch_text(
     chat_state.pop("manager_runner", None)
 
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+    _print_role_config_confirmation(theme, roles or None)
 
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -1081,6 +1112,7 @@ def _maybe_handle_model_switch_text(
     chat_state.pop("manager_runner", None)
 
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+    _print_role_config_confirmation(theme, roles or None)
 
     try:
         from ..daemon.life_worker import read_daemon_status

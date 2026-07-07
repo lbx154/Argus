@@ -1235,6 +1235,25 @@ def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
     assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
 
 
+def test_backend_switch_role_specific_confirmation_only_shows_that_role(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "把 reviewer 换成 claude",
+        chat_state=chat_state,
+    )
+
+    out = capsys.readouterr().out
+    now_line = out.split("now:")[-1]
+    assert "reviewer" in now_line
+    assert "Claude Code" in now_line
+    assert "manager" not in now_line
+    assert "engineer" not in now_line
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -1264,6 +1283,32 @@ def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None
     assert "manager_runner" not in chat_state
     assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
     assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_model_switch_prints_immediate_confirmation_of_new_value(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: switching the model used to only print a sentence
+    describing the change ("Set Argus default model to X…") — the operator
+    had no way to tell it actually took without separately running /roles,
+    and live observed exactly this: "it says it changed but /roles-equivalent
+    display still shows gpt-5.5". The switch must also print the freshly
+    resolved value right there."""
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner"):
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成 claude-sonnet-5",
+            chat_state=chat_state,
+        )
+
+    out = capsys.readouterr().out
+    assert "now:" in out
+    assert "claude-sonnet-5" in out.split("now:")[-1]
+    # All four resident roles follow the shared default (none pinned).
+    for role in ("manager", "planner", "engineer", "reviewer"):
+        assert role in out.split("now:")[-1]
 
 
 def test_free_text_model_switch_role_specific_prefers_longest_alias(mem: LifeMemory) -> None:
