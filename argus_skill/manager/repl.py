@@ -55,6 +55,7 @@ from ..apps._life_actions import (
 from ..apps._runtime import (
     _codex_preflight_warning,
     _CommonMemory,
+    _env_flag,
     _format_daemon_mode_cell,
     _invoke_supervisor,
     _memory_global_root,  # noqa: F401 — kept for parity with the old module surface
@@ -479,8 +480,9 @@ def tail_mission_events(
     current_mission: dict[str, str] = {"item_id": str(item_id), "title": "", "objective": ""}
     last_review: dict[str, Any] | None = None
     # An -ing status line animates during the idle gaps so the wait never looks
-    # like a frozen blinking cursor (this passive tail is the DEFAULT follow
-    # path; the live panel is opt-in via ARGUS_SKILL_FOLLOW_LIVE=1).
+    # like a frozen blinking cursor (this passive tail is the fallback path for
+    # non-TTY/piped output or ARGUS_SKILL_FOLLOW_LIVE=0; the live role panel is
+    # the default when attached to a real terminal).
     spinner = _TailWaitSpinner(theme)
     printer = _TailPrinter(spinner)
     # We read from the start of the log and rely on the ``item_id`` filter to
@@ -748,8 +750,8 @@ def read_message_with_live_cockpit(
     input path — CJK-safe. Degrades to a plain prompt on any of: not a TTY, no
     ``termios``, ``ARGUS_SKILL_COCKPIT_LIVE=0``, no life-dir, no live daemon, a
     too-short terminal, or any unexpected error (the core input path is never
-    put at risk). The cursor-rewrite cockpit is opt-in via
-    ``ARGUS_SKILL_COCKPIT_LIVE=1``; the default is the plain prompt."""
+    put at risk). The cursor-rewrite cockpit is ON by default; set
+    ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back out to the plain prompt."""
     from ..apps._input_helpers import read_pasted_message
     if not _live_cockpit_enabled():
         return read_pasted_message(prompt)
@@ -1133,11 +1135,18 @@ def _print_role_config_confirmation(
 
 
 def _live_cockpit_enabled() -> bool:
-    return os.environ.get("ARGUS_SKILL_COCKPIT_LIVE", "0").strip() == "1"
+    """Default ON: the four-role panel is the default idle-prompt experience.
+    Set ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back out to the plain prompt
+    (e.g. for scripting/logging where a redrawing panel is unwanted)."""
+    return _env_flag("ARGUS_SKILL_COCKPIT_LIVE", True)
 
 
 def _live_follow_enabled() -> bool:
-    return os.environ.get("ARGUS_SKILL_FOLLOW_LIVE", "0").strip() == "1"
+    """Default ON: watching a mission run shows the live four-role panel.
+    Set ``ARGUS_SKILL_FOLLOW_LIVE=0`` to opt back out to the plain scrolling
+    event tail (e.g. for scripting/logging where a redrawing panel is
+    unwanted)."""
+    return _env_flag("ARGUS_SKILL_FOLLOW_LIVE", True)
 
 
 def _maybe_handle_role_effort_text(
@@ -3178,11 +3187,12 @@ def _render_help(theme) -> str:  # noqa: ANN001
         out.append("")
 
     out.append(theme.gray(
-        "Persistent live role panel (see it without typing /roles): "
-        "ARGUS_SKILL_COCKPIT_LIVE=1"
+        "Persistent live role panel is ON by default; set "
+        "ARGUS_SKILL_COCKPIT_LIVE=0 to opt back out"
     ))
     out.append(theme.gray(
-        "Live-follow view while a task is running: ARGUS_SKILL_FOLLOW_LIVE=1"
+        "Live-follow view while a task is running is ON by default; set "
+        "ARGUS_SKILL_FOLLOW_LIVE=0 to opt back out"
     ))
     out.append("")
     out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
@@ -3558,21 +3568,44 @@ def _run_manager_repl_locked(
                 status = format_prompt_status_line(theme, life_dir=_prompt_life_dir)
             except Exception:  # noqa: BLE001
                 status = ""
-        # Redraw trick (no alternate screen buffer — same technique this
-        # session confirmed Codex CLI / Claude Code both use, by capturing
-        # each live in a pty): print the hint line one row below "╰─ ", then
-        # jump the cursor back up to right after "╰─ " (3 display columns:
-        # "╰", "─", " ") so the operator sees the hint before typing anything,
-        # and editing still happens at the right spot. cursor_up_and_forward
-        # is a no-op when theme is disabled (NO_COLOR / non-TTY / piped
-        # stdin), so scripted/piped input never sees raw escape codes.
-        prompt = (
+        box = (
             theme.cyan("╭─ ") + base_prompt
             + (resume_marker if chat_state.get("last_thread_id") else "")
             + "\n" + theme.cyan("╰─ ")
-            + "\n" + _bottom_hint_line(theme, status)
-            + theme.cursor_up_and_forward(1, 3)
         )
+        # BUG FIX: the previous version folded the hint-line-below-the-input
+        # redraw trick INTO the single string handed to input()/readline —
+        # box + "\n" + hint + cursor_up_and_forward, all as one "prompt".
+        # That put a cursor-repositioning escape code AFTER the last literal
+        # "\n" in what readline itself parses as the prompt, so readline's
+        # own row/column bookkeeping (which counts embedded newlines to learn
+        # where editing starts) and the ACTUAL cursor position (moved by the
+        # escape code to a totally different row) permanently disagreed.
+        # Simple pasted single words never triggered readline's own internal
+        # redraw path in testing, so a pty+pyte capture looked perfect; a
+        # real operator's session (confirmed live) hit whatever redraw
+        # readline does trigger and the prompt visually corrupted — the
+        # "╰─ " row vanished and the hint line's text got typed into.
+        # Fix: print the box + hint + cursor-jump OURSELVES first (skipped
+        # for the rarer opt-in live-cockpit panel, which owns this region
+        # itself), then hand input() a prompt with NOTHING after the cursor
+        # is already sitting in the right spot — no embedded newline for
+        # readline to recount, so its bookkeeping can't disagree with reality.
+        live_cockpit = _live_cockpit_enabled()
+        if live_cockpit:
+            prompt = (
+                box
+                + "\n" + _bottom_hint_line(theme, status)
+                + theme.cursor_up_and_forward(1, 3)
+            )
+        else:
+            sys.stdout.write(
+                box
+                + "\n" + _bottom_hint_line(theme, status)
+                + theme.cursor_up_and_forward(1, 3)
+            )
+            sys.stdout.flush()
+            prompt = ""
         try:
             raw = read_message_with_live_cockpit(prompt, mem, theme)
         except KeyboardInterrupt:
