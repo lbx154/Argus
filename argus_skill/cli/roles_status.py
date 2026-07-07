@@ -651,6 +651,33 @@ def format_roles_banner(
     return "\n".join(lines)
 
 
+def format_prompt_status_line(
+    theme: Any, *, env: Mapping[str, str] | None = None
+) -> str:
+    """One-line backend/model summary for the REPEATING input prompt.
+
+    The startup banner's ``format_roles_banner`` prints once and then scrolls
+    out of view after the very first reply — an operator several turns into a
+    conversation has no ambient way to see which engine is live without
+    separately typing ``/roles``, and a model/backend switch (see
+    ``_print_role_config_confirmation`` in ``manager/repl.py``) only proved
+    itself for that one turn. Surfacing this line in the prompt box itself
+    (drawn every turn, right where the operator is about to type) keeps it
+    persistently visible instead of a one-shot banner. Collapses to the
+    shared value when every role agrees (the common case); a short "mixed"
+    hint otherwise, since the full per-role breakdown already lives in
+    ``/roles``.
+    """
+    configs = resolve_all_roles(env=env)
+    if not configs:
+        return ""
+    keys = {(c.backend_label, c.model) for c in configs}
+    if len(keys) == 1:
+        c = configs[0]
+        return _paint(theme, "cyan", f"{c.backend_label} · {c.model}")
+    return _paint(theme, "dim", "mixed backends/models — /roles for details")
+
+
 def render_roles_snapshot(
     life_dir: Path | str, theme: Any = None, *, width: int = 80,
     header_right: str = "", env: Mapping[str, str] | None = None,

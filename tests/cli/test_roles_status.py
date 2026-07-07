@@ -291,3 +291,33 @@ def test_banner_plain_when_theme_disabled():
     from argus_skill.cli.roles_status import format_roles_banner
     out = format_roles_banner(Theme(enabled=False, width=100), env={})
     assert "\x1b[" not in out
+
+
+# ── prompt status line (repeating, drawn every REPL turn) ─────────────────
+
+def test_prompt_status_line_shows_shared_backend_and_model():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
+    assert out == "Codex · gpt-5.5"
+
+
+def test_prompt_status_line_reflects_a_switched_backend():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    env = {"ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_MODEL": "claude-sonnet-5"}
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env=env)
+    assert out == "Copilot · claude-sonnet-5"
+
+
+def test_prompt_status_line_shows_mixed_hint_when_roles_differ():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    env = {"ARGUS_SKILL_REVIEWER_BACKEND": "claude"}
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env=env)
+    assert "mixed" in out
+    assert "/roles" in out
+
+
+def test_prompt_status_line_plain_when_theme_disabled():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
+    assert "\x1b[" not in out
+

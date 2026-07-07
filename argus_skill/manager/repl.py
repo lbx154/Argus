@@ -3116,12 +3116,33 @@ def _run_manager_repl_locked(
 
     base_prompt = theme.bold(theme.cyan("argus"))
     resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
+    try:
+        from ..cli.roles_status import format_prompt_status_line
+    except Exception:  # noqa: BLE001 — prompt must never fail to build over this
+        format_prompt_status_line = None  # type: ignore[assignment]
 
     while True:
+        # Backend/model status drawn fresh every turn (not just once in the
+        # startup banner) and folded into the SAME cyan-tinted box as the
+        # input line, so a switch (see _print_role_config_confirmation)
+        # keeps showing right where the operator is about to type next,
+        # instead of scrolling out of view after the first reply.
+        status = ""
+        if format_prompt_status_line is not None:
+            try:
+                status = format_prompt_status_line(theme)
+            except Exception:  # noqa: BLE001
+                status = ""
+        if status:
+            top = theme.cyan("╭─ ") + status + "\n"
+            mid = theme.cyan("├─ ")
+        else:
+            top = ""
+            mid = theme.cyan("╭─ ")
         prompt = (
-            theme.gray("╭─ ") + base_prompt
+            top + mid + base_prompt
             + (resume_marker if chat_state.get("last_thread_id") else "")
-            + "\n" + theme.gray("╰─ ")
+            + "\n" + theme.cyan("╰─ ")
         )
         try:
             raw = read_message_with_live_cockpit(prompt, mem, theme)
