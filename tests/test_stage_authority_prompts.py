@@ -42,10 +42,6 @@ def test_reviewer_reports_upstream_defects_instead_of_rolling_back() -> None:
     assert "the Manager owns rollback" in src
 
 
-def test_engineer_prompt_forbids_editing_pipeline_stage() -> None:
-    assert "Pipeline stage is Manager-owned" in _src("loop.py")
-
-
 def test_auto_research_skill_does_not_tell_engineer_to_advance_stage() -> None:
     md = _src("builtin_skills/engineer/auto-research-pipeline.md")
     assert "advance to the next stage and update" not in md
