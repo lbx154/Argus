@@ -135,6 +135,30 @@ def test_unknown_command_suggests_closest_match() -> None:
     assert manager_repl._closest_slash_command("/zzznonsense123") is None
 
 
+def test_bottom_hint_line_right_aligns_status_on_wide_terminal() -> None:
+    from argus_skill.cli.theme import Theme
+    theme = Theme(enabled=False, width=100)
+    out = manager_repl._bottom_hint_line(theme, "Copilot · gpt-5.5")
+    assert out.startswith("  Enter send · /help commands")
+    assert out.rstrip().endswith("Copilot · gpt-5.5")
+    assert len(out) <= 100
+
+
+def test_bottom_hint_line_drops_status_on_narrow_terminal() -> None:
+    from argus_skill.cli.theme import Theme
+    theme = Theme(enabled=False, width=40)
+    out = manager_repl._bottom_hint_line(theme, "Copilot · gpt-5.5")
+    assert "Copilot" not in out
+    assert "Enter send" in out
+
+
+def test_bottom_hint_line_omits_status_when_empty() -> None:
+    from argus_skill.cli.theme import Theme
+    theme = Theme(enabled=False, width=100)
+    out = manager_repl._bottom_hint_line(theme, "")
+    assert out.strip() == "Enter send · /help commands"
+
+
 
 def test_dispatch_free_text_enqueues(tmp_path) -> None:
     from argus_skill.life.memory import LifeMemory

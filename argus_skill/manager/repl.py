@@ -150,6 +150,23 @@ def _closest_slash_command(cmd: str) -> str | None:
     return matches[0] if matches else None
 
 
+def _bottom_hint_line(theme: Any, status: str) -> str:  # noqa: ANN001
+    """Left hint + right-aligned backend/model, one row under the input —
+    the pattern this session confirmed both Codex CLI and Claude Code use
+    (captured live via a pty + pyte terminal emulator), as opposed to
+    Copilot CLI's heavier full alternate-screen approach. Right side is
+    dropped on narrow terminals rather than truncated into nonsense.
+    """
+    from ..cli.theme import visible_len
+    left = theme.dim("Enter send · /help commands")
+    if not status or theme.width < 60:
+        return "  " + left
+    pad = theme.width - visible_len(left) - visible_len(status) - 4
+    if pad < 1:
+        return "  " + left
+    return "  " + left + (" " * pad) + status
+
+
 
 # ---------------------------------------------------------------------------
 # Event-tail helpers (REPL = attach client; the daemon is the sole executor)
@@ -3121,34 +3138,57 @@ def _run_manager_repl_locked(
     except Exception:  # noqa: BLE001 — prompt must never fail to build over this
         format_prompt_status_line = None  # type: ignore[assignment]
 
+    # Known limitation (verified via pty capture, not just theorized): if the
+    # operator types enough text to WRAP the input onto a second terminal
+    # row, readline's own redraw doesn't know a hint line already occupies
+    # that row and can leave a visual fragment of it behind while they're
+    # still typing. It always self-corrects the instant they press Enter
+    # (see the post-input clear below), so this is a momentary cosmetic
+    # artifact on long single-line input in a narrow terminal, not a lasting
+    # one — fixing it fully would mean tracking wrap state on every
+    # keystroke, effectively reimplementing part of readline itself, which
+    # is out of scope for this pass.
+
     while True:
-        # Backend/model status drawn fresh every turn (not just once in the
-        # startup banner) and folded into the SAME cyan-tinted box as the
-        # input line, so a switch (see _print_role_config_confirmation)
-        # keeps showing right where the operator is about to type next,
-        # instead of scrolling out of view after the first reply.
+        # Backend/model status resolved fresh every turn (not just once in
+        # the startup banner) so a switch (see _print_role_config_confirmation)
+        # keeps showing on every subsequent turn, not just the one right
+        # after the switch.
         status = ""
         if format_prompt_status_line is not None:
             try:
                 status = format_prompt_status_line(theme)
             except Exception:  # noqa: BLE001
                 status = ""
-        if status:
-            top = theme.cyan("╭─ ") + status + "\n"
-            mid = theme.cyan("├─ ")
-        else:
-            top = ""
-            mid = theme.cyan("╭─ ")
+        # Redraw trick (no alternate screen buffer — same technique this
+        # session confirmed Codex CLI / Claude Code both use, by capturing
+        # each live in a pty): print the hint line one row below "╰─ ", then
+        # jump the cursor back up to right after "╰─ " (3 display columns:
+        # "╰", "─", " ") so the operator sees the hint before typing anything,
+        # and editing still happens at the right spot. cursor_up_and_forward
+        # is a no-op when theme is disabled (NO_COLOR / non-TTY / piped
+        # stdin), so scripted/piped input never sees raw escape codes.
         prompt = (
-            top + mid + base_prompt
+            theme.cyan("╭─ ") + base_prompt
             + (resume_marker if chat_state.get("last_thread_id") else "")
             + "\n" + theme.cyan("╰─ ")
+            + "\n" + _bottom_hint_line(theme, status)
+            + theme.cursor_up_and_forward(1, 3)
         )
         try:
             raw = read_message_with_live_cockpit(prompt, mem, theme)
         except KeyboardInterrupt:
             print()
             continue
+        if theme.enabled and sys.stdout.isatty():
+            # The operator's Enter already advanced the real terminal cursor
+            # exactly one row past wherever their typing visually ended
+            # (accounting for wrapping automatically — this is the terminal's
+            # own line-discipline echo, not something we compute), which is
+            # precisely where the now-stale hint line from _bottom_hint_line
+            # sits. Clear it in place before anything else prints.
+            sys.stdout.write("\r\x1b[2K")
+            sys.stdout.flush()
         if raw is None:
             print()
             print(theme.gray("bye."))

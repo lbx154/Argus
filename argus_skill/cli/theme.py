@@ -210,6 +210,30 @@ class Theme:
             return text
         return "".join(codes) + text + _RESET
 
+    def cursor_up_and_forward(self, up: int, forward: int) -> str:
+        """Move the cursor ``up`` rows then ``forward`` columns from column 1
+        — used to jump back to an input position after printing a status
+        line below it (Codex-CLI/Claude-Code-style redraw, confirmed by
+        capturing both live in a pty this session).
+
+        Deliberately built from ``\\x1b[<n>A`` / ``\\x1b[<n>C`` (bracketed CSI
+        forms) rather than DEC save/restore-cursor (bare ``ESC 7`` / ``ESC
+        8``): ``apps/_input_helpers._ANSI_RE`` — which wraps escape codes in
+        readline's zero-width markers so its cursor math stays correct while
+        typing — only matches ``\\x1b[...`` sequences. ``ESC 7`` slips past
+        that regex un-marked and corrupts readline's line-start bookkeeping
+        (confirmed live: the prompt prefix visually vanished the instant a
+        keystroke was echoed). No-op when theme is disabled (piped/non-TTY
+        output), so scripted stdin never sees raw escapes.
+        """
+        if not self.enabled:
+            return ""
+        parts = [f"\x1b[{up}A"] if up else []
+        parts.append("\r")
+        if forward:
+            parts.append(f"\x1b[{forward}C")
+        return "".join(parts)
+
     def _sgr(self, name: str) -> str:
         """Foreground SGR for a semantic colour name — 24-bit when the terminal
         supports it (Catppuccin Mocha), else the 8-colour fallback."""
