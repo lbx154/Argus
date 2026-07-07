@@ -3137,6 +3137,14 @@ def _run_manager_repl_locked(
         from ..cli.roles_status import format_prompt_status_line
     except Exception:  # noqa: BLE001 — prompt must never fail to build over this
         format_prompt_status_line = None  # type: ignore[assignment]
+    # Resolved once (cheap attribute lookups, no I/O) so every turn's status
+    # line can also show WHICH of the four roles is active right now — see
+    # ``format_prompt_activity_suffix``. ``None`` (fail-soft) just reproduces
+    # the prior backend/model-only line.
+    try:
+        _prompt_life_dir = _life_dir_for(mem)
+    except Exception:  # noqa: BLE001
+        _prompt_life_dir = None
 
     # Known limitation (verified via pty capture, not just theorized): if the
     # operator types enough text to WRAP the input onto a second terminal
@@ -3157,7 +3165,7 @@ def _run_manager_repl_locked(
         status = ""
         if format_prompt_status_line is not None:
             try:
-                status = format_prompt_status_line(theme)
+                status = format_prompt_status_line(theme, life_dir=_prompt_life_dir)
             except Exception:  # noqa: BLE001
                 status = ""
         # Redraw trick (no alternate screen buffer — same technique this
