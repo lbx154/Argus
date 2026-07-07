@@ -459,3 +459,66 @@ def test_tail_wait_spinner_is_noop_when_disabled():
     spin.tick()
     spin.clear()
     assert buf.getvalue() == "", "disabled spinner must not write anything"
+
+def test_tail_printer_collapses_streamed_message_fragments():
+    """Copilot forwards a streamed agent message as several ``replace``+
+    ``message_id`` beats (growing prefixes, then a duplicate final copy). The
+    tail must show ONE clean line per message — not the fragmented + duplicated
+    '💭' spam the operator reported."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+    from argus_skill.apps.cli._follow import _format_follow_event
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "engineer",
+            "replace": True, "message_id": mid,
+        }
+
+    events = [
+        ev("The report reused the same", "m1"),
+        ev("The report reused the same bash fixture approach", "m1"),
+        ev("The report reused the same bash fixture approach — insufficient.", "m1"),
+        ev("The report reused the same bash fixture approach — insufficient.", "m1"),  # dup final
+        {"type": "engineer.progress", "kind": "command_execution",
+         "text": "ls", "action_summary": "ls -la", "agent_layer": "engineer"},
+        ev("I'll start by checking the baseline.", "m2"),
+        ev("I'll start by checking the baseline.", "m2"),  # short: delta==final dup
+    ]
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)  # non-TTY: no spinner
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        for e in events:
+            printer.feed(e, _format_follow_event(e, "engineer", theme=None))
+        printer.flush()
+
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 3, f"expected 3 coalesced lines, got {lines!r}"
+    # The m1 message shows once, only its FINAL (longest) form, before the tool.
+    assert lines[0].endswith("insufficient.")
+    assert "▸ ls -la" in lines[1]
+    assert lines[2].endswith("I'll start by checking the baseline.")
+    # No fragment / duplicate leaked through.
+    assert sink.getvalue().count("checking the baseline") == 1
+
+
+def test_tail_printer_prints_complete_lines_immediately():
+    """A line WITHOUT ``replace`` (codex/claude complete beats, tool/mission
+    events) must print immediately and unchanged — the coalescer only holds
+    streamed ``replace`` messages."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 hello")
+        printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 world")
+    # Both printed right away (nothing held back), in order.
+    assert sink.getvalue() == "  [Engineer] 💭 hello\n  [Engineer] 💭 world\n"

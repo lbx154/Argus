@@ -286,6 +286,69 @@ class _TailWaitSpinner:
         self._painted = False
 
 
+class _TailPrinter:
+    """Prints tail event lines, collapsing copilot-style streamed messages.
+
+    The stream adapter (``adapters/stream_progress``) forwards copilot's
+    incremental ``assistant.message_delta`` beats as ``engineer.progress``
+    agent_message events that share a ``message_id`` and carry ``replace=True``
+    — each an ever-growing prefix of the same message, then a final full copy
+    (and a short message arrives as one delta PLUS the final = two identical
+    copies). A naive tail prints every one, producing the duplicated +
+    fragmented '💭' lines the operator sees.
+
+    This coalesces them: a ``replace``+``message_id`` line is held (only the
+    latest — i.e. longest — kept) and committed exactly once, when a different
+    message starts, a non-``replace`` line arrives, the stream goes idle, or
+    the tail exits. Lines without ``replace`` (codex/claude complete beats,
+    tool/command/mission events) print immediately, unchanged. It also owns the
+    idle spinner so a committed line always erases the spinner first.
+    """
+
+    def __init__(self, spinner: "_TailWaitSpinner") -> None:
+        self._spinner = spinner
+        self._pending_mid: str | None = None
+        self._pending_line: str | None = None
+
+    def _raw_print(self, line: str) -> None:
+        self._spinner.clear()
+        print(line, flush=True)
+
+    def _commit_pending(self) -> None:
+        if self._pending_line is not None:
+            self._raw_print(self._pending_line)
+        self._pending_mid = None
+        self._pending_line = None
+
+    def feed(self, event: dict[str, Any], rendered: str | None) -> None:
+        """Handle one rendered event line (``None`` = nothing to show)."""
+        if rendered is None:
+            return
+        mid = str(event.get("message_id") or "")
+        if bool(event.get("replace")) and mid:
+            # A streamed chunk: start-of-new-message flushes the previous one,
+            # then we keep only the newest text for this id (drop the fragments
+            # and the duplicate final copy).
+            if self._pending_mid is not None and mid != self._pending_mid:
+                self._commit_pending()
+            self._pending_mid = mid
+            self._pending_line = rendered
+            return
+        # A complete line: commit any in-flight streamed message first so
+        # ordering is preserved, then print this one.
+        self._commit_pending()
+        self._raw_print(rendered)
+
+    def flush_idle(self) -> None:
+        """Commit a paused streamed message so it appears promptly rather than
+        waiting for the next event (called right before the spinner ticks)."""
+        self._commit_pending()
+
+    def flush(self) -> None:
+        """Commit any held line (tail exit / completion / Ctrl-C)."""
+        self._commit_pending()
+
+
 def tail_mission_events(
     life_dir: Path | str,
     item_id: str,
@@ -323,6 +386,7 @@ def tail_mission_events(
     # like a frozen blinking cursor (this passive tail is the DEFAULT follow
     # path; the live panel is opt-in via ARGUS_SKILL_FOLLOW_LIVE=1).
     spinner = _TailWaitSpinner(theme)
+    printer = _TailPrinter(spinner)
     # We read from the start of the log and rely on the ``item_id`` filter to
     # isolate this mission. The backlog item was just enqueued with a freshly
     # minted id, so no earlier mission's events can collide — making this both
@@ -394,9 +458,7 @@ def tail_mission_events(
                     mission_context=current_mission,
                     theme=theme,
                 )
-                if rendered:
-                    spinner.clear()
-                    print(rendered, flush=True)
+                printer.feed(event, rendered)
                 if str(event.get("type") or "") == "life.mission.completed":
                     # Attach the most recent reviewer verdict so the caller can
                     # surface the reviewer's conclusion (the sole done-ness
@@ -404,16 +466,20 @@ def tail_mission_events(
                     # the engineer's last word.
                     if last_review is not None:
                         event.setdefault("_last_review", last_review)
+                    printer.flush()
                     spinner.clear()
                     return event
             # Only sleep when we drained the file without progress; if the
             # daemon is writing quickly we loop straight back and keep up.
             if not saw_event:
+                printer.flush_idle()
                 spinner.tick()
                 _sleep_until(deadline, 0.4)
+        printer.flush()
         spinner.clear()
         return None
     except KeyboardInterrupt:
+        printer.flush()
         spinner.clear()
         note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
@@ -772,6 +838,7 @@ def _follow_events_stream(
     # follow path, so without it the pre-first-event wait is a frozen blinking
     # cursor. Cleared before every real event line and on exit.
     spinner = _TailWaitSpinner(theme)
+    printer = _TailPrinter(spinner)
     try:
         # Wait for the log to exist, then seek to its end so we only show
         # events produced from now on.
@@ -787,6 +854,7 @@ def _follow_events_stream(
         while True:
             line = fh.readline()
             if not line:
+                printer.flush_idle()
                 spinner.tick()
                 time.sleep(0.4)
                 # Re-open on rotation (events.jsonl → events.jsonl.1).
@@ -834,22 +902,23 @@ def _follow_events_stream(
                 mission_context=current_mission,
                 theme=theme,
             )
-            if rendered:
-                spinner.clear()
-                print(rendered, flush=True)
+            printer.feed(event, rendered)
             if str(event.get("type") or "") == "life.mission.completed":
                 if until_first_completion or (
                     until_item_id and str(event.get("item_id") or "") == until_item_id
                 ):
                     if last_review is not None:
                         event.setdefault("_last_review", last_review)
+                    printer.flush()
                     spinner.clear()
                     return event
     except KeyboardInterrupt:
+        printer.flush()
         spinner.clear()
         note = "\n(stopped following — daemon keeps running; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
     finally:
+        printer.flush()
         spinner.clear()
         if fh is not None:
             try:
