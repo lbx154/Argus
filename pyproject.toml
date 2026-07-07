@@ -40,11 +40,26 @@ dependencies = [
 # `pip install 'argus-skill[codex]'` invocations in user scripts still
 # succeed without pulling in anything.
 codex = []
+# `argus-skill[signing]` — the Ed25519 result-provenance feature
+# (argus_skill/team/result_provenance.py) is off by default (inert unless
+# ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY is set) and
+# imports `cryptography` lazily, so it stays out of the base dependency
+# list — most installs never touch signing and don't need the extra
+# native-crypto build weight. Install this extra only if you're wiring up
+# signed teammate results.
+signing = [
+  "cryptography>=41",
+]
 dev = [
   "build>=1",
   "mypy>=1.8,<2",
   "pytest>=7",
   "ruff>=0.4",
+  # tests/team/test_result_provenance.py + tests/team/test_teammate_entry.py +
+  # tests/test_eval_signing.py exercise the signing path directly, so `dev`
+  # needs it too — otherwise `pip install -e ".[dev]" && pytest -q` (the
+  # README's documented test setup) fails those 10 tests on a clean checkout.
+  "cryptography>=41",
 ]
 
 [project.scripts]
