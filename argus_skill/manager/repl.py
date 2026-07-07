@@ -1189,6 +1189,19 @@ def _maybe_handle_role_effort_text(
     line = f"Set {role_names} default reasoning effort to {effort}."
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
     _print_role_config_confirmation(theme, roles)
+    # BUG FIX: this switch is handled entirely in Python and returns before
+    # ever reaching the Manager LLM, so the Manager's OWN conversational
+    # memory never learns it happened — confirmed live: an operator set
+    # reasoning effort to max, then asked "what did you just do?" and got an
+    # answer about an unrelated, older DAEMON mission instead, because that
+    # was the only grounded history available (see
+    # _SkillLoopRunner._recent_mission_history_block). Log it as a
+    # user.note event (same shape /note already writes) so the NEXT "what
+    # just happened" question is grounded in this, not stale daemon history.
+    try:
+        append_note(mem, line)
+    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
+        pass
 
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -1294,6 +1307,13 @@ def _maybe_handle_backend_switch_text(
 
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
     _print_role_config_confirmation(theme, roles or None)
+    # See the matching comment in _maybe_handle_role_effort_text: this switch
+    # never reaches the Manager LLM, so log it as a user.note event to ground
+    # the next "what did you just do" question in this, not stale history.
+    try:
+        append_note(mem, line)
+    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
+        pass
 
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -1420,6 +1440,13 @@ def _maybe_handle_model_switch_text(
 
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
     _print_role_config_confirmation(theme, roles or None)
+    # See the matching comment in _maybe_handle_role_effort_text: this switch
+    # never reaches the Manager LLM, so log it as a user.note event to ground
+    # the next "what did you just do" question in this, not stale history.
+    try:
+        append_note(mem, line)
+    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
+        pass
 
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -2223,13 +2250,22 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
     # objective (answer appended + queued to inbox), not a brand-new task.
     if chat_state.get("blocked_item_id"):
         prior = str(chat_state.get("last_objective") or body)
-        chat_state.pop("blocked_item_id", None)
+        blocked_id = chat_state.pop("blocked_item_id", None)
         chat_state.pop("blocked_question", None)
         try:
             from ..apps._inbox import queue_inbox_message
             queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
         except Exception:  # noqa: BLE001
             pass
+        if blocked_id:
+            # Resolve the persisted question (BacklogItem.pending_question —
+            # see life/supervisor/_core.py's blocked-verdict handling) so
+            # /status stops listing it as still awaiting an answer. Best-
+            # effort: a failure here must never block the actual reply.
+            try:
+                mem.backlog.update(blocked_id, pending_question="")
+            except Exception:  # noqa: BLE001
+                pass
         body = f"{prior}\n\nOperator reply: {body}"
     chat_state["last_objective"] = body
     _manager_divide_user_task(mem, body, chat_state, theme=theme)
@@ -2798,6 +2834,20 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
         print(f"{'identity':<{_LBL}}: {first}{'…' if len(identity) > 80 else ''}")
     else:
         print(f"{'identity':<{_LBL}}: (empty)")
+    # Every backlog item whose mission ended "blocked" on a reviewer question
+    # the operator hasn't answered yet (BacklogItem.pending_question — set by
+    # life/supervisor/_core.py, cleared by enqueue_mission once answered).
+    # Surfaced FIRST and unconditionally (not tucked behind a live REPL
+    # session's chat_state) so it is visible after a fresh `argus` launch,
+    # after a daemon-only run, or when more than one item is waiting — none
+    # of which the old chat_state-only ``blocked_question`` could show.
+    pending_qs = [it for it in mem.backlog.all() if (it.pending_question or "").strip()]
+    if pending_qs:
+        print(f"{'questions':<{_LBL}}: {len(pending_qs)} awaiting your answer")
+        for it in pending_qs[:5]:
+            print(f"  ❓ ({it.id}) {it.pending_question.strip()[:160]}")
+        if len(pending_qs) > 5:
+            print(f"  … {len(pending_qs) - 5} more")
     pending = mem.backlog.pending()
     print(f"{'backlog':<{_LBL}}: {len(pending)} pending  "
           f"({len(mem.backlog.all())} total)")

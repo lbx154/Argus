@@ -1342,6 +1342,30 @@ class LifeSupervisor:
             err = exc_str or stop_reason or "unspecified failure"
             self.memory.backlog.mark_failed(item.id, error=err)
 
+        # A "blocked" verdict means the REVIEWER stopped progress because it
+        # needs the OPERATOR to make a call — not a bug/crash. Persist the
+        # question onto the (now-terminal) item so it outlives this one event:
+        # /status can list every currently-unanswered question across ALL
+        # projects/restarts, not just whatever the REPL happened to be tailing
+        # live when it was asked (see manager/repl.py's old chat_state-only
+        # ``blocked_question``, which was lost the moment that process exited).
+        # Writing a non-status field onto an already-terminal item is legal —
+        # Backlog.update()'s IllegalStateTransition seal only guards STATUS
+        # transitions, not other fields.
+        if status == "blocked":
+            operator_question = str(
+                getattr(outcome, "operator_question", "") or ""
+            ).strip()
+            if operator_question:
+                try:
+                    self.memory.backlog.update(
+                        item.id, pending_question=operator_question,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception(
+                        "life supervisor: failed to persist pending_question"
+                    )
+
         kind = "mission_complete" if success else "mission_failed"
         final_submission_certified = bool(
             kind == "mission_complete"

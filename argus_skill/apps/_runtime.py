@@ -264,6 +264,13 @@ class _Outcome:
     # was skipped (error) or never ran. Journaled by the supervisor; the stage
     # write itself already happened inside execute.
     stage_transition: dict = field(default_factory=dict)
+    # The reviewer's ``operator_question`` (reviewer_schema.json) from the
+    # FINAL round, when the mission stopped with ``status == "blocked"``. The
+    # supervisor persists this onto the backlog item (``pending_question``)
+    # so it survives past this one event and /status can list it later —
+    # without this, the question only ever existed for as long as whatever
+    # REPL/TUI process happened to be tailing events.jsonl at that instant.
+    operator_question: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1353,6 +1360,7 @@ class _SkillLoopRunner:
         planner_report: dict = {}
         checklist_feedback: dict = {}
         step_back: dict | None = None
+        operator_question = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1366,6 +1374,9 @@ class _SkillLoopRunner:
                 _sb = getattr(_final_review, "step_back", None)
                 if isinstance(_sb, dict) and _sb:
                     step_back = _sb
+                operator_question = str(
+                    getattr(_final_review, "operator_question", "") or ""
+                ).strip()
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1400,6 +1411,7 @@ class _SkillLoopRunner:
             checklist_feedback=checklist_feedback,
             step_back=step_back,
             stage_transition=stage_transition,
+            operator_question=operator_question,
         )
 
     def _decide_stage_transition(

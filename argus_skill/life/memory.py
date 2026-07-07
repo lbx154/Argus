@@ -448,6 +448,16 @@ class BacklogItem:
     started_ts: float | None = None
     finished_ts: float | None = None
     last_error: str = ""
+    # Set when this item's terminal reviewer verdict was "blocked" with a
+    # non-empty ``operator_question`` (reviewer_schema.json) — i.e. it did not
+    # fail on a bug/crash, it stopped because the REVIEWER needed the operator
+    # to make a call. Persisted on the item (not just kept in an ephemeral
+    # REPL chat_state) so it survives a REPL/daemon restart and so /status can
+    # list every currently-unanswered question, not just the single most
+    # recent one. Cleared back to "" once the operator's answer has been
+    # folded into a follow-up item (see ``enqueue_mission`` in manager/repl.py)
+    # — a non-empty value always means "still waiting on the operator".
+    pending_question: str = ""
     # --- iteration loop fields (Phase-7) -------------------------------
     # When ``iterate`` is True the supervisor, after a successful
     # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
@@ -526,6 +536,7 @@ class BacklogItem:
             started_ts=row.get("started_ts"),
             finished_ts=row.get("finished_ts"),
             last_error=str(row.get("last_error", "")),
+            pending_question=str(row.get("pending_question", "")),
             iterate=bool(row.get("iterate", False)),
             iteration_max_cycles=int(row.get("iteration_max_cycles", 6)),
             iteration_budget_usd=float(row.get("iteration_budget_usd", 30.0)),

@@ -24,7 +24,7 @@ import argus_skill.adapters.agent_cli_backend as agent_cli_backend_mod
 from argus_skill.apps import _runtime
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
-from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
+from argus_skill.life.memory import Backlog, BacklogItem, EventJournal, IdentityCard, LifeMemory
 from argus_skill.manager import repl as manager_repl
 
 _ENV_VARS_TO_CLEAR = (
@@ -488,6 +488,77 @@ def test_live_mission_status_block_never_raises_on_corrupt_events(
     assert runner._live_mission_status_block() == ""
 
 
+# ── /status: persisted pending operator questions (point 11) ──────────────
+# Before this, a reviewer's blocked-on-operator-input question only ever
+# lived in the current REPL/TUI process's in-memory chat_state — invisible
+# after a restart, and only the SINGLE most recent one if several items
+# blocked. BacklogItem.pending_question (life/supervisor/_core.py writes it,
+# enqueue_mission clears it once answered) fixes both; these tests cover the
+# /status-surfacing half.
+
+class _FakeProject:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+
+class _FakeStatusMem:
+    """Minimal duck-typed stand-in for the attributes _status_cmd reads —
+    real Backlog/EventJournal/IdentityCard over tmp_path files, so the
+    pending-question logic exercises the actual persistence round-trip."""
+
+    def __init__(self, root: Path) -> None:
+        self.identity = IdentityCard(root / "identity.md")
+        self.backlog = Backlog(root / "backlog.jsonl")
+        self.journal = EventJournal(root / "events.jsonl")
+        self.project = _FakeProject(root)
+
+
+def test_status_cmd_surfaces_pending_operator_question(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    mem = _FakeStatusMem(tmp_path)
+    item = mem.backlog.add(
+        BacklogItem.new(title="Optimize matmul kernel", objective="make it 2x faster")
+    )
+    mem.backlog.update(item.id, pending_question="fp16 精度损失可以接受吗，还是必须 fp32？")
+
+    manager_repl._status_cmd(mem)
+    out = capsys.readouterr().out
+    assert "questions" in out
+    assert "1 awaiting your answer" in out
+    assert item.id in out
+    assert "fp16 精度损失可以接受吗，还是必须 fp32？" in out
+
+
+def test_status_cmd_lists_multiple_pending_questions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two different items blocked on two different questions — both must be
+    visible (the old chat_state-only single field could only ever show one)."""
+    mem = _FakeStatusMem(tmp_path)
+    first = mem.backlog.add(BacklogItem.new(title="Kernel A", objective="a"))
+    second = mem.backlog.add(BacklogItem.new(title="Kernel B", objective="b"))
+    mem.backlog.update(first.id, pending_question="use fp16 or fp32?")
+    mem.backlog.update(second.id, pending_question="retry with a smaller batch size?")
+
+    manager_repl._status_cmd(mem)
+    out = capsys.readouterr().out
+    assert "2 awaiting your answer" in out
+    assert "use fp16 or fp32?" in out
+    assert "retry with a smaller batch size?" in out
+
+
+def test_status_cmd_no_questions_section_when_none_pending(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    mem = _FakeStatusMem(tmp_path)
+    mem.backlog.add(BacklogItem.new(title="Normal task", objective="x"))
+
+    manager_repl._status_cmd(mem)
+    out = capsys.readouterr().out
+    assert "awaiting your answer" not in out
+
+
 def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
     mem: LifeMemory,
 ) -> None:
@@ -619,6 +690,37 @@ def test_blocked_verdict_sets_question_and_reply_continues(mem: LifeMemory) -> N
     assert "Operator reply: 012 和 005" in cont
     inbox_file = manager_repl._life_dir_for(mem) / "inbox.jsonl"
     assert inbox_file.exists() and "012 和 005" in inbox_file.read_text(encoding="utf-8")
+
+
+def test_blocked_verdict_reply_clears_persisted_pending_question(mem: LifeMemory) -> None:
+    """Answering a blocked mission must also clear the ORIGINAL item's
+    PERSISTED ``pending_question`` (life/supervisor/_core.py writes this on a
+    blocked verdict; /status reads it — see test_status_cmd_surfaces_pending_
+    operator_question) — not just the ephemeral chat_state field that
+    test_blocked_verdict_sets_question_and_reply_continues already covers.
+    Without this, /status would keep listing an already-answered question as
+    still outstanding."""
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    blocked_review = {"status": "blocked", "operator_question": "刷哪两道题？"}
+
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "blocked", "cost_usd": 0.0, "_last_review": blocked_review}
+
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "研究 SOL-ExecBench，刷到 SOTA", chat_state=chat_state)
+
+    blocked_id = chat_state["blocked_item_id"]
+    # Simulate what life/supervisor/_core.py's blocked-verdict handling would
+    # have persisted onto this exact item (this test's fake_tail stands in
+    # for the daemon, so it does not go through that code path itself).
+    mem.backlog.update(blocked_id, pending_question="刷哪两道题？")
+
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "012 和 005", chat_state=chat_state)
+
+    resolved = next(it for it in mem.backlog.all() if it.id == blocked_id)
+    assert resolved.pending_question == ""
 
 
 def test_non_blocked_outcome_clears_blocked_state(mem: LifeMemory) -> None:
@@ -1249,6 +1351,40 @@ def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
     assert chat_state["config"]["planner_effort"] == "xhigh"
     assert chat_state["config"]["engineer_effort"] == "xhigh"
     assert chat_state["config"]["reviewer_effort"] == "xhigh"
+
+
+def test_local_switches_are_logged_so_manager_can_ground_on_them(
+    mem: LifeMemory,
+) -> None:
+    """Regression: effort/backend/model switches are handled entirely in
+    Python and return before ever reaching the Manager LLM, so its own
+    conversational memory never learns they happened. Confirmed live: an
+    operator set reasoning effort to max, then asked "what did you just
+    do?" and the Manager answered about an unrelated, older daemon mission
+    instead — the only grounded history it had (see
+    _SkillLoopRunner._recent_mission_history_block, which reads the most
+    recent event.jsonl entry). Each switch must log a user.note event so
+    that history is grounded in the switch itself, not stale daemon work.
+    """
+    import json
+
+    from argus_skill.life.memory import EventJournal
+
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    manager_repl._free_text_cmd(
+        mem, "把argus里面默认的四角色的推理effort都改成xhigh", chat_state=chat_state,
+    )
+
+    events_path = mem.root / "events.jsonl"
+    assert events_path.exists()
+    rows = [json.loads(ln) for ln in events_path.read_text().splitlines() if ln.strip()]
+    notes = [r for r in rows if r.get("type") == "user.note"]
+    assert notes, "switch must be logged as a user.note event"
+    assert "xhigh" in notes[-1]["summary"]
+
+    recent = EventJournal(events_path).tail(1)
+    assert recent and recent[0].kind == "user_note"
+    assert "xhigh" in recent[0].summary
 
 
 def test_free_text_backend_switch_config_does_not_enqueue(mem: LifeMemory) -> None:
