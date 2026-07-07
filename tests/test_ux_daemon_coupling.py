@@ -77,6 +77,150 @@ def test_fresh_idle_session_does_not_autospawn_on_boot():
     assert manager_repl._should_autospawn_on_boot(fresh, _Mem()) is True
 
 
+# ---- /resume switch: _reexec_into_session preserves CLI-only flags -------
+
+def test_reexec_into_session_preserves_life_dir_and_no_daemon(tmp_path, monkeypatch):
+    """--life-dir / --no-daemon are CLI-only (no env-var backing), so the
+    re-exec argv must carry them through explicitly."""
+    captured: dict[str, object] = {}
+
+    def fake_execv(path, argv):
+        captured["path"] = path
+        captured["argv"] = argv
+
+    monkeypatch.setattr(manager_repl.os, "execv", fake_execv)
+    args = argparse.Namespace(life_dir=str(tmp_path / "root"), no_daemon=True)
+
+    manager_repl._reexec_into_session("s-target", args)
+
+    argv = captured["argv"]
+    assert argv[:4] == [manager_repl.sys.executable, "-m", "argus_skill", "--resume"]
+    assert "s-target" in argv
+    assert "--life-dir" in argv
+    assert str(tmp_path / "root") in argv
+    assert "--no-daemon" in argv
+
+
+def test_reexec_into_session_resumes_target_continuous_campaign(tmp_path, monkeypatch):
+    """Regression: switching into a session whose OWN continuous.json is
+    armed must pass --resume-continuous, even though the CURRENT launch's
+    ``args`` knows nothing about the TARGET session's campaign state —
+    without this, _should_autospawn_on_boot only eagerly starts a daemon for
+    a non-empty backlog, so a continuous campaign that fully drained its
+    backlog between rounds (and whose daemon died) would silently stay
+    un-resumed after an explicit operator /resume switch back into it."""
+    from argus_skill.daemon.life_worker import write_continuous_config
+
+    global_root = tmp_path / "root"
+    target_dir = global_root / "projects" / "s-target"
+    target_dir.mkdir(parents=True)
+    write_continuous_config(target_dir, enabled=True, objective="keep optimizing X")
+
+    captured: dict[str, object] = {}
+
+    def fake_execv(path, argv):
+        captured["argv"] = argv
+
+    monkeypatch.setattr(manager_repl.os, "execv", fake_execv)
+    args = argparse.Namespace(life_dir=None, no_daemon=False)
+
+    manager_repl._reexec_into_session("s-target", args, global_root=global_root)
+
+    assert "--resume-continuous" in captured["argv"]
+
+
+def test_reexec_into_session_no_flag_when_target_not_continuous(tmp_path, monkeypatch):
+    """The common case: switching into an ordinary (non-continuous) session
+    must NOT add --resume-continuous — it stays off by default, per that
+    flag's own safety rationale, unless the target genuinely has one armed."""
+    global_root = tmp_path / "root"
+    (global_root / "projects" / "s-target").mkdir(parents=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_execv(path, argv):
+        captured["argv"] = argv
+
+    monkeypatch.setattr(manager_repl.os, "execv", fake_execv)
+    args = argparse.Namespace(life_dir=None, no_daemon=False)
+
+    manager_repl._reexec_into_session("s-target", args, global_root=global_root)
+
+    assert "--resume-continuous" not in captured["argv"]
+
+
+def test_reexec_into_session_missing_global_root_is_safe(monkeypatch):
+    """No global_root (e.g. an older caller) must not crash the switch — just
+    skip the continuous-campaign lookup."""
+    captured: dict[str, object] = {}
+
+    def fake_execv(path, argv):
+        captured["argv"] = argv
+
+    monkeypatch.setattr(manager_repl.os, "execv", fake_execv)
+    args = argparse.Namespace(life_dir=None, no_daemon=False)
+
+    manager_repl._reexec_into_session("s-target", args)  # no global_root kwarg
+
+    assert "--resume-continuous" not in captured["argv"]
+    assert "s-target" in captured["argv"]
+
+
+# ---- daemon boot warnings actually reach the operator --------------------
+
+def test_print_daemon_boot_status_prints_all_three_messages(capsys):
+    """Regression: legacy_zombie_msg / auto_spawn_msg / no_daemon_warning were
+    being computed by _run_manager_repl_locked's daemon-boot block and then
+    silently discarded — confirmed via git blame, a "wip(argus): daemon
+    autonomous changes" commit (06aa6914) dropped their print step while
+    leaving the message-building logic (and its "warn loudly" / "surface
+    this" comments) in place. All three must actually reach stdout."""
+    manager_repl._print_daemon_boot_status(
+        None,
+        legacy_zombie_msg="legacy daemon detected (pid 123, pre-pivot). Run: kill 123",
+        auto_spawn_msg="daemon auto-spawned (pid 456)",
+        no_daemon_warning="daemon spawn did not confirm alive — backlog may not execute.",
+    )
+    out = capsys.readouterr().out
+    assert "legacy daemon detected (pid 123" in out
+    assert "daemon auto-spawned (pid 456)" in out
+    assert "daemon spawn did not confirm alive" in out
+
+
+def test_print_daemon_boot_status_no_output_when_all_none(capsys):
+    """The common case (clean boot, no legacy zombie, no warning) prints
+    nothing extra."""
+    manager_repl._print_daemon_boot_status(
+        None, legacy_zombie_msg=None, auto_spawn_msg=None, no_daemon_warning=None,
+    )
+    assert capsys.readouterr().out == ""
+
+
+def test_print_daemon_boot_status_colors_with_theme():
+    """When a theme is supplied, legacy-zombie/no-daemon warnings are painted
+    yellow and a clean auto-spawn note is dim — not plain, uncolored text."""
+    calls: list[tuple[str, str]] = []
+
+    class _Theme:
+        def yellow(self, s: str) -> str:
+            calls.append(("yellow", s))
+            return f"<yellow>{s}</yellow>"
+
+        def dim(self, s: str) -> str:
+            calls.append(("dim", s))
+            return f"<dim>{s}</dim>"
+
+    manager_repl._print_daemon_boot_status(
+        _Theme(),
+        legacy_zombie_msg="zombie!",
+        auto_spawn_msg="spawned ok",
+        no_daemon_warning="no daemon!",
+    )
+    assert ("yellow", "zombie!") in calls
+    assert ("dim", "spawned ok") in calls
+    assert ("yellow", "no daemon!") in calls
+
+
 def test_first_task_autostarts_daemon_for_fresh_session(tmp_path, monkeypatch):
     """After the operator enters a task, the daemon starts on that session bundle."""
     gr = tmp_path / "root"

@@ -54,10 +54,8 @@ from ..apps._life_actions import (
     stop_iteration,
 )
 from ..apps._runtime import (
-    _codex_preflight_warning,
     _CommonMemory,
     _env_flag,
-    _format_daemon_mode_cell,
     _invoke_supervisor,
     _memory_global_root,  # noqa: F401 — kept for parity with the old module surface
     _resolve_global_root,
@@ -1138,8 +1136,9 @@ def read_message_with_live_cockpit(
         lab = "○ no daemon"
         return theme.gray(lab) if theme is not None else lab
 
-    from ..cli.roles_status import render_roles_snapshot
     import select as _select
+
+    from ..cli.roles_status import render_roles_snapshot
 
     hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
@@ -3154,35 +3153,6 @@ def _extract_chat_reply_text(msg: str) -> str:
     return msg
 
 
-class _ChatReplySink:
-    """Clean display sink for the REPL chat fast-path.
-
-    Prints ONLY the agent's reply, suppressing the loop/round/progress
-    scaffolding ("🔧 round 1: main agent finished" etc.) that the full
-    mission renderer emits — a greeting should read like a chat reply, not a
-    mission trace. Fully fail-soft; tracks whether anything was shown.
-    """
-
-    def __init__(self, theme: Any = None) -> None:
-        self.theme = theme
-        self.replied = False
-
-    def handle_event(self, event: dict[str, Any]) -> None:  # EventSink protocol
-        try:
-            if str(event.get("type") or "") != "round.main.completed":
-                return  # swallow loop.start / progress / loop.done scaffolding
-            text = _extract_chat_reply_text(str(event.get("last_message") or ""))
-            if not text:
-                return
-            self.replied = True
-            if self.theme is not None:
-                print("  " + self.theme.cyan("argus") + self.theme.dim(" ↳ ")
-                      + text, flush=True)
-            else:
-                print(f"  argus ↳ {text}", flush=True)
-        except Exception:  # noqa: BLE001 — display must never break triage
-            pass
-
 
 def _format_completion(
     final: dict[str, Any],
@@ -3628,9 +3598,8 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
         print(theme.gray(msg) if theme is not None else msg, flush=True)
         return
     runner = _ensure_manager_runner(chat_state, mem)
-    from ..manager import plan_mode
-
     from ..cli.live_status import LiveStatus
+    from ..manager import plan_mode
     with LiveStatus(
         "drafting a plan…",
         theme=theme,
@@ -3995,17 +3964,46 @@ def _seed_chat_state(
     return chat_state, None
 
 
-def _reexec_into_session(sid: str, args: argparse.Namespace) -> None:
+def _reexec_into_session(
+    sid: str, args: argparse.Namespace, *, global_root: Any = None,
+) -> None:
     """Replace this process with ``argus-skill --resume <sid>`` — the REAL
     switch (session bundle, daemon association, banner + conversation replay),
     identical to relaunching it from the shell. Preserves ``--life-dir`` so a
-    custom global root carries over. Never returns on success (``os.execv``)."""
+    custom global root carries over.
+
+    Also passes ``--resume-continuous`` when the TARGET session has a
+    persisted, armed continuous campaign (``<target_life_dir>/continuous.json``)
+    — without it, ``_should_autospawn_on_boot`` only eagerly starts a daemon
+    when the target already has a NON-EMPTY backlog, so switching back into a
+    continuous campaign that happened to fully drain its backlog between
+    rounds (and whose daemon has since died) would silently leave it un-resumed
+    even though the operator explicitly chose to switch back into exactly this
+    session — a far more deliberate act than "a fresh/manual daemon" (the
+    scenario ``--resume-continuous`` defaults off to guard against, per its
+    own ``--help`` text). ``--continuous``/``--objective`` are NOT needed
+    alongside it: the daemon's own boot path reads both ``enabled`` and
+    ``objective`` from that same ``continuous.json`` once ``resume_intent``
+    is true (see ``daemon.life_worker``'s ``resume_intent`` boot-suppression
+    logic). Best-effort — any lookup failure just skips the flag, since a
+    resumed session's OWN objective/backlog can still spawn/re-arm it live.
+
+    Never returns on success (``os.execv``)."""
     argv = [sys.executable, "-m", "argus_skill", "--resume", sid]
     life_dir = getattr(args, "life_dir", None)
     if life_dir:
         argv += ["--life-dir", str(life_dir)]
     if bool(getattr(args, "no_daemon", False)):
         argv.append("--no-daemon")
+    if global_root:
+        try:
+            from ..daemon.life_worker import read_continuous_config
+            target_life_dir = Path(global_root) / "projects" / sid
+            enabled, _objective = read_continuous_config(target_life_dir)
+            if enabled:
+                argv.append("--resume-continuous")
+        except Exception:  # noqa: BLE001 — best-effort; never block the switch
+            pass
     try:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -4124,8 +4122,40 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     # returns.
     switch_sid = chat_state.get("switch_to_session")
     if switch_sid:
-        _reexec_into_session(str(switch_sid), args)
+        _reexec_into_session(
+            str(switch_sid), args, global_root=chat_state.get("global_root"),
+        )
     return rc
+
+
+def _print_daemon_boot_status(
+    theme: Any,
+    *,
+    legacy_zombie_msg: str | None,
+    auto_spawn_msg: str | None,
+    no_daemon_warning: str | None,
+) -> None:
+    """Surface the daemon boot outcome computed just before this call in
+    ``_run_manager_repl_locked`` (auto-spawn success/failure, ``--no-daemon``
+    with nothing running, a pre-pivot legacy zombie).
+
+    Regression: these three messages were being silently COMPUTED and then
+    discarded — confirmed via git blame, a "wip(argus): daemon autonomous
+    changes" commit (06aa6914) dropped the print step while leaving the
+    message-building logic in place, so the "warn loudly" / "surface this"
+    intent documented at each assignment site never actually happened (ruff
+    flagged all three as unused-variable, which is how this was caught).
+    ``legacy_zombie_msg`` prints first — it is the most urgent of the three
+    (risks two daemons double-claiming the same work), then the auto-spawn
+    outcome. A no-op for every argument left ``None`` (the common case: a
+    clean auto-spawn with no legacy zombie prints only the ``auto_spawn_msg``
+    line, nothing extra)."""
+    if legacy_zombie_msg:
+        print("  " + (theme.yellow(legacy_zombie_msg) if theme is not None else legacy_zombie_msg))
+    if auto_spawn_msg:
+        print("  " + (theme.dim(auto_spawn_msg) if theme is not None else auto_spawn_msg))
+    if no_daemon_warning:
+        print("  " + (theme.yellow(no_daemon_warning) if theme is not None else no_daemon_warning))
 
 
 def _run_manager_repl_locked(
@@ -4140,7 +4170,7 @@ def _run_manager_repl_locked(
     a try/finally release."""
     import readline  # noqa: F401 — enables line-editing for input()
 
-    from ..apps._input_helpers import enable_bracketed_paste, read_pasted_message
+    from ..apps._input_helpers import enable_bracketed_paste
     enable_bracketed_paste()
     from ..cli.branding import render_logo
     from ..cli.theme import Theme
@@ -4153,7 +4183,6 @@ def _run_manager_repl_locked(
     # been removed; ``--verbose`` and ``--quiet`` flags are accepted but
     # ignored (kept for backward compat in scripts).
 
-    backend_default = chat_state["backend"]
     chat_state["theme"] = theme
 
     # ── Daemon is the sole executor (mandatory) ───────────────────
@@ -4260,6 +4289,12 @@ def _run_manager_repl_locked(
     except Exception:  # noqa: BLE001
         _pid = "-"
     print("  " + theme.gray("daemon  ") + theme.cyan(_pid))
+    _print_daemon_boot_status(
+        theme,
+        legacy_zombie_msg=legacy_zombie_msg,
+        auto_spawn_msg=auto_spawn_msg,
+        no_daemon_warning=no_daemon_warning,
+    )
     # Per-role backend / model / reasoning-effort — surfaced on the banner so
     # the operator sees which engine each role runs on without typing /roles.
     try:
