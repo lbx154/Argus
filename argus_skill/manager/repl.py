@@ -397,6 +397,87 @@ class _TailWaitSpinner:
         self._painted = False
 
 
+def _type_out_line(line: str, *, stream: Any = None) -> None:
+    """Print one committed line with a capped character-by-character "typing"
+    animation, for an AI feel. Falls back to a plain, instant print when
+    disabled / non-TTY (so piped output and tests are byte-for-byte unchanged).
+
+    The total animation time is hard-capped (long reasoning never crawls the
+    log); Ctrl-C during the animation raises straight through so the operator
+    can always interrupt.
+    """
+    out = stream if stream is not None else sys.stdout
+    enabled = False
+    try:
+        from ..cli.live_status import _spinner_enabled
+        enabled = (
+            _spinner_enabled(out)
+            and os.environ.get("ARGUS_SKILL_TYPEWRITER", "1").strip().lower()
+            not in ("0", "false", "no", "off")
+        )
+    except Exception:  # noqa: BLE001 — animation must never break the tail
+        enabled = False
+    if not enabled or not line:
+        print(line, flush=True, file=out)
+        return
+    # Cap total time; short verdicts feel snappy, a 240-char line still lands
+    # in well under half a second.
+    per_char = min(0.006, 0.35 / max(1, len(line)))
+    try:
+        for ch in line:
+            out.write(ch)
+            out.flush()
+            if per_char > 0:
+                time.sleep(per_char)
+        out.write("\n")
+        out.flush()
+    except KeyboardInterrupt:
+        out.write("\n")
+        out.flush()
+        raise
+    except Exception:  # noqa: BLE001
+        print(line, flush=True, file=out)
+
+
+def _wrap_plain(text: str, width: int, indent: str = "    ") -> list[str]:
+    """Word-wrap PLAIN ``text`` to at most ``width`` DISPLAY columns per row so
+    nothing is truncated at the terminal edge (the reasoning pane's fix for the
+    "仍有截断" chop). Display-width aware (CJK / full-width count as 2), breaks on
+    spaces where possible and hard-breaks an over-long token; continuation rows
+    are indented. Colour is applied by the caller (one hue per role entry)."""
+    import unicodedata
+
+    def _cw(ch: str) -> int:
+        return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+    if width <= 6 or not text:
+        return [text]
+    rows: list[str] = []
+    cur: list[str] = []
+    cur_w = 0
+    last_space = -1  # index in `cur` just AFTER the most recent space
+    for ch in text:
+        c = _cw(ch)
+        if cur_w + c > width and cur:
+            if last_space > 0:
+                head = "".join(cur[:last_space]).rstrip()
+                tail = "".join(cur[last_space:])
+                rows.append(head)
+                cur = list(indent + tail)
+            else:
+                rows.append("".join(cur))
+                cur = list(indent)
+            cur_w = sum(_cw(x) for x in cur)
+            last_space = -1
+        cur.append(ch)
+        cur_w += c
+        if ch == " ":
+            last_space = len(cur)
+    if cur:
+        rows.append("".join(cur))
+    return rows or [text]
+
+
 class _TailPrinter:
     """Prints tail event lines, collapsing copilot-style streamed messages.
 
@@ -420,14 +501,25 @@ class _TailPrinter:
         self._spinner = spinner
         self._pending_mid: str | None = None
         self._pending_line: str | None = None
+        self._pending_at: float = 0.0
+        # Settle a paused stream only after it has been silent this long. An
+        # actively-streaming message (token beats arriving faster than this)
+        # is therefore shown as ONE settled line, never the 200 mid-stream
+        # fragments the copilot/codex delta stream used to spray.
+        self._idle_commit_after = 0.5
 
-    def _raw_print(self, line: str) -> None:
+    def _raw_print(self, line: str, *, typewriter: bool = False) -> None:
         self._spinner.clear()
-        print(line, flush=True)
+        if typewriter:
+            _type_out_line(line)
+        else:
+            print(line, flush=True)
 
     def _commit_pending(self) -> None:
         if self._pending_line is not None:
-            self._raw_print(self._pending_line)
+            # The settled reasoning/verdict line types out for an AI feel;
+            # tool/command lines (handled in feed) stay instant.
+            self._raw_print(self._pending_line, typewriter=True)
         self._pending_mid = None
         self._pending_line = None
 
@@ -442,23 +534,31 @@ class _TailPrinter:
             return
         mid = str(event.get("message_id") or "")
         if bool(event.get("replace")) and mid:
-            # A streamed chunk: start-of-new-message flushes the previous one,
-            # then we keep only the newest text for this id (drop the fragments
-            # and the duplicate final copy).
+            # A streamed chunk. Start-of-new-message flushes the previous one;
+            # within one message keep the LONGEST rendering seen (the backend
+            # ends with a full copy, so this converges on the complete text and
+            # is robust whether beats are growing prefixes or raw fragments).
             if self._pending_mid is not None and mid != self._pending_mid:
                 self._commit_pending()
+            if self._pending_line is None or len(rendered) >= len(self._pending_line):
+                self._pending_line = rendered
             self._pending_mid = mid
-            self._pending_line = rendered
+            self._pending_at = time.monotonic()
             return
         # A complete line: commit any in-flight streamed message first so
-        # ordering is preserved, then print this one.
+        # ordering is preserved, then print this one instantly.
         self._commit_pending()
         self._raw_print(rendered)
 
     def flush_idle(self) -> None:
-        """Commit a paused streamed message so it appears promptly rather than
-        waiting for the next event (called right before the spinner ticks)."""
-        self._commit_pending()
+        """Settle a streamed message once it has gone quiet for a moment — but
+        NEVER mid-stream (that produced the fragmented reviewer dumps). Called
+        right before the spinner ticks."""
+        if (
+            self._pending_line is not None
+            and time.monotonic() - self._pending_at >= self._idle_commit_after
+        ):
+            self._commit_pending()
 
     def flush(self) -> None:
         """Commit any held line (tail exit / completion / Ctrl-C)."""
@@ -625,13 +725,29 @@ def follow_mission_live_roles(
     Manager work in real time WITHOUT typing ``/roles watch``.
 
     Reuses the ``/roles`` panel (per-role backend/model/effort + current
-    activity, active role highlighted) driven off ``events.jsonl``. Detects the
-    mission's ``life.mission.completed`` (attaching the last reviewer verdict as
+    activity, active role highlighted) driven off ``events.jsonl``. Press
+    ``Ctrl+O`` to unfold a live, coalesced reasoning feed under the panel (the
+    agents' thinking, streamed fragments collapsed into clean lines); press it
+    again to collapse back to the dashboard. Detects the mission's
+    ``life.mission.completed`` (attaching the last reviewer verdict as
     ``_last_review``) and returns it; ``None`` on Ctrl-C / timeout (the daemon
     keeps running). TTY-only — the caller falls back to the scrolling tail for
     non-interactive / piped output.
     """
-    from ..cli.roles_status import render_roles_snapshot
+    from ..cli.roles_status import (
+        _clip_ansi_line,
+        role_activity,
+        role_paint,
+        render_roles_snapshot,
+    )
+    from ..apps.cli._follow import (
+        _FollowCoalescer,
+        _follow_layer_from_event,
+        _format_follow_event,
+    )
+    import select as _select
+    import shutil
+    from collections import deque as _deque
 
     life_dir = Path(life_dir)
     events_path = life_dir / "events.jsonl"
@@ -640,6 +756,41 @@ def follow_mission_live_roles(
     last_review: dict[str, Any] | None = None
     completed: dict[str, Any] | None = None
     prev_lines = 0
+    # ── Ctrl+O expand: a scrolling reasoning pane pinned UNDER the role panel ──
+    # The panel alone is a dashboard (one line per role); pressing Ctrl+O (like
+    # Claude Code's transcript toggle) unfolds a live, coalesced feed of the
+    # agents' thinking below it. Starts collapsed unless ARGUS_SKILL_FOLLOW_EXPAND=1.
+    expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
+    feed_lines: "_deque[tuple[str, str]]" = _deque(maxlen=400)
+    current_layer = "engineer"
+    pane_start = time.monotonic()  # anchors the -ing verb rotation
+
+    def _emit_feed(ev: dict) -> None:
+        nonlocal current_layer
+        current_layer = _follow_layer_from_event(ev, current_layer)
+        # Store the PLAIN line + its role; the pane word-wraps it (display-width
+        # aware, no truncation) and paints the whole entry in the role's hue at
+        # render time. The coalescer already collapsed streamed fragments.
+        line = _format_follow_event(ev, current_layer, theme=None)
+        if line:
+            feed_lines.append((current_layer, line))
+
+    coalescer = _FollowCoalescer(_emit_feed)
+
+    # Raw-cbreak keyboard so Ctrl+O is caught without Enter (ISIG kept, so Ctrl+C
+    # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
+    _kbd_fd: int | None = None
+    _kbd_old = None
+    try:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            import termios
+            import tty
+            _kbd_fd = sys.stdin.fileno()
+            _kbd_old = termios.tcgetattr(_kbd_fd)
+            tty.setcbreak(_kbd_fd)
+    except Exception:  # noqa: BLE001 — keyboard is optional; never break observing
+        _kbd_fd = None
+
     # Braille spinner pinned in the panel header so the view visibly ANIMATES
     # even before the daemon claims the task / emits its first event — otherwise
     # the pre-first-event window is a static idle panel that feels frozen. Fall
@@ -666,13 +817,81 @@ def follow_mission_live_roles(
         s = "○ no daemon"
         return theme.gray(s) if theme is not None else s
 
+    def _verb_line(width: int, glyph: str) -> str | None:
+        """An animated ``⠹ Planner planning…`` line: the ACTIVE role + a
+        slowly-rotating -ing verb from its own vocabulary, in the role's colour.
+        Reuses the scrolling-tail verb maps so the whole CLI speaks one language.
+        Returns ``None`` when no role is currently working (so we don't fake it).
+        """
+        try:
+            acts = role_activity(life_dir)
+        except Exception:  # noqa: BLE001
+            return None
+        active = next(
+            (r for r, a in acts.items() if getattr(a, "active", False)), None
+        )
+        if not active:
+            return None
+        title = _TAIL_ROLE_TITLES.get(active, active.title())
+        verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
+        step = int((time.monotonic() - pane_start) / _TAIL_PHRASE_INTERVAL)
+        verb = verbs[step % len(verbs)]
+        g = theme.bold_cyan(glyph) if theme is not None else glyph
+        label = f"{title} {verb}…"
+        if theme is not None:
+            label = role_paint(theme, active, label)
+        line = f"  {g} {label}"
+        return _clip_ansi_line(line, max(1, width - 1)) if theme is not None \
+            else line[: max(1, width - 1)]
+
+    def _build_block(width: int, spin_p: str, glyph: str) -> str:
+        panel = render_roles_snapshot(
+            life_dir, theme, width=width,
+            header_right=spin_p + "  " + _daemon_right(),
+        )
+        lines: list[str] = [panel]
+        if _kbd_fd is not None:
+            if expanded:
+                rows = shutil.get_terminal_size((80, 24)).lines
+                panel_h = panel.count("\n") + 1
+                budget = max(3, rows - panel_h - 4)
+                sep = "  ── reasoning · Ctrl+O collapse "
+                sep = sep + "─" * max(0, width - len(sep) - 1)
+                lines.append(theme.gray(sep) if theme is not None else sep)
+                # Word-wrap the most recent entries (display-width aware, so
+                # nothing is chopped at the edge), paint each in its role hue,
+                # then show the last `budget` VISUAL rows.
+                visual: list[str] = []
+                for role, plain in list(feed_lines)[-budget:]:
+                    for vr in _wrap_plain(plain, max(8, width - 1)):
+                        visual.append(
+                            role_paint(theme, role, vr) if theme is not None else vr
+                        )
+                window = visual[-budget:]
+                if window:
+                    lines.extend(window)
+                else:
+                    hint = "  (waiting for the agents' first thoughts…)"
+                    lines.append(theme.gray(hint) if theme is not None else hint)
+                verb = _verb_line(width, glyph)
+                if verb is not None:
+                    lines.append(verb)
+            else:
+                verb = _verb_line(width, glyph)
+                if verb is not None:
+                    lines.append(verb)
+                hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
+                lines.append(theme.dim(hint) if theme is not None else hint)
+        return "\n".join(lines)
+
     if header:
         print(theme.gray(header) if theme is not None else header, flush=True)
     try:
         sys.stdout.write("\x1b[?25l")  # hide cursor during in-place redraw
         sys.stdout.flush()
         while time.monotonic() < deadline:
-            # Drain new events to spot completion + the latest reviewer verdict.
+            # Drain new events to spot completion + the latest reviewer verdict,
+            # and feed the coalescer that powers the Ctrl+O reasoning pane.
             try:
                 with events_path.open("r", encoding="utf-8") as fh:
                     fh.seek(offset)
@@ -690,6 +909,7 @@ def follow_mission_live_roles(
                     continue
                 if not isinstance(ev, dict):
                     continue
+                coalescer.feed(ev)
                 t = str(ev.get("type") or "")
                 if t == "round.review.completed":
                     last_review = ev
@@ -697,6 +917,7 @@ def follow_mission_live_roles(
                     ev_item = str(ev.get("item_id") or "")
                     if not item_id or not ev_item or ev_item == str(item_id):
                         completed = ev
+            coalescer.flush_idle()  # settle a quiet streamed message into the pane
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
@@ -707,28 +928,46 @@ def follow_mission_live_roles(
             # desyncing the "move up N rows" erase (same class of bug fixed
             # for the idle-prompt panel via ``Theme.live_width``).
             width = theme.live_width() if theme is not None else 80
-            panel = render_roles_snapshot(
-                life_dir, theme, width=width,
-                header_right=spin_p + "  " + _daemon_right(),
-            )
-            n = panel.count("\n") + 1
+            block = _build_block(width, spin_p, spin)
+            n = block.count("\n") + 1
             if prev_lines:
                 # cursor up + clear to end of screen (robust against any wrap)
                 sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
-            sys.stdout.write(panel + "\n")
+            sys.stdout.write(block + "\n")
             sys.stdout.flush()
             prev_lines = n
             if completed is not None:
                 if last_review is not None:
                     completed.setdefault("_last_review", last_review)
                 return completed
-            time.sleep(tick)
+            # Wait up to `tick`, waking early on a keystroke so Ctrl+O is snappy.
+            if _kbd_fd is not None:
+                try:
+                    r, _, _ = _select.select([_kbd_fd], [], [], tick)
+                except (OSError, ValueError):
+                    r = []
+                if r:
+                    try:
+                        data = os.read(_kbd_fd, 64)
+                    except OSError:
+                        data = b""
+                    if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
+                        expanded = not expanded
+            else:
+                time.sleep(tick)
         return None
     except KeyboardInterrupt:
         note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
         return None
     finally:
+        coalescer.flush()
+        if _kbd_fd is not None and _kbd_old is not None:
+            try:
+                import termios
+                termios.tcsetattr(_kbd_fd, termios.TCSADRAIN, _kbd_old)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             sys.stdout.write("\x1b[?25h")  # restore cursor
             sys.stdout.flush()

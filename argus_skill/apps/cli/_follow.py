@@ -8,7 +8,7 @@ import re
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from ...core import paths as core_paths
 from .._inbox import format_inbox_event
@@ -154,6 +154,74 @@ def _format_follow_mission_context(
     return bits
 
 
+def _clip_follow_summary(text: str, limit: int = 240) -> str:
+    """Collapse whitespace and clip a long one-line summary cleanly: cut on a
+    word boundary and append a ``… (+N chars)`` hint instead of slicing a word
+    in half. ``ARGUS_SKILL_FOLLOW_FULL`` disables clipping (verbose/expand)."""
+    text = " ".join(str(text or "").split())
+    if os.environ.get("ARGUS_SKILL_FOLLOW_FULL", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        return text
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    sp = cut.rfind(" ")
+    if sp > int(limit * 0.6):
+        cut = cut[:sp]
+    remaining = len(text) - len(cut)
+    return cut.rstrip() + f" … (+{remaining} chars)"
+
+
+class _FollowCoalescer:
+    """Collapse streamed ``replace``+``message_id`` agent_message beats into a
+    single committed render — the standalone-``--follow`` counterpart of the
+    cockpit tail's ``_TailPrinter``. Driven by an ``emit(event)`` callback so
+    the caller keeps its own timestamp / connector formatting.
+
+    Commits the held message on: a new ``message_id``, any non-``replace``
+    event, an idle gap (``>= idle_commit_after`` seconds of stream silence), or
+    :meth:`flush`. Within one message it keeps the LONGEST ``text`` seen (the
+    backend ends with a full copy), so it converges on the complete message and
+    never sprays the dozens of mid-stream fragments a naive tail would.
+    """
+
+    def __init__(self, emit: "Callable[[dict], None]", *,
+                 idle_commit_after: float = 0.5) -> None:
+        self._emit = emit
+        self._mid: str | None = None
+        self._ev: dict | None = None
+        self._at: float = 0.0
+        self._idle_after = idle_commit_after
+
+    def _commit(self) -> None:
+        if self._ev is not None:
+            ev, self._ev, self._mid = self._ev, None, None
+            self._emit(ev)
+
+    def feed(self, event: dict) -> None:
+        mid = str(event.get("message_id") or "")
+        if bool(event.get("replace")) and mid:
+            if self._mid is not None and mid != self._mid:
+                self._commit()
+            if self._ev is None or len(str(event.get("text") or "")) >= len(
+                str(self._ev.get("text") or "")
+            ):
+                self._ev = event
+            self._mid = mid
+            self._at = time.monotonic()
+            return
+        self._commit()
+        self._emit(event)
+
+    def flush_idle(self) -> None:
+        if self._ev is not None and time.monotonic() - self._at >= self._idle_after:
+            self._commit()
+
+    def flush(self) -> None:
+        self._commit()
+
+
 def _format_follow_agent_message(layer: str, text: str) -> str:
     summary = _verification_summary(text)
     if summary:
@@ -180,7 +248,7 @@ def _format_follow_agent_message(layer: str, text: str) -> str:
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
             verdict = "project done" if done else f"queue {count} task(s)"
             return f"💭 planner verdict: {verdict}" + (f" · {reason}" if reason else "")
-    return "💭 " + _clean_follow_text(text, limit=240)
+    return "💭 " + _clip_follow_summary(_clean_follow_text(text, limit=None), 240)
 
 
 def _format_follow_command(event: dict) -> str:

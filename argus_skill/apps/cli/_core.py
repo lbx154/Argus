@@ -524,10 +524,65 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
     from ...cli.theme import Theme
     from ...core import log_view as lv
+    from ._follow import _FollowCoalescer
     state = lv.LogState()
     theme = Theme.auto()
     last_event_at = time.monotonic()
     last_heartbeat_at = 0.0
+
+    def _emit(ev: dict) -> None:
+        # Render + print exactly one committed event. Runs the stateful
+        # connector/timestamp advance ONCE per printed line (not per streamed
+        # beat), so coalesced messages don't desync the grouping connectors.
+        nonlocal current_layer, current_mission, last_event_at, last_heartbeat_at
+        current_layer = _follow_layer_from_event(ev, current_layer)
+        etype = str(ev.get("type") or "")
+        connector = lv.interior(state, lv.advance(state, etype, ev))
+        if etype in {"life.mission.started", "life.mission.completed"}:
+            item_id = str(ev.get("item_id") or current_mission.get("item_id") or "")
+            title = str(ev.get("title") or current_mission.get("title") or "")
+            objective = str(ev.get("objective") or current_mission.get("objective") or "")
+            if item_id:
+                row = _select_backlog_row_by_id(
+                    _read_backlog_rows(backlog_path), item_id
+                )
+                if row is not None:
+                    title = str(row.get("title") or title)
+                    objective = str(row.get("objective") or objective)
+            current_mission = {
+                "item_id": item_id,
+                "title": title,
+                "objective": objective,
+            }
+        body = _format_follow_event(
+            ev,
+            current_layer,
+            mission_context=current_mission,
+            theme=theme,
+        )
+        if not body:
+            return
+        ts_field = lv.format_timestamp(ev.get("ts"), state.prev_ts)
+        try:
+            state.prev_ts = float(ev.get("ts"))
+        except (TypeError, ValueError):
+            state.prev_ts = time.time()
+        if connector == lv.OPEN:
+            print(flush=True)  # blank line before a new mission / planner group
+        print(
+            lv.follow_line(
+                ts_field,
+                connector,
+                body,
+                width=theme.width,
+                paint_connector=(theme.dim if theme.enabled else None),
+            ),
+            flush=True,
+        )
+        last_event_at = time.monotonic()
+        last_heartbeat_at = 0.0
+
+    coalescer = _FollowCoalescer(_emit)
     try:
         while fh is None:
             try:
@@ -546,6 +601,8 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         while True:
             line = fh.readline()
             if not line:
+                # Settle a streamed message that has gone quiet, then idle.
+                coalescer.flush_idle()
                 time.sleep(0.5)
                 now = time.monotonic()
                 idle = now - last_event_at
@@ -573,54 +630,12 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 ev = _json.loads(line)
             except _json.JSONDecodeError:
                 continue
-            current_layer = _follow_layer_from_event(ev, current_layer)
-            etype = str(ev.get("type") or "")
-            connector = lv.interior(state, lv.advance(state, etype, ev))
-            if etype in {"life.mission.started", "life.mission.completed"}:
-                item_id = str(ev.get("item_id") or current_mission.get("item_id") or "")
-                title = str(ev.get("title") or current_mission.get("title") or "")
-                objective = str(ev.get("objective") or current_mission.get("objective") or "")
-                if item_id:
-                    row = _select_backlog_row_by_id(
-                        _read_backlog_rows(backlog_path), item_id
-                    )
-                    if row is not None:
-                        title = str(row.get("title") or title)
-                        objective = str(row.get("objective") or objective)
-                current_mission = {
-                    "item_id": item_id,
-                    "title": title,
-                    "objective": objective,
-                }
-            body = _format_follow_event(
-                ev,
-                current_layer,
-                mission_context=current_mission,
-                theme=theme,
-            )
-            if body:
-                ts_field = lv.format_timestamp(ev.get("ts"), state.prev_ts)
-                try:
-                    state.prev_ts = float(ev.get("ts"))
-                except (TypeError, ValueError):
-                    state.prev_ts = time.time()
-                if connector == lv.OPEN:
-                    print(flush=True)  # blank line before a new mission / planner group
-                print(
-                    lv.follow_line(
-                        ts_field,
-                        connector,
-                        body,
-                        width=theme.width,
-                        paint_connector=(theme.dim if theme.enabled else None),
-                    ),
-                    flush=True,
-                )
-                last_event_at = time.monotonic()
-                last_heartbeat_at = 0.0
+            coalescer.feed(ev)
     except KeyboardInterrupt:
+        coalescer.flush()
         print("\nargus-skill: stopped following", flush=True)
     finally:
+        coalescer.flush()
         if fh is not None:
             fh.close()
     return 0

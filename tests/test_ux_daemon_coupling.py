@@ -701,3 +701,144 @@ def test_tail_printer_prints_complete_lines_immediately():
         printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 world")
     # Both printed right away (nothing held back), in order.
     assert sink.getvalue() == "  [Engineer] 💭 hello\n  [Engineer] 💭 world\n"
+
+
+def _fmt_reviewer(event):
+    from argus_skill.apps.cli._follow import _format_follow_event
+    return _format_follow_event(event, "reviewer", theme=None)
+
+
+def test_tail_printer_flush_idle_never_commits_mid_stream():
+    """The 200-fragment reviewer dump came from ``flush_idle`` committing a
+    still-streaming message on every idle poll. ``flush_idle`` must ONLY settle
+    a message that has gone quiet for ``_idle_commit_after`` — an
+    actively-arriving stream (fresh ``_pending_at``) is never split."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "reviewer",
+            "replace": True, "message_id": mid,
+        }
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        printer.feed(ev("{", "m1"), "  [Reviewer] 💭 {")
+        printer.flush_idle()  # just arrived -> must NOT commit
+        printer.feed(ev('{"status":"done"', "m1"), "  [Reviewer] 💭 verdict")
+        printer.flush_idle()  # still fresh -> must NOT commit
+        assert sink.getvalue() == "", "flush_idle leaked a mid-stream fragment"
+        printer._pending_at -= 10.0  # simulate the stream going quiet
+        printer.flush_idle()         # now settle exactly ONE line
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1, f"expected one settled line, got {lines!r}"
+
+
+def test_tail_printer_coalesces_raw_delta_fragments():
+    """Real copilot/codex beats are RAW non-overlapping chunks plus a final full
+    copy (not growing prefixes). Keeping the LONGEST text per message_id must
+    still converge on the complete final message — one clean line, JSON parsed
+    into a verdict, no raw JSON guts."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "reviewer",
+            "replace": True, "message_id": mid,
+        }
+
+    beats = [
+        ev("{", "m1"),
+        ev('"status":"done","reason":"re-ran', "m1"),
+        ev(" the check myself", "m1"),
+        ev('{"status":"done","reason":"re-ran the check myself and confirmed"}', "m1"),
+    ]
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        for b in beats:
+            printer.feed(b, _fmt_reviewer(b))
+        printer.flush()
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1, f"expected one coalesced line, got {lines!r}"
+    assert "reviewer verdict: done" in lines[0]
+    assert "{" not in lines[0], "raw JSON leaked into the committed line"
+
+
+def test_clip_follow_summary_cuts_on_word_boundary_with_count():
+    """Long agent_message text must be clipped cleanly (word boundary + a
+    ``(+N chars)`` hint), not sliced mid-word with a bare ``…``."""
+    from argus_skill.apps.cli._follow import _clip_follow_summary
+
+    text = "alpha beta gamma delta " * 40  # ~920 chars
+    out = _clip_follow_summary(text, 240)
+    assert out.endswith("chars)"), out
+    assert "…" in out
+    head = out.split(" … (+")[0]
+    assert head.split()[-1] in {"alpha", "beta", "gamma", "delta"}, \
+        f"cut mid-word: {head[-12:]!r}"
+    assert _clip_follow_summary("short and sweet", 240) == "short and sweet"
+
+
+def test_live_roles_panel_feeds_coalescer_and_returns_completion(tmp_path):
+    """The role panel now also drains events into the Ctrl+O reasoning-pane
+    coalescer. In a non-TTY context (no keyboard, pane hidden) it must still
+    render the panel and return the mission's completion — i.e. the new
+    coalescer.feed path never breaks the existing dashboard/return contract."""
+    import io
+    import json
+    import contextlib
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        json.dumps({
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": '{"status":"done","reason":"ok"}', "agent_layer": "reviewer",
+            "replace": True, "message_id": "r1", "item_id": "it1",
+        }) + "\n"
+        + json.dumps({"type": "life.mission.completed", "item_id": "it1",
+                      "status": "done"}) + "\n",
+        encoding="utf-8",
+    )
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        result = follow_mission_live_roles(tmp_path, "it1", theme=None, timeout=5.0)
+    assert result is not None and result.get("type") == "life.mission.completed"
+    assert "roles" in sink.getvalue()  # the dashboard rendered
+
+
+def test_wrap_plain_is_width_aware_and_lossless():
+    """The reasoning pane must NOT truncate: _wrap_plain word-wraps to the
+    display width (CJK = 2 cols), hard-breaks an over-long token, and loses no
+    characters — so a long thought is fully readable across rows."""
+    import unicodedata
+    from argus_skill.manager.repl import _wrap_plain
+
+    def dispw(s):
+        return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+                   for c in s)
+
+    en = "alpha beta gamma delta epsilon zeta eta theta iota kappa " * 3
+    rows = _wrap_plain(en, 40)
+    assert all(dispw(r) <= 40 for r in rows), [dispw(r) for r in rows]
+    # word-boundary: no row ends by splitting a word it could have kept whole
+    assert len(rows) > 1
+
+    cjk = "判断任务归属然后决定交给哪个角色处理这个二十四乘七的长期任务并持续运行下去"
+    crows = _wrap_plain(cjk, 20)
+    assert all(dispw(r) <= 20 for r in crows), [dispw(r) for r in crows]
+    # lossless: every CJK char survives (ignoring the continuation indent spaces)
+    assert "".join(r.strip() for r in crows) == cjk
+
+    # Short text passes through untouched.
+    assert _wrap_plain("hi there", 40) == ["hi there"]
