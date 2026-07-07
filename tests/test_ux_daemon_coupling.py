@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pytest
 from unittest.mock import patch
 
 from argus_skill.life import MemoryBundle
@@ -362,3 +363,99 @@ def test_free_text_cmd_end_to_end_auto_promotes_standing_task(tmp_path, capsys, 
     assert continuous["objective"] == body
     # BOUNDED path untouched: no backlog item was created for this objective.
     assert mem.backlog.all() == []
+
+
+# ---- follow-panel animation: no dead/frozen window while observing ---------
+
+def test_follow_mission_live_roles_animates_spinner(tmp_path, capsys):
+    """The live four-role panel must visibly ANIMATE while it waits for the
+    daemon's first event — otherwise the pre-first-event window looks frozen
+    ("无动画空窗期 / 卡住"). Assert several DISTINCT braille frames are drawn
+    over a short observe window that never sees a completion event."""
+    from argus_skill.cli.live_status import FRAMES
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    # No events.jsonl completion → the loop just refreshes until it times out.
+    final = follow_mission_live_roles(
+        tmp_path, item_id="nope", theme=None, timeout=0.5,
+    )
+    assert final is None  # timed out without a completion, daemon keeps running
+
+    out = capsys.readouterr().out
+    # At least two DIFFERENT spinner frames must have been drawn (proves the
+    # header spinner advanced across refreshes instead of a static panel).
+    frames_seen = {ch for ch in FRAMES if ch in out}
+    assert len(frames_seen) >= 2, f"spinner did not animate; frames seen={frames_seen!r}"
+
+def test_with_manager_spinner_runs_fn_exactly_once():
+    """The TEAM-handoff spinner helper wraps a blocking model call
+    (``Manager.divide`` / daemon auto-spawn). It MUST run ``fn`` exactly once
+    (a naive try/except spinner would re-run ``fn`` on error — a double model
+    call) and return its value. theme=None → animation is a no-op, logic same."""
+    from argus_skill.manager.repl import _with_manager_spinner
+
+    calls = []
+
+    def _fn():
+        calls.append(1)
+        return "vertical:research"
+
+    result = _with_manager_spinner(None, "Manager choosing the vertical…", _fn)
+    assert result == "vertical:research"
+    assert calls == [1]  # exactly once — never re-invoked
+
+
+def test_with_manager_spinner_propagates_fn_error_without_rerun():
+    """An exception raised by ``fn`` must propagate unchanged and ``fn`` must
+    NOT be retried (guards the double-execution bug: a blocking model call
+    running twice on failure)."""
+    from argus_skill.manager.repl import _with_manager_spinner
+
+    calls = []
+
+    def _boom():
+        calls.append(1)
+        raise RuntimeError("vertical decision failed")
+
+    with pytest.raises(RuntimeError, match="vertical decision failed"):
+        _with_manager_spinner(None, "Manager choosing the vertical…", _boom)
+    assert calls == [1]  # ran once, not retried by the spinner wrapper
+
+def test_tail_wait_spinner_animates_and_clears():
+    """The passive event tail is the DEFAULT follow path; without an indicator
+    its idle gaps are a frozen blinking cursor ("只有光标闪烁没有内容"). The
+    spinner must paint a braille glyph + an -ing phrase on tick() and erase it
+    on clear() so a real event line prints on a clean line."""
+    import io
+    from argus_skill.manager.repl import _TailWaitSpinner
+    from argus_skill.cli.live_status import FRAMES
+
+    buf = io.StringIO()
+    spin = _TailWaitSpinner(theme=None, stream=buf, enabled=True)
+    spin.tick()
+    spin.tick()
+    out = buf.getvalue()
+    assert any(f in out for f in FRAMES), "no braille frame painted"
+    assert "…" in out and any(
+        v in out for v in ("Thinking", "Planning", "Waiting", "Working",
+                            "Reasoning", "Analyzing", "Reviewing")
+    ), "no -ing phrase painted"
+    assert "\x1b[2K" in out, "spinner did not use an in-place erase"
+
+    buf.truncate(0); buf.seek(0)
+    spin.clear()
+    assert "\x1b[2K" in buf.getvalue(), "clear() did not erase the status line"
+
+
+def test_tail_wait_spinner_is_noop_when_disabled():
+    """No-op on non-TTY / piped / NO_COLOR: writes NOTHING, so the scrolling
+    tail's captured (piped) output stays byte-for-byte unchanged."""
+    import io
+    from argus_skill.manager.repl import _TailWaitSpinner
+
+    buf = io.StringIO()
+    spin = _TailWaitSpinner(theme=None, stream=buf, enabled=False)
+    spin.tick()
+    spin.tick()
+    spin.clear()
+    assert buf.getvalue() == "", "disabled spinner must not write anything"
