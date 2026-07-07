@@ -220,6 +220,24 @@ _TAIL_ROLE_VERBS: dict[str, str] = {
 }
 
 
+def _tail_spin_interval() -> float:
+    """The single, shared braille-frame cadence for EVERY spinner in the CLI.
+
+    All braille circles must advance at one frequency (the ``LiveStatus``
+    canonical ~12 fps); the passive tails used to poll-sleep 0.4 s between
+    ticks, so their glyph crawled at ~2.5 fps and looked visibly slower than
+    the manager/live-panel spinners. Source the rate from ``live_status`` so
+    there is one source of truth."""
+    try:
+        from ..cli.live_status import _INTERVAL
+        return max(0.02, float(_INTERVAL))
+    except Exception:  # noqa: BLE001 — the spinner must never break observing
+        return 0.08
+
+
+_TAIL_SPIN_INTERVAL = _tail_spin_interval()
+
+
 class _TailWaitSpinner:
     """A manually-ticked, single-line braille spinner for the scrolling event
     tails (:func:`tail_mission_events` / :func:`_follow_events_stream`).
@@ -455,11 +473,11 @@ def tail_mission_events(
                     offset = fh.tell()
             except FileNotFoundError:
                 spinner.tick()
-                _sleep_until(deadline, 0.4)
+                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
                 continue
             except OSError:
                 spinner.tick()
-                _sleep_until(deadline, 0.4)
+                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
                 continue
 
             saw_event = False
@@ -527,7 +545,7 @@ def tail_mission_events(
             if not saw_event:
                 printer.flush_idle()
                 spinner.tick()
-                _sleep_until(deadline, 0.4)
+                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
         printer.flush()
         spinner.clear()
         return None
@@ -586,10 +604,10 @@ def follow_mission_live_roles(
     except Exception:  # noqa: BLE001 — the spinner must never break observing
         _SPIN_FRAMES = "|/-\\"
     frame_i = 0
-    # Animate at ~8 fps regardless of the (slower) event-drain cadence so the
-    # spinner is smooth; each tick still drains events, so completion detection
-    # stays responsive.
-    tick = min(max(0.05, float(interval)), 0.12)
+    # Animate at the ONE shared braille cadence (see _TAIL_SPIN_INTERVAL) so
+    # every spinner in the CLI spins at an identical frequency; each tick still
+    # drains events, so completion detection stays responsive.
+    tick = _TAIL_SPIN_INTERVAL
 
     def _daemon_right() -> str:
         try:
@@ -901,7 +919,7 @@ def _follow_events_stream(
                 fh.seek(0, os.SEEK_END)
             except FileNotFoundError:
                 spinner.tick()
-                time.sleep(0.4)
+                time.sleep(_TAIL_SPIN_INTERVAL)
             except OSError:
                 return None
         while True:
@@ -909,7 +927,7 @@ def _follow_events_stream(
             if not line:
                 printer.flush_idle()
                 spinner.tick()
-                time.sleep(0.4)
+                time.sleep(_TAIL_SPIN_INTERVAL)
                 # Re-open on rotation (events.jsonl → events.jsonl.1).
                 try:
                     if events_path.stat().st_ino != os.fstat(fh.fileno()).st_ino:
