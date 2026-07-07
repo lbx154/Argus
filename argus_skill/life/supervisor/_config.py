@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -32,6 +33,59 @@ class MissionBudget:
         return self.cap_usd > 0 and self.spent() >= self.cap_usd
 
 
+def _local_day_start(now: float) -> float:
+    local = time.localtime(now)
+    return time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
+
+
+def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
+    """Total journaled spend across all projects since local midnight."""
+    now = time.time() if now is None else float(now)
+    day_start = _local_day_start(now)
+    if global_root is None:
+        from ...core.paths import global_root as resolve_global_root
+
+        root = resolve_global_root()
+    else:
+        root = Path(global_root).expanduser()
+    projects_dir = root / "projects"
+    try:
+        project_dirs = sorted(p for p in projects_dir.iterdir() if p.is_dir())
+    except OSError:
+        return 0.0
+
+    total = 0.0
+    for project_dir in project_dirs:
+        for journal_path in (
+            project_dir / "journal.jsonl",
+            project_dir / "journal.jsonl.1",
+        ):
+            try:
+                if not journal_path.exists():
+                    continue
+                with journal_path.open("r", encoding="utf-8") as fh:
+                    for raw in fh:
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        try:
+                            row = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(row, dict):
+                            continue
+                        try:
+                            ts = float(row.get("ts", 0.0))
+                            cost = float(row.get("cost_usd", 0.0))
+                        except (TypeError, ValueError):
+                            continue
+                        if ts >= day_start:
+                            total += cost
+            except OSError:
+                continue
+    return total
+
+
 @dataclass
 class LifeBudget:
     """Layered cost / iteration limits.
@@ -58,22 +112,21 @@ class LifeBudget:
       to cost (sum of engineer + reviewer + author tokens × prices).
     - ``daily_cap_usd``: ceiling on summed cost of mission entries in
       ``journal.jsonl`` whose timestamp falls in the current local day.
+    - ``global_daily_cap_usd``: optional ceiling on summed cost across ALL
+      project journals under the global root for the current local day.
     - ``max_missions``: hard cap on missions run by THIS supervisor
       process (resets per ``LifeSupervisor`` instance).
     """
 
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
+    global_daily_cap_usd: float = 0.0
     max_missions: int = 6
 
     def remaining_today(self, journal: Journal, *, now: float | None = None) -> float:
         """USD remaining in today's budget."""
         now = now if now is not None else time.time()
-        # Local day start.
-        local = time.localtime(now)
-        day_start = time.mktime(
-            (local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)
-        )
+        day_start = _local_day_start(now)
         spent = journal.total_cost_since(day_start)
         return max(0.0, float(self.daily_cap_usd) - float(spent))
 
@@ -111,6 +164,14 @@ class LifeBudget:
                 f"daily budget remaining ${remain:.2f} < "
                 f"effective mission cap ${effective_cap:.2f}"
             )
+        global_cap = float(self.global_daily_cap_usd or 0.0)
+        if global_cap > 0:
+            spent = global_daily_spend(now=now)
+            if spent + effective_cap > global_cap:
+                return False, (
+                    f"global daily spend ${spent:.2f} + effective mission cap "
+                    f"${effective_cap:.2f} would exceed global daily cap ${global_cap:.2f}"
+                )
         return True, ""
 
 @dataclass

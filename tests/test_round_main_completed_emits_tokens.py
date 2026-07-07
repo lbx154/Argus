@@ -26,20 +26,21 @@ from argus_skill.core.models import (
     ReviewDecision,
     RunnerResult,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 
 
 class _TokenedEngineer:
     """Engineer runner that returns deterministic token counts."""
 
-    def __init__(self, in_tok: int, out_tok: int) -> None:
+    def __init__(self, in_tok: int, out_tok: int, reasoning_out_tok: int = 0) -> None:
         self._in = in_tok
         self._out = out_tok
+        self._reasoning_out = reasoning_out_tok
         self.calls = 0
 
     def run_exec(self, **kwargs):  # noqa: D401
@@ -50,15 +51,17 @@ class _TokenedEngineer:
             input_tokens=self._in,
             cached_input_tokens=self._in // 10,
             output_tokens=self._out,
+            reasoning_output_tokens=self._reasoning_out,
         )
 
 
 class _DoneReviewerWithTokens:
     """Reviewer stub that fakes a 'done' verdict and propagates tokens."""
 
-    def __init__(self, in_tok: int, out_tok: int) -> None:
+    def __init__(self, in_tok: int, out_tok: int, reasoning_out_tok: int = 0) -> None:
         self._in = in_tok
         self._out = out_tok
+        self._reasoning_out = reasoning_out_tok
 
     def evaluate(self, **_kwargs):
         return ReviewDecision(
@@ -69,6 +72,7 @@ class _DoneReviewerWithTokens:
             completion_summary_markdown="",
             input_tokens=self._in,
             output_tokens=self._out,
+            reasoning_output_tokens=self._reasoning_out,
         )
 
 
@@ -82,8 +86,8 @@ def _make_supervised(eng: _TokenedEngineer, rev) -> SupervisedEngineer:
 
 
 def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> None:
-    eng = _TokenedEngineer(in_tok=12000, out_tok=345)
-    rev = _DoneReviewerWithTokens(in_tok=200, out_tok=50)
+    eng = _TokenedEngineer(in_tok=12000, out_tok=345, reasoning_out_tok=111)
+    rev = _DoneReviewerWithTokens(in_tok=200, out_tok=50, reasoning_out_tok=22)
     se = _make_supervised(eng, rev)
 
     events: list[dict] = []
@@ -109,12 +113,14 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
     assert main_evts[0]["input_tokens"] == 12000
     assert main_evts[0]["cached_input_tokens"] == 1200
     assert main_evts[0]["output_tokens"] == 345
+    assert main_evts[0]["reasoning_output_tokens"] == 111
 
     assert review_start_evts[0]["round_max"] == 1
     assert len(review_evts) == 1
     assert review_evts[0]["round_max"] == 1
     assert review_evts[0]["input_tokens"] == 200
     assert review_evts[0]["output_tokens"] == 50
+    assert review_evts[0]["reasoning_output_tokens"] == 22
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +151,7 @@ class _StubReviewerRunner:
             input_tokens=self._in,
             cached_input_tokens=self._in // 10,
             output_tokens=self._out,
+            reasoning_output_tokens=self._out // 2,
         )
 
 
@@ -168,6 +175,7 @@ def test_reviewer_propagates_tokens_on_empty_messages() -> None:
     assert decision.input_tokens == 42
     assert decision.cached_input_tokens == 4
     assert decision.output_tokens == 7
+    assert decision.reasoning_output_tokens == 3
 
 
 def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
@@ -203,6 +211,7 @@ def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
     assert "response.failed" in decision.reason
     assert decision.input_tokens == 42
     assert decision.output_tokens == 7
+    assert decision.reasoning_output_tokens == 3
 
 
 def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
@@ -224,6 +233,7 @@ def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
     assert decision.input_tokens == 33
     assert decision.cached_input_tokens == 3
     assert decision.output_tokens == 4
+    assert decision.reasoning_output_tokens == 2
 
 
 def test_reviewer_propagates_tokens_on_valid_json() -> None:
@@ -247,6 +257,7 @@ def test_reviewer_propagates_tokens_on_valid_json() -> None:
     assert decision.input_tokens == 77
     assert decision.cached_input_tokens == 7
     assert decision.output_tokens == 9
+    assert decision.reasoning_output_tokens == 4
 
 
 def test_reviewer_runner_exception_returns_blocked_decision() -> None:

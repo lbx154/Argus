@@ -174,6 +174,100 @@ def test_continuous_user_task_arms_planner_not_direct_engineer_item(
     assert continuous["objective"] == "build an autonomous research report"
 
 
+# ---- T3: Manager auto-judges BOUNDED vs STANDING so the operator never has
+# to type --continuous --objective for open-ended chat tasks ---------------
+
+def test_auto_promote_to_continuous_arms_continuous_mode_for_standing_task(
+    tmp_path, monkeypatch
+):
+    """A plain chat task Manager judges open-ended ("optimize as many kernels
+    as possible") is auto-armed as a standing campaign — same effect as typing
+    ``/continuous start <objective>``, but without the operator ever having to
+    know that command (or pass --continuous --objective) exists."""
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-standing001")
+    mem.init()
+
+    class _FakeRunner:
+        def classify_needs_continuous(self, objective: str) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        manager_repl, "_ensure_manager_runner", lambda chat_state, mem_: _FakeRunner()
+    )
+
+    chat_state: dict[str, object] = {"backend": "codex"}
+    body = "optimize as many kernels as possible, keep going until none are left"
+    promoted = manager_repl._maybe_auto_promote_to_continuous(mem, body, chat_state, None)
+
+    assert promoted is True
+    assert chat_state["config"]["continuous"] is True
+    assert chat_state["continuous_objective"] == body
+    continuous = json.loads((mem.project.root / "continuous.json").read_text())
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == body
+
+
+def test_auto_promote_to_continuous_leaves_bounded_task_unchanged(tmp_path, monkeypatch):
+    """A well-scoped task with a natural finish line stays on the normal
+    bounded (one-shot backlog) path — continuous.json is never written."""
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-bounded001")
+    mem.init()
+
+    class _FakeRunner:
+        def classify_needs_continuous(self, objective: str) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        manager_repl, "_ensure_manager_runner", lambda chat_state, mem_: _FakeRunner()
+    )
+
+    chat_state: dict[str, object] = {"backend": "codex"}
+    promoted = manager_repl._maybe_auto_promote_to_continuous(
+        mem, "fix the flaky test in test_foo.py", chat_state, None
+    )
+
+    assert promoted is False
+    assert "continuous" not in chat_state.get("config", {})
+    assert not (mem.project.root / "continuous.json").exists()
+
+
+def test_auto_promote_to_continuous_fails_soft_without_runner(tmp_path, monkeypatch):
+    """Memory backend / build failure -> no runner -> stays bounded, never
+    crashes the free-text path."""
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-norunner001")
+    mem.init()
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda chat_state, mem_: None)
+
+    chat_state: dict[str, object] = {"backend": "memory"}
+    promoted = manager_repl._maybe_auto_promote_to_continuous(
+        mem, "optimize as many kernels as possible", chat_state, None
+    )
+    assert promoted is False
+
+
+def test_auto_promote_to_continuous_fails_soft_on_classify_error(tmp_path, monkeypatch):
+    """A classify hiccup must never force an expensive 7x24 campaign."""
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-classifyerr001")
+    mem.init()
+
+    class _BoomRunner:
+        def classify_needs_continuous(self, objective: str) -> bool:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        manager_repl, "_ensure_manager_runner", lambda chat_state, mem_: _BoomRunner()
+    )
+
+    chat_state: dict[str, object] = {"backend": "codex"}
+    promoted = manager_repl._maybe_auto_promote_to_continuous(mem, "anything", chat_state, None)
+    assert promoted is False
+    assert not (mem.project.root / "continuous.json").exists()
+
+
 # ---- T2: honest messaging + no freeze when no daemon ---------------------
 
 def test_no_executor_notice_is_honest_and_actionable():
@@ -230,3 +324,41 @@ def test_free_text_with_daemon_attaches_and_shows_pid(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "pid 4242" in out  # honest: shows the real executor
     assert "NO daemon" not in out
+
+
+def test_free_text_cmd_end_to_end_auto_promotes_standing_task(tmp_path, capsys, monkeypatch):
+    """Full wiring check: a bare ``argus`` chat task that Manager judges
+    open-ended flows through ``_free_text_cmd`` straight into the SAME
+    continuous hand-off the operator would get from
+    ``--continuous --objective`` — with no daemon restart and no manual flags."""
+    mem = LifeMemory.open(root=tmp_path)
+
+    class _FakeRunner:
+        def chat_reply_if_conversational(self, **kwargs):
+            return False  # TEAM: not a chat reply
+
+        def classify_needs_continuous(self, objective: str) -> bool:
+            return True
+
+    def fake_follow(life_dir, **kwargs):
+        return {"type": "life.mission.completed", "status": "success", "cost_usd": 0.0}
+
+    monkeypatch.setattr(
+        manager_repl, "_ensure_manager_runner", lambda chat_state, mem_: _FakeRunner()
+    )
+    monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (True, 4242))
+    monkeypatch.setattr(manager_repl, "_follow_events_stream", fake_follow)
+
+    chat_state: dict[str, object] = {"backend": "codex"}
+    body = "optimize as many kernels as possible"
+    manager_repl._free_text_cmd(mem, body, chat_state)
+
+    out = capsys.readouterr().out
+    assert "objective handed to Planner" in out
+    assert "continuous" in out
+    assert chat_state["config"]["continuous"] is True
+    continuous = json.loads((tmp_path / "continuous.json").read_text())
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == body
+    # BOUNDED path untouched: no backlog item was created for this objective.
+    assert mem.backlog.all() == []

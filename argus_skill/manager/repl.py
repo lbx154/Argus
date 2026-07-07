@@ -70,10 +70,84 @@ log = logging.getLogger(__name__)
 #: Slash commands surfaced to completion + the command palette + /help. (label,
 #: one-line help). The dispatcher in ``dispatch_command`` is the source of truth;
 #: this list mirrors it for the UI. Keep in sync when adding a command.
+#:
+#: A description of ``"alias of /x"`` marks a pure alias: ``_help_command_rows``
+#: folds it into ``/x``'s row instead of listing it separately, so /help stays
+#: readable while every real spelling still completes and is matched by the
+#: unknown-command "did you mean" hint.
 SLASH_COMMANDS: list[tuple[str, str]] = [
-    ("/help", "show the one-mode cockpit help"),
-    ("/exit", "leave"),
+    ("/help", "show this command reference"),
+    ("/commands", "alias of /help"),
+    ("/status", "overall state: daemon, four roles, backlog, journal summary"),
+    ("/roles", "live manager/planner/engineer/reviewer status + backend/model"),
+    ("/journal", "recent task journal entries (/journal N for more, default 10)"),
+    ("/backlog", "pending tasks (/backlog all to include done/skipped)"),
+    ("/add", "queue a task: /add <objective> [--once] [--cycles=N] [--budget=$X]"),
+    ("/plan", "preview how an objective would be broken down, without queuing it"),
+    ("/stop", "stop a task's auto-continue: /stop <item_id>"),
+    ("/done", "mark a task done: /done <item_id>"),
+    ("/skip", "alias of /done"),
+    ("/rm", "alias of /done"),
+    ("/note", "append a note to the journal: /note <text>"),
+    ("/nudge", "inject guidance into the running task: /nudge <message>"),
+    ("/inject", "alias of /nudge"),
+    ("/notify", "alias of /nudge"),
+    ("/run", "attach and live-follow the daemon draining the backlog"),
+    ("/daemon", "control this cockpit's executor: /daemon [start|stop|status]"),
+    ("/daemons", "list every live daemon across all projects"),
+    ("/attach", "read-only follow another project's daemon: /attach <session-id>"),
+    ("/doctor", "diagnose + fix \"why isn't anything running\""),
+    ("/backend", "view/change the runner backend"),
+    ("/config", "view/change this session's defaults (cycles, budget, effort...)"),
+    ("/continuous", "manage auto-generate-new-work mode: /continuous [start|stop|status]"),
+    ("/start", "shortcut for /continuous start <objective>"),
+    ("/identity", "view/edit the operator identity card"),
+    ("/reset", "drop the carried session thread; the next turn starts fresh"),
+    ("/skills", "inspect/promote a skill: /skills [ls|promote <name>]"),
+    ("/exit", "leave the cockpit (also: Ctrl-D, `退出`)"),
 ]
+
+#: Grouping of the *primary* (non-alias) commands above, purely for /help
+#: layout. Any command missing here still shows up (see ``_help_command_rows``)
+#: so a forgotten entry degrades to "unsorted", never to "invisible".
+_HELP_SECTIONS: list[tuple[str, tuple[str, ...]]] = [
+    ("日常查看", ("/status", "/roles", "/journal", "/backlog")),
+    ("任务管理", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
+    ("daemon 与诊断", ("/daemon", "/daemons", "/attach", "/doctor")),
+    ("配置", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
+    ("其它", ("/help", "/exit")),
+]
+
+
+def _help_command_rows() -> dict[str, tuple[str, str]]:
+    """Fold alias rows (``"alias of /x"``) from ``SLASH_COMMANDS`` into their
+    primary command. Returns ``{primary_cmd: (display_label, description)}``,
+    where ``display_label`` includes any aliases (e.g. ``"/done (= /skip, /rm)"``).
+    """
+    aliases: dict[str, list[str]] = {}
+    primaries: dict[str, str] = {}
+    for cmd, desc in SLASH_COMMANDS:
+        if desc.startswith("alias of "):
+            aliases.setdefault(desc[len("alias of "):].strip(), []).append(cmd)
+        else:
+            primaries[cmd] = desc
+    rows: dict[str, tuple[str, str]] = {}
+    for cmd, desc in primaries.items():
+        extra = aliases.get(cmd)
+        label = f"{cmd}  (= {', '.join(extra)})" if extra else cmd
+        rows[cmd] = (label, desc)
+    return rows
+
+
+def _closest_slash_command(cmd: str) -> str | None:
+    """Best-effort "did you mean" suggestion for an unrecognized slash command,
+    matched against every real spelling in ``SLASH_COMMANDS`` (aliases
+    included) so a mistyped alias still resolves to a useful hint."""
+    import difflib
+
+    names = [c for c, _ in SLASH_COMMANDS]
+    matches = difflib.get_close_matches(cmd.lower(), names, n=1, cutoff=0.5)
+    return matches[0] if matches else None
 
 
 
@@ -433,7 +507,7 @@ def read_message_with_live_cockpit(
     if rows < 16:
         return read_pasted_message(prompt)
 
-    hint = ("直接开始输入即可对话 · Ctrl-C 刷新 · Ctrl-D 退出"
+    hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
 
     def _block() -> str:
@@ -776,7 +850,7 @@ def _maybe_handle_role_effort_text(
 
     theme = chat_state.get("theme")
     role_names = " / ".join(role.title() for role in roles)
-    line = f"已把 {role_names} 默认 reasoning effort 设为 {effort}。"
+    line = f"Set {role_names} default reasoning effort to {effort}."
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
 
     try:
@@ -784,7 +858,239 @@ def _maybe_handle_role_effort_text(
 
         st = read_daemon_status(_life_dir_for(mem))
         if getattr(st, "alive", False):
-            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+_ROLE_BACKEND_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
+    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
+    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
+    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
+}
+# Recognized agent CLIs. Checked in order; first alias match wins.
+_BACKEND_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "claude": ("claude code", "claude-code", "claude"),
+    "copilot": ("github copilot", "copilot"),
+    "codex": ("codex",),
+}
+_BACKEND_SWITCH_VERBS = (
+    "换", "切", "改", "设置", "设为", "默认",
+    "switch", "change", "set", "use", "配置",
+)
+
+
+def _maybe_handle_backend_switch_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle "switch the CLI backend to X" free text before it becomes work.
+
+    Mirrors ``_maybe_handle_role_effort_text``: a conservative recognizer that
+    only fires when the text names one of the supported agent CLIs (codex /
+    claude / copilot) AND a configuration verb AND either a role name, the
+    word "后端"/"backend", or "默认" — so ordinary chat that merely mentions
+    "copilot" or "codex" in passing is never misread as a config change.
+
+    Flips ``ARGUS_SKILL_RUNNER_BACKEND`` (all roles) or a single role's
+    ``ARGUS_SKILL_<ROLE>_BACKEND`` for THIS process only — the same
+    env-var contract ``_runtime._SkillLoopRunner`` already reads. The running
+    daemon is a separate process with its own environment snapshot, so it
+    keeps the old backend until restarted (``/daemon restart --drain`` or its
+    natural-language equivalent).
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    backend = next(
+        (
+            name
+            for name, aliases in _BACKEND_VALUE_ALIASES.items()
+            if any(alias in low for alias in aliases)
+        ),
+        "",
+    )
+    if not backend:
+        return False
+    if not any(tok in low for tok in _BACKEND_SWITCH_VERBS):
+        return False
+    roles: list[str] = []
+    for role, aliases in _ROLE_ALIASES.items():
+        if any(alias in low for alias in aliases):
+            roles.append(role)
+    generic = any(
+        tok in low
+        for tok in ("后端", "backend", "默认", "所有角色", "全部角色", "all roles", "every role")
+    )
+    if not roles and not generic:
+        return False
+
+    from ..agent_cli.runner_backend import normalize_runner_backend
+
+    normalized = normalize_runner_backend(backend)
+    theme = chat_state.get("theme")
+    if roles:
+        for role in roles:
+            os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
+        role_names = " / ".join(role.title() for role in roles)
+        line = f"Set {role_names} CLI backend to {normalized}."
+    else:
+        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
+        line = (
+            f"Set Argus default CLI backend to {normalized} "
+            "(roles without their own backend follow)."
+        )
+
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg["runner_backend"] = normalized
+    # The cached front-door runner captured the old backend; rebuild it so
+    # subsequent chat/simple turns also use the new one.
+    chat_state.pop("manager_runner", None)
+
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+_ROLE_MODEL_ENVS: dict[str, str] = {
+    # Manager REPL triage reuses the engineer route/model (see
+    # ``_ensure_manager_runner`` and ``cli.roles_status._ROLE_MODEL_ENV``).
+    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "planner": "ARGUS_SKILL_PLAN_MODEL",
+    "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
+    "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
+}
+# Known model ids per backend, as of this build. Not exhaustive — any model
+# the underlying CLI supports already works via ARGUS_SKILL_<ROLE>_MODEL /
+# ARGUS_SKILL_MODEL (agent_cli_runner passes --model straight through with no
+# whitelist); this table only bounds what natural language can RECOGNIZE, so
+# an unlisted model name still falls through untouched to the task/chat path
+# instead of being silently mismatched.
+_MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5"),
+    "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6"),
+    "claude-sonnet-4.5": ("claude-sonnet-4.5", "claude sonnet 4.5"),
+    "claude-haiku-4.5": ("claude-haiku-4.5", "claude haiku 4.5", "haiku"),
+    "claude-opus-4.8": ("claude-opus-4.8", "claude opus 4.8"),
+    "claude-opus-4.7": ("claude-opus-4.7", "claude opus 4.7"),
+    "claude-opus-4.6": ("claude-opus-4.6", "claude opus 4.6"),
+    "gpt-5.5": ("gpt-5.5", "gpt5.5"),
+    "gpt-5.4": ("gpt-5.4", "gpt5.4"),
+    "gpt-5.3-codex": ("gpt-5.3-codex", "gpt-5.3 codex", "gpt5.3-codex"),
+    "gpt-5.4-mini": ("gpt-5.4-mini", "gpt-5.4 mini", "gpt5.4-mini"),
+    "gpt-5-mini": ("gpt-5-mini", "gpt-5 mini", "gpt5-mini"),
+    "gemini-3.1-pro-preview": (
+        "gemini-3.1-pro-preview", "gemini 3.1 pro", "gemini-3.1-pro",
+    ),
+    "gemini-3.5-flash": ("gemini-3.5-flash", "gemini 3.5 flash"),
+    "mai-code-1-flash-picker": (
+        "mai-code-1-flash-picker", "mai-code-1-flash", "mai code",
+    ),
+}
+_MODEL_SWITCH_VERBS = _BACKEND_SWITCH_VERBS  # same verb vocabulary as backend switch
+
+
+def _maybe_handle_model_switch_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle "switch the model to X" free text before it becomes work.
+
+    Same conservative shape as ``_maybe_handle_backend_switch_text``: fires
+    only when the text names a known model id AND a configuration verb AND
+    either a role name or "模型"/"model"/"默认" — so a message that just
+    happens to mention a model name is never misread as a config change.
+    Runs AFTER the backend-switch recognizer, so "换成 claude 后端" is still
+    a backend switch, not a (non-matching) model one — only phrases that
+    fail the backend recognizer's checks (e.g. name a full model id and say
+    "模型") reach here.
+
+    Sets ARGUS_SKILL_<ROLE>_MODEL for a named role, or the shared
+    ARGUS_SKILL_MODEL (every role, unless a role already pins its own) when
+    no role is named — the same env-var contract ``cli.roles_status``
+    already resolves. This is how an operator on the copilot backend picks
+    any model Copilot supports (claude/gpt/gemini/...), not just the
+    gpt-5.5 default — the CLI plumbing already forwards --model verbatim
+    with no whitelist; this recognizer just makes picking one a one-liner.
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    # Pick the LONGEST matching alias across all models, not the first dict
+    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
+    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
+    model = ""
+    best_len = 0
+    for name, aliases in _MODEL_VALUE_ALIASES.items():
+        for alias in aliases:
+            if alias in low and len(alias) > best_len:
+                model, best_len = name, len(alias)
+    if not model:
+        return False
+    if not any(tok in low for tok in _MODEL_SWITCH_VERBS):
+        return False
+    roles: list[str] = []
+    for role, aliases in _ROLE_ALIASES.items():
+        if any(alias in low for alias in aliases):
+            roles.append(role)
+    generic = any(
+        tok in low
+        for tok in ("模型", "model", "默认", "所有角色", "全部角色", "all roles", "every role")
+    )
+    if not roles and not generic:
+        return False
+
+    theme = chat_state.get("theme")
+    if roles:
+        seen_envs = {_ROLE_MODEL_ENVS[role] for role in roles}
+        for env_var in seen_envs:
+            os.environ[env_var] = model
+        role_names = " / ".join(role.title() for role in roles)
+        line = f"Set {role_names} model to {model}."
+    else:
+        os.environ["ARGUS_SKILL_MODEL"] = model
+        line = (
+            f"Set Argus default model to {model} "
+            "(roles without their own model follow)."
+        )
+
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg["model"] = model
+    chat_state.pop("manager_runner", None)
+
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
             print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
     except Exception:  # noqa: BLE001
         pass
@@ -1143,9 +1449,9 @@ def _daemon_cmd(
         return
     from ..cli.live_status import LiveStatus
     with LiveStatus(
-        "启动 daemon…",
+        "Starting daemon…",
         theme=chat_state.get("theme"),
-        phrases=["启动 daemon…", "等待执行器上线…"],
+        phrases=["Starting daemon…", "Waiting for the executor to come online…"],
         hint="",
     ):
         started = wait_for_daemon_status(life_dir)
@@ -1538,7 +1844,7 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
             queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
         except Exception:  # noqa: BLE001
             pass
-        body = f"{prior}\n\n操作员答复：{body}"
+        body = f"{prior}\n\nOperator reply: {body}"
     chat_state["last_objective"] = body
     _manager_divide_user_task(mem, body, chat_state)
     life_dir = _life_dir_for(mem)
@@ -1563,6 +1869,58 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
     if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
         daemon_alive, daemon_pid = _autospawn_daemon_for_task(mem, chat_state)
     return item, daemon_alive, daemon_pid
+
+
+def _maybe_auto_promote_to_continuous(
+    mem: Any, body: str, chat_state: dict[str, Any], theme: Any,
+) -> bool:
+    """Let the Manager judge whether ``body`` is open-ended work that should run
+    as a STANDING (continuous) campaign, rather than a one-shot bounded
+    mission — so the operator never has to manually pass
+    ``--continuous --objective`` (or type ``/continuous start``) for work that
+    is inherently open-ended (e.g. "optimize as many kernels as possible").
+    Arms continuous mode the same way ``/continuous start <objective>`` does
+    (``write_continuous_config`` — the daemon hot-reloads it, no restart).
+
+    Fail-soft in every direction: no runner (memory backend, build failure), a
+    classify error, an already-continuous session (caller only calls this when
+    not yet continuous), or a config gate failure (empty objective / memory
+    backend) all leave the task on its normal bounded (one-shot backlog) path.
+    Returns True iff continuous mode was armed (``chat_state`` is mutated in
+    that case, mirroring ``/continuous start``).
+    """
+    runner = _ensure_manager_runner(chat_state, mem)
+    classify = getattr(runner, "classify_needs_continuous", None)
+    if runner is None or not callable(classify):
+        return False
+    try:
+        if not classify(body):
+            return False
+    except Exception:  # noqa: BLE001 — classify failure must never force continuous
+        return False
+
+    from ..daemon.life_worker import continuous_mode_error, write_continuous_config
+
+    backend = str(chat_state.get("backend") or "codex")
+    if continuous_mode_error(backend, True, body):
+        return False
+
+    life_dir = _life_dir_for(mem)
+    write_continuous_config(life_dir, enabled=True, objective=body)
+    chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
+    chat_state["continuous_objective"] = body
+    msg = (
+        "Manager decided this is open-ended work with no natural endpoint → "
+        "automatically set it as a 7×24 continuous goal (continuous mode); "
+        "the daemon will plan and advance autonomously until the goal is "
+        "exhausted or you type /continuous stop."
+    )
+    print(
+        ("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg) if theme is not None
+        else f"  argus ↳ {msg}",
+        flush=True,
+    )
+    return True
 
 
 def _free_text_cmd(
@@ -1592,6 +1950,12 @@ def _free_text_cmd(
     if _maybe_handle_role_effort_text(mem, body, chat_state):
         return
 
+    if _maybe_handle_backend_switch_text(mem, body, chat_state):
+        return
+
+    if _maybe_handle_model_switch_text(mem, body, chat_state):
+        return
+
     # Manager front door — answer conversation, route tasks. Skipped only for a
     # blocked-continuation answer (which must continue the task, not be re-chatted).
     if not chat_state.get("blocked_item_id"):
@@ -1599,12 +1963,22 @@ def _free_text_cmd(
         # phase (classify → reply / hand-off), not a timed cosmetic rotation, so
         # it honestly reflects what the Manager is doing. No-op on non-TTY.
         from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD
+        from ..cli.roles_status import ROLE_COLOR_BOLD, resolve_role_config
 
+        # The manager's ACTUAL configured backend — never hardcode "Codex" here;
+        # it silently lied whenever the operator was on claude/copilot (this is
+        # only the pre-first-event placeholder anyway; a real on_phase update
+        # below permanently replaces it — see LiveStatus._current_label).
+        _manager_backend_label = resolve_role_config(
+            "manager", env=os.environ,
+        ).backend_label
         with LiveStatus(
-            "判断 SELF / TEAM…",
+            "Deciding SELF / TEAM…",
             theme=theme,
-            phrases=["判断 SELF / TEAM…", "等待 Codex 首个事件…"],
+            phrases=[
+                "Deciding SELF / TEAM…",
+                f"Waiting for {_manager_backend_label}'s first event…",
+            ],
             phrase_interval=10.0,
             accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
         ) as _live:
@@ -1625,6 +1999,16 @@ def _free_text_cmd(
                     if theme is not None else f"  argus ↳ {reply}")
             print(line, flush=True)
             return
+
+        # TEAM work reached this point — let the Manager judge whether it is
+        # open-ended (STANDING) and should be auto-armed as a continuous
+        # campaign, so the operator never has to manually pass
+        # --continuous --objective for work like "optimize as many X as
+        # possible". Only relevant the FIRST time a session goes standing;
+        # once continuous, every later task already flows through the
+        # existing continuous branch below unchanged.
+        if not continuous:
+            continuous = _maybe_auto_promote_to_continuous(mem, body, chat_state, theme)
 
     item, daemon_alive, daemon_pid = enqueue_mission(
         mem, body, chat_state, iterate=iterate, max_cycles=max_cycles, budget=budget)
@@ -1873,7 +2257,7 @@ def _surface_blocked_question(chat_state: dict[str, Any], theme: Any) -> None:
     q = str(chat_state.get("blocked_question") or "").strip()
     if not q:
         return
-    line = f"❓ 需要你定夺：{q}（直接回复即可继续该任务）"
+    line = f"❓ Needs your call: {q} (reply to continue this task)"
     print(theme.yellow(line) if theme is not None else line, flush=True)
 
 
@@ -1897,6 +2281,7 @@ def _invoke_and_track(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     quiet: bool,
     continuous: bool = False,
     continuous_objective: str = "",
@@ -1928,6 +2313,7 @@ def _invoke_and_track(
         max_missions=max_missions,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
+        global_daily_cap_usd=global_daily_cap_usd,
         quiet=quiet,
         seed_thread_id=seed,
         continuous=continuous,
@@ -2119,7 +2505,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     if not sys.stdout.isatty():
         print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
         return
-    hint = "实时刷新中 · 按 Ctrl-C 返回后再输入" if theme is not None else "live · Ctrl-C to stop, then type"
+    hint = "Live · press Ctrl-C to return, then type" if theme is not None else "live · Ctrl-C to stop, then type"
     print(theme.dim(hint) if theme is not None else hint, flush=True)
     prev_lines = 0
     try:
@@ -2206,10 +2592,14 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
     with LiveStatus(
         "drafting a plan…",
         theme=theme,
-        phrases=["理解目标…", "拆解步骤…", "起草计划…"],
+        phrases=["Understanding the goal…", "Breaking down steps…", "Drafting a plan…"],
     ):
         plan = plan_mode.draft_plan(runner, objective)
     print(plan_mode.render_plan(plan, theme), flush=True)
+    if getattr(plan, "error", ""):
+        note = "plan was not queued because drafting failed; fix the runner or rephrase the objective and try /plan again."
+        print(theme.gray(note) if theme is not None else note, flush=True)
+        return
     # Ask before queuing — the whole point of a preview is approval.
     prompt = "queue this plan as a task? [y/N] "
     try:
@@ -2292,12 +2682,41 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "is chat, status, resume, configuration, planning, or real work.",
         "Real work follows the single product path: Manager → Planner → "
         "Idea/Skill → Engineer → Reviewer.",
-        "Examples: `继续上次`, `现在在干什么`, `暂停一下`, `换成 copilot 后端`, "
-        "`帮我优化这个项目`.",
+        "Examples: `resume last task`, `what are you doing now`, "
+        "`pause for now`, `switch to the copilot backend`, "
+        "`switch the model to claude-sonnet-5`, `help me optimize this project`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
         out.append("")
+
+    # Command reference — every real spelling in SLASH_COMMANDS ends up here
+    # (grouped when _HELP_SECTIONS knows it, otherwise in a catch-all bucket),
+    # so /help can never silently omit a command that the dispatcher accepts.
+    rows = _help_command_rows()
+    label_width = max((len(label) for label, _desc in rows.values()), default=0) + 2
+    out.append(theme.bold("命令参考") + theme.gray("  — 自然语言之外，也可以直接打命令"))
+    out.append("")
+    for section, cmds in _HELP_SECTIONS:
+        out.append(theme.gray(f"  {section}"))
+        for cmd in cmds:
+            label, desc = rows.pop(cmd, (cmd, ""))
+            out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
+        out.append("")
+    if rows:
+        out.append(theme.gray("  其它"))
+        for cmd, (label, desc) in rows.items():
+            out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
+        out.append("")
+
+    out.append(theme.gray(
+        "常驻实时角色面板（不用手动 /roles 也能一直看到）： "
+        "ARGUS_SKILL_COCKPIT_LIVE=1"
+    ))
+    out.append(theme.gray(
+        "任务运行期间的实时跟随视图： ARGUS_SKILL_FOLLOW_LIVE=1"
+    ))
+    out.append("")
     out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
     out.append("")
     return "\n".join(out)
@@ -2562,9 +2981,9 @@ def _run_manager_repl_locked(
                 if spawn_rc == 0:
                     from ..cli.live_status import LiveStatus
                     with LiveStatus(
-                        "启动 daemon 执行器…",
+                        "Starting daemon executor…",
                         theme=theme,
-                        phrases=["启动 daemon 执行器…", "等待执行器上线…"],
+                        phrases=["Starting daemon executor…", "Waiting for the executor to come online…"],
                         hint="",
                     ):
                         started = wait_for_daemon_status(mem.project.root)
@@ -2815,7 +3234,14 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
         if cmd == "/skills":
             _skills_cmd(mem, rest)
             return None
-        print(theme.gray(f"unknown command: {cmd}  (try /help)"))
+        hint = _closest_slash_command(cmd)
+        if hint:
+            print(theme.gray(
+                f"unknown command: {cmd}  — did you mean {hint}?  "
+                f"(/help lists every command)"
+            ))
+        else:
+            print(theme.gray(f"unknown command: {cmd}  (/help lists every command)"))
         return None
 
 

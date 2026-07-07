@@ -101,7 +101,7 @@ def test_save_distilled_extracts_name_and_description(tmp_path: Path) -> None:
     assert Path(skill.path).exists()
 
 
-def test_find_relevant_keyword_fallback_when_runner_fails(tmp_path: Path) -> None:
+def test_find_relevant_runner_failure_returns_no_match(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
 
@@ -111,12 +111,10 @@ def test_find_relevant_keyword_fallback_when_runner_fails(tmp_path: Path) -> Non
 
     store = SkillStore(skills_dir, runner=BoomBackend(), matcher_model="m")
     matched, _ = store.find_relevant("install nginx and serve a static site")
-    # Keyword overlap should fire ("nginx", "static", "site").
-    assert matched is not None
-    assert matched[0].name == "set-up-nginx"
+    assert matched is None
 
 
-def test_find_relevant_keyword_fallback_when_runner_returns_fatal(
+def test_find_relevant_fatal_matcher_result_returns_no_match(
     tmp_path: Path,
 ) -> None:
     skills_dir = tmp_path / "skills"
@@ -137,8 +135,7 @@ def test_find_relevant_keyword_fallback_when_runner_returns_fatal(
 
     matched, tokens = store.find_relevant("install nginx and serve a static site")
 
-    assert matched is not None
-    assert matched[0].name == "set-up-nginx"
+    assert matched is None
     assert tokens == 0
     assert store.last_match_input_tokens == 0
     assert store.last_match_output_tokens == 0

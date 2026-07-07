@@ -48,6 +48,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ...core.codex_usage import sum_token_counts
 from ._normalize import (
     _clean_concern,
     _coerce_bool,
@@ -141,6 +142,8 @@ EXPERIMENT_HISTORY_REL = "research/EXPERIMENT_HISTORY.jsonl"
 # injected into the supervisor prompt; the call stays the model's.
 _RL_COLLAPSE_SKILL_REL = "engineer/rl-training-collapse-diagnosis.md"
 _RL_COLLAPSE_GUIDANCE_CACHE: str | None = None
+_ZERO_USAGE_TUPLE = (0, 0, 0, 0)
+_SUPERVISOR_USAGE_BASELINE_FIELD = "supervisor_cost_folded_totals"
 
 
 def _strip_skill_frontmatter(text: str) -> str:
@@ -312,13 +315,13 @@ def _parse_launch_flags(command: str) -> dict[str, str]:
     return flags
 
 
-def _supervisor_preflight(
+def _supervisor_preflight_with_usage(
     task_id: str,
     command: str,
     description: str,
     model: str,
     cwd: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, tuple[int, int, int, int]]:
     """LLM-judged PRE-LAUNCH config sanity check for an RL/training run.
 
     Returns ``(reject, concern)``. ``reject`` is True ONLY for a config that is
@@ -387,7 +390,13 @@ def _supervisor_preflight(
         "flag and a concrete new value; if you cannot, set reject=false."
     )
     try:
-        messages, _ = _run_codex(prompt, model, cwd, None, timeout=120)
+        messages, _thread_id, usage = _run_codex_with_usage(
+            prompt,
+            model,
+            cwd,
+            None,
+            timeout=120,
+        )
         for message in reversed(messages):
             try:
                 data = json.loads(_strip_code_fence(message))
@@ -398,18 +407,35 @@ def _supervisor_preflight(
                 # is an LLM formatting hiccup and must fail-soft to a launch,
                 # never hard-block.
                 if data.get("reject") is not True:
-                    return (False, "")
+                    return (False, "", usage)
                 concern = _clean_concern(data.get("concern", ""))
                 # Honor a reject only when it carries an actionable fix that names
                 # a specific flag and a concrete change, so a vague "reject:true"
                 # can never wedge a launch without telling the engineer what to
                 # change.
                 if concern and any(tok in concern for tok in ("->", "=", "--")):
-                    return (True, concern)
-                return (False, "")
-        return (False, "")
+                    return (True, concern, usage)
+                return (False, "", usage)
+        return (False, "", usage)
     except Exception:
-        return (False, "")
+        return (False, "", _ZERO_USAGE_TUPLE)
+
+
+def _supervisor_preflight(
+    task_id: str,
+    command: str,
+    description: str,
+    model: str,
+    cwd: str,
+) -> tuple[bool, str]:
+    reject, concern, _usage = _supervisor_preflight_with_usage(
+        task_id,
+        command,
+        description,
+        model,
+        cwd,
+    )
+    return reject, concern
 
 
 def _next_monitor_interval(
@@ -842,6 +868,17 @@ def _registry_path(task_id: str) -> Path:
 def _write_task(task_id: str, data: dict[str, Any]) -> None:
     REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
     path = _registry_path(task_id)
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    except (json.JSONDecodeError, OSError):
+        existing = None
+    if (
+        isinstance(existing, dict)
+        and _SUPERVISOR_USAGE_BASELINE_FIELD not in data
+        and isinstance(existing.get(_SUPERVISOR_USAGE_BASELINE_FIELD), dict)
+    ):
+        data = dict(data)
+        data[_SUPERVISOR_USAGE_BASELINE_FIELD] = existing[_SUPERVISOR_USAGE_BASELINE_FIELD]
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -879,6 +916,72 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _parse_codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for raw in (stdout or "").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _usage_delta_for_thread(
+    *,
+    thread_id: str | None,
+    raw_totals: tuple[int, int, int, int],
+    baselines: dict[str, tuple[int, int, int, int]],
+) -> tuple[int, int, int, int]:
+    if not any(raw_totals):
+        return _ZERO_USAGE_TUPLE
+    if not thread_id:
+        return raw_totals
+    previous = baselines.get(thread_id)
+    baselines[thread_id] = raw_totals
+    if previous is None:
+        return raw_totals
+    delta = (
+        raw_totals[0] - previous[0],
+        raw_totals[1] - previous[1],
+        raw_totals[2] - previous[2],
+        raw_totals[3] - previous[3],
+    )
+    if any(value < 0 for value in delta):
+        return raw_totals
+    return delta
+
+
+def _add_usage_totals(
+    left: tuple[int, int, int, int],
+    right: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    return (
+        left[0] + right[0],
+        left[1] + right[1],
+        left[2] + right[2],
+        left[3] + right[3],
+    )
+
+
+def _apply_supervisor_usage_fields(
+    task: dict[str, Any],
+    *,
+    model: str,
+    totals: tuple[int, int, int, int],
+) -> dict[str, Any]:
+    task["supervisor_usage_model"] = model
+    task["supervisor_input_tokens"] = int(totals[0])
+    task["supervisor_cached_input_tokens"] = int(totals[1])
+    task["supervisor_output_tokens"] = int(totals[2])
+    task["supervisor_reasoning_output_tokens"] = int(totals[3])
+    return task
+
+
 # ---------------------------------------------------------------------------
 # Direct execution: fork + Popen, no LLM
 # ---------------------------------------------------------------------------
@@ -904,14 +1007,15 @@ def _run_direct(
                 command, shell=True, stdout=out, stderr=err,
                 cwd=cwd, start_new_session=True, env=_child_env(),
             )
-            _write_task(task_id, {
+            running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-            })
+            }, model="", totals=_ZERO_USAGE_TUPLE)
+            _write_task(task_id, running_task)
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -927,6 +1031,7 @@ def _run_direct(
                     "run_dir": run_dir,
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 }
+                _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
                 _write_task(task_id, td)
                 _alert_engineer(task_id, "TIMEOUT", td)
                 return
@@ -944,6 +1049,7 @@ def _run_direct(
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
         }
+        _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(task_id, "COMPLETED" if proc.returncode == 0 else "FAILED", td)
 
@@ -956,6 +1062,7 @@ def _run_direct(
             "completed_at": time.time(), "mode": "direct",
             "run_dir": run_dir,
         }
+        _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(task_id, "CRASHED", td)
 
@@ -976,14 +1083,14 @@ def _run_direct(
 
 
 
-def _run_codex(
+def _run_codex_with_usage(
     prompt: str,
     model: str,
     cwd: str,
     thread_id: str | None = None,
     timeout: int = 120,
-) -> tuple[list[str], str | None]:
-    """Run one (optionally resumed) codex turn; return (agent_messages, thread_id).
+) -> tuple[list[str], str | None, tuple[int, int, int, int]]:
+    """Run one (optionally resumed) codex turn; return messages/thread/usage.
 
     Persistent supervisor: when ``thread_id`` is given the turn RESUMES that codex
     session, so the supervisor carries its full run-observation history and the
@@ -1013,8 +1120,9 @@ def _run_codex(
     try:
         result = _exec(thread_id)
     except Exception:
-        return ([], thread_id)
+        return ([], thread_id, _ZERO_USAGE_TUPLE)
     msgs = _codex_agent_messages(result.stdout)
+    usage = sum_token_counts(_parse_codex_jsonl_events(result.stdout))
     new_tid = _codex_thread_id(result.stdout) or thread_id
     if thread_id and not msgs:
         # Resume produced nothing — the session is likely gone. Retry once fresh
@@ -1023,10 +1131,29 @@ def _run_codex(
         try:
             result = _exec(None)
             msgs = _codex_agent_messages(result.stdout)
+            usage = sum_token_counts(_parse_codex_jsonl_events(result.stdout))
             new_tid = _codex_thread_id(result.stdout)
         except Exception:
-            return ([], None)
-    return (msgs, new_tid)
+            return ([], None, _ZERO_USAGE_TUPLE)
+    return (msgs, new_tid, usage)
+
+
+def _run_codex(
+    prompt: str,
+    model: str,
+    cwd: str,
+    thread_id: str | None = None,
+    timeout: int = 120,
+) -> tuple[list[str], str | None]:
+    """Backward-compatible wrapper returning only ``(agent_messages, thread_id)``."""
+    msgs, new_tid, _usage = _run_codex_with_usage(
+        prompt,
+        model,
+        cwd,
+        thread_id,
+        timeout,
+    )
+    return msgs, new_tid
 
 
 def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
@@ -1327,7 +1454,7 @@ def _format_metric_line(summary: dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
-def _supervisor_check(
+def _supervisor_check_with_usage(
     task_id: str,
     command: str,
     description: str,
@@ -1339,7 +1466,7 @@ def _supervisor_check(
     cwd: str,
     run_dir: str | None = None,
     thread_id: str | None = None,
-) -> tuple[str, str, str, str | None]:
+) -> tuple[str, str, str, str | None, tuple[int, int, int, int]]:
     """Call codex to check training/eval progress.
 
     Returns ``(decision, health, concern, thread_id)`` where decision is
@@ -1452,7 +1579,13 @@ def _supervisor_check(
     )
 
     try:
-        messages, thread_id = _run_codex(prompt, model, cwd, thread_id, timeout=120)
+        messages, thread_id, usage = _run_codex_with_usage(
+            prompt,
+            model,
+            cwd,
+            thread_id,
+            timeout=120,
+        )
         # codex emits JSONL; pull the assistant messages and accept the most
         # recent one that parses into a verdict (tolerates trailing chatter
         # after the JSON object the prompt asks for).
@@ -1467,19 +1600,55 @@ def _supervisor_check(
                     _norm_health(data.get("health", "unknown")),
                     _clean_concern(data.get("concern", "")),
                     thread_id,
+                    usage,
                 )
-        return ("continue", "unknown", "", thread_id)
+        return ("continue", "unknown", "", thread_id, usage)
     except Exception:
-        return ("continue", "unknown", "", thread_id)  # On any error, don't intervene
+        return (
+            "continue",
+            "unknown",
+            "",
+            thread_id,
+            _ZERO_USAGE_TUPLE,
+        )  # On any error, don't intervene
 
 
-def _supervisor_discuss(
+def _supervisor_check(
+    task_id: str,
+    command: str,
+    description: str,
+    stdout_path: Path,
+    stderr_path: Path,
+    elapsed: float,
+    check_number: int,
+    model: str,
+    cwd: str,
+    run_dir: str | None = None,
+    thread_id: str | None = None,
+) -> tuple[str, str, str, str | None]:
+    decision, health, concern, new_thread_id, _usage = _supervisor_check_with_usage(
+        task_id,
+        command,
+        description,
+        stdout_path,
+        stderr_path,
+        elapsed,
+        check_number,
+        model,
+        cwd,
+        run_dir,
+        thread_id,
+    )
+    return decision, health, concern, new_thread_id
+
+
+def _supervisor_discuss_with_usage(
     task_id: str,
     task_data: dict[str, Any],
     model: str,
     cwd: str,
     thread_id: str | None = None,
-) -> tuple[bool, str, str | None]:
+) -> tuple[bool, str, str | None, tuple[int, int, int, int]]:
     """Answer the engineer's latest reply on a stopped run's discussion thread.
 
     The run is already halted. The supervisor reads the full shared transcript
@@ -1530,7 +1699,13 @@ def _supervisor_discuss(
         "Only output the JSON, nothing else."
     )
     try:
-        messages, thread_id = _run_codex(prompt, model, cwd, thread_id, timeout=120)
+        messages, thread_id, usage = _run_codex_with_usage(
+            prompt,
+            model,
+            cwd,
+            thread_id,
+            timeout=120,
+        )
         for message in reversed(messages):
             try:
                 data = json.loads(_strip_code_fence(message))
@@ -1539,10 +1714,32 @@ def _supervisor_discuss(
             if isinstance(data, dict) and "message" in data:
                 msg = " ".join(str(data.get("message", "")).split())
                 if msg:
-                    return (_coerce_bool(data.get("resolved", False)), msg, thread_id)
-        return (False, "", thread_id)
+                    return (
+                        _coerce_bool(data.get("resolved", False)),
+                        msg,
+                        thread_id,
+                        usage,
+                    )
+        return (False, "", thread_id, usage)
     except Exception:
-        return (False, "", thread_id)
+        return (False, "", thread_id, _ZERO_USAGE_TUPLE)
+
+
+def _supervisor_discuss(
+    task_id: str,
+    task_data: dict[str, Any],
+    model: str,
+    cwd: str,
+    thread_id: str | None = None,
+) -> tuple[bool, str, str | None]:
+    resolved, message, new_thread_id, _usage = _supervisor_discuss_with_usage(
+        task_id,
+        task_data,
+        model,
+        cwd,
+        thread_id,
+    )
+    return resolved, message, new_thread_id
 
 
 def _run_discussion(
@@ -1552,6 +1749,8 @@ def _run_discussion(
     cwd: str,
     run_dir: str | None = None,
     thread_id: str | None = None,
+    usage_totals: tuple[int, int, int, int] = _ZERO_USAGE_TUPLE,
+    usage_thread_totals: dict[str, tuple[int, int, int, int]] | None = None,
 ) -> None:
     """Park after an early-stop and discuss with the engineer until resolved.
 
@@ -1591,6 +1790,7 @@ def _run_discussion(
     engaged = _engineer_turn_count(task_id) > 0
     turns = 0
     resolution = "unresolved"
+    thread_usage_totals = usage_thread_totals if usage_thread_totals is not None else {}
     try:
         while time.time() < overall_deadline and turns < MAX_SUPERVISOR_TURNS:
             # Heartbeat so the engineer can tell a live supervisor from a dead one.
@@ -1601,6 +1801,7 @@ def _run_discussion(
             if thread_id:
                 task["supervisor_thread_id"] = thread_id
             task["last_heartbeat"] = time.time()
+            _apply_supervisor_usage_fields(task, model=model, totals=usage_totals)
             _write_task(task_id, task)
 
             remaining = overall_deadline - time.time()
@@ -1621,8 +1822,21 @@ def _run_discussion(
             # while the LLM runs may not be in this prompt, so leave it for the
             # next iteration (worst case it is answered twice — never dropped).
             baseline = count
-            resolved, message, thread_id = _supervisor_discuss(
-                task_id, task_data, model, cwd, thread_id)
+            resolved, message, thread_id, raw_usage = _supervisor_discuss_with_usage(
+                task_id,
+                task_data,
+                model,
+                cwd,
+                thread_id,
+            )
+            usage_totals = _add_usage_totals(
+                usage_totals,
+                _usage_delta_for_thread(
+                    thread_id=thread_id,
+                    raw_totals=raw_usage,
+                    baselines=thread_usage_totals,
+                ),
+            )
             if not message:
                 message = (
                     "I could not formulate a reply (LLM error); my stop still "
@@ -1671,6 +1885,7 @@ def _run_discussion(
         if thread_id:
             td["supervisor_thread_id"] = thread_id
         td["last_heartbeat"] = time.time()
+        _apply_supervisor_usage_fields(td, model=model, totals=usage_totals)
         _write_task(task_id, td)
         _mirror_discussion_md(task_id, run_dir)
 
@@ -1699,6 +1914,8 @@ def _run_supervised(
     start_time = time.time()
     run_id = f"{task_id}-{int(start_time)}"
     supervisor_thread_id: str | None = None
+    supervisor_usage_totals = _ZERO_USAGE_TUPLE
+    supervisor_thread_usage_totals: dict[str, tuple[int, int, int, int]] = {}
     # Resolve run_dir once relative to the task cwd so the supervisor reads the
     # right progress/status and writes STOP where RunWriter watches.
     resolved_run_dir: str | None = None
@@ -1713,14 +1930,15 @@ def _run_supervised(
         if preflight and _looks_like_rl_training(command):
             # Mark a distinct state so a duplicate submit during the (~30-60s)
             # LLM call sees this task as busy, not idle.
-            _write_task(task_id, {
+            preflight_task = _apply_supervisor_usage_fields({
                 "state": "preflight", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
                 "worker_pid": os.getpid(), "pid": os.getpid(),
                 "started_at": start_time, "mode": "supervised",
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
-            })
+            }, model=model, totals=supervisor_usage_totals)
+            _write_task(task_id, preflight_task)
             # (A) Deterministic provenance interlock FIRST (cheap, no LLM): a
             # scale=full RL launch must faithfully execute the frozen, feasibility-
             # probed RUN_CONTRACT. (B) Then the LLM config preflight for
@@ -1730,8 +1948,12 @@ def _run_supervised(
             if _is_full_scale_rl(command):
                 reject, pf_concern = _run_contract_preflight(command, cwd)
             if not reject:
-                reject, pf_concern = _supervisor_preflight(
+                reject, pf_concern, raw_usage = _supervisor_preflight_with_usage(
                     task_id, command, description, model, cwd,
+                )
+                supervisor_usage_totals = _add_usage_totals(
+                    supervisor_usage_totals,
+                    raw_usage,
                 )
             if reject:
                 with supervisor_log.open("a") as sl:
@@ -1763,9 +1985,19 @@ def _run_supervised(
                     "discussion_path": str(_discussion_path(task_id)),
                     "supervisor_log": str(supervisor_log),
                 }
+                _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
                 _write_task(task_id, td)
                 report = _alert_engineer(task_id, "EARLY-STOPPED", td)
-                _run_discussion(task_id, td, model, cwd, None, None)
+                _run_discussion(
+                    task_id,
+                    td,
+                    model,
+                    cwd,
+                    None,
+                    None,
+                    supervisor_usage_totals,
+                    supervisor_thread_usage_totals,
+                )
                 final_td = _read_task(task_id) or td
                 _persist_experiment_record(
                     task_id, "EARLY-STOPPED", final_td, cwd, report)
@@ -1775,7 +2007,7 @@ def _run_supervised(
                 command, shell=True, stdout=out, stderr=err,
                 cwd=cwd, start_new_session=True, env=_child_env(),
             )
-            _write_task(task_id, {
+            running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
@@ -1784,7 +2016,8 @@ def _run_supervised(
                 "run_dir": resolved_run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
-            })
+            }, model=model, totals=supervisor_usage_totals)
+            _write_task(task_id, running_task)
 
             check_number = 0
             # Latest supervisor verdict, kept in scope for the terminal records
@@ -1816,6 +2049,7 @@ def _run_supervised(
                         "run_dir": resolved_run_dir,
                         "supervisor_log": str(supervisor_log),
                     }
+                    _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
                     _write_task(task_id, td)
                     report = _alert_engineer(task_id, "TIMEOUT", td)
                     _persist_experiment_record(task_id, "TIMEOUT", td, cwd, report)
@@ -1825,10 +2059,18 @@ def _run_supervised(
                 check_number += 1
                 out.flush()
                 err.flush()
-                decision, health, concern, supervisor_thread_id = _supervisor_check(
+                decision, health, concern, supervisor_thread_id, raw_usage = _supervisor_check_with_usage(
                     task_id, command, description,
                     stdout_path, stderr_path, elapsed, check_number,
                     model, cwd, resolved_run_dir, supervisor_thread_id,
+                )
+                supervisor_usage_totals = _add_usage_totals(
+                    supervisor_usage_totals,
+                    _usage_delta_for_thread(
+                        thread_id=supervisor_thread_id,
+                        raw_totals=raw_usage,
+                        baselines=supervisor_thread_usage_totals,
+                    ),
                 )
                 # Rotate the persistent supervisor thread every N checks so a
                 # multi-hour run never overflows the codex context window; the
@@ -1853,6 +2095,7 @@ def _run_supervised(
                 task["last_supervisor_health"] = health
                 task["last_supervisor_concern"] = concern
                 task["elapsed_seconds"] = round(elapsed, 1)
+                _apply_supervisor_usage_fields(task, model=model, totals=supervisor_usage_totals)
                 _write_task(task_id, task)
 
                 # A non-empty concern is now a STOP decision: the supervisor only
@@ -1863,11 +2106,19 @@ def _run_supervised(
                 stop_now = decision == "early_stop"
                 if concern and not stop_now:
                     check_number += 1
-                    c_decision, c_health, c_concern, supervisor_thread_id = _supervisor_check(
+                    c_decision, c_health, c_concern, supervisor_thread_id, confirm_usage = _supervisor_check_with_usage(
                         task_id, command, description,
                         stdout_path, stderr_path,
                         time.time() - start_time, check_number,
                         model, cwd, resolved_run_dir, supervisor_thread_id,
+                    )
+                    supervisor_usage_totals = _add_usage_totals(
+                        supervisor_usage_totals,
+                        _usage_delta_for_thread(
+                            thread_id=supervisor_thread_id,
+                            raw_totals=confirm_usage,
+                            baselines=supervisor_thread_usage_totals,
+                        ),
                     )
                     with supervisor_log.open("a") as sl:
                         sl.write(json.dumps({
@@ -1882,6 +2133,7 @@ def _run_supervised(
                         decision = "early_stop"
                         task["last_supervisor_concern"] = concern
                         task["last_supervisor_health"] = health
+                        _apply_supervisor_usage_fields(task, model=model, totals=supervisor_usage_totals)
                         _write_task(task_id, task)
                     else:
                         # False alarm: the second read cleared it. Keep running,
@@ -1892,6 +2144,7 @@ def _run_supervised(
                         task["last_supervisor_concern"] = ""
                         task["last_supervisor_health"] = health
                         task["last_supervisor_decision"] = c_decision or decision
+                        _apply_supervisor_usage_fields(task, model=model, totals=supervisor_usage_totals)
                         _write_task(task_id, task)
 
                 if not stop_now:
@@ -1944,12 +2197,21 @@ def _run_supervised(
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                     "supervisor_log": str(supervisor_log),
                 }
+                _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
                 _write_task(task_id, td)
                 # The handoff report tells the engineer the run is stopped and to
                 # reply on the discussion thread; then we park and discuss.
                 report = _alert_engineer(task_id, "EARLY-STOPPED", td)
-                _run_discussion(task_id, td, model, cwd,
-                                resolved_run_dir, supervisor_thread_id)
+                _run_discussion(
+                    task_id,
+                    td,
+                    model,
+                    cwd,
+                    resolved_run_dir,
+                    supervisor_thread_id,
+                    supervisor_usage_totals,
+                    supervisor_thread_usage_totals,
+                )
                 final_td = _read_task(task_id) or td
                 _persist_experiment_record(
                     task_id, "EARLY-STOPPED", final_td, cwd, report)
@@ -1974,6 +2236,7 @@ def _run_supervised(
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             "supervisor_log": str(supervisor_log),
         }
+        _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)
         event = "COMPLETED" if proc.returncode == 0 else "FAILED"
         report = _alert_engineer(task_id, event, td)
@@ -1988,6 +2251,7 @@ def _run_supervised(
             "completed_at": time.time(), "mode": "supervised",
             "run_dir": resolved_run_dir,
         }
+        _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)
         report = _alert_engineer(task_id, "CRASHED", td)
         _persist_experiment_record(task_id, "CRASHED", td, cwd, report)
@@ -2140,6 +2404,3 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-
-
-

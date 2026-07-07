@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.codex_usage import sum_token_counts as _sum_token_counts
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -294,7 +295,7 @@ class AgentCliBackend:
         # propagate to the supervisor's stop logic.
         self._auth_failure_detected: bool = False
         self._usage_lock = threading.Lock()
-        self._thread_usage_totals: dict[str, tuple[int, int, int]] = {}
+        self._thread_usage_totals: dict[str, tuple[int, int, int, int]] = {}
         # Copilot reports premiumRequests as a session-cumulative total; keep the
         # last-seen total per thread to charge each call only its delta.
         # copilot 的 premiumRequests 是会话累计值；按线程存上次累计，只计本次增量。
@@ -489,12 +490,27 @@ class AgentCliBackend:
         *,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        raw_input_tokens, raw_cached_input_tokens, raw_output_tokens = _sum_token_counts(
+        (
+            raw_input_tokens,
+            raw_cached_input_tokens,
+            raw_output_tokens,
+            raw_reasoning_output_tokens,
+        ) = _sum_token_counts(
             getattr(argus_result, "json_events", None)
         )
-        input_tokens, cached_input_tokens, output_tokens = self._usage_delta_for_thread(
+        (
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            reasoning_output_tokens,
+        ) = self._usage_delta_for_thread(
             thread_id=argus_result.thread_id or resume_thread_id,
-            raw_totals=(raw_input_tokens, raw_cached_input_tokens, raw_output_tokens),
+            raw_totals=(
+                raw_input_tokens,
+                raw_cached_input_tokens,
+                raw_output_tokens,
+                raw_reasoning_output_tokens,
+            ),
         )
         premium_requests = self._premium_delta_for_thread(
             thread_id=argus_result.thread_id or resume_thread_id,
@@ -512,6 +528,7 @@ class AgentCliBackend:
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
+            reasoning_output_tokens=reasoning_output_tokens,
             premium_requests=premium_requests,
         )
 
@@ -519,8 +536,8 @@ class AgentCliBackend:
         self,
         *,
         thread_id: str | None,
-        raw_totals: tuple[int, int, int],
-    ) -> tuple[int, int, int]:
+        raw_totals: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
         """Convert Codex lifecycle-cumulative usage into this call's delta."""
         if not thread_id:
             return raw_totals
@@ -536,6 +553,7 @@ class AgentCliBackend:
             raw_totals[0] - previous[0],
             raw_totals[1] - previous[1],
             raw_totals[2] - previous[2],
+            raw_totals[3] - previous[3],
         )
         if any(delta < 0 for delta in deltas):
             log.debug(
@@ -574,61 +592,6 @@ class AgentCliBackend:
             # current total as a fresh delta rather than a negative credit.
             return raw_total
         return delta
-
-
-def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, int]:
-    """Best-effort token accounting from the codex JSON event stream.
-
-    The codex CLI emits events with shapes like::
-
-        {"type": "token_count", "input_tokens": 1234, "output_tokens": 567}
-
-    or, in older versions, a ``msg`` envelope::
-
-        {"type": "msg", "content": {..., "input_tokens": ...}}
-
-    We pick the complete tuple from the final token-bearing event rather
-    than summing — codex emits running totals, not per-event deltas. Zero
-    is a valid value in that final tuple (for example, no cached input).
-    If the run produced no countable events we return (0, 0, 0).
-    """
-    if not events:
-        return 0, 0, 0
-    last: tuple[int, int, int] = (0, 0, 0)
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        # Newer codex events (>=0.121): usage nested under top-level "usage".
-        #   {"type":"turn.completed","usage":{"input_tokens":..,"output_tokens":..}}
-        usage = event.get("usage") if isinstance(event.get("usage"), dict) else None
-        in_tok = 0
-        cached_tok = 0
-        out_tok = 0
-        if usage is not None:
-            in_tok = _coerce_int(usage.get("input_tokens"))
-            cached_tok = _coerce_int(usage.get("cached_input_tokens"))
-            out_tok = _coerce_int(usage.get("output_tokens"))
-        # Fallback: top-level fields (older codex / token_count event).
-        if in_tok == 0:
-            in_tok = _coerce_int(event.get("input_tokens"))
-        if cached_tok == 0:
-            cached_tok = _coerce_int(event.get("cached_input_tokens"))
-        if out_tok == 0:
-            out_tok = _coerce_int(event.get("output_tokens"))
-        # Older codex events: nested under 'msg' / 'content'.
-        if in_tok == 0 or out_tok == 0:
-            content = event.get("content") if isinstance(event.get("content"), dict) else None
-            if content is not None:
-                if in_tok == 0:
-                    in_tok = _coerce_int(content.get("input_tokens"))
-                if cached_tok == 0:
-                    cached_tok = _coerce_int(content.get("cached_input_tokens"))
-                if out_tok == 0:
-                    out_tok = _coerce_int(content.get("output_tokens"))
-        if in_tok > 0 or cached_tok > 0 or out_tok > 0:
-            last = (in_tok, cached_tok, out_tok)
-    return last
-
 
 def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:
     """Best-effort copilot premium-request total from its JSON event stream.

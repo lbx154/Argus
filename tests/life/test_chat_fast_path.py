@@ -57,8 +57,9 @@ class _FakeBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        if run_label == "router-classify":
-            # The chat/task classifier call. Kept in a SEPARATE list so the
+        if run_label in ("router-classify", "router-classify-persistence"):
+            # The chat/task classifier call (and the sibling BOUNDED/STANDING
+            # persistence classifier). Kept in a SEPARATE list so the
             # existing assertions about chat/pipeline ``calls`` still hold.
             # Always exit 0 (the classifier itself succeeds; only the chat
             # reply may fail) and answer with the configured verdict.
@@ -340,6 +341,39 @@ def test_chat_path_marks_status_error_on_codex_failure() -> None:
     assert out.status == "error"
     assert "codex died" in out.stop_reason
     assert out.chat_mode is False
+
+
+# ---------- classify_needs_continuous: BOUNDED vs STANDING auto-promote ----
+
+def test_classify_needs_continuous_true_for_standing_answer() -> None:
+    """An open-ended task ("optimize as many kernels as possible") should be
+    judged STANDING, so the REPL can auto-arm continuous mode without the
+    operator ever typing --continuous --objective."""
+    backend = _FakeBackend(classify_answer="STANDING")
+    runner = _make_runner(backend)
+
+    assert runner.classify_needs_continuous(
+        "optimize as many kernels as possible, keep going until none are left"
+    ) is True
+    assert backend.classify_calls[-1]["run_label"] == "router-classify-persistence"
+
+
+def test_classify_needs_continuous_false_for_bounded_answer() -> None:
+    """A well-scoped task with a natural finish line stays BOUNDED (one-shot)."""
+    backend = _FakeBackend(classify_answer="BOUNDED")
+    runner = _make_runner(backend)
+
+    assert runner.classify_needs_continuous("fix the flaky test in test_foo.py") is False
+
+
+def test_classify_needs_continuous_fails_soft_to_false_on_backend_error() -> None:
+    """A classify hiccup must never force an expensive 7x24 campaign."""
+    class _BoomBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:  # noqa: ANN401
+            raise RuntimeError("boom")
+
+    runner = _make_runner(_BoomBackend())
+    assert runner.classify_needs_continuous("anything") is False
 
 
 # ---------- supervisor: chat outcomes skip the critic loop ---------------

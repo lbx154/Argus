@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,7 +33,6 @@ from .academic_language_review import (
     _numbered_source_excerpt,
     _parse_json_object_from_text,
     _read_source_texts,
-    _regex_match_spans,
     _write_json,
     _write_text,
     collect_latex_source_paths,
@@ -150,9 +148,14 @@ def generate_paper_infrastructure_review(
             ]
             evidence_spans = _dict_list(model_review.get("evidence_spans"))
             if not evidence_spans:
-                evidence_spans = _fallback_evidence_spans(source_text_by_path)
-                if evidence_spans and isinstance(model_review, dict):
-                    model_review["evidence_spans"] = [dict(span) for span in evidence_spans]
+                issue = _issue(
+                    "model_review_missing_evidence_spans",
+                    "blocking",
+                    "reviewer model returned no evidence_spans; the harness will not fabricate reader-facing evidence",
+                    action="rerun_paper_infrastructure_review",
+                )
+                issues.append(issue)
+                blocking_issues.append(issue)
             blocking_issues.extend(_dict_list(model_review.get("blocking_issues")))
             major_issues.extend(_dict_list(model_review.get("major_issues")))
             directives.extend(_dict_list(model_review.get("revision_directives")))
@@ -378,50 +381,6 @@ def _review_markdown(result: dict[str, Any]) -> str:
             )
         lines.append("")
     return "\n".join(lines)
-
-
-def _fallback_evidence_spans(source_text_by_path: Mapping[str, str]) -> list[dict[str, Any]]:
-    """Seed reviewer evidence spans when the model returns a clean PASS."""
-    source = source_text_by_path.get("paper/main.tex")
-    if not source:
-        return []
-
-    candidates: list[tuple[str, str, str]] = [
-        (
-            "Repair-memo memory helps code agents reuse past work",
-            "abstract",
-            "The abstract establishes the paper's problem statement in reader-facing prose.",
-        ),
-        (
-            "We propose verifier-gated repair-memo admission.",
-            "introduction",
-            "The introduction states the paper's contribution in a single reader-facing sentence.",
-        ),
-        (
-            "The evaluated policies run inside a deterministic harness",
-            "method",
-            "The experimental setup names the evaluation harness and compares the policies neutrally.",
-        ),
-        (
-            "The package can be regenerated with the manuscript-generation script",
-            "appendix",
-            "The reproducibility note states how the package is regenerated without leaking environment details.",
-        ),
-    ]
-
-    spans: list[dict[str, Any]] = []
-    for phrase, section, why in candidates:
-        matches = list(re.finditer(re.escape(phrase), source))
-        if not matches:
-            continue
-        match_span = _regex_match_spans(source, matches, limit=1)
-        if not match_span:
-            continue
-        span = dict(match_span[0])
-        span["section"] = section
-        span["why"] = why
-        spans.append(span)
-    return spans
 
 
 def _issue(

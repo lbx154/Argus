@@ -1401,16 +1401,21 @@ class LifeSupervisor:
                 cost_sink.scientist_cached_input_tokens
             ),
             "scientist_output_tokens": cost_sink.scientist_output_tokens,
+            "scientist_reasoning_output_tokens": (
+                cost_sink.scientist_reasoning_output_tokens
+            ),
             "scientist_usage_by_model": {
                 model: {
                     "input_tokens": values[0],
                     "cached_input_tokens": values[1],
                     "output_tokens": values[2],
+                    "reasoning_output_tokens": values[3],
                 }
                 for model, values in cost_sink.scientist_usage_by_model.items()
             },
             "input_tokens": cost_sink.total_input_tokens(),
             "output_tokens": cost_sink.total_output_tokens(),
+            "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
             "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
             "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
@@ -2421,6 +2426,7 @@ class LifeSupervisor:
             verdict.input_tokens,
             verdict.cached_input_tokens,
             verdict.output_tokens,
+            reasoning_output_tokens=verdict.reasoning_output_tokens,
             price_lookup=price_for,
         )
 

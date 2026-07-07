@@ -111,6 +111,58 @@ def test_render_frame_plain_without_theme():
     assert "\x1b[33m" not in frame and "\x1b[1m" not in frame
 
 
+def _visible_width(frame: str) -> int:
+    """Display width of a rendered frame, minus control sequences."""
+    import re
+    import unicodedata
+
+    body = frame
+    for ctrl in ("\r\x1b[2K", "\r\x1b[2K"):
+        if body.startswith(ctrl):
+            body = body[len(ctrl):]
+            break
+    body = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", body)  # strip remaining SGR/CSI
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+               for ch in body)
+
+
+def test_render_frame_clamps_long_label_to_terminal_width(monkeypatch):
+    """A long label on a narrow terminal must never exceed width-1 columns, else
+    the wrapped overflow row survives the next \\r-erase and the status line
+    cascades into a flood of duplicated lines (regression)."""
+    import shutil
+
+    monkeypatch.setattr(
+        shutil, "get_terminal_size", lambda fallback=(80, 24): __import__(
+            "os").terminal_size((40, 24))
+    )
+    long_label = "SELF: one Codex handling " + "how do you know what type of model you are " * 4
+    ls = LiveStatus(long_label, stream=io.StringIO(), enabled=True,
+                    clock=lambda: 6.0)
+    ls._start = 0.0
+    frame = ls.render_frame()
+    assert _visible_width(frame) <= 40 - 1     # fits within width-1, no wrap
+    assert frame.startswith("\r\x1b[2K")
+    assert FRAMES[0] in frame                   # spinner still present
+    assert "…" in frame                         # was truncated with an ellipsis
+
+
+def test_render_frame_wide_terminal_keeps_full_label_and_meta(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(
+        shutil, "get_terminal_size", lambda fallback=(80, 24): __import__(
+            "os").terminal_size((200, 24))
+    )
+    ls = LiveStatus("short label", stream=io.StringIO(), enabled=True,
+                    clock=lambda: 3.0)
+    ls._start = 0.0
+    frame = ls.render_frame()
+    assert "short label" in frame
+    assert "3s" in frame          # meta/timer preserved on a wide terminal
+    assert "…" not in frame       # nothing clipped
+
+
 # ── phrase rotation + live update ────────────────────────────────────────
 
 def test_phrases_rotate_over_time():
@@ -137,6 +189,32 @@ def test_update_changes_label_when_no_phrases():
     assert ls._current_label() == "first"
     ls.update("second")
     assert ls._current_label() == "second"
+
+
+def test_explicit_update_wins_over_phrase_rotation():
+    """A real ``update()`` (e.g. an on_phase callback firing) must permanently
+    override cosmetic ``phrases`` rotation — regression test for a bug where
+    ``_current_label`` ignored ``update()``/``update_role()`` entirely
+    whenever ``phrases`` was non-empty, so a caller like the REPL's
+    manager-triage spinner (which passes both a cosmetic fallback AND drives
+    real progress via on_phase) never showed real phase text."""
+    clock = {"t": 0.0}
+    ls = LiveStatus(
+        "a", stream=io.StringIO(), enabled=True,
+        phrases=["one", "two"], phrase_interval=5.0,
+        clock=lambda: clock["t"],
+    )
+    ls._start = 0.0
+    assert ls._current_label() == "one"  # still rotating before any real event
+    clock["t"] = 5.0
+    assert ls._current_label() == "two"
+    ls.update("Engineer · writing code")
+    assert ls._current_label() == "Engineer · writing code"
+    # Time keeps moving — the explicit label must stick, not resume rotating.
+    clock["t"] = 12.0
+    assert ls._current_label() == "Engineer · writing code"
+    ls.update_role("bold_green", "Reviewer · 裁决中")
+    assert ls._current_label() == "Reviewer · 裁决中"
 
 
 def test_update_accent_retints_spinner_glyph_only():

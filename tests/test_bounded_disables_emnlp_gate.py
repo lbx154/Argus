@@ -61,6 +61,7 @@ def test_repl_bounded_disables_full_emnlp_gate(tmp_path: Path):
     cfg = _build_repl_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
+        global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
         project_worktree=tmp_path,
@@ -80,6 +81,7 @@ def test_repl_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
     cfg = _build_repl_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
+        global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
         project_worktree=tmp_path,

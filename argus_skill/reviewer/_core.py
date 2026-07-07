@@ -404,6 +404,9 @@ class Reviewer:
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
+        rev_reasoning_output_tokens = int(
+            getattr(result, "reasoning_output_tokens", 0) or 0
+        )
         # Copilot premium-request delta for this reviewer turn (0.0 off copilot).
         # copilot 下本轮 reviewer 的高级请求增量（非 copilot 时为 0.0）。
         rev_premium = float(getattr(result, "premium_requests", 0.0) or 0.0)
@@ -438,6 +441,7 @@ class Reviewer:
                     input_tokens=rev_in,
                     cached_input_tokens=rev_cached,
                     output_tokens=rev_out,
+                    reasoning_output_tokens=rev_reasoning_output_tokens,
                     premium_requests=rev_premium,
                     thread_id=rev_tid,
                     static_fingerprint=new_fp,
@@ -450,6 +454,7 @@ class Reviewer:
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
+                reasoning_output_tokens=rev_reasoning_output_tokens,
                 premium_requests=rev_premium,
                 thread_id=rev_tid,
                 static_fingerprint=new_fp,
@@ -464,6 +469,7 @@ class Reviewer:
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
+                reasoning_output_tokens=rev_reasoning_output_tokens,
                 premium_requests=rev_premium,
                 thread_id=rev_tid,
                 static_fingerprint=new_fp,
@@ -475,6 +481,7 @@ class Reviewer:
         parsed.input_tokens = rev_in
         parsed.cached_input_tokens = rev_cached
         parsed.output_tokens = rev_out
+        parsed.reasoning_output_tokens = rev_reasoning_output_tokens
         parsed.premium_requests = rev_premium
         # F7: carry the thread + static fingerprint so the loop resumes this
         # reviewer thread next round and detects mid-mission static drift.

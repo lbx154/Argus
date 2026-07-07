@@ -41,7 +41,12 @@ from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
 from ..life.memory import BacklogItem, GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
-from ..life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from ..life.supervisor import (
+    LifeBudget,
+    LifeSupervisor,
+    LifeSupervisorConfig,
+    global_daily_spend,
+)
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +93,7 @@ class LifeWorkerConfig:
     reviewer_reasoning_effort: str = "xhigh"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
+    global_daily_cap_usd: float = 0.0
     planner_task_iteration_max_cycles: int = 6
     planner_task_iteration_budget_usd: float = 30.0
     poll_interval: float = 5.0
@@ -404,6 +410,7 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
+        "global_daily_cap_usd": config.global_daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
         "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
         "poll_interval": config.poll_interval,
@@ -438,6 +445,7 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         ),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
+        global_daily_cap_usd=float(data.get("global_daily_cap_usd") or 0.0),
         planner_task_iteration_max_cycles=int(
             data.get("planner_task_iteration_max_cycles") or 6
         ),
@@ -1611,7 +1619,8 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
         "## Runtime info\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
-        f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day\n"
+        f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day, "
+        f"${cfg.global_daily_cap_usd:.0f}/day global\n"
         "\n"
         "## Python environments (CRITICAL)\n"
         f"- argus-skill commands: `{argus_python}`\n"
@@ -1661,6 +1670,7 @@ def _build_supervisor_config(
         budget=LifeBudget(
             per_mission_cap_usd=cfg.per_mission_cap_usd,
             daily_cap_usd=cfg.daily_cap_usd,
+            global_daily_cap_usd=cfg.global_daily_cap_usd,
             max_missions=64,
         ),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
@@ -1780,6 +1790,7 @@ def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> 
         "life_dir": str(config.life_dir),
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
+        "global_daily_cap_usd": config.global_daily_cap_usd,
     }
 
 
@@ -1793,6 +1804,7 @@ class DaemonStatus:
     backend: str | None = None
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
+    global_daily_cap_usd: float | None = None
     pid_path: Path | None = None
 
 
@@ -1803,6 +1815,9 @@ def _daemon_budget_from_env() -> LifeBudget:
         ),
         daily_cap_usd=float(
             os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")
+        ),
+        global_daily_cap_usd=float(
+            os.environ.get("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.0")
         ),
     )
 
@@ -1818,25 +1833,47 @@ def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
     alive = bool(getattr(status, "alive", False))
     per_mission = getattr(status, "per_mission_cap_usd", None)
     daily = getattr(status, "daily_cap_usd", None)
+    global_daily = getattr(status, "global_daily_cap_usd", None)
     try:
         if alive and per_mission is not None and daily is not None:
             return LifeBudget(
                 per_mission_cap_usd=float(per_mission),
                 daily_cap_usd=float(daily),
+                global_daily_cap_usd=float(global_daily or 0.0),
             )
     except (TypeError, ValueError):
         pass
     return _daemon_budget_from_env()
 
 
+def _status_global_root(status: Any | None) -> Path | None:
+    life_dir = getattr(status, "life_dir", None)
+    if life_dir is None:
+        return None
+    try:
+        path = Path(life_dir).expanduser()
+    except TypeError:
+        return None
+    parent = path.parent
+    if parent.name != "projects":
+        return None
+    return parent.parent
+
+
 def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
     budget = resolve_effective_budget(status)
     remaining = budget.remaining_today(journal)
+    global_spend = global_daily_spend(
+        global_root=_status_global_root(status),
+        now=time.time(),
+    )
     tail = " (paused)" if remaining <= 0 else ""
     return (
         "budget   : "
         f"per-mission ${budget.per_mission_cap_usd:.2f} · "
         f"daily ${budget.daily_cap_usd:.2f} · "
+        f"global daily ${budget.global_daily_cap_usd:.2f} "
+        f"(spent ${global_spend:.2f}) · "
         f"remaining ${remaining:.2f}{tail}"
     )
 
@@ -1872,6 +1909,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     backend: str | None = None
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
+    global_daily_cap_usd: float | None = None
     uptime: float | None = None
     sidecar = _daemon_status_path(life_dir)
     if sidecar.exists():
@@ -1881,10 +1919,13 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
             backend = data.get("backend")
             raw_per_mission = data.get("per_mission_cap_usd")
             raw_daily = data.get("daily_cap_usd")
+            raw_global_daily = data.get("global_daily_cap_usd")
             if raw_per_mission is not None:
                 per_mission_cap_usd = float(raw_per_mission)
             if raw_daily is not None:
                 daily_cap_usd = float(raw_daily)
+            if raw_global_daily is not None:
+                global_daily_cap_usd = float(raw_global_daily)
             if started_iso:
                 started_dt = datetime.fromisoformat(started_iso)
                 uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
@@ -1899,6 +1940,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         backend=backend,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
+        global_daily_cap_usd=global_daily_cap_usd,
         pid_path=pid_path,
     )
 

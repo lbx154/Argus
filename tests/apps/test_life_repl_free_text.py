@@ -39,21 +39,27 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
     "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
     "ARGUS_SKILL_COCKPIT_LIVE",
+    "ARGUS_SKILL_ENGINEER_BACKEND",
     "ARGUS_SKILL_ENGINEER_MODEL",
     "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "ARGUS_SKILL_FOLLOW_LIVE",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_MODEL",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_PLANNER_BACKEND",
     "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "ARGUS_SKILL_PLAN_MODE",
     "ARGUS_SKILL_PLAN_MODEL",
     "ARGUS_SKILL_RESEARCH_PROFILE",
     "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+    "ARGUS_SKILL_REVIEWER_BACKEND",
     "ARGUS_SKILL_REVIEWER_MODEL",
     "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    "ARGUS_SKILL_RUNNER_BACKEND",
     "ARGUS_SKILL_SKILLS_DIR",
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
     "ARGUS_SKILL_TELEGRAM_CHAT_ID",
@@ -134,6 +140,7 @@ def test_invoke_supervisor_uses_global_skills_root(
         max_missions=1,
         per_mission_cap_usd=1.0,
         daily_cap_usd=1.0,
+        global_daily_cap_usd=0.0,
     )
 
     expected_path = (
@@ -187,6 +194,7 @@ def test_invoke_supervisor_injects_research_profile(
         max_missions=1,
         per_mission_cap_usd=1.0,
         daily_cap_usd=1.0,
+        global_daily_cap_usd=0.0,
     )
 
     assert "Runtime info" in captured["runtime_context"]
@@ -457,6 +465,7 @@ def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
             max_missions=1,
             per_mission_cap_usd=1.0,
             daily_cap_usd=1.0,
+            global_daily_cap_usd=0.0,
             quiet=True,
         )
 
@@ -476,6 +485,25 @@ def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixtur
     assert head.id == item.id
     out = capsys.readouterr().out
     assert "do the dishes" in out
+
+
+def test_add_only_custom_budget_sets_real_enforced_cap(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: ``/add ... --budget=$X`` used to be threaded only into
+    ``iteration_budget_usd`` while ``max_cost_usd`` stayed hardcoded at the
+    $30 default. ``LifeBudget.effective_per_mission_cap`` (the function that
+    actually gates real spend — see life/supervisor/_config.py) reads
+    ``item.max_cost_usd``, not ``iteration_budget_usd``, so an operator
+    typing ``--budget=1`` got zero real enforcement of that cap: the printed
+    confirmation even echoed back ``max_cost=$30.00``. Verified live against
+    a real cockpit session before this fix.
+    """
+    item = manager_repl._add_only(mem, "do the dishes", iteration_budget_usd=1.0)
+    assert item.max_cost_usd == 1.0
+    assert item.iteration_budget_usd == 1.0
+    out = capsys.readouterr().out
+    assert "max_cost=$1.00" in out
 
 
 def test_free_text_runs_just_typed_objective_not_older_pending(
@@ -541,7 +569,7 @@ def test_blocked_verdict_sets_question_and_reply_continues(mem: LifeMemory) -> N
 
     cont = mem.backlog.pending()[0].objective
     assert "研究 SOL-ExecBench，刷到 SOTA" in cont
-    assert "操作员答复：012 和 005" in cont
+    assert "Operator reply: 012 和 005" in cont
     inbox_file = manager_repl._life_dir_for(mem) / "inbox.jsonl"
     assert inbox_file.exists() and "012 和 005" in inbox_file.read_text(encoding="utf-8")
 
@@ -1174,6 +1202,97 @@ def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
     assert chat_state["config"]["planner_effort"] == "xhigh"
     assert chat_state["config"]["engineer_effort"] == "xhigh"
     assert chat_state["config"]["reviewer_effort"] == "xhigh"
+
+
+def test_free_text_backend_switch_config_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把目前的argus默认后端都改成copilot",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+    assert chat_state["config"]["runner_backend"] == "copilot"
+
+
+def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "把 reviewer 换成 claude",
+        chat_state=chat_state,
+    )
+
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "codex 和 claude 哪个好用",
+        "帮我用 copilot 写一个函数",
+        "今天天气不错",
+    ],
+)
+def test_backend_switch_recognizer_does_not_misfire(text: str) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._maybe_handle_backend_switch_text(None, text, chat_state) is False
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+
+
+def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成 claude-sonnet-5",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
+    assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_free_text_model_switch_role_specific_prefers_longest_alias(mem: LifeMemory) -> None:
+    """Regression: "gpt-5.4" must not shadow the longer "gpt-5.4-mini" id."""
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "engineer 的模型换成 gpt-5.4-mini",
+        chat_state=chat_state,
+    )
+
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_ENGINEER_MODEL"] == "gpt-5.4-mini"
+    assert "ARGUS_SKILL_MODEL" not in os.environ
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "如果是 Copilot 的话，也能允许他调用 Copilot 的所有模型",
+        "claude-opus-4.8 是最强的模型",
+        "换成 claude 后端",  # backend switch, not a model switch
+    ],
+)
+def test_model_switch_recognizer_does_not_misfire(text: str) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._maybe_handle_model_switch_text(None, text, chat_state) is False
+    assert "ARGUS_SKILL_MODEL" not in os.environ
 
 
 def test_unknown_slash_command_does_not_enter_codex(

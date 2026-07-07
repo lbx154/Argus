@@ -6,6 +6,7 @@ classify) were invisible to total_usd() and the daily cap. They now emit
 """
 from __future__ import annotations
 
+from argus_skill.core.pricing import usd_for_tokens
 from argus_skill.life.supervisor._cost import _CostTrackingSink
 
 
@@ -27,6 +28,17 @@ def _util_event(inp: int, out: int, *, model: str = "gpt-5.5") -> dict:
         "input_tokens": inp,
         "cached_input_tokens": 0,
         "output_tokens": out,
+        "usage_scope": "delta",
+    }
+
+
+def _main_event(inp: int, out: int, *, reasoning_out: int = 0) -> dict:
+    return {
+        "type": "round.main.completed",
+        "input_tokens": inp,
+        "cached_input_tokens": 0,
+        "output_tokens": out,
+        "reasoning_output_tokens": reasoning_out,
         "usage_scope": "delta",
     }
 
@@ -59,3 +71,42 @@ def test_util_buckets_by_model() -> None:
     assert set(sink.util_usage_by_model) == {"gpt-5.5", "haiku-4-5"}
     assert sink.util_usage_by_model["gpt-5.5"][0] == 1000
     assert sink.util_usage_by_model["haiku-4-5"][0] == 200
+
+
+def test_engineer_reasoning_tokens_increase_usd() -> None:
+    without_reasoning = _sink()
+    with_reasoning = _sink()
+    without_reasoning.handle_event(_main_event(1000, 100, reasoning_out=0))
+    with_reasoning.handle_event(_main_event(1000, 100, reasoning_out=25))
+    assert without_reasoning.engineer_reasoning_output_tokens == 0
+    assert with_reasoning.engineer_reasoning_output_tokens == 25
+    assert with_reasoning.total_reasoning_output_tokens() == 25
+    assert with_reasoning.engineer_usd() > without_reasoning.engineer_usd()
+    assert with_reasoning.total_usd() > without_reasoning.total_usd()
+
+
+def test_scientist_reasoning_tokens_increase_usd() -> None:
+    sink = _sink()
+    base = usd_for_tokens("gpt-5.5", 1000, 0, 100)
+    sink.handle_event({
+        "type": "skill.cost.completed",
+        "matcher_model": "gpt-5.5",
+        "distiller_model": "gpt-5.5-mini",
+        "matcher": {
+            "model": "gpt-5.5",
+            "input_tokens": 1000,
+            "cached_input_tokens": 0,
+            "output_tokens": 100,
+            "reasoning_output_tokens": 25,
+        },
+        "distiller": {
+            "model": "gpt-5.5-mini",
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0,
+        },
+        "usage_scope": "delta",
+    })
+    assert sink.scientist_reasoning_output_tokens == 25
+    assert sink.scientist_usd() > base

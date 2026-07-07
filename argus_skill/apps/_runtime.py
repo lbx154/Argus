@@ -1012,17 +1012,60 @@ class _SkillLoopRunner:
                 if callable(closer):
                     closer()
 
-        _phase("判断 Codex 独立处理还是交给 Argus 团队…")
+        from ..cli.roles_status import runner_backend_label
+        _backend_label = runner_backend_label()
+
+        _phase(f"Deciding: {_backend_label} solo vs. the Argus team…")
         route = self.manager.route(objective, run_exec=_classify_run_exec)
         if route == "simple":
-            _phase("Codex 独立处理…")
+            _phase(f"{_backend_label} handling it solo…")
             return self._simple_quick_reply(
                 objective=objective,
                 sink=_PhaseSink(sink),
                 seed_thread_id=seed_thread_id,
             )
-        _phase("交给 Planner / Engineer / Reviewer…")
+        _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
+
+    def classify_needs_continuous(self, objective: str) -> bool:
+        """Should ``objective`` (already routed to the TEAM/complex path) be
+        armed as a STANDING (continuous) campaign instead of a one-shot bounded
+        mission? Used by the REPL front door so the operator never has to
+        manually pass ``--continuous --objective`` for open-ended work typed
+        straight into chat. Fail-soft: any classify error returns ``False`` (the
+        task stays on its normal bounded path) — a classify hiccup must never
+        force an expensive 7x24 campaign.
+        """
+        from ..core.models import RunnerOptions
+
+        _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        _workdir = (
+            Path(self._args.workdir).expanduser()
+            if getattr(self._args, "workdir", None)
+            else Path.cwd()
+        )
+
+        def _classify_run_exec(prompt: str) -> Any:
+            return self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self._args.engineer_model,
+                    reasoning_effort="low",
+                    full_auto=_safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not _safe_mode,
+                    working_dir=str(_workdir),
+                ),
+                run_label="router-classify-persistence",
+                resume_thread_id=None,
+            )
+
+        try:
+            return bool(
+                self.manager.needs_persistence(objective, run_exec=_classify_run_exec)
+            )
+        except Exception:  # noqa: BLE001 — a classify failure must never force continuous
+            return False
 
     def chat_reply_if_conversational(
         self,
@@ -1626,9 +1669,12 @@ class _SkillLoopRunner:
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
 
+        from ..cli.roles_status import runner_backend_label
         sink.handle_event({
             "type": "loop.start",
-            "text": f"SELF: one Codex handling {objective[:80]}",
+            # A coarse cap; the real terminal-width clamp lives in
+            # cli.live_status.render_frame so this line can never wrap.
+            "text": f"SELF: one {runner_backend_label()} handling {objective[:120]}",
         })
 
         self._current_sink = sink
@@ -1842,6 +1888,7 @@ def _build_repl_supervisor_config(
     *,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     once: bool,
     max_missions: int,
     project_worktree: Path | None,
@@ -1859,6 +1906,7 @@ def _build_repl_supervisor_config(
         budget=LifeBudget(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
+            global_daily_cap_usd=global_daily_cap_usd,
             max_missions=1 if once else max_missions,
         ),
         poll_interval_seconds=2.0,
@@ -1890,6 +1938,7 @@ def run_life_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     project_worktree: Path | None = None,
     artifact_root: Path | None = None,
     quiet: bool = False,
@@ -1965,6 +2014,7 @@ def run_life_supervisor(
         cfg = _build_repl_supervisor_config(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
+            global_daily_cap_usd=global_daily_cap_usd,
             once=once,
             max_missions=max_missions,
             project_worktree=project_worktree,
@@ -2000,6 +2050,7 @@ def _invoke_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     quiet: bool = False,
     seed_thread_id: str | None = None,
     continuous: bool = False,
@@ -2057,6 +2108,7 @@ def _invoke_supervisor(
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
+        f"- Global daily budget cap: ${global_daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
         f"- Command workdir: {Path.cwd()}\n"
         f"- Harness artifact root: {_memory_project_root(mem)}\n"
@@ -2084,6 +2136,7 @@ def _invoke_supervisor(
         max_missions=max_missions,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
+        global_daily_cap_usd=global_daily_cap_usd,
         project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
         artifact_root=_memory_project_root(mem),
         quiet=quiet,

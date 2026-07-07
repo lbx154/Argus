@@ -31,6 +31,7 @@ from typing import Any, Sequence
 
 from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
 from ..life.status import describe_continuous_state, select_current_running_item
+from ..life.supervisor import global_daily_spend
 from ._inbox import count_pending_inbox_messages, format_inbox_event
 
 
@@ -198,15 +199,25 @@ class _PathTail:
 class _BudgetLineCache:
     """Cache the rendered budget line until its inputs change."""
 
-    signature: tuple[tuple[int, int, int, int] | None, float, float] | None = None
+    signature: tuple[tuple[int, int, int, int] | None, float, float, float, float] | None = None
     line: str = ""
 
     def render(self, *, journal_path: Path, journal: Any, status: Any) -> str:
         budget = resolve_effective_budget(status)
+        global_root = None
+        life_dir = getattr(status, "life_dir", None)
+        try:
+            if life_dir is not None and Path(life_dir).expanduser().parent.name == "projects":
+                global_root = Path(life_dir).expanduser().parent.parent
+        except TypeError:
+            global_root = None
+        global_spend = global_daily_spend(global_root=global_root)
         signature = (
             _path_signature(journal_path),
             budget.per_mission_cap_usd,
             budget.daily_cap_usd,
+            budget.global_daily_cap_usd,
+            global_spend,
         )
         if signature != self.signature:
             self.signature = signature
@@ -216,9 +227,32 @@ class _BudgetLineCache:
                 "budget   : "
                 f"per-mission ${budget.per_mission_cap_usd:.2f} · "
                 f"daily ${budget.daily_cap_usd:.2f} · "
+                f"global ${global_spend:.2f}/${budget.global_daily_cap_usd:.2f} · "
                 f"remaining ${remaining:.2f}{tail}"
             )
         return self.line
+
+
+@dataclass
+class _JournalTailCache:
+    """Cache the last N *journal-worthy* entries until the file changes.
+
+    ``EventJournal.tail()`` re-derives its entries by re-scanning the whole
+    ``events.jsonl`` history on every call (no internal caching) — cheap for a
+    fresh project, but ~0.5s on a multi-hour mission's multi-MB event log.
+    Gating on ``_path_signature`` (mirrors ``_BudgetLineCache``) means a busy
+    refresh loop only re-scans when the file actually grew, not on every tick.
+    """
+
+    signature: tuple[int, int, int, int] | None = None
+    entries: list[Any] = field(default_factory=list)
+
+    def get(self, *, journal_path: Path, journal: Any, n: int) -> list[Any]:
+        signature = _path_signature(journal_path)
+        if signature != self.signature:
+            self.signature = signature
+            self.entries = journal.tail(n)
+        return self.entries
 
 
 @dataclass
@@ -327,25 +361,8 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
         journal = Journal(journal_path)
     budget_cache = _BudgetLineCache()
+    journal_cache = _JournalTailCache()
     plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
-
-    def _read_journal_tail(n: int = 10) -> list[dict[str, Any]]:
-        try:
-            with journal_path.open("rb") as fh:
-                fh.seek(0, 2)
-                size = fh.tell()
-                tail = min(size, 32 * 1024)
-                fh.seek(size - tail)
-                blob = fh.read().decode("utf-8", errors="replace")
-        except OSError:
-            return []
-        rows = []
-        for line in blob.splitlines()[-n:]:
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return rows
 
     def _mission_panel() -> Panel:
         mission = state.mission
@@ -387,15 +404,15 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         tbl.add_column(style="bold magenta", width=18, no_wrap=True)
         tbl.add_column(width=10, justify="right")
         tbl.add_column()
-        for row in _read_journal_tail(10):
-            ts = row.get("ts", 0)
+        entries = journal_cache.get(journal_path=journal_path, journal=journal, n=10)
+        for entry in entries:
             try:
-                ts_s = time.strftime("%H:%M:%S", time.localtime(float(ts)))
+                ts_s = time.strftime("%H:%M:%S", time.localtime(float(entry.ts)))
             except (TypeError, ValueError):
                 ts_s = "?"
-            kind = str(row.get("kind", "?"))
-            cost = float(row.get("cost_usd", 0.0) or 0.0)
-            title = str(row.get("title", ""))[:80]
+            kind = str(entry.kind or "?")
+            cost = float(entry.cost_usd or 0.0)
+            title = str(entry.title or "")[:80]
             tbl.add_row(ts_s, kind, f"${cost:.4f}", title)
         return Panel(tbl, title="Journal (latest)", border_style="magenta")
 

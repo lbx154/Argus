@@ -2,9 +2,9 @@
 wiki-page counterpart to ``tests/skills/test_skill_llm_duplicate_judge.py``.
 
 Independence (duplicate) detection is judged ENTIRELY by an LLM. There is no
-lexical/scored fallback: when no ``judge_runner`` is configured, or the
-judge call fails/returns something unusable, the independence check is
-simply SKIPPED for that page proposal (fail-open).
+lexical/scored fallback: when a non-empty wiki needs the duplicate judge,
+missing/broken/unusable judge infrastructure now rejects the proposal
+explicitly instead of silently letting it through.
 """
 from __future__ import annotations
 
@@ -81,10 +81,7 @@ def test_llm_judge_empty_wiki_short_circuits_without_calling_runner(tmp_path: Pa
     assert counts["created"] == 1
 
 
-def test_no_judge_runner_skips_independence_check(tmp_path: Path) -> None:
-    """Without a judge_runner, there is no independence check at all
-    (fail-open, no scored/lexical fallback) — a literal near-duplicate page
-    still gets created."""
+def test_no_judge_runner_rejects_when_wiki_is_nonempty(tmp_path: Path) -> None:
     root = init_wiki("demo", base=tmp_path)
     _seed_page(WikiStore(root), title="GRPO Asymmetric Clipping",
                body="GRPO clips the ratio asymmetrically to keep training stable.")
@@ -96,13 +93,13 @@ def test_no_judge_runner_skips_independence_check(tmp_path: Path) -> None:
         "title": "Asymmetric Ratio Clipping for GRPO",
         "body": "To keep GRPO training stable, clip the ratio asymmetrically.",
     }], on_event=events.append)
-    assert counts["created"] == 1
-    assert len(WikiStore(root).iter_pages()) == 2
+    assert counts["created"] == 0 and counts["rejected"] == 1
+    rejected = [e for e in events if e.get("type") == "wiki.op.rejected"]
+    assert rejected and "duplicate judge unavailable" in rejected[0]["text"]
+    assert len(WikiStore(root).iter_pages()) == 1
 
 
-def test_judge_runner_exception_skips_independence_check(tmp_path: Path) -> None:
-    """A broken judge backend must never block wiki_ops: the independence
-    check is simply skipped for this proposal (fail-open)."""
+def test_judge_runner_exception_rejects_proposal(tmp_path: Path) -> None:
     root = init_wiki("demo", base=tmp_path)
     _seed_page(WikiStore(root), title="GRPO Asymmetric Clipping",
                body="GRPO clips the ratio asymmetrically to keep training stable.")
@@ -117,10 +114,10 @@ def test_judge_runner_exception_skips_independence_check(tmp_path: Path) -> None
         "title": "Asymmetric Ratio Clipping for GRPO",
         "body": "To keep GRPO training stable, clip the ratio asymmetrically.",
     }])
-    assert counts["created"] == 1
+    assert counts["created"] == 0 and counts["rejected"] == 1
 
 
-def test_judge_malformed_json_skips_independence_check(tmp_path: Path) -> None:
+def test_judge_malformed_json_rejects_proposal(tmp_path: Path) -> None:
     root = init_wiki("demo", base=tmp_path)
     _seed_page(WikiStore(root), title="GRPO Asymmetric Clipping",
                body="GRPO clips the ratio asymmetrically to keep training stable.")
@@ -132,10 +129,10 @@ def test_judge_malformed_json_skips_independence_check(tmp_path: Path) -> None:
         "title": "Asymmetric Ratio Clipping for GRPO",
         "body": "To keep GRPO training stable, clip the ratio asymmetrically.",
     }])
-    assert counts["created"] == 1
+    assert counts["created"] == 0 and counts["rejected"] == 1
 
 
-def test_judge_says_duplicate_but_omits_target_is_treated_as_unparseable(tmp_path: Path) -> None:
+def test_judge_duplicate_without_target_rejects_proposal(tmp_path: Path) -> None:
     root = init_wiki("demo", base=tmp_path)
     _seed_page(WikiStore(root), title="Debug CUDA OOM",
                body="Check nvidia-smi, reduce batch size, enable gradient checkpointing.")
@@ -144,14 +141,12 @@ def test_judge_says_duplicate_but_omits_target_is_treated_as_unparseable(tmp_pat
         "duplicate": True, "of": "", "why": "vague",
     })))
     router = WikiRouter(root, judge_runner=backend, judge_model="m")
-    # A malformed "true but no target" verdict is discarded as unparseable,
-    # so the independence check is skipped (fail-open) for this proposal.
     counts = router.apply_ops([{
         "op": "create_page", "card_type": "technique", "id": "rest-api-testing",
         "title": "Write unit tests for a REST endpoint",
         "body": "Spin up a test client, assert status codes and response bodies.",
     }])
-    assert counts["created"] == 1
+    assert counts["created"] == 0 and counts["rejected"] == 1
 
 
 def test_update_page_is_still_exempt_with_judge_runner_configured(tmp_path: Path) -> None:

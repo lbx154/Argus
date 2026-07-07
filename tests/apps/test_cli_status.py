@@ -85,8 +85,10 @@ def test_status_separates_active_queue_from_history(
             backend="memory",
             per_mission_cap_usd=9.0,
             daily_cap_usd=50.0,
+            global_daily_cap_usd=0.0,
         ),
     )
+    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
@@ -102,7 +104,10 @@ def test_status_separates_active_queue_from_history(
     assert "inbox    : 1 pending" in out
     assert "continuous: off" in out
     assert "current  :" not in out
-    assert "budget   : per-mission $9.00 · daily $50.00 · remaining $50.00" in out
+    assert (
+        "budget   : per-mission $9.00 · daily $50.00 · "
+        "global daily $0.00 (spent $0.00) · remaining $50.00"
+    ) in out
 
 
 def test_status_shows_active_work_when_present(
@@ -120,8 +125,10 @@ def test_status_shows_active_work_when_present(
             backend="memory",
             per_mission_cap_usd=9.0,
             daily_cap_usd=50.0,
+            global_daily_cap_usd=0.0,
         ),
     )
+    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
@@ -139,7 +146,10 @@ def test_status_shows_active_work_when_present(
     assert str(project_root) in out
     assert "pending" in out
     assert "running" in out
-    assert "budget   : per-mission $9.00 · daily $50.00 · remaining $50.00" in out
+    assert (
+        "budget   : per-mission $9.00 · daily $50.00 · "
+        "global daily $0.00 (spent $0.00) · remaining $50.00"
+    ) in out
 
 
 def test_status_shows_latest_mission_telemetry(
@@ -304,15 +314,20 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
             backend=None,
             per_mission_cap_usd=99.0,
             daily_cap_usd=99.0,
+            global_daily_cap_usd=0.0,
         ),
     )
+    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 5.0)
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "budget   : per-mission $2.50 · daily $5.00 · remaining $0.00 (paused)" in out
+    assert (
+        "budget   : per-mission $2.50 · daily $5.00 · "
+        "global daily $0.00 (spent $5.00) · remaining $0.00 (paused)"
+    ) in out
 
 
 def test_status_prefers_latest_running_item_and_works_offline(

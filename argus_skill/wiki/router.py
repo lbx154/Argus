@@ -15,11 +15,11 @@ Three hard, mechanical guardrails (everything else is the reviewer's judgement):
     of an EXISTING page. Judged ENTIRELY by an LLM over compact summaries
     (title + card_type + a short body excerpt — progressive disclosure,
     mirroring ``SkillRouter``'s duplicate judge). There is no lexical/scored
-    fallback: when no ``judge_runner`` is configured, or the judge call
-    fails, the independence check is simply skipped (fail-open) for that
-    proposal. A genuine revision of the SAME id (``update_page``, or a
-    ``create_page`` that resolves to an id already on disk) is exempt — it
-    is compared against nothing, never itself;
+    fallback, and no silent fail-open: when a non-empty wiki needs the
+    duplicate judge but no usable verdict is available, the proposal is
+    rejected explicitly. A genuine revision of the SAME id (``update_page``,
+    or a ``create_page`` that resolves to an id already on disk) is exempt —
+    it is compared against nothing, never itself;
   * removals are tombstones (``retire_page``), never hard deletes, and reversible.
 
 Best-effort: one bad op never breaks the others; the router never raises.
@@ -168,12 +168,17 @@ class WikiRouter:
             # Independence floor: a NEW id must not be a near-duplicate of an
             # EXISTING page. A revision of the SAME id (``existed`` above) is
             # exempt — it is compared against nothing, never itself. LLM
-            # judge ONLY (progressive disclosure) — no judge runner
-            # configured, or the call fails -> the check is skipped
-            # (fail-open); there is no scored/lexical fallback.
+            # judge ONLY (progressive disclosure) — no scored/lexical fallback,
+            # and no silent pass-through when the judge is unavailable.
             title = str(op.get("title") or slug)
             body = str(op.get("body") or "")
-            verdict = self._llm_duplicate_check(title=title, body=body, card_type=card_type)
+            try:
+                verdict = self._llm_duplicate_check(
+                    title=title, body=body, card_type=card_type
+                )
+            except RuntimeError as exc:
+                self._reject(on_event, op.get("op"), str(exc))
+                return "rejected"
             if verdict is not None:
                 is_dup, near, why = verdict
                 if is_dup:
@@ -196,14 +201,17 @@ class WikiRouter:
         """Ask the judge runner whether the proposal duplicates an existing
         page, over COMPACT SUMMARIES only (progressive disclosure). Returns
         ``(is_duplicate, matched_title, why)``, or ``None`` when no judge
-        runner is configured or the call fails for any reason — the caller
-        then skips the independence check entirely for this proposal
-        (fail-open); there is no scored/lexical fallback."""
-        if self.judge_runner is None:
-            return None
+        comparison is needed. Missing or unusable judge infrastructure RAISES
+        so the caller can reject the proposal explicitly; there is no
+        scored/lexical fallback and no silent fail-open."""
         pages = self.store.iter_pages()
         if not pages:
             return False, "", "wiki is empty"
+        if self.judge_runner is None:
+            raise RuntimeError(
+                "duplicate judge unavailable: configure a healthy judge_runner "
+                "before create_page against a non-empty wiki"
+            )
         prompt = build_duplicate_check_prompt(
             title=title, body=body, card_type=card_type, existing_pages=pages,
         )
@@ -218,26 +226,29 @@ class WikiRouter:
                 ),
                 run_label="wiki.duplicate_check",
             )
-        except Exception as exc:  # noqa: BLE001 — judge is best-effort
+        except Exception as exc:  # noqa: BLE001
             log.warning("wiki duplicate judge failed (%s: %s)", type(exc).__name__, exc)
-            return None
+            raise RuntimeError(
+                f"duplicate judge failed: {type(exc).__name__}: {exc}"
+            ) from exc
         text = (getattr(result, "last_agent_message", "") or "").strip()
         if not text:
-            return None
+            raise RuntimeError("duplicate judge returned no text")
         try:
             left, right = text.find("{"), text.rfind("}")
             parsed = json.loads(text[left:right + 1]) if left >= 0 < right else json.loads(text)
         except (json.JSONDecodeError, ValueError):
-            return None
+            raise RuntimeError("duplicate judge returned malformed JSON") from None
         if not isinstance(parsed, dict):
-            return None
+            raise RuntimeError("duplicate judge returned a non-object verdict")
         is_dup = bool(parsed.get("duplicate"))
         of_title = str(parsed.get("of", "") or "").strip()
         why = str(parsed.get("why", "") or "").strip()[:300]
-        # Fail-closed on a malformed "true but no target": never reject
-        # without naming what it collides with.
         if is_dup and not of_title:
-            return None
+            raise RuntimeError(
+                "duplicate judge returned duplicate=true without naming the "
+                "existing conflicting page"
+            )
         return is_dup, of_title, why
 
     def _retire_page(self, op: dict, on_event: EventSink | None) -> bool:

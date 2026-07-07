@@ -42,6 +42,7 @@ from ..core.models import (
 from ..core.ports import RunnerBackend
 from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
+    emit_subagent_cost_events,
     find_waitable_subagent,
     parse_wait_sentinel,
     wait_for_subagent_cadence,
@@ -1089,6 +1090,11 @@ class SupervisedEngineer:
                 or current_thread_id is None
                 or last_round_had_compaction
             )
+            if on_event:
+                try:
+                    emit_subagent_cost_events(workdir, on_event)
+                except Exception:  # noqa: BLE001
+                    log.debug("subagent cost scan ignored an error", exc_info=True)
             engineer_prompt = engineer_prompt_builder(last_next_action, include_static)
             # F5: the per-round changing blocks are APPENDED (not prepended) so the
             # STATIC prefix stays byte-stable in front for the prefix-cache. They
@@ -1152,6 +1158,9 @@ class SupervisedEngineer:
                         getattr(engineer_result, "cached_input_tokens", 0) or 0
                     ),
                     "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
+                    "reasoning_output_tokens": int(
+                        getattr(engineer_result, "reasoning_output_tokens", 0) or 0
+                    ),
                     "premium_requests": float(
                         getattr(engineer_result, "premium_requests", 0.0) or 0.0
                     ),

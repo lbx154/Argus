@@ -16,6 +16,7 @@ import pytest
 from argus_skill.apps._inbox import format_inbox_event
 from argus_skill.apps._watch import (
     _BudgetLineCache,
+    _JournalTailCache,
     _mission_context_lines,
     _read_backlog_rows,
     _select_current_backlog_row,
@@ -276,16 +277,19 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     class _FakeBudget:
         per_mission_cap_usd = 2.5
         daily_cap_usd = 5.0
+        global_daily_cap_usd = 9.0
 
         def remaining_today(self, journal: object) -> float:  # noqa: ARG002
             calls["n"] += 1
             return 3.0
 
     monkeypatch.setattr(watch_mod, "resolve_effective_budget", lambda status: _FakeBudget())
+    monkeypatch.setattr(watch_mod, "global_daily_spend", lambda global_root=None: 1.25)
     status = Namespace(
         alive=True,
         per_mission_cap_usd=2.5,
         daily_cap_usd=5.0,
+        global_daily_cap_usd=9.0,
     )
 
     first = cache.render(journal_path=journal_path, journal=object(), status=status)
@@ -293,10 +297,111 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     journal_path.write_text('{"ts": 1, "cost_usd": 1.0}\n', encoding="utf-8")
     third = cache.render(journal_path=journal_path, journal=object(), status=status)
 
-    assert first == "budget   : per-mission $2.50 · daily $5.00 · remaining $3.00"
+    assert first == (
+        "budget   : per-mission $2.50 · daily $5.00 · "
+        "global $1.25/$9.00 · remaining $3.00"
+    )
     assert second == first
     assert third == first
     assert calls["n"] == 2
+
+
+def test_journal_tail_cache_reuses_previous_result_until_file_changes(
+    tmp_path: Path,
+) -> None:
+    """Mirrors ``_BudgetLineCache``: ``EventJournal.tail()`` re-scans the whole
+    events history on every call (no internal caching), so a busy 2Hz refresh
+    loop must not re-derive the tail on every tick when the file hasn't grown."""
+    cache = _JournalTailCache()
+    journal_path = tmp_path / "events.jsonl"
+    journal_path.write_text("", encoding="utf-8")
+    calls = {"n": 0}
+
+    class _FakeJournal:
+        def tail(self, n: int) -> list[str]:
+            calls["n"] += 1
+            return [f"entry-{calls['n']}"] * n
+
+    fake = _FakeJournal()
+    first = cache.get(journal_path=journal_path, journal=fake, n=3)
+    second = cache.get(journal_path=journal_path, journal=fake, n=3)
+    journal_path.write_text('{"type": "life.status"}\n', encoding="utf-8")
+    third = cache.get(journal_path=journal_path, journal=fake, n=3)
+
+    assert first == second  # cached: no re-scan while the file is unchanged
+    assert third != first   # file grew -> recomputed
+    assert calls["n"] == 2  # exactly one scan per distinct file signature
+
+
+def test_watch_subprocess_journal_panel_derives_kind_from_real_event_shape(
+    tmp_path: Path,
+) -> None:
+    """Regression: the Journal panel used to read raw event dicts expecting the
+    legacy ``kind``/``cost_usd``/``title`` keys directly on the row. Real
+    daemon-emitted events (``life.mission.completed``, ``life.status``, ...)
+    never carry a ``kind`` key at the top level — only ``type`` — so every row
+    rendered "?" for kind and $0.0000 for cost, regardless of what actually
+    happened. This proves the panel now derives ``kind`` from ``type`` (via
+    ``EventJournal``) and shows the real cost/title, while noise events with no
+    mapped kind (heartbeats/idle checks) are skipped rather than shown blank."""
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    project_root.mkdir(parents=True, exist_ok=True)
+
+    # Shape matches a REAL daemon-emitted event (see life/supervisor/_core.py)
+    # — no "kind"/"journal_kind" scaffolding, just what actually gets written.
+    _write_events(
+        project_root / "events.jsonl",
+        [
+            {
+                "type": "life.mission.completed",
+                "item_id": "real-item-1",
+                "title": "optimize the hot loop",
+                "success": True,
+                "cost_usd": 1.5,
+                "ts": time.time(),
+            },
+            # Realistic noise: heartbeat/idle checks carry no title/cost/kind
+            # at all — the panel must skip these, not render blank "?" rows.
+            {"type": "life.status", "ts": time.time()},
+            {"type": "life.planner.terminal_idle", "ts": time.time()},
+        ],
+    )
+
+    env = _subprocess_env()
+    env.update({"PYTHONUNBUFFERED": "1", "COLUMNS": "260", "LINES": "60"})
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "argus_skill", "--watch", "--life-dir", str(global_root)],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        time.sleep(1.0)
+        proc.send_signal(signal.SIGINT)
+        stdout, stderr = proc.communicate(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate(timeout=10)
+
+    output = stdout + stderr
+    assert proc.returncode == 0, proc
+    # Derived kind="mission_complete" from type + success, and the real
+    # cost/title — NOT the old "?" / $0.0000 fallback.
+    assert "mission_complete" in output
+    assert "$1.5000" in output
+    assert "optimize the hot loop" in output
 
 
 def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path) -> None:
@@ -406,7 +511,8 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     output = stdout + stderr
     after = offset_path.read_text(encoding="utf-8")
     assert proc.returncode == 0, proc
-    assert "budget   : per-mission $2.50 · daily $5.00 · remaining $3.50" in output
+    assert "budget   :" in output
+    assert "remaining $3.50" in output
     assert "title" in output
     assert "ship the cockpit" in output
     assert "objective" in output
@@ -621,4 +727,5 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
 
     output = stdout + stderr
     assert proc.returncode == 0, proc
-    assert "budget   : per-mission $2.50 · daily $5.00 · remaining $0.00 (paused)" in output
+    assert "budget   :" in output
+    assert "remaining $0.00 (paused)" in output

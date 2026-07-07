@@ -4,13 +4,11 @@ Independence (duplicate) detection is judged ENTIRELY by an LLM, over
 COMPACT SUMMARIES only (name + description + category — progressive
 disclosure, same shape the skill matcher already uses). The model answers
 a plain yes/no-shaped verdict — never a similarity score. There is no
-lexical/scored fallback: when no ``judge_runner`` is configured, or the
-judge call fails/returns something unusable, the independence check is
-simply SKIPPED for that proposal (fail-open) — mechanical validation
-(well-formed playbook) and the provisional-effectiveness lifecycle still
-apply regardless. This module tests that LLM-judge path directly (with a
-scripted judge response), and pins the fail-open behavior when no usable
-verdict is available.
+lexical/scored fallback: when a non-empty library needs the duplicate
+judge, missing/broken/unusable judge infrastructure now rejects the
+proposal explicitly instead of silently letting it through. This module
+tests that LLM-judge path directly (with a scripted judge response), and
+pins the explicit-rejection behavior when no usable verdict is available.
 """
 from __future__ import annotations
 
@@ -97,11 +95,7 @@ def test_llm_judge_empty_library_short_circuits_without_calling_runner(tmp_path:
     assert counts == {"created": 1, "updated": 0, "archived": 0, "rejected": 0}
 
 
-def test_no_judge_runner_skips_independence_check(tmp_path: Path) -> None:
-    """Without a judge_runner, there is no independence check at all
-    (fail-open, no scored/lexical fallback) — a create proposal that is a
-    literal duplicate of an existing skill still succeeds; only the
-    mechanical well-formedness check and the provisional lifecycle apply."""
+def test_no_judge_runner_rejects_when_library_is_nonempty(tmp_path: Path) -> None:
     store = _store_with_existing(tmp_path, name="Write a hello message")
     router = SkillRouter(skill_store=store)  # no judge_runner
     dup_content = (
@@ -116,14 +110,13 @@ def test_no_judge_runner_skips_independence_check(tmp_path: Path) -> None:
         [{"op": "create", "content": dup_content, "why": "x"}],
         task="t", on_event=events.append,
     )
-    assert counts == {"created": 1, "updated": 0, "archived": 0, "rejected": 0}
-    assert len(store.list_summaries()) == 2
+    assert counts == {"created": 0, "updated": 0, "archived": 0, "rejected": 1}
+    rejected = [e for e in events if e.get("type") == "skill.proposal.rejected"]
+    assert rejected and "duplicate judge unavailable" in rejected[0]["text"]
+    assert len(store.list_summaries()) == 1
 
 
-def test_judge_runner_exception_skips_independence_check(tmp_path: Path) -> None:
-    """A broken judge backend must never block skill_ops: the independence
-    check is simply skipped for this proposal (fail-open), not routed
-    through any scored/lexical fallback."""
+def test_judge_runner_exception_rejects_proposal(tmp_path: Path) -> None:
     store = _store_with_existing(tmp_path, name="Write a hello message")
 
     class _BrokenRunner:
@@ -139,11 +132,11 @@ def test_judge_runner_exception_skips_independence_check(tmp_path: Path) -> None
         "## How to solve\nDo the thing.\n"
     )
     counts = router.apply_ops([{"op": "create", "content": dup_content, "why": "x"}], task="t")
-    # Independence check skipped -> the create proceeds despite being a literal dup.
-    assert counts["created"] == 1
+    assert counts["rejected"] == 1
+    assert counts["created"] == 0
 
 
-def test_judge_malformed_json_skips_independence_check(tmp_path: Path) -> None:
+def test_judge_malformed_json_rejects_proposal(tmp_path: Path) -> None:
     store = _store_with_existing(tmp_path, name="Write a hello message")
     backend = MemoryBackend()
     backend.queue("skill.duplicate_check", CannedResponse(message="not valid json at all"))
@@ -156,14 +149,11 @@ def test_judge_malformed_json_skips_independence_check(tmp_path: Path) -> None:
         "## How to solve\nDo the thing.\n"
     )
     counts = router.apply_ops([{"op": "create", "content": dup_content, "why": "x"}], task="t")
-    assert counts["created"] == 1  # unusable verdict -> check skipped, create proceeds
+    assert counts["rejected"] == 1
+    assert counts["created"] == 0
 
 
-def test_judge_says_duplicate_but_omits_target_is_treated_as_unparseable(tmp_path: Path) -> None:
-    """Fail-closed on TRUSTING a malformed verdict: 'duplicate: true' with no
-    'of' name is never trusted blind. It is discarded as unparseable, so the
-    independence check is skipped for this proposal (fail-open) rather than
-    rejecting on an unnamed collision."""
+def test_judge_duplicate_without_target_rejects_proposal(tmp_path: Path) -> None:
     store = SkillStore(tmp_path / "skills")
     store.save_distilled(task_description="seed", raw_distill_output=(
         "## Title\nDebug CUDA OOM\n\n## Description\nFix GPU memory crashes.\n\n"
@@ -184,7 +174,8 @@ def test_judge_says_duplicate_but_omits_target_is_treated_as_unparseable(tmp_pat
         ), "why": "x"}],
         task="t",
     )
-    assert counts["created"] == 1
+    assert counts["rejected"] == 1
+    assert counts["created"] == 0
 
 
 def test_update_excludes_own_name_from_judge_summaries(tmp_path: Path) -> None:

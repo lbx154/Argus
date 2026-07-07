@@ -448,6 +448,9 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
+        global_daily_cap_usd=float(
+            os.environ.get("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.0")
+        ),
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
         planner_task_iteration_budget_usd=float(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),

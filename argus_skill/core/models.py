@@ -73,6 +73,9 @@ class RunnerResult:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # Additional hidden reasoning tokens billed at the output rate; real usage not
+    # shown in visible completion text. 额外的隐藏 reasoning token 按输出单价计费，真实计费但不显示在可见回复文本里。
+    reasoning_output_tokens: int = 0
     # Copilot bills in PREMIUM REQUESTS, not tokens (it reports no input tokens),
     # so this is copilot's native cost unit — this call's DELTA (already
     # de-cumulated per thread by the backend adapter). 0.0 for codex/claude.
@@ -207,6 +210,9 @@ class ReviewDecision:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # Additional hidden reasoning tokens billed at the output rate; real usage not
+    # shown in visible completion text. 额外的隐藏 reasoning token 按输出单价计费，真实计费但不显示在可见回复文本里。
+    reasoning_output_tokens: int = 0
     # Copilot's native cost unit for the reviewer subprocess (this round's
     # DELTA; 0.0 for codex/claude). Consumed by cost-tracking sinks alongside
     # the token side-channels above.
@@ -293,6 +299,7 @@ class ReviewDecision:
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),
             "output_tokens": int(self.output_tokens or 0),
+            "reasoning_output_tokens": int(self.reasoning_output_tokens or 0),
             # Copilot premium-request delta (cost sinks fold it into USD).
             "premium_requests": float(self.premium_requests or 0.0),
             "backend_unavailable": bool(self.backend_unavailable),

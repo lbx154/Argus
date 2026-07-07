@@ -20,8 +20,9 @@ from argus_skill.planner import (
 
 
 class _FakeRunner:
-    def __init__(self, *agent_messages: str) -> None:
+    def __init__(self, *agent_messages: str, reasoning_output_tokens: int = 0) -> None:
         self._agent_messages = list(agent_messages)
+        self._reasoning_output_tokens = reasoning_output_tokens
         self.calls: list[tuple[str, object]] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
@@ -36,6 +37,7 @@ class _FakeRunner:
             input_tokens=0,
             cached_input_tokens=0,
             output_tokens=0,
+            reasoning_output_tokens=self._reasoning_output_tokens,
         )
 
 
@@ -186,6 +188,20 @@ def test_plan_next_returns_done_when_runner_says_so() -> None:
     assert verdict.project_done is True
     assert verdict.new_tasks == []
     assert len(runner.calls) == 1
+
+
+def test_plan_next_preserves_reasoning_output_tokens() -> None:
+    runner = _FakeRunner(
+        json.dumps({"project_done": True, "reason": "everything is done", "new_tasks": []}),
+        reasoning_output_tokens=321,
+    )
+    verdict = Planner(runner).plan_next(
+        continuous_objective="keep going",
+        journal_tail="",
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+    assert verdict.reasoning_output_tokens == 321
 
 
 def test_plan_next_passes_planner_config_to_runner() -> None:

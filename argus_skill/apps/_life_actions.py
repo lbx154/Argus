@@ -79,7 +79,17 @@ def add_backlog_item(
         title=title,
         objective=text,
         priority=priority,
-        max_cost_usd=30.0,
+        # BUG FIX: this used to be hardcoded to 30.0, silently ignoring the
+        # operator's `/add ... --budget=$X`. `max_cost_usd` (not
+        # `iteration_budget_usd`) is what `LifeBudget.effective_per_mission_cap`
+        # actually enforces (see life/supervisor/_config.py) as the real
+        # per-mission spend gate, so a custom --budget was cosmetically
+        # threaded into `iteration_budget_usd` (only used to size a future
+        # continuation cycle) while the mission's REAL cap silently stayed at
+        # the $30 default. Confirmed live: `/add ... --budget=1` printed
+        # "max_cost=$30.00" back at the operator. Use the same operator-
+        # supplied value for both fields so what's typed is what's enforced.
+        max_cost_usd=iteration_budget_usd,
         tags=[],
         iterate=iterate,
         iteration_max_cycles=iteration_max_cycles,
@@ -184,7 +194,8 @@ def render_run_command(
             f"/run: backend={run_args.backend}  "
             f"max_missions={'1 (once)' if run_args.once else run_args.max_missions}  "
             f"per_mission_cap=${run_args.per_mission_cap_usd:.2f}  "
-            f"daily_cap=${run_args.daily_cap_usd:.2f}"
+            f"daily_cap=${run_args.daily_cap_usd:.2f}  "
+            f"global_daily_cap=${getattr(run_args, 'global_daily_cap_usd', 0.0):.2f}"
         ),
         "       (foreground; Ctrl-C requests graceful stop)",
     ]
@@ -203,6 +214,7 @@ def render_run_command(
         max_missions=run_args.max_missions,
         per_mission_cap_usd=run_args.per_mission_cap_usd,
         daily_cap_usd=run_args.daily_cap_usd,
+        global_daily_cap_usd=getattr(run_args, "global_daily_cap_usd", 0.0),
         quiet=run_args.quiet,
         seed_thread_id=seed,
     )

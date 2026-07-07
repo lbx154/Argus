@@ -548,18 +548,26 @@ class Manager:
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:
         """The vertical's Stage list (research → the 8-stage paper pipeline).
-        Reuses verticals/<v>/stages.py; falls back to the canonical 8 stages."""
-        try:
-            from ..verticals._base import load_vertical
 
-            order = getattr(
-                load_vertical(vertical, project_root=self.project_root),
-                "STAGE_ORDER", None,
-            )
-            if order:
-                return list(order)
-        except Exception:  # noqa: BLE001 — fall back, never crash division
-            pass
+        Reuses ``verticals/<v>/stages.py``. A vertical whose module loads fine
+        but does not define ``STAGE_ORDER`` gets the canonical 8-stage
+        template (that vertical simply opted out of a custom stage list — not
+        a failure). A vertical that fails to resolve/import PROPAGATES the
+        error: this matches :meth:`divide`'s documented FAIL-HARD contract
+        ("no silent fallback to the research default") and
+        ``LifeSupervisor._resolve_vertical_once``'s own FAIL-HARD contract —
+        silently substituting the canonical/paper stage list for a broken or
+        unresolvable vertical would turn e.g. a kernelbench mission into the
+        paper pipeline with no visible error.
+        """
+        from ..verticals._base import load_vertical
+
+        order = getattr(
+            load_vertical(vertical, project_root=self.project_root),
+            "STAGE_ORDER", None,
+        )
+        if order:
+            return list(order)
         from ..skills.stage_checklists import CANONICAL_STAGE_ORDER
 
         return list(CANONICAL_STAGE_ORDER)
@@ -681,6 +689,36 @@ class Manager:
                 )
 
         return classify_route(text, run_exec=run_exec)
+
+    def needs_persistence(self, text: str, *, run_exec: Any = None) -> bool:
+        """Should this task be armed as a STANDING (continuous) campaign, or is
+        it BOUNDED (one mission, drains once)? The Manager owns this decision so
+        the operator never has to manually pass ``--continuous --objective`` for
+        open-ended work typed straight into chat (e.g. "optimize as many kernels
+        as possible"). Reuses ``life/router.classify_needs_persistence`` (biases
+        hard to BOUNDED — never silently force an expensive 7x24 campaign onto a
+        task that did not ask for one). With no backend, returns False — the
+        safe default."""
+        from ..life.router import classify_needs_persistence as _classify
+
+        if run_exec is None:
+            if self.runner is None:
+                return False
+            from ..core.models import RunnerOptions
+
+            _backend = self._session or self.runner
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-persistence",
+                )
+
+        return _classify(text, run_exec=run_exec)
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(

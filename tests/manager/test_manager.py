@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.manager import Division, Manager
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
@@ -55,6 +57,38 @@ def test_plan_stages_research_is_the_8_stage_pipeline():
     assert stages == list(RESEARCH_STAGES)
     assert stages[0] == "research" and stages[-1] == "submission"
     assert len(stages) == 8
+
+
+def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
+    """A vertical that fails to resolve/import must PROPAGATE, not silently
+    substitute the canonical/paper stage list — matches divide()'s and
+    LifeSupervisor._resolve_vertical_once's documented FAIL-HARD contract.
+    Silently degrading here would turn e.g. a kernelbench mission into the
+    paper pipeline with no visible error."""
+    from argus_skill.verticals import _base
+
+    def _boom(name, project_root=None):
+        raise RuntimeError("simulated broken vertical import")
+
+    monkeypatch.setattr(_base, "load_vertical", _boom)
+    with pytest.raises(RuntimeError, match="simulated broken vertical import"):
+        Manager().plan_stages("kernelbench")
+
+
+def test_plan_stages_defaults_when_vertical_has_no_stage_order(monkeypatch):
+    """A vertical module that loads successfully but simply does not define
+    STAGE_ORDER (an optional hook, not a failure) still gets the canonical
+    template — this is NOT the guessing anti-pattern, it's the documented
+    optional-hook default used throughout verticals/_base.py."""
+    from argus_skill.skills.stage_checklists import CANONICAL_STAGE_ORDER
+    from argus_skill.verticals import _base
+
+    class _BareModule:
+        pass
+
+    monkeypatch.setattr(_base, "load_vertical", lambda name, project_root=None: _BareModule())
+    stages = Manager().plan_stages("some-vertical")
+    assert stages == list(CANONICAL_STAGE_ORDER)
 
 
 def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
@@ -145,5 +179,32 @@ def test_route_does_not_fire_matcher(tmp_path):
 def test_is_conversational_does_not_fire_matcher(tmp_path):
     mgr = _mgr_with_store(tmp_path)
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("SELF"))
+    assert mgr.mission.calls == 0
+    assert out is True
+
+
+# ---- needs_persistence: BOUNDED vs STANDING (auto continuous-mode arming) ---
+
+def test_manager_no_runner_treats_free_text_as_bounded():
+    # No backend → can't classify → safe default is BOUNDED (never silently
+    # force an expensive 7x24 campaign onto a task that did not ask for one).
+    assert Manager(runner=None).needs_persistence("optimize everything forever") is False
+
+
+def test_manager_owns_bounded_vs_standing_decision():
+    mgr = Manager()
+    assert mgr.needs_persistence(
+        "optimize as many kernels as possible", run_exec=lambda p: _FakeResult("STANDING")
+    ) is True
+    assert mgr.needs_persistence(
+        "fix the flaky test in test_foo.py", run_exec=lambda p: _FakeResult("BOUNDED")
+    ) is False
+
+
+def test_needs_persistence_does_not_fire_matcher(tmp_path):
+    mgr = _mgr_with_store(tmp_path)
+    out = mgr.needs_persistence(
+        "keep improving this indefinitely", run_exec=lambda p: _FakeResult("STANDING")
+    )
     assert mgr.mission.calls == 0
     assert out is True
