@@ -701,3 +701,89 @@ def test_tail_printer_prints_complete_lines_immediately():
         printer.feed({"type": "engineer.progress"}, "  [Engineer] 💭 world")
     # Both printed right away (nothing held back), in order.
     assert sink.getvalue() == "  [Engineer] 💭 hello\n  [Engineer] 💭 world\n"
+
+
+def _fmt_reviewer(event):
+    from argus_skill.apps.cli._follow import _format_follow_event
+    return _format_follow_event(event, "reviewer", theme=None)
+
+
+def test_tail_printer_flush_idle_never_commits_mid_stream():
+    """The 200-fragment reviewer dump came from ``flush_idle`` committing a
+    still-streaming message on every idle poll. ``flush_idle`` must ONLY settle
+    a message that has gone quiet for ``_idle_commit_after`` — an
+    actively-arriving stream (fresh ``_pending_at``) is never split."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "reviewer",
+            "replace": True, "message_id": mid,
+        }
+
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        printer.feed(ev("{", "m1"), "  [Reviewer] 💭 {")
+        printer.flush_idle()  # just arrived -> must NOT commit
+        printer.feed(ev('{"status":"done"', "m1"), "  [Reviewer] 💭 verdict")
+        printer.flush_idle()  # still fresh -> must NOT commit
+        assert sink.getvalue() == "", "flush_idle leaked a mid-stream fragment"
+        printer._pending_at -= 10.0  # simulate the stream going quiet
+        printer.flush_idle()         # now settle exactly ONE line
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1, f"expected one settled line, got {lines!r}"
+
+
+def test_tail_printer_coalesces_raw_delta_fragments():
+    """Real copilot/codex beats are RAW non-overlapping chunks plus a final full
+    copy (not growing prefixes). Keeping the LONGEST text per message_id must
+    still converge on the complete final message — one clean line, JSON parsed
+    into a verdict, no raw JSON guts."""
+    import io
+    import contextlib
+    from argus_skill.manager import repl
+
+    def ev(text, mid):
+        return {
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": text, "agent_layer": "reviewer",
+            "replace": True, "message_id": mid,
+        }
+
+    beats = [
+        ev("{", "m1"),
+        ev('"status":"done","reason":"re-ran', "m1"),
+        ev(" the check myself", "m1"),
+        ev('{"status":"done","reason":"re-ran the check myself and confirmed"}', "m1"),
+    ]
+    spin = repl._TailWaitSpinner(theme=None, enabled=False)
+    printer = repl._TailPrinter(spin)
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        for b in beats:
+            printer.feed(b, _fmt_reviewer(b))
+        printer.flush()
+    lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1, f"expected one coalesced line, got {lines!r}"
+    assert "reviewer verdict: done" in lines[0]
+    assert "{" not in lines[0], "raw JSON leaked into the committed line"
+
+
+def test_clip_follow_summary_cuts_on_word_boundary_with_count():
+    """Long agent_message text must be clipped cleanly (word boundary + a
+    ``(+N chars)`` hint), not sliced mid-word with a bare ``…``."""
+    from argus_skill.apps.cli._follow import _clip_follow_summary
+
+    text = "alpha beta gamma delta " * 40  # ~920 chars
+    out = _clip_follow_summary(text, 240)
+    assert out.endswith("chars)"), out
+    assert "…" in out
+    head = out.split(" … (+")[0]
+    assert head.split()[-1] in {"alpha", "beta", "gamma", "delta"}, \
+        f"cut mid-word: {head[-12:]!r}"
+    assert _clip_follow_summary("short and sweet", 240) == "short and sweet"

@@ -397,6 +397,48 @@ class _TailWaitSpinner:
         self._painted = False
 
 
+def _type_out_line(line: str, *, stream: Any = None) -> None:
+    """Print one committed line with a capped character-by-character "typing"
+    animation, for an AI feel. Falls back to a plain, instant print when
+    disabled / non-TTY (so piped output and tests are byte-for-byte unchanged).
+
+    The total animation time is hard-capped (long reasoning never crawls the
+    log); Ctrl-C during the animation raises straight through so the operator
+    can always interrupt.
+    """
+    out = stream if stream is not None else sys.stdout
+    enabled = False
+    try:
+        from ..cli.live_status import _spinner_enabled
+        enabled = (
+            _spinner_enabled(out)
+            and os.environ.get("ARGUS_SKILL_TYPEWRITER", "1").strip().lower()
+            not in ("0", "false", "no", "off")
+        )
+    except Exception:  # noqa: BLE001 — animation must never break the tail
+        enabled = False
+    if not enabled or not line:
+        print(line, flush=True, file=out)
+        return
+    # Cap total time; short verdicts feel snappy, a 240-char line still lands
+    # in well under half a second.
+    per_char = min(0.006, 0.35 / max(1, len(line)))
+    try:
+        for ch in line:
+            out.write(ch)
+            out.flush()
+            if per_char > 0:
+                time.sleep(per_char)
+        out.write("\n")
+        out.flush()
+    except KeyboardInterrupt:
+        out.write("\n")
+        out.flush()
+        raise
+    except Exception:  # noqa: BLE001
+        print(line, flush=True, file=out)
+
+
 class _TailPrinter:
     """Prints tail event lines, collapsing copilot-style streamed messages.
 
@@ -420,14 +462,25 @@ class _TailPrinter:
         self._spinner = spinner
         self._pending_mid: str | None = None
         self._pending_line: str | None = None
+        self._pending_at: float = 0.0
+        # Settle a paused stream only after it has been silent this long. An
+        # actively-streaming message (token beats arriving faster than this)
+        # is therefore shown as ONE settled line, never the 200 mid-stream
+        # fragments the copilot/codex delta stream used to spray.
+        self._idle_commit_after = 0.5
 
-    def _raw_print(self, line: str) -> None:
+    def _raw_print(self, line: str, *, typewriter: bool = False) -> None:
         self._spinner.clear()
-        print(line, flush=True)
+        if typewriter:
+            _type_out_line(line)
+        else:
+            print(line, flush=True)
 
     def _commit_pending(self) -> None:
         if self._pending_line is not None:
-            self._raw_print(self._pending_line)
+            # The settled reasoning/verdict line types out for an AI feel;
+            # tool/command lines (handled in feed) stay instant.
+            self._raw_print(self._pending_line, typewriter=True)
         self._pending_mid = None
         self._pending_line = None
 
@@ -442,23 +495,31 @@ class _TailPrinter:
             return
         mid = str(event.get("message_id") or "")
         if bool(event.get("replace")) and mid:
-            # A streamed chunk: start-of-new-message flushes the previous one,
-            # then we keep only the newest text for this id (drop the fragments
-            # and the duplicate final copy).
+            # A streamed chunk. Start-of-new-message flushes the previous one;
+            # within one message keep the LONGEST rendering seen (the backend
+            # ends with a full copy, so this converges on the complete text and
+            # is robust whether beats are growing prefixes or raw fragments).
             if self._pending_mid is not None and mid != self._pending_mid:
                 self._commit_pending()
+            if self._pending_line is None or len(rendered) >= len(self._pending_line):
+                self._pending_line = rendered
             self._pending_mid = mid
-            self._pending_line = rendered
+            self._pending_at = time.monotonic()
             return
         # A complete line: commit any in-flight streamed message first so
-        # ordering is preserved, then print this one.
+        # ordering is preserved, then print this one instantly.
         self._commit_pending()
         self._raw_print(rendered)
 
     def flush_idle(self) -> None:
-        """Commit a paused streamed message so it appears promptly rather than
-        waiting for the next event (called right before the spinner ticks)."""
-        self._commit_pending()
+        """Settle a streamed message once it has gone quiet for a moment — but
+        NEVER mid-stream (that produced the fragmented reviewer dumps). Called
+        right before the spinner ticks."""
+        if (
+            self._pending_line is not None
+            and time.monotonic() - self._pending_at >= self._idle_commit_after
+        ):
+            self._commit_pending()
 
     def flush(self) -> None:
         """Commit any held line (tail exit / completion / Ctrl-C)."""
