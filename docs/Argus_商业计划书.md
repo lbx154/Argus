@@ -15,7 +15,7 @@
 
 > **牵引现状(放在最前,避免飞轮图造成"已运转"错觉):** 今天我们有一个**在真机上连续运行、能自主产出可复现研究结论的引擎**,但**商业侧尚未经过任何市场验证**——没有付费客户、没有 LOI、没有在谈的 design-partner(仅有 unverified 内部线索)、没有买家给过价格。本 BP 是一个**pre-revenue、pre-PMF** 的种子故事:卖的是"引擎 + 两类副产品资产 + 一支要补齐的团队",不是已验证的收入曲线。
 
-**Argus 是什么。** Argus 是一个完全独立于人、7×24 自己做科研的 research agent(repo `github.com/lbx154/argus-skill`,MIT)。给它一个"研究目标 + 机器规则",它自己选题→调研→设计实验→在**真实公开 benchmark 上真实测量**→分析→写代码→产出可复现结论,没有人在回路里逐步审批。底层是三层 agent(基于 OpenAI Codex CLI,**当前默认 gpt-5.5**,见 `loop.py:54-55`、`life/supervisor/_core.py:207-208`、`daemon/life_worker.py:85-87`):**Planner(L4 规划)/ Engineer(L1 工程)/ Reviewer(L2 审稿,是"任务完成与否"的唯一事实来源)**,外挂并行 subagent 池。
+**Argus 是什么。** Argus 是一个完全独立于人、7×24 自己做科研的 research agent(repo `github.com/lbx154/argus-skill`,MIT)。给它一个"研究目标 + 机器规则",它自己选题→调研→设计实验→在**真实公开 benchmark 上真实测量**→分析→写代码→产出可复现结论,没有人在回路里逐步审批。底层是四个角色(基于 OpenAI Codex CLI,**当前默认 gpt-5.5**,见 `loop.py:54-55`、`life/supervisor/_core.py:207-208`、`daemon/life_worker.py:85-87`):**Manager(前门 + pipeline 阶段转移唯一权威)/ Planner(L4 规划)/ Engineer(L1 工程)/ Reviewer(L2 审稿,是"任务完成与否"的唯一事实来源)**,外挂并行 subagent 池。
 
 **它真实跑过什么(用可核实的运行体量代替"文件数"虚荣指标):**
 - 在**三类真机公开 benchmark** 上连续运行:CUDA kernel 优化(KernelBench / B200)、训练脚本提速(nanoGPT speedrun / 8×H100)、训练效果优化(nanochat / B200);另有量化因子挖掘、自动写论文垂类。
