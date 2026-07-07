@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
+from ..core.knobs import resolve_role_model
 from ..core.models import RunnerResult
 from ..core.ports import EventSink
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -1751,7 +1752,7 @@ class _SkillLoopRunner:
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "codex_idle",
-                    "text": f"Codex process running; no stream output for {idle}s",
+                    "text": f"{runner_backend_label()} process running; no stream output for {idle}s",
                 })
             except Exception:  # noqa: BLE001
                 pass
@@ -2131,13 +2132,14 @@ def _invoke_supervisor(
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
-    from ..tools.capability_vault import resolve_route_model
-
-    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model(
-        "engineer"
+    ns.engineer_model = resolve_role_model(
+        "engineer",
+        role_env="ARGUS_SKILL_ENGINEER_MODEL",
     )
-    reviewer_default = resolve_route_model("reviewer")
-    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
+    ns.reviewer_model = resolve_role_model(
+        "reviewer",
+        role_env="ARGUS_SKILL_REVIEWER_MODEL",
+    )
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "xhigh",

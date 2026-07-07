@@ -63,6 +63,7 @@ from ..apps._runtime import (
     _SplitMemory,
 )
 from ..core import paths as core_paths
+from ..core.knobs import resolve_role_model
 from ..life import BacklogItem, LifeMemory, MemoryBundle
 
 log = logging.getLogger(__name__)
@@ -809,6 +810,12 @@ def read_message_with_live_cockpit(
     from ..apps._input_helpers import read_pasted_message
     if not _live_cockpit_will_activate(mem):
         return read_pasted_message(prompt)
+    # _live_cockpit_will_activate() already proved these import cleanly (that is
+    # part of what it checks), but a successful import in ITS scope does not
+    # make the names available here — each scope that uses termios/tty needs
+    # its own import.
+    import termios
+    import tty
     life_dir = _life_dir_for(mem)
 
     # This path is explicit opt-in only. It uses terminal cursor rewrites, so the
@@ -1381,13 +1388,13 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
 # an unlisted model name still falls through untouched to the task/chat path
 # instead of being silently mismatched.
 _MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
-    "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5"),
-    "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6"),
-    "claude-sonnet-4.5": ("claude-sonnet-4.5", "claude sonnet 4.5"),
+    "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5", "sonnet 5", "sonnet5"),
+    "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6", "sonnet 4.6"),
+    "claude-sonnet-4.5": ("claude-sonnet-4.5", "claude sonnet 4.5", "sonnet 4.5"),
     "claude-haiku-4.5": ("claude-haiku-4.5", "claude haiku 4.5", "haiku"),
-    "claude-opus-4.8": ("claude-opus-4.8", "claude opus 4.8"),
-    "claude-opus-4.7": ("claude-opus-4.7", "claude opus 4.7"),
-    "claude-opus-4.6": ("claude-opus-4.6", "claude opus 4.6"),
+    "claude-opus-4.8": ("claude-opus-4.8", "claude opus 4.8", "opus 4.8"),
+    "claude-opus-4.7": ("claude-opus-4.7", "claude opus 4.7", "opus 4.7"),
+    "claude-opus-4.6": ("claude-opus-4.6", "claude opus 4.6", "opus 4.6"),
     "gpt-5.5": ("gpt-5.5", "gpt5.5"),
     "gpt-5.4": ("gpt-5.4", "gpt5.4"),
     "gpt-5.3-codex": ("gpt-5.3-codex", "gpt-5.3 codex", "gpt5.3-codex"),
@@ -1990,8 +1997,6 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         return None
 
     try:
-        from ..tools.capability_vault import resolve_route_model
-
         # ``manager_session_root`` MUST match the daemon's own
         # ``ns.manager_session_root = str(cfg.life_dir)`` (see
         # ``daemon/life_worker.py:_runner_namespace``) — otherwise this
@@ -2011,9 +2016,14 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         session_root = getattr(mem, "project_root", None)
         ns = argparse.Namespace(
             backend=backend or "codex",
-            engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
-            or resolve_route_model("engineer"),
-            reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
+            engineer_model=resolve_role_model(
+                "engineer",
+                role_env="ARGUS_SKILL_ENGINEER_MODEL",
+            ),
+            reviewer_model=resolve_role_model(
+                "reviewer",
+                role_env="ARGUS_SKILL_REVIEWER_MODEL",
+            ),
             engineer_reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
             ),

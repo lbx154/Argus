@@ -844,8 +844,11 @@ class Manager:
             # the daily cap — they were previously invisible. Fail-soft.
             from ..core.cost_events import metered_run_exec
             try:
-                from ..tools.capability_vault import resolve_route_model
-                _mmodel = resolve_route_model("manager") or ""
+                from ..core.knobs import resolve_role_model
+                _mmodel = resolve_role_model(
+                    "engineer",
+                    role_env="ARGUS_SKILL_ENGINEER_MODEL",
+                ) or ""
             except Exception:  # noqa: BLE001
                 _mmodel = ""
             run_exec = metered_run_exec(

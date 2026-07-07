@@ -26,7 +26,9 @@ export ARGUS_SKILL_RUNNER_BACKEND=copilot
 
 # optional: pin one role to a different backend, e.g. reviewer back on codex:
 #   export ARGUS_SKILL_REVIEWER_BACKEND=codex
-# optional: pick a cheaper copilot model per role (default is gpt-5.5):
+# optional: pick one default copilot model for all roles without a role pin:
+#   export ARGUS_SKILL_MODEL=claude-sonnet-5
+# optional: or pick a cheaper copilot model per role (default is gpt-5.5):
 #   export ARGUS_SKILL_ENGINEER_MODEL=gpt-5.4-mini
 ```
 

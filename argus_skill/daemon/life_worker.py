@@ -423,7 +423,7 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
 
 
 def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
-    from ..tools.capability_vault import resolve_route_model
+    from ..core.knobs import resolve_role_model
 
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
@@ -435,8 +435,14 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         project_fingerprint=str(data.get("project_fingerprint") or ""),
         project_label=str(data.get("project_label") or ""),
         backend=str(data.get("backend") or "codex"),
-        engineer_model=str(data.get("engineer_model") or resolve_route_model("engineer")),
-        reviewer_model=str(data.get("reviewer_model") or resolve_route_model("reviewer")),
+        engineer_model=str(
+            data.get("engineer_model")
+            or resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL")
+        ),
+        reviewer_model=str(
+            data.get("reviewer_model")
+            or resolve_role_model("reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL")
+        ),
         engineer_reasoning_effort=str(
             data.get("engineer_reasoning_effort") or "xhigh"
         ),
@@ -925,9 +931,9 @@ class LifeWorker:
         backend = getattr(runner, "curator_backend", None) or getattr(runner, "backend", None)
         if backend is None:
             return None
+        from ..core.knobs import resolve_role_model
         from ..core.models import RunnerOptions
-        from ..tools.capability_vault import resolve_route_model
-        model = os.environ.get("ARGUS_SKILL_CURATOR_MODEL") or resolve_route_model("curator")
+        model = resolve_role_model("curator", role_env="ARGUS_SKILL_CURATOR_MODEL")
         effort = os.environ.get("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high")
         workdir = str(self.config.project_workdir) if self.config.project_workdir else None
 

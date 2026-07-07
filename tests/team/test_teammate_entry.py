@@ -27,6 +27,18 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
         assert hasattr(ns, f), f
 
 
+def test_build_runner_ns_uses_shared_default_model(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_REVIEWER_MODEL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "claude-sonnet-5")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+
+    ns = te._build_runner_ns(str(tmp_path), max_rounds=7, paper_mission=False)
+
+    assert ns.engineer_model == "claude-sonnet-5"
+    assert ns.reviewer_model == "claude-sonnet-5"
+
+
 def test_main_inprocess_success_marks_done(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)

@@ -388,12 +388,13 @@ class LifeSupervisor:
         return Path.cwd()
 
     def _planner_config(self):
+        from ...core.knobs import resolve_role_model
         from ...planner import PlannerConfig
-        from ...tools.capability_vault import resolve_route_model
 
         safe_mode = self._safe_mode_enabled()
         return PlannerConfig(
-            model=resolve_route_model("planner") or self.reviewer_model,
+            model=resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
+            or self.reviewer_model,
             reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh"
             ),

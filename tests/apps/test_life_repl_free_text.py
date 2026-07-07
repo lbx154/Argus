@@ -1457,13 +1457,35 @@ def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None
     with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
         manager_repl._free_text_cmd(
             mem,
-            "把模型换成 claude-sonnet-5",
+            "把模型换成 sonnet 5",
             chat_state=chat_state,
         )
 
     ensure.assert_not_called()
     assert mem.backlog.pending() == []
     assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
+    assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_free_text_model_switch_bare_sonnet_alias_matches(mem: LifeMemory) -> None:
+    """Regression: an operator said "把模型换成sonnet 5" (no "claude" prefix,
+    no space before the model name) and it fell through to the slow generic
+    Manager/SELF path instead of the instant recognizer — because
+    _MODEL_VALUE_ALIASES only listed "claude sonnet 5"/"claude-sonnet-5" for
+    this model, unlike "claude-haiku-4.5" which already had a bare "haiku"
+    alias. Bare "sonnet 5"/"opus 4.x" aliases close that gap."""
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成sonnet 5",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
     assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
     assert chat_state["config"]["model"] == "claude-sonnet-5"
 

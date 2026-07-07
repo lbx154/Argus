@@ -16,7 +16,8 @@ Each role independently resolves three knobs at runtime, all surfaced here:
   → ``ARGUS_SKILL_LIFE_BACKEND`` → ``codex`` (one of Codex / Claude Code /
   Copilot; ``memory`` in tests).
 * **model** — ``ARGUS_SKILL_{ROLE}_MODEL`` (``ARGUS_SKILL_PLAN_MODEL`` for the
-  planner) → the capability-vault route → the ``gpt-5.5`` default.
+  planner) → ``ARGUS_SKILL_MODEL`` → the capability-vault route → the
+  ``gpt-5.5`` default.
 * **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → ``xhigh``.
   Only meaningful for reasoning models (gpt-5.x / o-series); shown as ``—`` for
   a non-reasoning model.
