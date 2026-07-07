@@ -45,19 +45,36 @@ def test_build_worker_config_without_bundle_resolves_cwd(tmp_path):
     assert cfg.life_dir.name  # resolved to *some* project dir, no crash
 
 
-def test_fresh_idle_session_autospawns_on_boot():
-    """Bare `argus` starts an executor, but it is keyed to the fresh session."""
-    fresh = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=True)
-    assert manager_repl._should_autospawn_on_boot(fresh) is True
+def test_fresh_idle_session_does_not_autospawn_on_boot():
+    """A fresh IDLE session (no continuous / objective / pending backlog) must
+    NOT spawn a daemon on boot — it spawns lazily on the first real task, so an
+    empty session never leaves an idle daemon behind. Continuous / objective /
+    backlog-bearing sessions still boot their daemon eagerly."""
+    fresh = argparse.Namespace(no_daemon=False, continuous=False,
+                               resume_continuous=False, objective="")
+    assert manager_repl._should_autospawn_on_boot(fresh) is False
 
-    resumed = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=False)
-    assert manager_repl._should_autospawn_on_boot(resumed) is True
-
-    continuous = argparse.Namespace(no_daemon=False, continuous=True, session_is_new=True)
+    continuous = argparse.Namespace(no_daemon=False, continuous=True,
+                                    resume_continuous=False, objective="")
     assert manager_repl._should_autospawn_on_boot(continuous) is True
 
-    disabled = argparse.Namespace(no_daemon=True, continuous=True, session_is_new=False)
+    with_obj = argparse.Namespace(no_daemon=False, continuous=False,
+                                  resume_continuous=False, objective="improve X")
+    assert manager_repl._should_autospawn_on_boot(with_obj) is True
+
+    disabled = argparse.Namespace(no_daemon=True, continuous=True,
+                                  resume_continuous=False, objective="")
     assert manager_repl._should_autospawn_on_boot(disabled) is False
+
+    # A resumed session with a pending backlog still boots its daemon to drain it.
+    class _Backlog:
+        def pending(self):
+            return [object()]
+
+    class _Mem:
+        backlog = _Backlog()
+
+    assert manager_repl._should_autospawn_on_boot(fresh, _Mem()) is True
 
 
 def test_first_task_autostarts_daemon_for_fresh_session(tmp_path, monkeypatch):

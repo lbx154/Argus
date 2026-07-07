@@ -315,7 +315,7 @@ def test_transcript_makes_chat_only_session_listable(tmp_path):
     assert [s.id for s in S.list_sessions(tmp_path, include_empty=False)] == [sid]
 
 
-def test_resume_cmd_replays_and_labels(tmp_path, capsys):
+def test_resume_cmd_switches_and_labels(tmp_path, capsys):
     import json
     import time
 
@@ -330,19 +330,21 @@ def test_resume_cmd_replays_and_labels(tmp_path, capsys):
          "last_active": time.time(), "cwd": "/x"}))
     T.append_turn(p, "operator", "remember my first message")
     T.append_turn(p, "argus", "sure")
-    # /resume <id> replays the saved conversation
-    r._resume_cmd(mem=None, chat_state={}, global_root=tmp_path, rest_text=sid)
-    out = capsys.readouterr().out
-    assert "remember my first message" in out and "sure" in out
-    # /resume list labels by first message, not (unnamed)
-    r._resume_cmd(mem=None, chat_state={}, global_root=tmp_path, rest_text="list")
+    # /resume <id> flags a real switch into that session (re-exec on loop exit)
+    cs: dict = {}
+    r._resume_cmd(mem=None, chat_state=cs, global_root=tmp_path, rest_text=sid)
+    assert cs.get("switch_to_session") == sid
+    # /resume list labels by first message, not (unnamed), and does NOT switch
+    cs2: dict = {}
+    r._resume_cmd(mem=None, chat_state=cs2, global_root=tmp_path, rest_text="list")
     out2 = capsys.readouterr().out
     assert "remember my first message" in out2 and "(unnamed)" not in out2
+    assert cs2.get("switch_to_session") is None
 
 
-def test_bare_resume_replays_previous_conversation(tmp_path, capsys):
-    """`/resume` with no id defaults to the most recent OTHER session that has
-    a saved conversation."""
+def test_bare_resume_switches_to_previous_conversation(tmp_path):
+    """`/resume` with no id flags a switch into the most recent OTHER session
+    that has a saved conversation."""
     import json
     import time
 
@@ -361,9 +363,8 @@ def test_bare_resume_replays_previous_conversation(tmp_path, capsys):
 
     _mk("s-prev", "the previous chat", 100)
     _mk("s-old", "an older chat", 500)
-    # bare /resume → replays s-prev (most recent with a transcript)
-    r._resume_cmd(mem=None, chat_state={}, global_root=tmp_path, rest_text="")
-    out = capsys.readouterr().out
-    assert "the previous chat" in out
-    assert "an older chat" not in out  # only the previous one, not the whole list
+    # bare /resume → switches into s-prev (most recent with a transcript)
+    cs: dict = {}
+    r._resume_cmd(mem=None, chat_state=cs, global_root=tmp_path, rest_text="")
+    assert cs.get("switch_to_session") == "s-prev"
 

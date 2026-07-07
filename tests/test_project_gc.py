@@ -42,6 +42,24 @@ def test_recent_project_is_kept(tmp_path):
     assert (tmp_path / "projects" / "fresh00000001").exists()
 
 
+def test_transcript_only_session_is_not_swept_as_empty(tmp_path):
+    """A chat-only session (a saved conversation but no events/backlog) must NOT
+    be trashed by the empty-sweep — that would delete the conversation history
+    that /resume replays."""
+    from argus_skill.core import transcript as T
+
+    d = tmp_path / "projects" / "chatonly0001"
+    d.mkdir(parents=True)
+    (d / "session.json").write_text(
+        '{"id":"chatonly0001","display_name":"","objective":""}', encoding="utf-8"
+    )
+    T.append_turn(d, "operator", "hello there")
+    # sweep_empty is on by default AND prunes regardless of age — the transcript
+    # must be enough to keep the session.
+    assert gc_stale_projects(tmp_path, retention_days=30, sweep_empty=True) == []
+    assert (tmp_path / "projects" / "chatonly0001").exists()
+
+
 def test_live_daemon_project_is_never_pruned(tmp_path):
     # Stale by mtime, but daemon.pid points at THIS (alive) process.
     _make_project(tmp_path, "live00000001", age_days=99, lock_pid=os.getpid())

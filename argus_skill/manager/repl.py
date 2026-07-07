@@ -99,7 +99,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/daemon", "control this cockpit's executor: /daemon [start|stop|status]"),
     ("/daemons", "list every live daemon across all projects"),
     ("/attach", "read-only follow another project's daemon: /attach <session-id>"),
-    ("/resume", "replay the previous conversation (/resume list = all; /resume <id> = one)"),
+    ("/resume", "switch into the previous conversation (/resume list = all; /resume <id> = one)"),
     ("/doctor", "diagnose + fix \"why isn't anything running\""),
     ("/backend", "view/change the runner backend"),
     ("/config", "view/change this session's defaults (cycles, budget, effort...)"),
@@ -1940,14 +1940,29 @@ def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None
 
 
 
-def _should_autospawn_on_boot(args: argparse.Namespace) -> bool:
+def _should_autospawn_on_boot(args: argparse.Namespace, mem: Any = None) -> bool:
     """Whether opening the cockpit should immediately start a daemon.
 
-    The daemon is the executor, so even a bare fresh cockpit starts one
-    immediately. The context-pollution guard is NOT "delay daemon start"; it is
-    "start it against the resolved session bundle", never the legacy cwd project.
+    ONLY when there is actually work to run: a continuous 7×24 campaign, an
+    explicit ``--objective``, or a resumed session that already has a pending
+    backlog. A plain fresh chat session does NOT spawn a daemon on boot — it
+    spawns one LAZILY on the first real task (see ``_autospawn_daemon_for_task``
+    / ``auto_start_daemon_on_task``), so browsing / chatting / just looking
+    around never leaves an idle daemon behind (one per empty session was the
+    daemon-proliferation the operator hit).
     """
-    return not bool(getattr(args, "no_daemon", False))
+    if bool(getattr(args, "no_daemon", False)):
+        return False
+    if (bool(getattr(args, "continuous", False))
+            or bool(getattr(args, "resume_continuous", False))
+            or str(getattr(args, "objective", "") or "").strip()):
+        return True
+    try:
+        if mem is not None and mem.backlog.pending():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 def _autospawn_daemon_for_task(
@@ -3726,13 +3741,14 @@ def _print_transcript(
 def _resume_cmd(
     mem: Any, chat_state: dict[str, Any], global_root: Any, rest_text: str
 ) -> None:
-    """`/resume` — replay the PREVIOUS conversation (the most recent other
-    session that has saved chat). ``/resume <id>`` replays a specific session;
+    """`/resume` — switch into the PREVIOUS conversation (the most recent other
+    session with saved chat). ``/resume <id>`` switches into a specific session;
     ``/resume list`` shows all resumable sessions (labelled by first message).
 
-    A running cockpit is bound to one session; hot-swapping mid-process is
-    unsafe (singleton lock), so this shows the saved conversation + the exact
-    relaunch command to switch into it."""
+    Switching re-execs ``argus-skill --resume <id>`` (after releasing the
+    singleton lock), so it is a REAL switch — session bundle, daemon
+    association, cwd, banner + conversation replay — identical to relaunching
+    from the shell, not a read-only preview."""
     theme = chat_state.get("theme")
     _gray = theme.gray if theme is not None else (lambda s: s)
     from ..core import transcript as _transcript
@@ -3762,14 +3778,20 @@ def _resume_cmd(
     except Exception:  # noqa: BLE001
         cur_sid = None
 
-    def _show_conversation(sid: str) -> None:
-        shown = _print_transcript(_projdir(sid), theme, header=f"Conversation · {sid}")
-        if not shown:
-            print(_gray(f"(no saved conversation for {sid})"), flush=True)
-        cmd = f"argus-skill --resume {sid}"
-        print(_gray("Continue it (relaunches the cockpit bound to that session; "
-                    "its daemon keeps running in the background):"), flush=True)
-        print("  " + (theme.cyan(cmd) if theme is not None else cmd), flush=True)
+    def _switch_to(sid: str) -> None:
+        if sid == cur_sid:
+            print(_gray(f"Already in session {sid} — nothing to switch to."), flush=True)
+            return
+        meta = next((s for s in sessions if s.id == sid), None)
+        label = _label(meta) if meta is not None else ""
+        tail = f"  ·  {label}" if label and label != "(unnamed)" else ""
+        # Flag the switch; the REPL loop leaves cleanly and run_manager_repl
+        # re-execs `argus-skill --resume <sid>` once the singleton lock is
+        # released — a real switch (daemon association + cwd + replay), not a
+        # read-only preview.
+        chat_state["switch_to_session"] = sid
+        msg = f"↩ switching to session {sid}{tail} …"
+        print((theme.cyan(msg) if theme is not None else msg), flush=True)
 
     def _show_list() -> None:
         if not sessions:
@@ -3785,7 +3807,7 @@ def _resume_cmd(
             mark = "● live" if s.id in live else "      "
             print(_gray(f"  {mark}  {s.id}  {age_s:>4} ago  ·  {_label(s)}"), flush=True)
         print(_gray(
-            "Show one:  /resume <id>   ·   relaunch into it:  argus-skill --resume <id>"
+            "Switch into one:  /resume <id>   ·   or from the shell:  argus-skill --resume <id>"
         ), flush=True)
 
     target = (rest_text or "").strip()
@@ -3795,7 +3817,7 @@ def _resume_cmd(
         return
 
     if not target:
-        # Default: jump to the PREVIOUS conversation — the most recent OTHER
+        # Default: switch into the PREVIOUS conversation — the most recent OTHER
         # session that actually holds a saved conversation.
         prior = next(
             (s.id for s in sessions
@@ -3805,7 +3827,7 @@ def _resume_cmd(
         if prior is None:
             print(_gray("No previous conversation yet — `/resume list` to see all sessions."), flush=True)
             return
-        _show_conversation(prior)
+        _switch_to(prior)
         return
 
     match = next((s.id for s in sessions if s.id == target), None) \
@@ -3814,7 +3836,7 @@ def _resume_cmd(
         msg = f"no session matches {target!r} — `/resume list` to see them."
         print(theme.yellow(msg) if theme is not None else msg, flush=True)
         return
-    _show_conversation(match)
+    _switch_to(match)
 
 
 def _render_help(theme) -> str:  # noqa: ANN001
@@ -3973,6 +3995,25 @@ def _seed_chat_state(
     return chat_state, None
 
 
+def _reexec_into_session(sid: str, args: argparse.Namespace) -> None:
+    """Replace this process with ``argus-skill --resume <sid>`` — the REAL
+    switch (session bundle, daemon association, banner + conversation replay),
+    identical to relaunching it from the shell. Preserves ``--life-dir`` so a
+    custom global root carries over. Never returns on success (``os.execv``)."""
+    argv = [sys.executable, "-m", "argus_skill", "--resume", sid]
+    life_dir = getattr(args, "life_dir", None)
+    if life_dir:
+        argv += ["--life-dir", str(life_dir)]
+    if bool(getattr(args, "no_daemon", False)):
+        argv.append("--no-daemon")
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    os.execv(sys.executable, argv)
+
+
 def run_manager_repl(args: argparse.Namespace) -> int:
     """Drive the unified ``argus-skill`` REPL (the Manager conversation entry).
 
@@ -4036,9 +4077,12 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     # display_name — a resumed session keeps its original name.
     chat_state["session_id"] = _session_id
     chat_state["global_root"] = global_root
+    # Lazy daemon spawn: any non-continuous session (fresh OR resumed) starts
+    # its executor on the FIRST real task, not on boot — so an empty session
+    # never leaves an idle daemon behind. Continuous mode still boots its daemon
+    # eagerly (it generates its own work). Only spawns when none is alive.
     chat_state["auto_start_daemon_on_task"] = (
         not bool(getattr(args, "no_daemon", False))
-        and bool(getattr(args, "session_is_new", False))
         and not bool(getattr(args, "continuous", False))
     )
     chat_state["session_named"] = bool(
@@ -4067,12 +4111,21 @@ def run_manager_repl(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        return _run_manager_repl_locked(args, mem, created, chat_state=chat_state)
+        rc = _run_manager_repl_locked(args, mem, created, chat_state=chat_state)
     finally:
         try:
             repl_lock.release()
         except Exception:  # noqa: BLE001
             log.exception("life REPL: failed to release singleton lock")
+
+    # `/resume <id>` requested switching into another session. The singleton
+    # lock is now released (finally above), so re-exec into that session exactly
+    # like `argus-skill --resume <id>` — this replaces the process and never
+    # returns.
+    switch_sid = chat_state.get("switch_to_session")
+    if switch_sid:
+        _reexec_into_session(str(switch_sid), args)
+    return rc
 
 
 def _run_manager_repl_locked(
@@ -4131,7 +4184,7 @@ def _run_manager_repl_locked(
                     legacy_zombie_msg = None
         except Exception:  # noqa: BLE001
             pass
-    if _should_autospawn_on_boot(args):
+    if _should_autospawn_on_boot(args, mem):
         try:
             from ..apps.cli import _build_worker_config
             from ..daemon.life_worker import (
@@ -4394,6 +4447,11 @@ def _run_manager_repl_locked(
                 "mission keeps running (use /daemon stop to stop it)"
             ))
             continue
+        # `/resume <id>` requested switching into another session: leave the
+        # loop cleanly so run_manager_repl re-execs `argus-skill --resume <id>`
+        # once the singleton lock is released.
+        if chat_state.get("switch_to_session"):
+            return 0
 
 
 def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | None:
