@@ -43,6 +43,7 @@ _ACTIVITY_FILES = (
     "backlog.jsonl",
     "daemon.status.json",
     "continuous.json",
+    "transcript.jsonl",
 )
 
 
@@ -84,14 +85,14 @@ def _project_last_active(project_dir: Path) -> float:
 def _project_is_empty(project_dir: Path) -> bool:
     """True if a project holds no real work — bare-launch litter.
 
-    Empty = no backlog items, no events, no named/objective session, no
-    continuous objective. Such dirs are minted by every bare ``argus-skill``
-    launch (a fresh session) and accumulate fast; they carry zero data, so
-    moving them to trash is safe even when recent.
+    Empty = no backlog items, no events, no saved conversation, no
+    named/objective session, no continuous objective. Such dirs are minted by
+    every bare ``argus-skill`` launch (a fresh session) and accumulate fast;
+    they carry zero data, so moving them to trash is safe even when recent.
     """
     import json
 
-    for name in ("backlog.jsonl", "events.jsonl"):
+    for name in ("backlog.jsonl", "events.jsonl", "transcript.jsonl"):
         try:
             f = project_dir / name
             if f.exists() and f.stat().st_size > 2:
