@@ -4,7 +4,8 @@
 > a target, 7×24, judged by a reviewer. One CLI, one loop, one verticalized
 > task shape. The harness is a domain-agnostic dumb pipe (budget, persistence,
 > scheduling, structured I/O, anti-cheat guardrails); all research judgment
-> lives with the agent (planner / engineer / reviewer).
+> lives with the agent (manager / planner / engineer / reviewer — see the
+> Manager row below for why it isn't "just" a fourth pipeline stage).
 
 This map covers the **live tree**. It is kept in sync with the code — if a path
 here is wrong, fix it (a stale map mis-routes the next maintainer).
@@ -33,7 +34,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Area | File(s) | Role |
 |---|---|---|
 | Entry / CLI | `argus_skill/__main__.py`, `apps/cli/_parser.py`, `apps/cli/_core.py` | argument parsing + one-shot action dispatch (`--daemon`, `--daemon-stop [--drain]`, `--status`, …) |
-| Manager | `manager/_core.py`, `manager/repl.py` | chat-vs-task decision, vertical selection, REPL surface |
+| Manager | `manager/_core.py`, `manager/repl.py` | chat-vs-task decision (model-judged, not keyword), vertical selection, REPL surface, and the **sole authority for pipeline stage transitions** (`current_stage`) — Planner/Engineer/Reviewer may only advise, never write it themselves |
 | Runtime wiring | `apps/_runtime.py` | builds the live runner / supervisor from config |
 | Mission scheduler | `life/supervisor/_core.py` | the 7×24 outer loop: claim backlog → run mission → plan next; budget, lifecycle, drain |
 | Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → review |

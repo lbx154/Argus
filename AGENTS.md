@@ -24,11 +24,14 @@ argus-skill / python -m argus_skill
 | 层 | 角色 | 主要文件 | 改什么时看这里 |
 | --- | --- | --- | --- |
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/manager/repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
+| Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/repl.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles`、常驻状态行、live cockpit 面板里和其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/scientist.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后由 Scientist 生成 provisional skill、Reviewer 用任务成功证明后 confirm、内置论文/research playbook |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
+
+> **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`cli/roles_status.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 的架构图和几份 pitch 文档历史上只画了三个角色（未包含 Manager）；README 已经在 2026-07-07 修正，pitch 文档尚待确认是否需要同步更新。
 
 ## 入口和运行面
 
@@ -172,7 +175,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 如果 reviewer 老是误判：
 
 - 先看 `Reviewer._build_prompt` 和 fallback role skill。
-- 再看 `argus_skill/builtin_skills/argus-reviewer-role.md`、`academic-paper-peer-review-benchmark.md`。
+- 再看 `argus_skill/builtin_skills/reviewer/argus-reviewer-role.md`、`academic-paper-peer-review-benchmark.md`。
 - 最后才改 schema；schema 改动会影响 tests 和所有 verdict parser。
 
 ## 外层 LifeSupervisor
@@ -214,7 +217,10 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 - `argus_skill/skills/store.py`: markdown skill store、frontmatter parse、matcher、save/writeback。
 - `argus_skill/skills/scientist.py`: matcher miss 后让 Scientist/Distiller 生成 provisional skill。
-- `argus_skill/skills/quality.py`: distilled skill 质量门。
+- 质量门：不再是独立的 `quality.py`（已删除，见 `638e074`）；`store.py::save_distilled` 的
+  `enforce_quality_gate` 参数保留但已忽略——不再对 skill 文本本身判质量（判断 skill 文案
+  比瞎猜还不准），改成 effect-gated：新蒸馏的 skill 一律 `provisional`，只有后续任务真的
+  靠它拿到有效 reviewer verdict 才会被 confirm，没起作用就丢弃。
 - `argus_skill/skills/lifecycle.py`: reinforce/distill/revise/retire 决策。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。
@@ -334,17 +340,17 @@ submission assurance 都在 checklist 里），不是看某个 validator 的返�
 
 这些是 paper pipeline 的模型/视觉 review 工具：
 
-- `argus_skill/skills/academic_language_review.py`
+- `argus_skill/verticals/research/academic_language_review.py`
   - CLI: `python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`
   - 输出：`paper/ACADEMIC_LANGUAGE_REVIEW.json` 和 `.md`
   - 校验：`validate-academic-language-review`
 
-- `argus_skill/skills/paper_infrastructure_review.py`
+- `argus_skill/verticals/research/paper_infrastructure_review.py`
   - CLI: `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write`
   - 输出：`paper/PAPER_INFRASTRUCTURE_REVIEW.json` 和 `.md`
   - 用来抓 manuscript prose 里的本地路径、device/cache、Argus/Codex route/config 泄漏。
 
-- `argus_skill/skills/paper_layout_review.py`
+- `argus_skill/verticals/research/paper_layout_review.py`
   - CLI: `python -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write`
   - 输出：`paper/LAYOUT_REVIEW.json`、`.md`、`paper/layout_review/pages/`
   - 用 PDF page snapshots 做视觉布局审核。
@@ -453,13 +459,18 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 
 ```bash
 pytest tests/test_loop_smoke.py
-pytest tests/test_architecture_docs_contract.py
 pytest tests/skills/test_pipeline_contracts_cli.py
-pytest tests/skills/test_paper_layout_review_prompt.py
-pytest tests/skills/test_academic_language_review.py
-pytest tests/skills/test_paper_infrastructure_review.py
+pytest tests/skills/test_paper_layout_review_snapshots.py tests/skills/test_paper_layout_review_venue.py
+pytest tests/skills/test_academic_language_review_venue.py
+pytest tests/test_paper_infrastructure_review.py
 pytest tests/tools/test_image_tool.py
 ```
+
+> 2026-07-07 核实：以上文件名已按当前 `tests/` 树校正（原来列的
+> `test_architecture_docs_contract.py` 已整个移除、无替代，故删除该行；
+> `test_paper_layout_review_prompt.py` / `test_academic_language_review.py`
+> 已改名+拆分；`test_paper_infrastructure_review.py` 从 `tests/skills/` 挪到了
+> `tests/` 顶层）。
 
 全量：
 
