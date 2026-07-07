@@ -111,11 +111,11 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
 #: layout. Any command missing here still shows up (see ``_help_command_rows``)
 #: so a forgotten entry degrades to "unsorted", never to "invisible".
 _HELP_SECTIONS: list[tuple[str, tuple[str, ...]]] = [
-    ("日常查看", ("/status", "/roles", "/journal", "/backlog")),
-    ("任务管理", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
-    ("daemon 与诊断", ("/daemon", "/daemons", "/attach", "/doctor")),
-    ("配置", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
-    ("其它", ("/help", "/exit")),
+    ("Everyday", ("/status", "/roles", "/journal", "/backlog")),
+    ("Task management", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
+    ("Daemon & diagnostics", ("/daemon", "/daemons", "/attach", "/doctor")),
+    ("Configuration", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
+    ("Other", ("/help", "/exit")),
 ]
 
 
@@ -2706,7 +2706,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
     # so /help can never silently omit a command that the dispatcher accepts.
     rows = _help_command_rows()
     label_width = max((len(label) for label, _desc in rows.values()), default=0) + 2
-    out.append(theme.bold("命令参考") + theme.gray("  — 自然语言之外，也可以直接打命令"))
+    out.append(theme.bold("Command reference") + theme.gray("  — beyond natural language, you can also type commands directly"))
     out.append("")
     for section, cmds in _HELP_SECTIONS:
         out.append(theme.gray(f"  {section}"))
@@ -2715,17 +2715,17 @@ def _render_help(theme) -> str:  # noqa: ANN001
             out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
         out.append("")
     if rows:
-        out.append(theme.gray("  其它"))
+        out.append(theme.gray("  Other"))
         for cmd, (label, desc) in rows.items():
             out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
         out.append("")
 
     out.append(theme.gray(
-        "常驻实时角色面板（不用手动 /roles 也能一直看到）： "
+        "Persistent live role panel (see it without typing /roles): "
         "ARGUS_SKILL_COCKPIT_LIVE=1"
     ))
     out.append(theme.gray(
-        "任务运行期间的实时跟随视图： ARGUS_SKILL_FOLLOW_LIVE=1"
+        "Live-follow view while a task is running: ARGUS_SKILL_FOLLOW_LIVE=1"
     ))
     out.append("")
     out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
