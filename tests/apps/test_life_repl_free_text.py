@@ -803,6 +803,8 @@ def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
         "Planner",
         "Engineer",
         "Reviewer",
+        "把backend换成",
+        "effort 设为 high",
         "Exit with /exit",
     ):
         assert fragment in out
@@ -1353,6 +1355,41 @@ def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
     assert chat_state["config"]["reviewer_effort"] == "xhigh"
 
 
+def test_free_text_bare_effort_config_applies_all_roles(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "effort 设为 high",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "high"
+    assert os.environ["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "high"
+    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"
+    assert os.environ["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "high"
+    assert chat_state["config"]["manager_effort"] == "high"
+    assert chat_state["config"]["planner_effort"] == "high"
+    assert chat_state["config"]["engineer_effort"] == "high"
+    assert chat_state["config"]["reviewer_effort"] == "high"
+
+
+def test_bare_effort_recognizer_does_not_misfire_on_advice() -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+
+    assert (
+        manager_repl._maybe_handle_role_effort_text(
+            None, "这个任务的 effort 应该用 high 还是 medium？", chat_state,
+        )
+        is False
+    )
+    assert "ARGUS_SKILL_MANAGER_REASONING_EFFORT" not in os.environ
+
+
 def test_local_switches_are_logged_so_manager_can_ground_on_them(
     mem: LifeMemory,
 ) -> None:
@@ -1466,6 +1503,24 @@ def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None
     assert "manager_runner" not in chat_state
     assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
     assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_free_text_model_switch_accepts_explicit_unknown_model_id(
+    mem: LifeMemory,
+) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成 gpt-6.1-codex",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_MODEL"] == "gpt-6.1-codex"
+    assert chat_state["config"]["model"] == "gpt-6.1-codex"
 
 
 def test_free_text_model_switch_bare_sonnet_alias_matches(mem: LifeMemory) -> None:

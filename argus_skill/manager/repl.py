@@ -1223,6 +1223,27 @@ _ROLE_ALIASES: dict[str, tuple[str, ...]] = {
 _EFFORT_VALUES = ("xhigh", "max", "high", "medium", "low")
 
 
+def _looks_like_bare_effort_control(text: str) -> bool:
+    """Recognize short operator controls such as ``effort 设为 high``.
+
+    Role-specific phrases are handled by alias matching below. This helper is
+    only for the Argus-native shorthand the operator sees in the cockpit, so it
+    requires an explicit assignment shape and does not fire on advisory text like
+    "should effort be high or medium?".
+    """
+    return bool(
+        re.search(
+            r"effort\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b|set\s+to\b|change\s+to\b)",
+            text,
+        )
+        or re.search(r"(?:推理|强度)\s*(?:设为|设置为|设置成|改成|换成)", text)
+        or re.search(
+            r"\b(?:set|change)\s+(?:reasoning\s+)?effort\s+to\b",
+            text,
+        )
+    )
+
+
 def _print_role_config_confirmation(
     theme: Any, roles: list[str] | None = None
 ) -> None:
@@ -1289,7 +1310,13 @@ def _maybe_handle_role_effort_text(
         return False
     if not any(tok in low for tok in ("改", "设置", "设为", "默认", "change", "set", "config", "配置")):
         return False
-    mentions_product = "argus" in low or "四角色" in low or "4角色" in low or "所有角色" in low
+    mentions_product = (
+        "argus" in low
+        or "四角色" in low
+        or "4角色" in low
+        or "所有角色" in low
+        or _looks_like_bare_effort_control(low)
+    )
     roles: list[str] = []
     if any(tok in low for tok in ("四角色", "四个角色", "4角色", "所有角色", "全部角色", "all roles", "every role")):
         roles = list(_ROLE_EFFORT_ENVS)
@@ -1468,9 +1495,8 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
 # Known model ids per backend, as of this build. Not exhaustive — any model
 # the underlying CLI supports already works via ARGUS_SKILL_<ROLE>_MODEL /
 # ARGUS_SKILL_MODEL (agent_cli_runner passes --model straight through with no
-# whitelist); this table only bounds what natural language can RECOGNIZE, so
-# an unlisted model name still falls through untouched to the task/chat path
-# instead of being silently mismatched.
+# whitelist). This table covers friendly aliases; explicit assignment forms like
+# ``model=gpt-6.1-codex`` are parsed by _extract_explicit_model_switch_value.
 _MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
     "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5", "sonnet 5", "sonnet5"),
     "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6", "sonnet 4.6"),
@@ -1493,6 +1519,41 @@ _MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
 }
 _MODEL_SWITCH_VERBS = _BACKEND_SWITCH_VERBS  # same verb vocabulary as backend switch
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,80}")
+
+
+def _normalize_explicit_model_id(value: str) -> str:
+    token = value.strip().strip("`'\"“”‘’.,，。;；")
+    if not token or not _MODEL_ID_RE.fullmatch(token):
+        return ""
+    if token in _BACKEND_VALUE_ALIASES:
+        return ""
+    # Avoid treating plain provider/backend names as model ids. Real model ids
+    # almost always carry a generation, family separator, or version marker.
+    if not any(ch.isdigit() or ch in ".:-" for ch in token):
+        return ""
+    return token
+
+
+def _extract_explicit_model_switch_value(raw: str) -> str:
+    """Extract the model id from explicit assignment phrases.
+
+    The backend runner already forwards arbitrary model ids; the REPL should not
+    require a code update every time a provider adds a new version. Keep this
+    conservative: only parse phrases that explicitly mention model/模型 and use
+    an assignment verb.
+    """
+    patterns = (
+        r"(?:模型|model)\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b)\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
+        r"\b(?:switch|change|set|use)\s+(?:the\s+)?model\s+(?:to\s+)?([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            model = _normalize_explicit_model_id(match.group(1))
+            if model:
+                return model
+    return ""
 
 
 def _maybe_handle_model_switch_text(
@@ -1523,17 +1584,6 @@ def _maybe_handle_model_switch_text(
     low = raw.casefold()
     if not raw:
         return False
-    # Pick the LONGEST matching alias across all models, not the first dict
-    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
-    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
-    model = ""
-    best_len = 0
-    for name, aliases in _MODEL_VALUE_ALIASES.items():
-        for alias in aliases:
-            if alias in low and len(alias) > best_len:
-                model, best_len = name, len(alias)
-    if not model:
-        return False
     if not any(tok in low for tok in _MODEL_SWITCH_VERBS):
         return False
     roles: list[str] = []
@@ -1545,6 +1595,19 @@ def _maybe_handle_model_switch_text(
         for tok in ("模型", "model", "默认", "所有角色", "全部角色", "all roles", "every role")
     )
     if not roles and not generic:
+        return False
+    # Pick the LONGEST matching alias across all models, not the first dict
+    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
+    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
+    model = ""
+    best_len = 0
+    for name, aliases in _MODEL_VALUE_ALIASES.items():
+        for alias in aliases:
+            if alias in low and len(alias) > best_len:
+                model, best_len = name, len(alias)
+    if not model:
+        model = _extract_explicit_model_switch_value(raw)
+    if not model:
         return False
 
     theme = chat_state.get("theme")
@@ -3282,7 +3345,8 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "Idea/Skill → Engineer → Reviewer.",
         "Examples: `resume last task`, `what are you doing now`, "
         "`pause for now`, `switch to the copilot backend`, "
-        "`switch the model to claude-sonnet-5`, `help me optimize this project`.",
+        "`把backend换成 copilot`, `switch the model to claude-sonnet-5`, "
+        "`effort 设为 high`, `help me optimize this project`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
