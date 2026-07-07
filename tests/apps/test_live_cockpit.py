@@ -95,6 +95,37 @@ def test_tty_but_no_daemon_delegates(monkeypatch):
         m.assert_called_once()
 
 
+def test_visual_row_delta_plain_newlines():
+    assert manager_repl._visual_row_delta("a\nb\nc") == 2
+    assert manager_repl._visual_row_delta("no newlines here") == 0
+
+
+def test_visual_row_delta_accounts_for_trailing_cursor_up():
+    """Regression: the live-cockpit redraw loop erases-and-reprints its block
+    using a row count meant to represent where the cursor ACTUALLY ends up.
+    A caller-supplied prompt can embed a trailing cursor-up escape (e.g.
+    ``theme.cursor_up_and_forward``, used to land the cursor back on the
+    input row for readline's benefit) that moves the cursor 1+ rows UP from
+    wherever the newlines alone would put it. Plain ``str.count("\\n")``
+    ignores this, overshoots the next erase upward by that same amount, and
+    eats one real row above the block on every refresh — live-reproduced via
+    a pty+pyte capture as the banner losing one line per ~1s refresh cycle."""
+    # 4 newlines (5 lines) then cursor up 2 rows: true final row is 4 - 2 = 2.
+    text = "a\nb\nc\nd\ne" + "\x1b[2A"
+    assert manager_repl._visual_row_delta(text) == 2
+
+
+def test_visual_row_delta_handles_cursor_up_with_no_explicit_count():
+    # ``\x1b[A`` (no digits) means "up 1", matching real terminal semantics.
+    text = "a\nb\nc" + "\x1b[A"
+    assert manager_repl._visual_row_delta(text) == 1
+
+
+def test_visual_row_delta_handles_cursor_down():
+    text = "a\nb" + "\x1b[3B"
+    assert manager_repl._visual_row_delta(text) == 4
+
+
 def test_exports_symbol():
     assert "read_message_with_live_cockpit" in manager_repl.__all__
 

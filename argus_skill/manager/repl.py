@@ -27,6 +27,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import shlex
 import sys
 import time
@@ -789,6 +790,34 @@ def _live_cockpit_will_activate(mem: Any) -> bool:
     return True
 
 
+_CURSOR_UP_RE = re.compile(r"\x1b\[(\d*)A")
+_CURSOR_DOWN_RE = re.compile(r"\x1b\[(\d*)B")
+
+
+def _visual_row_delta(text: str) -> int:
+    """Net terminal ROWS ``text`` moves the cursor down when printed as-is.
+
+    Plain ``str.count("\\n")`` underestimates this whenever ``text`` also
+    embeds a cursor-repositioning escape (e.g. ``theme.cursor_up_and_forward``,
+    used by the caller of :func:`read_message_with_live_cockpit` to land the
+    cursor back on the input row after printing a multi-line prompt for
+    readline's benefit): the trailing ``\\x1b[<n>A`` moves the cursor UP by
+    ``n`` rows AFTER the newlines already advanced it down, so the true final
+    row is ``n`` less than the newline count alone suggests. Using the
+    newline-only count to erase-and-redraw this block on the next refresh
+    then overshoots upward by that same ``n`` every cycle, eating one extra
+    (real, previously-printed) row above the block each time — exactly the
+    "banner disappears one line per refresh" bug this fixes. Handles
+    ``\\x1b[<n>B`` (cursor down) symmetrically for completeness.
+    """
+    delta = text.count("\n")
+    for m in _CURSOR_UP_RE.finditer(text):
+        delta -= int(m.group(1) or 1)
+    for m in _CURSOR_DOWN_RE.finditer(text):
+        delta += int(m.group(1) or 1)
+    return delta
+
+
 def read_message_with_live_cockpit(
     prompt: str,
     mem: Any,
@@ -861,7 +890,7 @@ def read_message_with_live_cockpit(
         block = _block()
         sys.stdout.write(block)
         sys.stdout.flush()
-        up = block.count("\n")
+        up = _visual_row_delta(block)
         while True:
             try:
                 r, _, _ = _select.select([fd], [], [], interval)
@@ -878,7 +907,7 @@ def read_message_with_live_cockpit(
             sys.stdout.write("\r\x1b[%dA\x1b[J" % up)  # up to panel top, clear region
             sys.stdout.write(block)
             sys.stdout.flush()
-            up = block.count("\n")
+            up = _visual_row_delta(block)
     except KeyboardInterrupt:
         interrupted = True
     finally:
