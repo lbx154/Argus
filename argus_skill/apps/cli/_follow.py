@@ -215,8 +215,9 @@ class _FollowCoalescer:
         self._emit(event)
 
     def flush_idle(self) -> None:
-        if self._ev is not None and time.monotonic() - self._at >= self._idle_after:
-            self._commit()
+        # NO-OP: settle only on a new message_id, a non-replace event, or
+        # flush(). Committing on an idle gap re-fragmented slow real streams.
+        return
 
     def flush(self) -> None:
         self._commit()
