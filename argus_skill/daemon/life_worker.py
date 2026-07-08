@@ -775,9 +775,29 @@ class LifeWorker:
         # DEFAULT an undecided mission into "produce a paper": a paper is a
         # research judgment, so it is seeded only where a research need is
         # actually declared, never as the fallback.
+        #
+        # "research-kind" here MUST be the Manager's OWN classification
+        # (``Manager._kind_for``), not a second, independently-maintained
+        # literal check — a second copy is exactly what drifted stale before
+        # (see GROUND_TRUTH.md CLASSIFY_BY_VERTICAL §e row 2: a literal
+        # ``vertical == "research"`` test does not know that ``_kind_for``
+        # already buckets ``"quant"`` into the ``"research"`` kind, so a
+        # quant project silently got the lean contract instead of the
+        # paper/report one it needs). Reuse the Manager import pattern already
+        # used elsewhere in this same function (see the lazy
+        # ``from ..manager import Manager`` a few hundred lines below, in the
+        # daemon-start division path) so there is only ONE place that decides
+        # what counts as "research-kind".
         from ..life.research_profile import load_research_profile
+        from ..manager import Manager
 
-        is_research = vertical == "research" or load_research_profile() is not None
+        # ``_kind_for`` is typed ``vertical: str`` (no ``None``); guard
+        # explicitly rather than relying on the incidental fact that passing
+        # ``None`` today happens to fall through both membership checks to
+        # "custom" with no exception — that is an implementation detail, not
+        # a contractual guarantee of the callee's signature.
+        kind = Manager._kind_for(vertical) if vertical is not None else "custom"
+        is_research = kind == "research" or load_research_profile() is not None
 
         agents_path = project_root / "AGENTS.md"
         if not agents_path.exists():
@@ -1106,13 +1126,37 @@ class LifeWorker:
             except Exception:  # noqa: BLE001 — capture wiring must never block boot
                 log.exception("daemon: self-repair sink wiring failed; continuing")
 
+        # Classify the bootstrap need NOW (before the Manager's divide() below
+        # can write anything to the project root), but DEFER the actual seed
+        # call — see the "bootstrap_preflight_pending" trigger a bit further
+        # down, right after the Manager's divide() has had a chance to persist
+        # the vertical. Splitting classify-now/act-later closes the write-order
+        # race documented in GROUND_TRUTH.md CLASSIFY_BY_VERTICAL §(f): the old
+        # code ran ``_seed_bootstrap_task`` (which synchronously renders
+        # ``AGENTS.md`` via ``_seed_project_agents_and_venv``) unconditionally
+        # here, BEFORE ``mgr.divide()`` had any chance to resolve+persist the
+        # vertical a few dozen lines below — so a fresh project whose objective
+        # should resolve to a research-kind vertical (e.g. ``quant``) still saw
+        # ``vertical=None`` at AGENTS.md-render time and got permanently sealed
+        # onto the lean/optimize contract (the write-once guard at
+        # ``agents_path.exists()`` never re-renders it). The classification
+        # (``inspect_project_bootstrap``) itself MUST stay here, before
+        # ``divide()`` runs: ``divide()``/``persist_vertical`` writes
+        # ``research/PIPELINE_STATE.json``, which is itself one of
+        # ``_RESEARCH_BOOTSTRAP_ARTIFACTS`` (``core/bootstrap.py``) — computing
+        # the preflight AFTER divide() would make a genuinely empty project
+        # look like it already has a "research artifact" and wrongly flip
+        # ``should_bootstrap`` to False, silently skipping the bootstrap
+        # entirely. So: decide-early (before any writes), act-late (after the
+        # vertical is resolved).
+        bootstrap_preflight_pending = None
         if cfg.project_workdir is not None:
             bootstrap_preflight = inspect_project_bootstrap(
                 cfg.project_workdir,
                 objective_hint=cfg.continuous_objective,
             )
             if bootstrap_preflight.should_bootstrap:
-                self._seed_bootstrap_task(mem, sink, bootstrap_preflight)
+                bootstrap_preflight_pending = bootstrap_preflight
 
         # A fresh (non-resume) daemon must NOT adopt the project's persisted
         # continuous campaign — the operator manages daemons, and a daemon that
@@ -1228,6 +1272,17 @@ class LifeWorker:
                     mgr.commit_domain(division.task, division.proposed_domain)
             except Exception:  # noqa: BLE001 — never block daemon start on division
                 pass
+
+        # Now that the Manager's divide() above has had its chance to resolve
+        # and persist the real vertical (fail-open: if it raised or the
+        # objective was blank, ``vertical`` simply stays unresolved, exactly
+        # matching today's fallback behavior), perform the previously-deferred
+        # bootstrap seed. ``_seed_project_agents_and_venv`` re-reads the
+        # persisted vertical itself, so this ordering is what actually closes
+        # the race — no vertical is threaded through by hand here.
+        if bootstrap_preflight_pending is not None:
+            self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
+
         sup = LifeSupervisor(
             memory=mem,
             runner=runner,

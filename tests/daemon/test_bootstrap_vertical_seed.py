@@ -129,6 +129,38 @@ def test_fresh_undecided_mission_does_not_default_to_paper(
     assert "## Argus harness modification map" not in agents
 
 
+def test_quant_vertical_seeds_paper_contract(tmp_path: Path) -> None:
+    """Regression: ``quant`` is a research-KIND vertical per the Manager's own
+    ``Manager._kind_for`` classification (``manager/_core.py``: it maps
+    ``quant`` into the same ``"research"`` bucket as ``"research"`` itself,
+    because a quant mission's deliverable is a reviewer-certified factor
+    report gated on ``full_emnlp``, not a lean numeric metric).
+
+    A prior fix (commit ``1545128``) replaced the old ``is_optimize``
+    allowlist with a NEW, independently-maintained literal check
+    (``vertical == "research"``) that does not consult ``Manager._kind_for``
+    and therefore does not match ``"quant"`` — silently regressing quant
+    projects onto the lean/optimize contract instead of the paper/EMNLP one
+    they need. The fix is for the daemon bootstrap to delegate to
+    ``Manager._kind_for`` directly instead of re-deriving a second
+    classification, so there is only one place ("research" | "quant") is
+    decided.
+    """
+    persist_vertical(tmp_path, "quant")
+    worker = _worker("build a reviewer-certified quant factor report")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    # Paper contract retains the EMNLP/auto-research framing + harness map —
+    # same assertions as the existing `research` vertical case above.
+    assert "EMNLP" in agents
+    assert "## Argus harness modification map" in agents
+
+    state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
+    assert state["vertical"] == "quant"
+    assert state["current_stage"] == "research"
+
+
 def test_research_profile_env_seeds_paper_contract_without_persisted_vertical(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -144,3 +176,94 @@ def test_research_profile_env_seeds_paper_contract_without_persisted_vertical(
 
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert "EMNLP" in agents
+
+
+class _StubBacklog:
+    def all(self) -> list:
+        return []
+
+
+class _StubMemory:
+    backlog = _StubBacklog()
+
+
+class _StubSink:
+    def handle_event(self, event: dict) -> None:  # noqa: D401 - test stub
+        pass
+
+
+def test_bootstrap_seed_race_closed_by_deferring_seed_past_manager_divide(
+    tmp_path: Path,
+) -> None:
+    """Repro of the write-order race documented in GROUND_TRUTH.md
+    CLASSIFY_BY_VERTICAL §(f): ``LifeWorker.run`` computes the bootstrap
+    preflight (``inspect_project_bootstrap``) while the project is still
+    genuinely empty and the vertical is unresolved, but previously ALSO
+    rendered ``AGENTS.md`` (via ``_seed_bootstrap_task`` ->
+    ``_seed_project_agents_and_venv``) at that same unresolved moment —
+    before ``Manager.divide()``/``decide_vertical()`` a few dozen lines later
+    in ``run`` had any chance to persist the real vertical. Because the
+    ``AGENTS.md`` write is write-once (``agents_path.exists()`` guard), a
+    project that should resolve to a research-kind vertical (e.g. ``quant``)
+    got permanently sealed onto the lean/optimize contract instead.
+
+    The fix (this file's companion change in ``daemon/life_worker.py``)
+    splits "classify" from "act": the preflight is still computed early
+    (before any writes — computing it late would itself break detection,
+    since ``persist_vertical`` writes ``research/PIPELINE_STATE.json``, one
+    of ``core.bootstrap._RESEARCH_BOOTSTRAP_ARTIFACTS``), but the actual
+    ``_seed_bootstrap_task`` call is deferred until AFTER ``Manager.divide()``
+    has run. This test reproduces exactly that ordering directly (preflight
+    captured pre-persistence, seed call invoked post-persistence) and proves
+    the previously-unresolved-at-seed-time vertical now renders correctly.
+    """
+    from argus_skill.core.bootstrap import inspect_project_bootstrap
+
+    # (1) The daemon's EARLY preflight classification — the project is still
+    # completely empty, nothing persisted yet (matches `run`'s call site,
+    # which runs before Manager.divide()).
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    preflight = inspect_project_bootstrap(tmp_path, objective_hint="quant factor research")
+    assert preflight.should_bootstrap is True
+
+    # (2) Manager.divide()/decide_vertical() resolving + persisting the
+    # vertical — this is what now runs BETWEEN preflight capture and the
+    # deferred seed call in the fixed `run()` ordering.
+    persist_vertical(tmp_path, "quant")
+
+    # (3) The deferred seed call: same preflight object captured in step (1),
+    # but invoked only now — after the vertical is already persisted. This is
+    # the exact call `run()` makes via `bootstrap_preflight_pending`.
+    worker = _worker("quant factor research")
+    worker._seed_bootstrap_task(_StubMemory(), _StubSink(), preflight)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    # Would be the LEAN/optimize contract (the closed bug) if the seed had
+    # read `vertical=None` at render time instead of the now-resolved "quant".
+    assert "EMNLP" in agents
+    assert "## Argus harness modification map" in agents
+
+
+def test_bootstrap_seed_before_divide_reproduces_the_closed_race(
+    tmp_path: Path,
+) -> None:
+    """Control case: calling the seed BEFORE the vertical is persisted (the
+    OLD, now-fixed call order) reproduces the exact bug this stage closes —
+    proving the fix in the companion test above is about ordering, not about
+    the classification rule from Part A.
+    """
+    from argus_skill.core.bootstrap import inspect_project_bootstrap
+
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    preflight = inspect_project_bootstrap(tmp_path, objective_hint="quant factor research")
+    assert preflight.should_bootstrap is True
+
+    worker = _worker("quant factor research")
+    # Seed BEFORE the Manager ever resolves the vertical (the old ordering).
+    worker._seed_bootstrap_task(_StubMemory(), _StubSink(), preflight)
+    # Manager resolves + persists the vertical only afterward — too late, the
+    # write-once AGENTS.md is already sealed.
+    persist_vertical(tmp_path, "quant")
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "EMNLP" not in agents  # sealed onto LEAN — this is the bug, pre-fix
