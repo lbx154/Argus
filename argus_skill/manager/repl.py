@@ -1816,6 +1816,29 @@ def _maybe_handle_role_effort_text(
     if not roles:
         return False
 
+    # A reasoning-effort knob is a silent no-op on a non-reasoning model. If NONE
+    # of the targeted roles' current models take an effort (resolve_role_config
+    # returns effort=None iff non-reasoning), reject with a grounded explanation
+    # instead of pretending to apply it and silently doing nothing.
+    from ..cli.roles_status import resolve_role_config
+
+    _rcfg = {role: resolve_role_config(role, env=os.environ) for role in roles}
+    if all(_rcfg[role].effort is None for role in roles):
+        theme = chat_state.get("theme")
+        models = ", ".join(sorted({_rcfg[role].model for role in roles}))
+        msg = (
+            f"Current model ({models}) is non-reasoning — reasoning effort does "
+            "not apply, so I left it unchanged."
+        )
+        print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg)
+              if theme is not None else msg, flush=True)
+        try:
+            append_note(mem, f"declined to set reasoning effort to {effort}: "
+                             f"model(s) {models} are non-reasoning (no effect).")
+        except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
+            pass
+        return True
+
     for role in roles:
         os.environ[_ROLE_EFFORT_ENVS[role]] = effort
     from ..core.knob_store import write_persisted_knob
@@ -2168,14 +2191,112 @@ def _maybe_handle_model_switch_text(
     return True
 
 
+def _settings_cmd(chat_state: dict[str, Any]) -> None:
+    """The full runtime-settings view rendered by ``/config`` (no args): every
+    role's backend/model/effort plus every ``ARGUS_*`` knob, grouped, marking
+    which are editable by natural language (leading ``NL``) vs which need an env
+    var. The one in-REPL view covering EVERYTHING NL can change (incl. the
+    safe_mode / show_reasoning / telegram toggles ``/roles`` doesn't show)."""
+    from functools import partial
+
+    from ..cli.roles_status import _paint
+    from ..core.config_snapshot import build_config_snapshot
+    from ..core.knobs import cockpit_editable_names
+
+    theme = chat_state.get("theme")
+    _p = partial(_paint, theme)  # reuse roles_status' theme-duck-typing helper
+
+    try:
+        snap = build_config_snapshot()
+    except Exception:  # noqa: BLE001 — a display command, never fatal
+        log.exception("repl: /config settings view failed to build config snapshot")
+        print(_p("gray", "  (failed to render settings)"), flush=True)
+        return
+
+    # NL-changeable env names = the cockpit-editable surface (single source of
+    # truth: the cockpit=True flag in knobs.py). Deriving it here keeps this marker
+    # set from drifting against the switch handlers — it correctly excludes
+    # curator/matcher/LIFE_BACKEND, which no recognizer sets.
+    nl = set(cockpit_editable_names())
+
+    out: list[str] = [""]
+    out.append("  " + _p("bold", "Argus runtime settings"))
+    out.append("  " + _p("dim",
+        "Editable by natural language: model, effort, backend, per-mission cap, "
+        "daily cap, safe_mode, show_reasoning, telegram"))
+    out.append("  " + _p("dim",
+        "Others: export ARGUS_SKILL_*  (full list: argus-skill --config-help)"))
+    out.append("")
+
+    # Session-only defaults (REPL-local; the *_cap here are the per-cockpit
+    # dispatch defaults, separate from the ARGUS_SKILL_*_CAP_USD knobs below).
+    cfg = chat_state.get("config") or {}
+    sess = []
+    for key in ("cycles", "iterate", "continuous", "budget",
+                "per_mission_cap", "daily_cap"):
+        if key in cfg:
+            v = cfg[key]
+            v = ("on" if v else "off") if isinstance(v, bool) else v
+            sess.append(f"{key}={v}")
+    if sess:
+        out.append("  " + _p("gray", "session (this cockpit):  ")
+                   + _p("dim", "   ".join(sess)))
+        out.append("")
+
+    # Roles table (backend / model / effort are all NL-changeable).
+    roles = snap.get("roles", [])
+    rw = max((len(str(r.get("role", ""))) for r in roles), default=8) + 2
+    bw = max((len(str(r.get("backend_label", r.get("backend", "")))) for r in roles),
+             default=7) + 2
+    mw = max((len(str(r.get("model", ""))) for r in roles), default=14) + 2
+    out.append("  " + _p("gray",
+        "role".ljust(rw) + "backend".ljust(bw) + "model".ljust(mw) + "effort"))
+    for r in roles:
+        eff = r.get("reasoning_effort")
+        eff = str(eff) if eff not in (None, "") else "—"
+        out.append("  " + str(r.get("role", "")).ljust(rw)
+                   + str(r.get("backend_label", r.get("backend", ""))).ljust(bw)
+                   + str(r.get("model", "")).ljust(mw) + eff)
+    out.append("")
+
+    # Knobs — grouped; a leading "NL" marks the NL-changeable ones.
+    out.append("  " + _p("gray", "Knobs  (leading NL = editable by natural language)"))
+    knobs = snap.get("operator_knobs", [])
+    width = max((len(k.get("name", "")) for k in knobs), default=30)
+    groups: dict[str, list] = {}
+    for k in knobs:  # collect by group so each [header] prints exactly once
+        groups.setdefault(str(k.get("group", "")), []).append(k)
+    for g, items in groups.items():
+        out.append("   " + _p("dim", f"[{g}]"))
+        for k in items:
+            is_nl = k.get("name") in nl
+            mark = _p("green", "NL") if is_nl else "  "
+            nm = str(k.get("name", "")).ljust(width)
+            nm = nm if is_nl else _p("dim", nm)
+            out.append(f"     {mark}  {nm}  {str(k.get('value', ''))}")
+
+    out.append("")
+    out.append("  " + _p("dim", "To change:  NL rows — say it in plain language "
+                                "(e.g. \"把单任务预算改成 50\", \"enable safe mode\");"))
+    out.append("  " + _p("dim", "            others — export ARGUS_SKILL_…, "
+                                "or /config <key>=<value>."))
+    out.append("")
+    print("\n".join(out), flush=True)
+
+
 def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
                 life_dir: Path | None = None) -> None:
     """``/config [key=value ...]`` — view or change REPL-session defaults.
 
-    These defaults apply to free-text input and ``/add``/``/run`` when
-    the corresponding flag is not explicitly provided. The ``continuous``
-    key is also persisted to disk so the background daemon picks it up.
+    With NO args, renders the full runtime-settings view (:func:`_settings_cmd`):
+    every role's backend/model/effort + every ARGUS_* knob, marking which are
+    natural-language-editable. With ``key=value`` args, sets the REPL-session
+    default. The ``continuous`` key is also persisted to disk so the background
+    daemon picks it up.
     """
+    if not tokens:
+        _settings_cmd(chat_state)
+        return
     print(render_config_cmd(tokens, chat_state, life_dir=life_dir))
 
 

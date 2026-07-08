@@ -77,6 +77,19 @@ def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # these tests never read OR WRITE a real operator's persisted knobs
     # (this box runs live argus-skill daemons outside the test suite too).
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-skill-home"))
+    # Model resolution derives the capability-vault path from the passed env and
+    # falls back to the REAL ~/.argus-skill/capabilities/model_api.json — on a box
+    # whose vault routes defaults to a non-reasoning model (e.g. claude-sonnet-5),
+    # the effort tests would see effort=None and hit the non-reasoning guard.
+    # Point the vault at a nonexistent path so every test reads the code default
+    # (gpt-5.5, a reasoning model) deterministically.
+    from argus_skill.tools import capability_vault
+
+    monkeypatch.setattr(
+        capability_vault,
+        "default_vault_path",
+        lambda env=None: tmp_path / "no-such-vault.json",
+    )
 
 
 @pytest.fixture()
