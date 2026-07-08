@@ -232,7 +232,7 @@ def build_config_intent_prompt(text: str) -> str:
         "When in doubt, answer NONE — never swallow real work as a settings change. "
         "A budget stated for ONE specific run, or a model / backend / effort asked "
         "for WITHIN a single task (\"这轮\" / \"do THIS on claude with high effort\" "
-        "/ \"for this task\"), is part of that task, not a standing knob change — "
+        "/ \"for this task\"), is part of the task, not a standing knob change — "
         "answer NONE.\n\n"
         "If it IS a settings-change request, reply with EXACTLY one line:\n"
         "SET <knob> <roles> <value>\n"

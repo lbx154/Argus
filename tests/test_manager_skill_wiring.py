@@ -184,7 +184,7 @@ def test_manager_classify_prompt_stays_minimal_when_store_present(
     assert seen, "manager never built a classify prompt"
     assert "Argus manager role skill" not in seen[0]
     assert "Argus Manager Role" not in seen[0]
-    assert "SELF" in seen[0] and "TEAM" in seen[0]
+    assert "CHAT" in seen[0] and "TASK" in seen[0]
 
 
 def test_manager_classify_prompt_unchanged_without_store(tmp_path: Path) -> None:

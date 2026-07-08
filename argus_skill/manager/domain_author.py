@@ -79,17 +79,20 @@ def build_domain_author_prompt(
         f"{(task or '').strip()}\n\n"
         "## Rules\n"
         f"- Propose {_MIN_STAGES}-{_MAX_STAGES} Stages, ordered from first to "
-        "last. Each Stage is a lowercase slug (a phase of work, e.g. "
-        "`scope`, `simulate`, `measure`, `report`) — NOT a checklist item. The "
-        "per-stage checklist is authored later by the Planner; you only define "
-        "the stage SKELETON.\n"
+        "last. Each Stage is a lowercase slug naming a PHASE OF WORK you move "
+        "through (e.g. `scope`, `simulate`, `measure`, `report`) — NOT a "
+        "checklist item, and NOT a metric, target number, outcome, or benchmark "
+        "name (a stage is something you DO, not a score you hit or an artifact "
+        "you emit). The per-stage checklist is authored later by the Planner; "
+        "you only define the stage SKELETON.\n"
         "- The domain `name` is a lowercase slug (letters/digits/"
-        "underscore), distinct from every name above.\n"
+        "underscore), distinct from every name above (if it collides it is "
+        "auto-suffixed).\n"
         "- Prefer a small, coherent stage set a domain expert would recognize, "
         "grounded in what you actually found in the repo — do not pad with "
         "ceremony stages.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it):\n"
+        "NOTHING else (no prose before or after it) — ONLY these four fields:\n"
         '{"name": "<slug>", "stages": ["<stage1>", "<stage2>", ...], '
         '"rationale": "<clear explanation citing what you found in the repo>", '
         '"confidence": <0.0-1.0>}\n'
@@ -161,7 +164,11 @@ def parse_domain_proposal(
     if not (_MIN_STAGES <= len(stages) <= _MAX_STAGES):
         return None
 
-    name = _sluggify_name(obj.get("name"))
+    # Accept either "name" or "vertical" as the slug key — the two-shape
+    # vertical-decision prompt uses "vertical", the standalone author prompt uses
+    # "name"; taking both means a model that fills the wrong key never fails
+    # closed (which would wedge the task with no fallback).
+    name = _sluggify_name(obj.get("name") or obj.get("vertical"))
     if not name:
         return None
     taken = {str(v).strip().lower() for v in known_verticals}
@@ -179,7 +186,7 @@ def parse_domain_proposal(
         stages=stages,
         rationale=rationale,
         confidence=confidence,
-        raw_name=str(obj.get("name") or "").strip(),
+        raw_name=str(obj.get("name") or obj.get("vertical") or "").strip(),
     )
 
 
@@ -254,13 +261,16 @@ def build_vertical_decision_prompt(
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it), in ONE of these two shapes:\n"
+        "NOTHING else (no prose before or after it), in ONE of these two shapes. "
+        "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>"}\n'
         "OR\n"
-        '{"choice": "new", "name": "<slug>", "stages": ["<stage1>", ...], '
+        '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
+        'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"confidence": <0.0-1.0>}\n'
+        "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
 
 
@@ -281,7 +291,7 @@ def parse_vertical_decision(
         return None
     choice = str(obj.get("choice") or "").strip().lower()
     if choice == "existing":
-        name = _sluggify_name(obj.get("vertical"))
+        name = _sluggify_name(obj.get("vertical") or obj.get("name"))
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
         if name and name in known:
