@@ -751,7 +751,6 @@ def follow_mission_live_roles(
     )
     from ..apps.cli._follow import (
         _follow_layer_from_event,
-        _follow_layer_label,
         _format_follow_event,
     )
     import select as _select
@@ -765,17 +764,17 @@ def follow_mission_live_roles(
     last_review: dict[str, Any] | None = None
     completed: dict[str, Any] | None = None
     prev_lines = 0
-    # ── Ctrl+O expand: a ChatGPT-style STREAMING reasoning pane under the panel ─
-    # Instead of coalescing fragments after the fact (which leaked half-words on
-    # slow streams), we render the CURRENT message live: its accumulated text
-    # grows in place each redraw (a ▌ cursor marks it streaming), then settles
-    # into history when the next message starts. One message in flight at a time
-    # → no fragments, no duplicates, and it reads like the agent is typing.
+    # ── Ctrl+O expand: a reasoning pane pinned UNDER the role panel ──
+    # Each agent message is accumulated by message_id (robust to both growing-
+    # prefix and raw-fragment stream shapes) and shown as ONE clean, wrapped
+    # line once it settles — no live typing, no half-word fragments, no
+    # duplicates. The in-flight message stays hidden until it completes; the
+    # panel + animated verb line cover the "still thinking" window.
     expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
     committed: "_deque[tuple[str, str]]" = _deque(maxlen=400)  # (role, plain line)
     current_layer = "engineer"
     pane_start = time.monotonic()  # anchors the -ing verb rotation
-    # Live-streaming message state:
+    # Accumulate the in-flight message until it settles:
     _cur = {"mid": None, "role": "engineer", "text": ""}
 
     def _accumulate(prev: str, new: str) -> str:
@@ -919,19 +918,14 @@ def follow_mission_live_roles(
                 sep = "  ── reasoning · Ctrl+O collapse "
                 sep = sep + "─" * max(0, width - len(sep) - 1)
                 lines.append(theme.gray(sep) if theme is not None else sep)
-                # Word-wrap the most recent entries (display-width aware, so
-                # nothing is chopped at the edge), paint each in its role hue,
-                # then show the last `budget` VISUAL rows. The in-flight message
-                # is rendered LIVE at the end with a ▌ cursor so it visibly
-                # streams (grows) each redraw — ChatGPT-style — before settling.
-                entries: list[tuple[str, str]] = list(committed)
-                live_text = " ".join(str(_cur["text"] or "").split())
-                if live_text:
-                    label = _follow_layer_label(str(_cur["role"]))
-                    entries.append((str(_cur["role"]),
-                                    f"  [{label}] 💭 {live_text} ▌"))
+                # Word-wrap the settled entries (display-width aware, so nothing
+                # is chopped at the edge), paint each in its role hue, then show
+                # the last `budget` VISUAL rows. A message appears as ONE clean
+                # line once it settles (its accumulated text is complete); the
+                # in-flight one stays hidden until done — the panel + animated
+                # verb line below cover the "still thinking" window.
                 visual: list[str] = []
-                for role, plain in entries[-budget:]:
+                for role, plain in list(committed)[-budget:]:
                     for vr in _wrap_plain(plain, max(8, width - 1)):
                         visual.append(
                             role_paint(theme, role, vr) if theme is not None else vr
@@ -982,6 +976,10 @@ def follow_mission_live_roles(
                     ev_item = str(ev.get("item_id") or "")
                     if not item_id or not ev_item or ev_item == str(item_id):
                         completed = ev
+                        # Settle the last in-flight thought so it appears in the
+                        # final frame (mission end is a safe settle point — not
+                        # mid-stream, so it can't re-fragment).
+                        _settle_current()
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin

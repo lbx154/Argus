@@ -846,12 +846,12 @@ def test_wrap_plain_is_width_aware_and_lossless():
     assert _wrap_plain("hi there", 40) == ["hi there"]
 
 
-def test_live_pane_streams_message_without_fragments(tmp_path):
-    """The Ctrl+O pane renders the CURRENT message ChatGPT-style: its accumulated
-    text grows in place (▌ cursor) and settles once — a stream of growing-prefix
-    beats (and a duplicate delta+final) must NEVER leak fragments/duplicates. In
-    a non-TTY context the pane is hidden, so this exercises the accumulator via
-    the completion contract: it must still return the mission completion."""
+def test_live_pane_settles_message_without_fragments(tmp_path):
+    """The Ctrl+O pane accumulates each message by message_id (robust to growing
+    prefixes AND raw fragments, ignoring a stale duplicate) and shows it as ONE
+    clean line once it settles — never leaking fragments/duplicates. In a
+    non-TTY context the pane is hidden, so this exercises the accumulator via the
+    completion contract: it must still return the mission completion."""
     import io
     import json
     import contextlib
