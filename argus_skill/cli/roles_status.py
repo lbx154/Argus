@@ -319,16 +319,12 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
     events = _tail_jsonl(life_dir / "events.jsonl")
     latest: dict[str, dict[str, Any]] = {}
     newest_role: str | None = None
-    newest_ts: float | None = None
     for ev in events:
         role = _event_role(ev)
         if role is None:
             continue
         latest[role] = ev
-        ts = ev.get("ts") or ev.get("time")
         newest_role = role
-        if isinstance(ts, (int, float)):
-            newest_ts = float(ts)
 
     out: dict[str, RoleActivity] = {}
     for role in ROLES:
@@ -428,13 +424,23 @@ def _effort_method(effort: str) -> str:
 
 
 def _disp_width(text: str) -> int:
-    """Printable column width, counting CJK/full-width glyphs as 2 columns and
-    ignoring ANSI codes — so right-alignment survives the Chinese title."""
+    """Printable column width (ANSI-stripped), counting CJK/full-width glyphs
+    as 2 columns AND East-Asian *ambiguous*-width glyphs (``·`` U+00B7, ``●``
+    U+25CF, arrows, …) as 2 — because a CJK-configured terminal renders those
+    double-width.
+
+    Under-counting ambiguous glyphs (treating them as 1) let the right-aligned
+    ``roles · activity`` header render past what the width math reserved, so it
+    wrapped to a 2nd physical row; the live in-place redraw counts *logical*
+    lines, so it left a header copy behind on every ~80ms refresh — the panel
+    "scrolled". Counting ambiguous as 2 is the SAFE direction: exact on a CJK
+    terminal, a harmless slight over-estimate (extra right whitespace, never an
+    overflow) on a non-CJK one."""
     import unicodedata
     s = _ANSI_STRIP(text)
     w = 0
     for ch in s:
-        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 1
     return w
 
 
@@ -448,7 +454,7 @@ def _clip_display(text: str, budget: int) -> str:
         return text
     acc, w = "", 0
     for ch in text:
-        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 1
         if w + cw > budget - 1:
             break
         acc += ch
@@ -482,7 +488,7 @@ def _clip_ansi_line(s: str, budget: int) -> str:
             i = m.end()
             continue
         ch = s[i]
-        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 1
         if w + cw > budget:
             break
         out.append(ch)
@@ -519,13 +525,15 @@ def format_roles_panel(
     # FULL width auto-wraps to a second screen row, which throws off the live
     # in-place redraw's cursor-up count (→ duplicate header). On a narrow terminal
     # drop the right-hand daemon tag, then clip the title itself, so the title row
-    # is always ≤ width-2.
+    # is always ≤ width-3 (a right safety margin, so even a residual
+    # ambiguous-width miscount cannot push it to the terminal's last column and
+    # wrap — the wrap the live redraw's logical-line count cannot erase).
     if header_right and (width - 5 - _disp_width(header_right)) < 8:
         header_right = ""  # no room for the tag on this row
     if header_right:
         title_text = _clip_display(title_text, max(8, width - 5 - _disp_width(header_right)))
         title = _paint(theme, "gray", title_text)
-        gap = max(1, width - 4 - _disp_width(title_text) - _disp_width(header_right))
+        gap = max(1, width - 5 - _disp_width(title_text) - _disp_width(header_right))
         lines.append("  " + title + " " * gap + header_right)
     else:
         title_text = _clip_display(title_text, max(8, width - 4))
