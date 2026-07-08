@@ -32,6 +32,28 @@ def _isolated_argus_skill_home(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-skill-home"))
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_capability_vault(monkeypatch, tmp_path):
+    """Honor this module's "nothing depends on the real vault" contract even on a
+    box that HAS a ``~/.argus-skill/capabilities/model_api.json``.
+
+    Model resolution derives the vault path from the passed ``env``, and an
+    ``env={}`` falls back to ``~/.argus-skill`` (NOT the ARGUS_SKILL_HOME
+    isolated above) — so a developer whose local vault routes to (say)
+    ``claude-sonnet-5`` would see the default-model assertions fail locally while
+    they pass on CI (which has no such file). Pointing the vault at a nonexistent
+    path makes every test read the code default (``gpt-5.5``) deterministically,
+    on any box.
+    """
+    from argus_skill.tools import capability_vault
+
+    monkeypatch.setattr(
+        capability_vault,
+        "default_vault_path",
+        lambda env=None: tmp_path / "no-such-vault.json",
+    )
+
+
 # ── backend resolution + fallback chain ───────────────────────────────────
 
 def test_backend_defaults_to_codex_when_unset():
