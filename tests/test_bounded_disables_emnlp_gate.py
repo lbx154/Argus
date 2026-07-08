@@ -95,3 +95,38 @@ def test_repl_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
 
     assert cfg.open_ended is True
     assert cfg.full_emnlp_gate is True
+
+
+def _repl_cfg_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    root = tmp_path / "life"
+    persist_vertical(root, vertical)  # the Manager's decision, persisted
+    return _build_repl_supervisor_config(
+        per_mission_cap_usd=10.0,
+        daily_cap_usd=180.0,
+        global_daily_cap_usd=0.0,
+        once=False,
+        max_missions=1,
+        project_worktree=tmp_path,
+        stop_event=threading.Event(),
+        project_root=root,
+        runtime_context="",
+        continuous=True,
+        continuous_objective="do the thing",
+        open_ended=open_ended,
+    )
+
+
+def test_repl_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path):
+    # Regression: an optimize vertical (kernelbench) must NOT carry paper_mission
+    # into the supervisor config, or every bounded backlog item gets the
+    # "continue through adjacent paper blockers" guidance (see
+    # _render_backlog_item_metadata). The gate follows the resolved vertical.
+    cfg = _repl_cfg_for_vertical(tmp_path, "kernelbench")
+    assert cfg.paper_mission is False
+
+
+def test_repl_supervisor_paper_mission_on_for_research_vertical(tmp_path: Path):
+    cfg = _repl_cfg_for_vertical(tmp_path, "research")
+    assert cfg.paper_mission is True

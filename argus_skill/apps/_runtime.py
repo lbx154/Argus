@@ -335,12 +335,21 @@ class _MemoryRunner:
         benchmark_path = root / "experiments" / "BENCHMARK_PROVENANCE.md"
 
         if not state_path.exists():
+            # Do NOT hardcode the venue — a run configured for AAAI (or any other
+            # venue via ARGUS_SKILL_VENUE) was previously written as EMNLP here and
+            # then graded/formatted against EMNLP rules. Resolve the venue the same
+            # way the rest of the system does (ARGUS_SKILL_VENUE env > default), so
+            # the harness records the operator's configured venue rather than
+            # asserting one.
+            from ..skills.venue_profiles import resolve_venue_profile
+
+            target_venue = resolve_venue_profile(root).key
             state = {
                 "current_stage": "plan",
                 "mission_type": "research-bootstrap",
                 "project": title,
                 "objective": objective,
-                "target_venue": "EMNLP",
+                "target_venue": target_venue,
                 "stages": {
                     "research": {
                         "status": "done",
@@ -413,7 +422,7 @@ class _MemoryRunner:
                     [
                         "# Claims To Test",
                         "",
-                        "- The system can support a concrete EMNLP-style research workflow.",
+                        "- The system can support a concrete research workflow for the configured venue.",
                         "- The chosen benchmark and protocol can be documented without fabrication.",
                         "- The pipeline can produce reproducible research artifacts from an empty repo.",
                         "",
@@ -1966,13 +1975,35 @@ def _build_repl_supervisor_config(
     project_worktree: Path | None,
     stop_event: threading.Event,
     project_root: Path,
-    artifact_root: Path | None,
+    artifact_root: Path | None = None,
     runtime_context: str,
     continuous: bool,
     continuous_objective: str,
     open_ended: bool,
 ) -> LifeSupervisorConfig:
     from ..life.telemetry import telemetry_interval_from_env
+
+    # paper_mission follows the RESOLVED VERTICAL, not the True default. The
+    # LifeSupervisorConfig default is True (the life supervisor IS the paper
+    # driver), but an optimize vertical (kernelbench / speedrun / nanochat /
+    # nanogpt_speedrun) is never a paper mission — without this gate every
+    # bounded backlog item on a kernel/speedrun mission gets "continue through
+    # adjacent paper blockers" guidance (see _render_backlog_item_metadata).
+    # Mirrors the SkillLoop engine-config gate; the continuous divide() persists
+    # the vertical before this config is built, and fail-soft keeps the paper
+    # default when the vertical is not yet decided.
+    paper_mission = True
+    try:
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import load_vertical, vertical_completion_gate
+
+        _proot = artifact_root or project_root
+        if vertical_completion_gate(
+            load_vertical(resolve_vertical(_proot), project_root=_proot)
+        ) != "full_emnlp":
+            paper_mission = False
+    except Exception:  # noqa: BLE001 — fail-soft: keep the paper default
+        pass
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
@@ -1994,6 +2025,7 @@ def _build_repl_supervisor_config(
         continuous_objective=continuous_objective,
         open_ended=open_ended,
         full_emnlp_gate=open_ended,
+        paper_mission=paper_mission,
         telemetry_dir=project_root,
         artifact_root=artifact_root or project_root,
         telemetry_interval_seconds=telemetry_interval_from_env(),
