@@ -322,6 +322,148 @@ def persist_vertical(project_root: object, vertical: str) -> None:
     os.replace(tmp_path, path)
 
 
+# --- new-intent vs. reclassification triage --------------------------------
+
+
+def vertical_reached_own_terminal_stage(project_root: object, vertical: str) -> bool:
+    """Whether ``vertical``'s OWN last checklist stage is the raw persisted
+    ``current_stage`` in ``research/PIPELINE_STATE.json`` AND that stage's
+    ``status`` is ``"done"`` — i.e. a project fully completed under
+    ``vertical`` on its own stage list.
+
+    This is the signal :func:`reset_stage_for_new_intent` uses to distinguish
+    "the SAME evolving project got reclassified mid-flight" (a stale/foreign
+    stage name is real progress and must be PRESERVED — see
+    ``persist_vertical``'s seed-only contract) from "a totally different,
+    already-finished prior vertical's leftover stage is being inherited by a
+    brand-new, unrelated operator intent" (the stage must be RESET). Fail-open:
+    any error (unknown vertical, missing/corrupt state, non-dict payload)
+    returns ``False`` so callers never reset on ambiguous data.
+    """
+    try:
+        from ..verticals._base import load_vertical, vertical_checklist_stage_order
+
+        order = vertical_checklist_stage_order(
+            load_vertical(vertical, project_root=project_root)
+        )
+    except Exception:  # noqa: BLE001 — never raise on a probe
+        return False
+    if not order:
+        return False
+    last_stage = _normalize_stage(order[-1])
+
+    try:
+        raw = _state_path(project_root).read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    if _normalize_stage(payload.get("current_stage")) != last_stage:
+        return False
+
+    stages = payload.get("stages")
+    if not isinstance(stages, dict):
+        return False
+    record = stages.get(last_stage)
+    if not isinstance(record, dict):
+        # Tolerate a differently-cased key in the stored ``stages`` dict.
+        for key, value in stages.items():
+            if _normalize_stage(key) == last_stage and isinstance(value, dict):
+                record = value
+                break
+    if not isinstance(record, dict):
+        return False
+    return str(record.get("status") or "").strip().lower() == "done"
+
+
+def reset_stage_for_new_intent(
+    project_root: object,
+    *,
+    old_vertical: str | None,
+    new_vertical: str,
+) -> bool:
+    """Reset ``current_stage`` to ``new_vertical``'s first stage when a
+    genuinely NEW, operator-issued intent supersedes a DIFFERENT,
+    already-finished prior vertical.
+
+    Call this AFTER ``persist_vertical(project_root, new_vertical)`` has
+    already run, so the stage machinery (``current_stage`` /
+    ``rollback_stage``) resolves against the NEW vertical. ``old_vertical``
+    must be the vertical name that was persisted BEFORE that call (e.g. from
+    ``resolve_vertical`` or a raw read taken prior to persisting), so this can
+    compare against what came before.
+
+    Rationale: ``persist_vertical`` is intentionally seed-only and never
+    resets an existing ``current_stage`` — correct for in-project
+    reclassification (e.g. research -> speedrun mid-project; see
+    ``test_persist_vertical_never_resets_existing_stage``), where a
+    stage name foreign to the new vertical is still real progress that must
+    be preserved. But when the OLD vertical had already reached ITS OWN
+    terminal stage with ``status="done"`` (fully completed on its own stage
+    list) and a brand-new intent now assigns a DIFFERENT vertical, that stale
+    stage is leftover from an unrelated, closed-out project. If its name
+    happens to collide with a stage name in the NEW vertical's order (e.g.
+    both call a stage "review"), ``current_stage()`` would silently accept it
+    as real progress on the new project — a false stage advance with zero
+    underlying evidence. This function detects exactly that case and rolls
+    the state back to the new vertical's first stage via
+    ``stage_checklists.rollback_stage`` (audited, ``rolled_back_by="manager"``),
+    without touching ``persist_vertical``'s own never-reset contract.
+
+    Returns ``True`` iff a reset was actually applied. No-op (returns
+    ``False``) when: there is no prior vertical, the vertical is unchanged
+    (same evolving project — preserve stage), the prior vertical was not
+    actually finished, or the rollback primitive rejects the target stage
+    (e.g. the stale stage was never even a member of the new vertical's
+    order, in which case ``current_stage()`` already falls back safely on its
+    own). Fail-open: any error is treated as "nothing to reset" so a probe or
+    rollback hiccup never blocks the Manager's division.
+    """
+    if not old_vertical or old_vertical == new_vertical:
+        return False
+    if not vertical_reached_own_terminal_stage(project_root, old_vertical):
+        return False
+
+    try:
+        from ..verticals._base import load_vertical, vertical_checklist_stage_order
+
+        new_order = vertical_checklist_stage_order(
+            load_vertical(new_vertical, project_root=project_root)
+        )
+    except Exception:  # noqa: BLE001 — never break division on a probe failure
+        return False
+    if not new_order:
+        return False
+
+    try:
+        from .stage_checklists import rollback_stage  # late (cycle)
+
+        rollback_stage(
+            project_root,
+            target_stage=new_order[0],
+            reason=(
+                f"prior vertical {old_vertical!r} had already reached its own "
+                f"terminal stage (done); a genuinely new operator-issued "
+                f"intent assigned a different vertical {new_vertical!r} — "
+                f"resetting current_stage to its first stage rather than "
+                f"silently inheriting the old, unrelated vertical's "
+                f"same-named stale stage."
+            ),
+            rolled_back_by="manager",
+        )
+    except ValueError:
+        log.debug(
+            "reset_stage_for_new_intent: rollback rejected for %r -> %r "
+            "(stale stage likely not a member of the new vertical's order; "
+            "current_stage() already falls back safely)",
+            old_vertical, new_vertical, exc_info=True,
+        )
+        return False
+    return True
+
+
 __all__ = [
     "VERTICALS",
     "VERTICAL_PURPOSES",
@@ -332,4 +474,6 @@ __all__ = [
     "require_vertical",
     "resolve_vertical",
     "persist_vertical",
+    "vertical_reached_own_terminal_stage",
+    "reset_stage_for_new_intent",
 ]
