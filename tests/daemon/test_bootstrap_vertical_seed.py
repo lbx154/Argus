@@ -108,3 +108,39 @@ def test_bootstrap_is_idempotent_on_existing_agents(tmp_path: Path) -> None:
     worker._seed_project_agents_and_venv(tmp_path)
 
     assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == sentinel
+
+
+def test_fresh_undecided_mission_does_not_default_to_paper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The harness must NOT default an undecided mission (no persisted vertical,
+    no research profile) into the paper contract — a paper is a research judgment
+    that must be positively declared, not the fallback."""
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()  # nothing decided
+
+    worker = _worker("improve the widget throughput")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    # Lean contract, NOT the paper/auto-research one.
+    assert "EMNLP" not in agents
+    assert "## Argus harness modification map" not in agents
+
+
+def test_research_profile_env_seeds_paper_contract_without_persisted_vertical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator-configured research profile IS a positive research signal, so a
+    research daemon still gets the paper contract even before the Manager has
+    persisted the vertical."""
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+
+    worker = _worker("write an EMNLP long paper surveying agent memory")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "EMNLP" in agents

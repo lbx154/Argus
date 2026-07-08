@@ -766,20 +766,23 @@ class LifeWorker:
             vertical = env_vertical
         else:
             vertical = persisted_vertical
-        # The optimize-family verticals share the lean benchmark-optimization
-        # contract; only "research" (or a not-yet-decided fresh mission) uses the
-        # paper/auto-research template.
-        is_optimize = vertical in {
-            "kernelbench",
-            "speedrun",
-            "nanochat",
-            "nanogpt_speedrun",
-        }
+        # The paper/auto-research contract is seeded ONLY on a POSITIVE research
+        # signal — a research vertical the Manager has already confirmed, or an
+        # operator-configured research profile (ARGUS_SKILL_RESEARCH_PROFILE = the
+        # operator explicitly declaring a paper/research workspace). Everything
+        # else — the optimize-family verticals AND a not-yet-decided fresh mission
+        # — gets the lean benchmark-optimization contract. The harness must NOT
+        # DEFAULT an undecided mission into "produce a paper": a paper is a
+        # research judgment, so it is seeded only where a research need is
+        # actually declared, never as the fallback.
+        from ..life.research_profile import load_research_profile
+
+        is_research = vertical == "research" or load_research_profile() is not None
 
         agents_path = project_root / "AGENTS.md"
         if not agents_path.exists():
             objective_arg = objective or None
-            if is_optimize:
+            if not is_research:
                 template_path = (
                     builtin_skill_source_path()
                     / "agent-md-optimize-project-template.md"
