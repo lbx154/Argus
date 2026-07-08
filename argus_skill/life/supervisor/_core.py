@@ -74,6 +74,10 @@ from ._helpers import (
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
+from ._subagent_family_failures import (
+    SubagentFamilyFailure,
+    recent_subagent_family_failures,
+)
 
 log = logging.getLogger(__name__)
 
@@ -752,6 +756,94 @@ class LifeSupervisor:
                 continue
             matches[signature] = entry
         return matches
+
+    def _recent_subagent_family_failures(self) -> dict[str, SubagentFamilyFailure]:
+        """Return subagent-job families stuck in an unresolved failure streak.
+
+        Complements ``_recent_no_progress_failures``: that mechanism only sees
+        journal-level ``mission_failed``/``no_progress`` entries, which never
+        fires when the SUPERVISOR's own mission is graded a success (the
+        engineer really did resubmit/monitor/document real work) even though
+        the subagent job it launched keeps erroring underneath. Reading the
+        subagent registry directly catches that case. Fail-soft: a missing or
+        unreadable registry (or a test double config without these fields)
+        yields an empty dict and never blocks planning.
+        """
+        try:
+            streak_limit = int(
+                getattr(self.config, "subagent_family_failure_streak_limit", 3)
+            )
+        except (TypeError, ValueError):
+            streak_limit = 3
+        try:
+            window_hours = float(
+                getattr(self.config, "subagent_family_failure_window_hours", 72.0)
+            )
+        except (TypeError, ValueError):
+            window_hours = 72.0
+        if streak_limit <= 0:
+            return {}
+        try:
+            return recent_subagent_family_failures(
+                self._project_workdir(),
+                window_seconds=max(0.0, window_hours) * 3600.0,
+                min_streak=streak_limit,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("life supervisor: failed to read subagent registry for planner")
+            return {}
+
+    @staticmethod
+    def _task_mentions_family(task: Any, family: str) -> bool:
+        """True if ``family`` (an experiment-family slug like
+        ``swebench-verified-full-canary``) appears in the task's own text.
+
+        Family slugs are distinctive, multi-token, hyphen/underscore-joined
+        identifiers minted by the subagent tool from real run/benchmark names
+        — not generic words — so a case-insensitive substring match is a safe
+        heuristic here, in the same spirit as the existing (also text-based)
+        duplicate-task signature match just above this loop. Checks both the
+        hyphenated slug as written and its underscore variant, since planner
+        prose and benchmark_family identifiers mix both conventions (e.g.
+        ``swebench-verified-full-canary`` vs ``swebench_verified``).
+        """
+        if not family:
+            return False
+        haystack = " ".join((task.title, task.objective, task.evidence)).casefold()
+        needle = family.casefold()
+        if needle in haystack:
+            return True
+        return needle.replace("-", "_") in haystack.replace("-", "_")
+
+    @staticmethod
+    def _stuck_subagent_families_note(
+        family_failures: dict[str, SubagentFamilyFailure],
+    ) -> str:
+        """Advisory fact block telling the planner which experiment families
+        are currently stuck, BEFORE it proposes new tasks (not just a post-hoc
+        skip). Per the harness design philosophy this only states facts and a
+        constraint — it does not choose the planner's next move for it.
+        """
+        if not family_failures:
+            return ""
+        lines = [
+            "STUCK EXPERIMENT FAMILIES (facts, not a directive on what to do "
+            "instead): the following subagent job families have failed "
+            "repeatedly, back-to-back, with no successful completion in "
+            "between. A bare resubmission with an unchanged strategy will be "
+            "AUTOMATICALLY SKIPPED by the supervisor (it will not reach the "
+            "engineer) — propose either a materially different approach "
+            "(root-cause fix, reduced scope, alternate method) or an explicit "
+            "operator-escalation task instead.",
+        ]
+        for failure in sorted(family_failures.values(), key=lambda f: -f.streak):
+            reason = f" (last failure: {failure.last_reason})" if failure.last_reason else ""
+            lines.append(
+                f"  - {failure.family}: {failure.streak} consecutive "
+                f"{failure.last_state} attempt(s), most recently "
+                f"{failure.last_task_id!r}{reason}"
+            )
+        return "\n".join(lines)
 
     def _handle_planner_restart(self, reason: str) -> bool:
         handler = self.config.planner_restart_handler
@@ -2278,10 +2370,12 @@ class LifeSupervisor:
             "enqueued_tasks": 1,
             "skipped_duplicate_tasks": 0,
             "skipped_recent_failure_tasks": 0,
+            "skipped_subagent_family_failure_tasks": 0,
             "enqueued_titles": [item.title],
             "enqueued_impact_scores": [task.impact_score],
             "skipped_duplicate_titles": [],
             "skipped_recent_failure_titles": [],
+            "skipped_subagent_family_failure_titles": [],
             "input_tokens": 0,
             "cached_input_tokens": 0,
             "output_tokens": 0,
@@ -2408,6 +2502,9 @@ class LifeSupervisor:
 
         runtime_note = self._planner_runtime_with_idle_note()
 
+        subagent_family_failures = self._recent_subagent_family_failures()
+        stuck_families_note = self._stuck_subagent_families_note(subagent_family_failures)
+
         try:
             from ...planner import Planner
 
@@ -2423,14 +2520,12 @@ class LifeSupervisor:
                     journal_tail=journal_tail,
 
                     planning_cycle=self._planning_cycles - 1,
-                    runtime_change_summary=(
-                        self._manager_intent_prompt_block(manager_intent)
-                        + (
-                            "\n\n"
-                            if manager_intent and runtime_note
-                            else ""
-                        )
-                        + runtime_note
+                    runtime_change_summary="\n\n".join(
+                        part for part in (
+                            self._manager_intent_prompt_block(manager_intent),
+                            stuck_families_note,
+                            runtime_note,
+                        ) if part
                     ),
                     config=self._planner_config(),
                 )
@@ -2651,6 +2746,7 @@ class LifeSupervisor:
         added_titles: list[str] = []
         skipped_duplicate_titles: list[str] = []
         skipped_recent_failure_titles: list[str] = []
+        skipped_subagent_family_failure_titles: list[str] = []
         added_impact_scores: list[int] = []
 
         # Add new tasks to the backlog.
@@ -2730,6 +2826,35 @@ class LifeSupervisor:
                     "reason": "recent no_progress failure",
                 })
                 continue
+            family_failure = next(
+                (
+                    ff for ff in subagent_family_failures.values()
+                    if self._task_mentions_family(task, ff.family)
+                ),
+                None,
+            )
+            if family_failure is not None:
+                skipped_subagent_family_failure_titles.append(task.title)
+                self._emit({
+                    "type": "life.planner.task_skipped",
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "evidence": task.evidence,
+                    "matched_family": family_failure.family,
+                    "matched_streak": family_failure.streak,
+                    "matched_last_task_id": family_failure.last_task_id,
+                    "matched_last_state": family_failure.last_state,
+                    "matched_last_reason": family_failure.last_reason,
+                    "skip_category": "recent_subagent_family_failure",
+                    "reason": (
+                        f"subagent family {family_failure.family!r} has failed "
+                        f"{family_failure.streak} times in a row unresolved"
+                    ),
+                })
+                continue
             item = BacklogItem.new(
                 title=task.title,
                 objective=task.objective,
@@ -2788,10 +2913,16 @@ class LifeSupervisor:
             "enqueued_tasks": len(added_titles),
             "skipped_duplicate_tasks": len(skipped_duplicate_titles),
             "skipped_recent_failure_tasks": len(skipped_recent_failure_titles),
+            "skipped_subagent_family_failure_tasks": len(skipped_subagent_family_failure_titles),
             "enqueued_titles": added_titles,
             "enqueued_impact_scores": added_impact_scores,
             "skipped_duplicate_titles": skipped_duplicate_titles,
             "skipped_recent_failure_titles": skipped_recent_failure_titles,
+            "skipped_subagent_family_failure_titles": skipped_subagent_family_failure_titles,
+            "stuck_subagent_families": {
+                family: failure.streak
+                for family, failure in subagent_family_failures.items()
+            },
             "input_tokens": verdict.input_tokens,
             "cached_input_tokens": verdict.cached_input_tokens,
             "output_tokens": verdict.output_tokens,

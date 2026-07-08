@@ -202,6 +202,20 @@ class LifeSupervisorConfig:
     # equally capable instead of cutting it off after one local polish cycle.
     planner_task_iteration_max_cycles: int = 6
     planner_task_iteration_budget_usd: float = 30.0
+    # Subagent family failure circuit breaker (F6). A planner-generated task
+    # is reworded from scratch every cycle, so the exact-text dedup below
+    # (``_planner_task_signature``) cannot catch "the SAME underlying
+    # experiment keeps failing" across differently-worded retries — and the
+    # mission itself is often graded a success (the engineer DID resubmit +
+    # monitor + document real work) even while the subagent job it launched
+    # keeps erroring. ``_recent_subagent_family_failures`` reads the subagent
+    # registry directly (``.argus_subagents/*.json``) and flags an experiment
+    # family once it has failed this many times in a row, unresolved, within
+    # the trailing window — independent of mission-level wording or grading.
+    # See ``life/supervisor/_subagent_family_failures.py`` for the observed
+    # pathology (SWE-bench full-canary retried ~20x/2 days before this fix).
+    subagent_family_failure_streak_limit: int = 3
+    subagent_family_failure_window_hours: float = 72.0
     # --- Continuous improvement mode -----------------------------------
     # When enabled, the supervisor does not exit when the backlog is
     # empty. Instead it invokes the planner to inspect the

@@ -70,6 +70,8 @@ KNOBS: tuple[Knob, ...] = (
     # --- budget ---
     Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0", "USD cap per mission", "budget"),
     Knob("ARGUS_SKILL_DAILY_CAP_USD", "180.0", "USD cap per local day", "budget"),
+    Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
+    Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_VERTICAL", "(unset → research; see LANES #1)", "force a vertical: nanochat|nanogpt_speedrun|kernelbench|speedrun|research", "mission"),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),

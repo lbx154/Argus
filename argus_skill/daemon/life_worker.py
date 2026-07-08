@@ -96,6 +96,11 @@ class LifeWorkerConfig:
     global_daily_cap_usd: float = 0.0
     planner_task_iteration_max_cycles: int = 6
     planner_task_iteration_budget_usd: float = 30.0
+    # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
+    # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
+    # this configures.
+    subagent_family_failure_streak_limit: int = 3
+    subagent_family_failure_window_hours: float = 72.0
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
@@ -413,6 +418,8 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "global_daily_cap_usd": config.global_daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
         "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
+        "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
+        "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
         "poll_interval": config.poll_interval,
         "log_path": str(config.log_path) if config.log_path is not None else "",
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
@@ -457,6 +464,12 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         ),
         planner_task_iteration_budget_usd=float(
             data.get("planner_task_iteration_budget_usd") or 30.0
+        ),
+        subagent_family_failure_streak_limit=int(
+            data.get("subagent_family_failure_streak_limit") or 3
+        ),
+        subagent_family_failure_window_hours=float(
+            data.get("subagent_family_failure_window_hours") or 72.0
         ),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,
@@ -1681,6 +1694,8 @@ def _build_supervisor_config(
         ),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
         planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
+        subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
+        subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,
