@@ -3137,6 +3137,33 @@ def _render_live_role_overlay(
     return format_roles_panel(theme, configs, activities, width=width)
 
 
+def _maybe_handle_extra_config_text(
+    mem: Any, text: str, chat_state: dict[str, Any]
+) -> bool:
+    """Apply a whitelisted safe-knob NL change (USD budget caps + on/off toggles)
+    before it becomes work. The recognition whitelist lives in the self-contained,
+    deletable :mod:`argus_skill.manager.config_nl_extras`; this is the thin
+    set-env / confirm seam. Returns True iff it handled the text. To drop the
+    whole feature: delete ``config_nl_extras.py`` + this function + its one
+    dispatch line."""
+    from .config_nl_extras import classify_extra_config
+
+    hit = classify_extra_config(text)
+    if hit is None:
+        return False
+    env_name, value = hit
+    os.environ[env_name] = value
+    theme = chat_state.get("theme")
+    line = f"Set {env_name} = {value}."
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
+          if theme is not None else line, flush=True)
+    try:
+        append_note(mem, line)
+    except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
+        pass
+    return True
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
@@ -3168,6 +3195,9 @@ def _free_text_cmd(
         return
 
     if _maybe_handle_model_switch_text(mem, body, chat_state):
+        return
+
+    if _maybe_handle_extra_config_text(mem, body, chat_state):
         return
 
     # Persist this turn to the session transcript (for /resume replay + labels).
