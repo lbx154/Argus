@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from argus_skill.cli.branding import (
+    _LOGO_GLYPH,
+    _WORDMARK,
     LOGO_COMPACT,
     LOGO_FULL,
     TAGLINE,
@@ -16,29 +18,31 @@ _PLAIN = Theme(enabled=False, width=100)
 
 # ── logo ─────────────────────────────────────────────────────────────────
 
-def test_logo_full_is_six_rows() -> None:
-    rows = [r for r in LOGO_FULL.splitlines() if r.strip()]
-    assert len(rows) == 6
+def test_logo_is_single_line_wordmark() -> None:
+    # The wordmark logo is one row (replaced the old 6-row figlet block).
+    assert "\n" not in LOGO_FULL
+    assert _WORDMARK in LOGO_FULL
 
 
-def test_logo_compact_is_smaller() -> None:
-    full_w = max(len(r) for r in LOGO_FULL.splitlines())
-    compact_w = max(len(r) for r in LOGO_COMPACT.splitlines() if r.strip())
-    assert compact_w < full_w
+def test_logo_compact_drops_the_glyph() -> None:
+    # COMPACT is the bare wordmark (no accent glyph) for tiny terminals.
+    assert LOGO_COMPACT == _WORDMARK
+    assert len(LOGO_COMPACT) < len(LOGO_FULL)
 
 
-def test_render_logo_uses_full_when_term_is_wide() -> None:
+def test_render_logo_shows_wordmark_when_wide() -> None:
     t = Theme(enabled=False, width=120)
     out = render_logo(theme=t)
-    assert "█" in out  # full logo uses block characters
+    assert _WORDMARK in out  # "argus" wordmark present
+    assert "█" not in out    # no figlet block art anymore
 
 
-def test_render_logo_uses_compact_when_term_is_narrow() -> None:
-    t = Theme(enabled=False, width=60)
+def test_render_logo_drops_glyph_when_term_is_tiny() -> None:
+    t = Theme(enabled=False, width=20)
     out = render_logo(theme=t)
-    assert "█" not in out
-    # compact logo has these underscore-based glyphs
-    assert "_" in out or "/" in out
+    assert _WORDMARK in out
+    # very narrow → bare wordmark, no accent glyph
+    assert _LOGO_GLYPH not in out
 
 
 def test_render_logo_no_ansi_when_disabled() -> None:
@@ -61,8 +65,8 @@ def test_banner_includes_logo_and_tagline_and_version() -> None:
     )
     assert TAGLINE in out
     assert "v0.1.0" in out
-    # one of the logo glyphs (full or compact) must appear
-    assert ("█" in out) or ("_" in out)
+    # the wordmark logo must appear
+    assert _WORDMARK in out
 
 
 def test_banner_mission_block_renders_id_status_objective() -> None:

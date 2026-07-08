@@ -159,6 +159,19 @@ def test_bottom_hint_line_omits_status_when_empty() -> None:
     assert out.strip() == "Enter send · /help commands"
 
 
+def test_bottom_hint_line_draws_a_rule_between_hint_and_status() -> None:
+    # The gap between the hint and the right-aligned status is a dim ── rule
+    # (the bottom border of the input frame), not empty padding.
+    from argus_skill.cli.theme import BOX, Theme, visible_len
+    theme = Theme(enabled=False, width=100)
+    out = manager_repl._bottom_hint_line(theme, "Copilot · gpt-5.5")
+    assert BOX["h"] in out                       # rule fill present
+    assert out.startswith("  Enter send · /help commands")
+    assert out.rstrip().endswith("Copilot · gpt-5.5")
+    # one physical row: never reaches the terminal edge (width − 2 margin)
+    assert visible_len(out) <= 100
+
+
 
 def test_dispatch_free_text_enqueues(tmp_path) -> None:
     from argus_skill.life.memory import LifeMemory

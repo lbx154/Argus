@@ -153,32 +153,72 @@ def _closest_slash_command(cmd: str) -> str | None:
 
 
 def _bottom_hint_line(theme: Any, status: str) -> str:  # noqa: ANN001
-    """Left hint + right-aligned backend/model, one row under the input —
-    the pattern this session confirmed both Codex CLI and Claude Code use
-    (captured live via a pty + pyte terminal emulator), as opposed to
-    Copilot CLI's heavier full alternate-screen approach. Right side is
-    dropped on narrow terminals rather than truncated into nonsense.
+    """Bottom border of the input frame: left hint · a dim rule fill · the
+    right-aligned backend/model status — one row under the input.
+
+    The dim ``─`` rule between the hint and the status makes this read as the
+    bottom edge of the input frame (matching the ``╭─`` rule above it, à la
+    Claude Code's bordered input), instead of the old empty-space padding.
+    The pattern (hint left, status right, one row) was confirmed live via a
+    pty + pyte terminal emulator against both Codex CLI and Claude Code. The
+    right side (rule + status) is dropped on narrow terminals rather than
+    truncated into nonsense.
 
     Uses ``theme.live_width()`` (re-queries the tty), NOT the cached
-    ``theme.width`` snapshot taken once at startup: this line's length is
-    padded to exactly fill the terminal, and every "move up N rows" redraw
-    around it (the live-cockpit panel, the readline handoff) assumes one
-    physical row per logical line. If the operator resizes their terminal —
-    or a stale ``COLUMNS`` env var disagreed with the tty from the start —
-    a line padded for the WRONG width wraps into two physical rows and
-    desyncs that row count, confirmed live via pty+pyte: the input row and
-    a wrapped fragment of this very hint line visually collided on the same
-    row ("╰─ 你er send · /help commands").
+    ``theme.width`` snapshot taken once at startup: this line is padded to
+    exactly fill the terminal, and every "move up N rows" redraw around it
+    (the live-cockpit panel, the readline handoff) assumes one physical row
+    per logical line. If the operator resizes their terminal — or a stale
+    ``COLUMNS`` env var disagreed with the tty from the start — a line padded
+    for the WRONG width wraps into two physical rows and desyncs that row
+    count, confirmed live via pty+pyte: the input row and a wrapped fragment
+    of this very hint line visually collided on the same row
+    ("╰─ 你er send · /help commands"). The rule fill is sized off the SAME
+    live width, so it preserves that one-physical-row contract exactly.
     """
-    from ..cli.theme import visible_len
+    from ..cli.theme import BOX, visible_len
     width = theme.live_width()
     left = theme.dim("Enter send · /help commands")
     if not status or width < 60:
         return "  " + left
-    pad = width - visible_len(left) - visible_len(status) - 4
-    if pad < 1:
-        return "  " + left
-    return "  " + left + (" " * pad) + status
+    # fill = width − 2-col left margin − hint − status − 2 spaces (one each
+    # side of the rule, keeping text off the line). Total visible == width−2,
+    # so the line never reaches the edge and never wraps.
+    fill = width - visible_len(left) - visible_len(status) - 6
+    if fill < 1:
+        # Not enough room for a rule — fall back to the plain padded form
+        # (still exactly width−2 visible), preserving the one-row contract.
+        pad = width - visible_len(left) - visible_len(status) - 4
+        if pad < 1:
+            return "  " + left
+        return "  " + left + (" " * pad) + status
+    rule = theme.dim(BOX["h"] * fill)
+    return "  " + left + " " + rule + " " + status
+
+
+def _top_frame_line(theme: Any, label: str) -> str:  # noqa: ANN001
+    """Top edge of the input frame: ``╭─ <label> ─────…`` — the ``╭─`` corner
+    plus a bold label, then a dim ``─`` rule filling the live width, matching
+    the bottom edge drawn by :func:`_bottom_hint_line`. Together with the
+    ``╰─ `` input prefix (the bottom-left corner) this brackets the input in a
+    modern framed style.
+
+    Sized to ``theme.live_width()`` (width−2 margin) so it stays exactly ONE
+    physical row and never wraps — the same contract the cursor-math redraws
+    around the prompt rely on. Crucially this changes only ``banner_row``'s
+    WIDTH, never the multi-line prompt STRUCTURE, so ``_split_readline_safe_prompt``
+    and the ``cursor_up_and_forward`` column math (which key off the unchanged
+    3-column ``╰─ `` input prefix, not this line) are untouched.
+    """
+    from ..cli.theme import BOX, visible_len
+    corner = theme.cyan(BOX["tl"] + BOX["h"] + " ")   # "╭─ "
+    head = corner + label + " "
+    width = theme.live_width()
+    fill = width - visible_len(head) - 2
+    if fill < 1:
+        # Too narrow for a rule — just the corner + label (still one row).
+        return corner + label
+    return head + theme.dim(BOX["h"] * fill)
 
 
 # ---------------------------------------------------------------------------
@@ -4457,14 +4497,18 @@ def _run_manager_repl_locked(
     print()
     print(render_logo(theme=theme))
     _sid = getattr(args, "session_id", None) or getattr(mem.project, "fingerprint", "")
-    print("  " + theme.gray("session ") + theme.cyan(str(_sid or "-")))
     try:
         from ..daemon.life_worker import read_daemon_status as _read_daemon_status
         _ds = _read_daemon_status(mem.project.root)
         _pid = str(_ds.pid) if getattr(_ds, "alive", False) and getattr(_ds, "pid", None) else "-"
     except Exception:  # noqa: BLE001
         _pid = "-"
-    print("  " + theme.gray("daemon  ") + theme.cyan(_pid))
+    # One dim subtitle row (secondary text) — session + daemon together, on the
+    # same column-2 grid as the wordmark, ``·``-separated. No fixed-width labels.
+    print(
+        "  " + theme.gray("session ") + theme.cyan(str(_sid or "-"))
+        + theme.dim("  ·  ") + theme.gray("daemon ") + theme.cyan(_pid)
+    )
     _print_daemon_boot_status(
         theme,
         legacy_zombie_msg=legacy_zombie_msg,
@@ -4535,9 +4579,14 @@ def _run_manager_repl_locked(
                 status = format_prompt_status_line(theme, life_dir=_prompt_life_dir)
             except Exception:  # noqa: BLE001
                 status = ""
-        banner_row = (
-            theme.cyan("╭─ ") + base_prompt
-            + (resume_marker if chat_state.get("last_thread_id") else "")
+        # Top edge of the input frame — a full-width ``╭─ argus ─────…`` rule
+        # (see _top_frame_line) that brackets the input together with the
+        # ``╰─ `` prefix below. Only banner_row's WIDTH changes vs the old
+        # short elbow; the multi-line prompt STRUCTURE and the 3-column
+        # ``╰─ `` prefix the cursor math keys off are unchanged.
+        banner_row = _top_frame_line(
+            theme,
+            base_prompt + (resume_marker if chat_state.get("last_thread_id") else ""),
         )
         input_row_prefix = theme.cyan("╰─ ")
         # BUG FIX (two rounds — both confirmed live, not just in a pty capture):

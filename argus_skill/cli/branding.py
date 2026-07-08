@@ -1,12 +1,17 @@
-"""``argus-skill`` brand assets — ASCII logo + startup banner.
+"""``argus-skill`` brand assets — wordmark logo + startup banner.
 
-The logo is a two-tone gradient (cyan → blue → magenta) ANSI Shadow
-rendering of "argus-skill". A compact small-font fallback is used on
-terminals narrower than the full logo's 84 columns.
+The logo is a single-line wordmark: a geometric accent glyph plus the
+lowercase "argus" wordmark carried on the shared mauve→blue→teal gradient
+(``theme.gradient``). This deliberately replaced an 84×6 ANSI-Shadow
+figlet block — a small, restrained wordmark reads as modern where the 3-D
+block art read as dated. On a basic colour TTY the wordmark degrades to
+the single signature mauve; with colour off it is plain text.
 
-``render_startup_banner(...)`` composes the logo + tagline + a small
-status block (mission id, plan_mode, state-dir) — modelled on the
-codex / skill-agent / claude-code interactive banners.
+``render_startup_banner(...)`` composes the wordmark + a dim tagline·version
+subtitle + a small status block (mission id, plan_mode, state-dir) —
+secondary info is dim, state is carried by a coloured ``●`` dot, and there
+are no ``label → value`` arrow rows. Modelled on the codex / claude-code
+interactive banners.
 """
 
 from __future__ import annotations
@@ -22,71 +27,41 @@ __all__ = [
 ]
 
 
-# ── ASCII art ─────────────────────────────────────────────────────────────
+# ── wordmark ──────────────────────────────────────────────────────────────
 
-# Generated with pyfiglet ANSI Shadow font; 84 columns × 6 rows.
-# DO NOT reflow — alignment is hand-tuned.
-LOGO_FULL = r"""
- █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗
-██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝      ██╔════╝██║ ██╔╝██║██║     ██║
-███████║██████╔╝██║  ███╗██║   ██║███████╗█████╗███████╗█████╔╝ ██║██║     ██║
-██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║╚════╝╚════██║██╔═██╗ ██║██║     ██║
-██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║      ███████║██║  ██╗██║███████╗███████╗
-╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
-"""
+# Signature accent glyph + lowercase wordmark. Kept narrow and unambiguous;
+# the mark is printed once at startup (not in any cursor-math redraw), so a
+# decorative glyph here never affects the live-panel row math.
+_LOGO_GLYPH = "◆"
+_WORDMARK = "argus"
 
-# pyfiglet "small" font; 40 columns × 5 rows. Used when terminal width
-# is below the full logo's 84 columns.
-LOGO_COMPACT = r"""
-                              _   _ _ _
- __ _ _ _ __ _ _  _ ______ __| |_(_) | |
-/ _` | '_/ _` | || (_-<___(_-< / / | | |
-\__,_|_| \__, |\_,_/__/   /__/_\_\_|_|_|
-         |___/
-"""
+# ``LOGO_FULL`` / ``LOGO_COMPACT`` are retained (exported via ``cli.__init__``)
+# but are now the plain wordmark text, no longer 6-row figlet art. FULL carries
+# the accent glyph; COMPACT drops it for very narrow terminals.
+LOGO_FULL = f"{_LOGO_GLYPH} {_WORDMARK}"
+LOGO_COMPACT = _WORDMARK
 
 TAGLINE = "supervised skill-driven coding agent"
 
 
-def _gradient_palette(theme: Theme) -> list[str]:
-    """Return six ANSI methods on ``theme`` for the 6-row logo gradient."""
-    return [
-        "bold_cyan",
-        "bold_cyan",
-        "bold_blue",
-        "bold_blue",
-        "bold_magenta",
-        "bold_magenta",
-    ]
-
-
 def render_logo(*, theme: Theme) -> str:
-    """Render the logo, picking the variant that fits the terminal.
+    """Render the one-line wordmark, indented to the banner's column-2 grid.
 
-    On a 24-bit terminal the whole block gets one smooth mauve→blue→teal
-    ramp shared across rows (each column the same hue, so the block letters
-    read as a single gradient wordmark). On a basic colour TTY it falls back
-    to the coarse per-row cyan→blue→mauve tri-tone.
+    Truecolor: the wordmark rides the shared mauve→blue→teal ramp and the
+    glyph is the signature mauve. Basic TTY: both collapse to bold mauve.
+    Colour off: plain ``◆ argus``. Always a single row.
     """
-    full_lines = LOGO_FULL.strip("\n").splitlines()
-    full_w = max(len(ln) for ln in full_lines)
-    if theme.width >= full_w:
-        lines = full_lines
-    else:
-        lines = LOGO_COMPACT.strip("\n").splitlines()
+    # Drop the glyph only on a genuinely tiny terminal; the wordmark itself is
+    # 5 columns and always fits.
+    compact = theme.width < 24
 
-    if getattr(theme, "truecolor", False):
-        # Smooth horizontal gradient shared across every row.
-        block_w = max(len(ln) for ln in lines)
-        return "\n".join(theme.gradient(ln, width=block_w) for ln in lines)
+    if not theme.enabled:
+        return "  " + (LOGO_COMPACT if compact else LOGO_FULL)
 
-    # Non-truecolor: coarse per-row tri-tone (cyan → blue → mauve).
-    palette = _gradient_palette(theme)
-    out: list[str] = []
-    for i, ln in enumerate(lines):
-        method = palette[i % len(palette)]
-        out.append(getattr(theme, method)(ln))
-    return "\n".join(out)
+    word = theme.gradient(_WORDMARK)
+    if compact:
+        return "  " + word
+    return "  " + theme.magenta(_LOGO_GLYPH) + " " + word
 
 
 def render_startup_banner(
@@ -119,64 +94,56 @@ def render_startup_banner(
     parts: list[str] = []
     if show_logo:
         parts.append(render_logo(theme=theme))
-        parts.append("")
-        parts.append(
-            "  " + theme.italic(theme.gray(TAGLINE)) +
-            "  " + theme.dim(f"v{version}")
-        )
+        # Dim tagline · version subtitle (secondary text, CC-style) — one row
+        # right under the wordmark, aligned to the same column-2 grid.
+        parts.append("  " + theme.dim(f"{TAGLINE}  ·  v{version}"))
         parts.append("")
 
-    arrow = theme.dim("→")
-    label = lambda s: theme.gray(f"{s:<11}")  # noqa: E731
+    # One status row = "  <dim label>  <value>" — no ``→`` arrows, no fixed
+    # 11-col label padding; state is carried by a coloured ``●`` dot.
+    def _row(label: str, value: str) -> str:
+        return f"  {theme.gray(label)}  {value}"
 
     if mode == "mission" and mission_id:
-        status_color = {
-            "running": theme.bold_blue,
-            "done": theme.bold_green,
-            "error": theme.bold_red,
-            "pending": theme.bold,
-        }.get(mission_status or "", theme.bold)
-        parts.append(
-            f"  {label('mission')} {arrow} {theme.cyan(mission_id)}  "
-            + status_color(mission_status or "?")
-        )
+        dot_color = {
+            "running": theme.cyan,
+            "done": theme.green,
+            "error": theme.red,
+            "pending": theme.yellow,
+        }.get(mission_status or "", theme.gray)
+        status_dot = dot_color("● " + (mission_status or "?"))
+        parts.append(_row("mission", theme.cyan(mission_id) + "   " + status_dot))
         if plan_mode:
-            parts.append(
-                f"  {label('plan_mode')} {arrow} {theme.bold(plan_mode)}"
-                + (f"   {theme.dim(f'max_rounds={max_rounds}')}" if max_rounds else "")
+            extra = (
+                f"   {theme.dim(f'max_rounds={max_rounds}')}" if max_rounds else ""
             )
+            parts.append(_row("plan", theme.bold(plan_mode) + extra))
         if auto_follow_up is not None:
             if auto_follow_up:
                 # Highlighted in yellow — this is the dangerous knob.
-                state_text = theme.bold(theme.yellow("on"))
+                state_text = theme.bold(theme.yellow("● on"))
                 hint = theme.dim("(planner auto-spawns round N+1)")
             else:
-                state_text = theme.bold_green("off")
+                state_text = theme.bold_green("● off")
                 hint = theme.dim("(mission ends on first ✅ done)")
-            parts.append(
-                f"  {label('auto-follow')} {arrow} {state_text}   {hint}"
-            )
+            parts.append(_row("auto-follow", f"{state_text}   {hint}"))
         if objective:
             obj = objective.strip().splitlines()[0]
             if len(obj) > 100:
                 obj = obj[:99] + "…"
-            parts.append(f"  {label('objective')} {obj}")
+            parts.append(_row("objective", obj))
     elif mode == "queue":
-        parts.append(
-            f"  {label('mode')} {arrow} {theme.bold('queue (worker)')}"
-        )
+        parts.append(_row("mode", theme.bold("queue (worker)")))
     if state_dir:
-        parts.append(f"  {label('state-dir')} {theme.cyan(state_dir)}")
+        parts.append(_row("state-dir", theme.cyan(state_dir)))
     if daemon_pid is not None:
-        parts.append(
-            f"  {label('daemon')} {arrow} pid={daemon_pid}"
-        )
+        parts.append(_row("daemon", theme.dim(f"pid={daemon_pid}")))
     parts.append("")
     if show_hint:
         # Hint line — analogous to skill-agent.
         parts.append(
             "  " + theme.gray("type a command to begin  ·  ")
-            + theme.cyan("/help") + theme.gray(" for commands  ·  ")
+            + theme.cyan("/help") + theme.gray(" commands  ·  ")
             + theme.cyan("/exit") + theme.gray(" to leave (daemon keeps running)")
         )
         parts.append("")

@@ -199,3 +199,38 @@ def test_welcome_banner_is_a_full_box() -> None:
 def test_welcome_banner_no_ansi_when_disabled() -> None:
     out = render_welcome_banner(theme=_PLAIN)
     assert "\x1b" not in out
+
+
+# ── diff colouring in /show ────────────────────────────────────────────────
+
+def test_show_ack_colorizes_unified_diff_add_remove() -> None:
+    from argus_skill.cli.render import _render_show_ack
+    text = (
+        "diff --git a/x.py b/x.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        "-old = 1\n"
+        "+new = 2\n"
+        " unchanged\n"
+    )
+    out = _render_show_ack({"show_kind": "review", "text": text}, theme=_ANSI)
+    # added line green (32 / mocha green), removed line red (31 / mocha red)
+    assert ("\x1b[32m" in out) or ("38;2;166;227;161" in out)  # green add
+    assert ("\x1b[31m" in out) or ("38;2;243;139;168" in out)  # red remove
+
+
+def test_show_ack_leaves_prose_bullets_uncolored() -> None:
+    # A plain review/plan (no diff headers) must NOT tint "- item" bullets.
+    from argus_skill.cli.render import _render_show_ack
+    text = "Plan:\n- step one\n+ a note\n"
+    out = _render_show_ack({"show_kind": "plan", "text": text}, theme=_ANSI)
+    # the '-'/'+' prose lines carry no red/green SGR wrapper
+    assert "\x1b[31m" not in out and "38;2;243;139;168m-" not in out
+    assert "\x1b[32m" not in out and "38;2;166;227;161m+" not in out
+
+
+def test_show_ack_diff_plain_when_theme_disabled() -> None:
+    from argus_skill.cli.render import _render_show_ack
+    text = "@@ -1 +1 @@\n-a\n+b\n"
+    out = _render_show_ack({"show_kind": "review", "text": text}, theme=_PLAIN)
+    assert "\x1b" not in out
+    assert "-a" in out and "+b" in out

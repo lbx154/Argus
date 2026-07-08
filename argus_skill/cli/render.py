@@ -244,7 +244,9 @@ def _render_show_ack(event: dict[str, Any], *, theme: Theme) -> str:
             title=theme.bold_cyan(f"📂 /show {show_kind}"),
         )
     # Strip "── label ──\n" headers we already have from the daemon
-    # and turn them into in-block sub-headers.
+    # and turn them into in-block sub-headers. If the body is a unified diff
+    # (e.g. `/show review` of the engineer's change), colour +/- lines.
+    is_diff = _looks_like_diff(text)
     lines: list[str] = []
     for raw in text.splitlines():
         if raw.startswith("── ") and raw.rstrip().endswith(" ──"):
@@ -252,6 +254,8 @@ def _render_show_ack(event: dict[str, Any], *, theme: Theme) -> str:
             if lines:
                 lines.append("")  # blank between sections
             lines.append(theme.bold_magenta(label))
+        elif is_diff:
+            lines.append(_colorize_diff_line(raw, theme=theme))
         else:
             lines.append(raw)
     return theme.left_box(
@@ -369,3 +373,37 @@ def _strip_shell_wrapper(cmd: str) -> str:
                 return inner[1:-1]
             return inner
     return cmd
+
+
+def _looks_like_diff(text: str) -> bool:
+    """True iff ``text`` is a unified diff — detected STRUCTURALLY by a hunk
+    header or file-header line, never by guessing at content. Guards the
+    ``+``/``-`` line colouring so prose bullets ("- item") in a plain review
+    are never mis-tinted red/green.
+    """
+    for ln in text.splitlines():
+        s = ln.lstrip()
+        if (
+            s.startswith("@@ ")
+            or s.startswith("diff --git ")
+            or s.startswith("--- a/")
+            or s.startswith("+++ b/")
+        ):
+            return True
+    return False
+
+
+def _colorize_diff_line(line: str, *, theme: Theme) -> str:
+    """Line-level +/- diff colouring: added lines green, removed red, file
+    headers dim, hunk headers cyan. Word-level intra-line diff is deliberately
+    NOT done (it needs a diff library; this stays stdlib-only)."""
+    stripped = line.lstrip()
+    if stripped[:3] in ("+++", "---"):      # file headers — recede
+        return theme.dim(line)
+    if stripped[:2] == "@@":                 # hunk header — orient
+        return theme.cyan(line)
+    if stripped[:1] == "+":
+        return theme.green(line)
+    if stripped[:1] == "-":
+        return theme.red(line)
+    return line                              # context / prose — untouched
