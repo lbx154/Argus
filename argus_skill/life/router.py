@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 
-def build_route_prompt(text: str, role_skill_block: str = "") -> str:
+def build_route_prompt(text: str) -> str:
     return (
         "Reply with exactly one word: SELF or TEAM.\n"
-        "SELF = one Codex can handle it independently.\n"
-        "TEAM = needs Argus coordination with Planner/Engineer/Reviewer, "
-        "including changes to Argus itself.\n\n"
+        "SELF = one worker can carry it out end-to-end on its own.\n"
+        "TEAM = needs Argus's Planner/Engineer/Reviewer coordination — "
+        "multi-step research or engineering, or a change to Argus itself.\n"
+        "When in doubt, answer TEAM — never route work that needs review to a "
+        "lone worker.\n\n"
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
@@ -20,31 +22,31 @@ def classify_route(
     text: str,
     *,
     run_exec: Callable[[str], Any],
-    role_skill_block: str = "",
 ) -> str:
     cleaned = (text or "").strip()
     if not cleaned:
         return "complex"
     try:
-        result = run_exec(build_route_prompt(cleaned, role_skill_block))
+        result = run_exec(build_route_prompt(cleaned))
     except Exception:  # noqa: BLE001
         return "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         return "complex"
     token = _first_alpha_token(_extract_answer(result)).upper()
-    if token in {"SELF", "CHAT", "SIMPLE"}:
+    if token in {"SELF", "SIMPLE"}:
         return "simple"
-    if token in {"TEAM", "COMPLEX", "TASK"}:
-        return "complex"
-    return "complex"
+    return "complex"  # TEAM / COMPLEX / anything unrecognized → the safe default
 
 
-def build_classify_prompt(text: str, role_skill_block: str = "") -> str:
+def build_classify_prompt(text: str) -> str:
     return (
-        "Reply with exactly one word: SELF or TEAM.\n"
-        "SELF = one Codex can handle it independently.\n"
-        "TEAM = needs Argus coordination with Planner/Engineer/Reviewer, "
-        "including changes to Argus itself.\n\n"
+        "Reply with exactly one word: CHAT or TASK.\n"
+        "CHAT = a greeting, an acknowledgement, small talk, or a question about "
+        "Argus / your own capabilities — there is nothing to execute.\n"
+        "TASK = a real task or objective to carry out — a fix, a feature, an "
+        "experiment, an analysis, a codebase change, or a change to Argus "
+        "itself — however small, even if one worker could do it alone.\n"
+        "When in doubt, answer TASK — never treat real work as chat.\n\n"
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
@@ -54,29 +56,36 @@ def classify_is_conversational(
     text: str,
     *,
     run_exec: Callable[[str], Any],
-    role_skill_block: str = "",
 ) -> bool:
+    """Is ``text`` a conversational turn (greeting / capability question / ack)
+    rather than a real task to execute?
+
+    Biases hard toward ``False`` (TASK) — the safe default. Empty input, a
+    classify error, a non-zero exit, or any answer that is not exactly ``CHAT``
+    all resolve to TASK, so a real task is never silently answered as chat
+    instead of being carried out.
+    """
     cleaned = (text or "").strip()
     if not cleaned:
         return False
     try:
-        result = run_exec(build_classify_prompt(cleaned, role_skill_block))
+        result = run_exec(build_classify_prompt(cleaned))
     except Exception:  # noqa: BLE001
         return False
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         return False
-    return _first_alpha_token(_extract_answer(result)).upper() in {"SELF", "CHAT"}
+    return _first_alpha_token(_extract_answer(result)).upper() == "CHAT"
 
 
-def build_persistence_prompt(text: str, role_skill_block: str = "") -> str:
+def build_persistence_prompt(text: str) -> str:
     return (
         "Reply with exactly one word: BOUNDED or STANDING.\n"
-        "BOUNDED = the task has a natural finish line (a specific fix, a "
-        "specific feature, answering a question, running one experiment) — "
-        "work stops once that goal is met.\n"
+        "BOUNDED = the task has a natural finish line — work stops once one "
+        "concrete goal is met. e.g. \"fix the bug in module X\", \"add feature "
+        "Y\", \"answer whether Z is faster\", \"run one benchmark\".\n"
         "STANDING = open-ended work with NO natural finish line that should "
         "keep running autonomously (7x24) until the objective is exhausted or "
-        "the operator stops it — e.g. \"optimize as many X as possible\", "
+        "the operator stops it. e.g. \"optimize as many X as possible\", "
         "\"keep improving Y\", \"continuously search/monitor Z\".\n"
         "When in doubt, answer BOUNDED — never force standing/continuous mode "
         "onto a task that did not ask for it.\n\n"
@@ -89,7 +98,6 @@ def classify_needs_persistence(
     text: str,
     *,
     run_exec: Callable[[str], Any],
-    role_skill_block: str = "",
 ) -> bool:
     """Is ``text`` open-ended work that should run as a standing (continuous)
     campaign, rather than a one-shot bounded mission?
@@ -103,7 +111,7 @@ def classify_needs_persistence(
     if not cleaned:
         return False
     try:
-        result = run_exec(build_persistence_prompt(cleaned, role_skill_block))
+        result = run_exec(build_persistence_prompt(cleaned))
     except Exception:  # noqa: BLE001
         return False
     if int(getattr(result, "exit_code", 0) or 0) != 0:
@@ -129,16 +137,18 @@ _IDENTITY_GUARD = (
 
 
 def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
+    from ..cli.roles_status import runner_backend_label
     prefix = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
     return (
-        f"{prefix}You are Argus Manager. Answer as Argus Manager.\n\n"
+        f"{prefix}You are Argus Manager, powered by one {runner_backend_label()} "
+        "worker. Answer as Argus Manager.\n\n"
         f"{_IDENTITY_GUARD}"
         f"Message:\n{objective.strip()}"
     )
 
 
 def build_simple_prompt(
-    *, objective: str, skill_block: str = "", mission_status: str = ""
+    *, objective: str, mission_status: str = ""
 ) -> str:
     from ..cli.roles_status import runner_backend_label
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
@@ -220,16 +230,18 @@ def build_config_intent_prompt(text: str) -> str:
         "(including \"should I use X?\" / \"which model is better?\"), small talk, "
         "or merely MENTIONS a model/backend/setting without asking to change it. "
         "When in doubt, answer NONE — never swallow real work as a settings change. "
-        "A budget or effort level scoped to ONE specific run (\"这轮\" / \"this "
-        "mission\" / \"for this task\") is part of the task, not a knob change — "
+        "A budget stated for ONE specific run, or a model / backend / effort asked "
+        "for WITHIN a single task (\"这轮\" / \"do THIS on claude with high effort\" "
+        "/ \"for this task\"), is part of that task, not a standing knob change — "
         "answer NONE.\n\n"
         "If it IS a settings-change request, reply with EXACTLY one line:\n"
         "SET <knob> <roles> <value>\n"
         "  <knob>  = backend | model | effort | per_mission_cap | daily_cap | "
         "safe_mode | show_reasoning | telegram\n"
         "  <roles> = for backend/model/effort: a comma-separated list drawn from "
-        "manager,planner,engineer,reviewer, or the word ALL when no specific role "
-        "is named. For the GLOBAL knobs, use a single dash: -\n"
+        "manager,planner,engineer,reviewer, or the word ALL when the operator "
+        "does not name a specific role. For the GLOBAL knobs ALWAYS use a single "
+        "dash: - (any other value in the roles field is ignored)\n"
         "  <value> = the target value verbatim (a backend name / model id / effort "
         "level / a dollar amount like 50 / on / off)\n"
         "Otherwise reply with EXACTLY:\n"

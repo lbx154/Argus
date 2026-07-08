@@ -167,13 +167,13 @@ def test_manager_no_runner_treats_free_text_as_task():
     assert Manager(runner=None).is_conversational("hi") is False
 
 
-def test_manager_owns_self_vs_team_decision():
+def test_manager_owns_chat_vs_task_decision():
     mgr = Manager()
     assert mgr.is_conversational(
-        "hello there", run_exec=lambda p: _FakeResult("SELF")
+        "hello there", run_exec=lambda p: _FakeResult("CHAT")
     ) is True
     assert mgr.is_conversational(
-        "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TEAM")
+        "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TASK")
     ) is False
 
 
@@ -221,7 +221,7 @@ def test_route_does_not_fire_matcher(tmp_path):
 
 def test_is_conversational_does_not_fire_matcher(tmp_path):
     mgr = _mgr_with_store(tmp_path)
-    out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("SELF"))
+    out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
 

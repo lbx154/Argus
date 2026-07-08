@@ -44,6 +44,8 @@ def _runner(result_or_exc: Any):
     return _run_exec
 
 
+# ---- classify_route: SELF (simple) vs TEAM (complex) -----------------------
+
 @pytest.mark.parametrize(("answer", "expected"), [
     ("SELF", "simple"), ("self", "simple"), (" SELF ", "simple"),
     ("TEAM", "complex"), ("team", "complex"), ("TEAM.", "complex"),
@@ -63,55 +65,65 @@ def test_classify_route_empty_is_complex_without_calling_model() -> None:
     assert run.calls == []  # type: ignore[attr-defined]
 
 
-def test_route_prompt_has_two_labels() -> None:
-    p = build_route_prompt("do a thing", role_skill_block="IGNORED")
+def test_route_prompt_has_two_labels_and_safe_default() -> None:
+    p = build_route_prompt("do a thing")
     assert "SELF" in p and "TEAM" in p
-    assert "IGNORED" not in p
     assert "do a thing" in p
-    assert "changes to Argus itself" in p
+    assert "Argus itself" in p
+    assert "When in doubt, answer TEAM" in p
 
 
-@pytest.mark.parametrize("answer", ["SELF", "self", " SELF "])
-def test_self_answer_is_conversational(answer: str) -> None:
+# ---- classify_is_conversational: CHAT (True) vs TASK (False) ----------------
+
+@pytest.mark.parametrize("answer", ["CHAT", "chat", " CHAT "])
+def test_chat_answer_is_conversational(answer: str) -> None:
     assert classify_is_conversational("hello", run_exec=_runner(_FakeResult(message=answer))) is True
 
 
-@pytest.mark.parametrize("answer", ["TEAM", "team", "maybe", ""])
-def test_non_self_answer_is_not_conversational(answer: str) -> None:
+@pytest.mark.parametrize("answer", ["TASK", "task", "SELF", "maybe", ""])
+def test_non_chat_answer_is_not_conversational(answer: str) -> None:
+    # Anything that is not exactly CHAT resolves to TASK — a real task is never
+    # silently answered as chat. (SELF, the old route token, is NOT conversational.)
     assert classify_is_conversational("fix it", run_exec=_runner(_FakeResult(message=answer))) is False
 
 
-def test_backend_exception_is_team() -> None:
+def test_backend_exception_is_safe_default() -> None:
     assert classify_route("x", run_exec=_runner(RuntimeError("boom"))) == "complex"
     assert classify_is_conversational("hi", run_exec=_runner(RuntimeError("boom"))) is False
 
 
-def test_nonzero_exit_is_team() -> None:
-    res = _FakeResult(message="SELF", exit_code=1)
-    assert classify_route("x", run_exec=_runner(res)) == "complex"
-    assert classify_is_conversational("hi", run_exec=_runner(res)) is False
+def test_nonzero_exit_is_safe_default() -> None:
+    assert classify_route("x", run_exec=_runner(_FakeResult(message="SELF", exit_code=1))) == "complex"
+    assert classify_is_conversational(
+        "hi", run_exec=_runner(_FakeResult(message="CHAT", exit_code=1))
+    ) is False
 
 
 def test_reads_last_of_agent_messages_when_no_last_message() -> None:
-    res = _FakeResult(message="", messages=["thinking...", "SELF"])
-    assert classify_route("hello", run_exec=_runner(res)) == "simple"
-    assert classify_is_conversational("hello", run_exec=_runner(res)) is True
+    assert classify_route(
+        "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "SELF"]))
+    ) == "simple"
+    assert classify_is_conversational(
+        "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "CHAT"]))
+    ) is True
 
 
-def test_classify_prompt_is_minimal_and_ignores_role_skill() -> None:
-    prompt = build_classify_prompt("你好", role_skill_block="ROLE_SKILL_SENTINEL")
+def test_classify_prompt_asks_chat_or_task() -> None:
+    prompt = build_classify_prompt("你好")
     assert "你好" in prompt
-    assert "SELF" in prompt and "TEAM" in prompt
-    assert "ROLE_SKILL_SENTINEL" not in prompt
+    assert "CHAT" in prompt and "TASK" in prompt
+    assert "When in doubt, answer TASK" in prompt
 
 
-def test_build_chat_prompt_is_minimal() -> None:
+# ---- chat / simple answer prompts ------------------------------------------
+
+def test_build_chat_prompt_names_the_worker_and_guards_identity() -> None:
     out = build_chat_prompt(objective="你好")
-    assert out == (
-        "You are Argus Manager. Answer as Argus Manager.\n\n"
-        + _IDENTITY_GUARD
-        + "Message:\n你好"
-    )
+    from argus_skill.cli.roles_status import runner_backend_label
+    assert "You are Argus Manager" in out
+    assert f"{runner_backend_label()} worker" in out
+    assert _IDENTITY_GUARD in out
+    assert out.endswith("Message:\n你好")
 
 
 def test_build_chat_prompt_never_points_operator_at_the_backend_cli() -> None:
@@ -132,10 +144,9 @@ def test_build_chat_prompt_includes_identity_when_given() -> None:
     assert "who are you" in out
 
 
-def test_build_simple_prompt_is_minimal_and_ignores_skill() -> None:
-    out = build_simple_prompt(objective="17*23=?", skill_block="USE base-arith")
+def test_build_simple_prompt_is_minimal() -> None:
+    out = build_simple_prompt(objective="17*23=?")
     assert "17*23" in out
-    assert "USE base-arith" not in out
     assert "Argus Manager" in out
     from argus_skill.cli.roles_status import runner_backend_label
     assert f"{runner_backend_label()} worker" in out
@@ -153,8 +164,6 @@ def test_build_simple_prompt_never_points_operator_at_the_backend_cli() -> None:
 
 
 def test_build_simple_prompt_omits_mission_status_block_when_empty() -> None:
-    # Back-compat: no running mission means the prompt is byte-identical to
-    # before live mission status existed.
     with_empty = build_simple_prompt(objective="17*23=?", mission_status="")
     without_arg = build_simple_prompt(objective="17*23=?")
     assert with_empty == without_arg
@@ -204,8 +213,7 @@ def test_classify_needs_persistence_nonzero_exit_is_bounded() -> None:
 
 
 def test_persistence_prompt_has_two_labels_and_safe_default_hint() -> None:
-    p = build_persistence_prompt("optimize all the kernels", role_skill_block="IGNORED")
+    p = build_persistence_prompt("optimize all the kernels")
     assert "BOUNDED" in p and "STANDING" in p
-    assert "IGNORED" not in p
     assert "optimize all the kernels" in p
     assert "When in doubt, answer BOUNDED" in p
