@@ -900,3 +900,21 @@ def test_live_pane_accumulate_handles_prefix_and_fragment():
     assert acc("Hello", "Hello world") == "Hello world"      # growing prefix
     assert acc("Hello world", "Hello") == "Hello world"      # stale dup ignored
     assert acc("Hello ", "world") == "Hello world"           # raw fragment append
+
+
+def test_format_follow_event_full_disables_truncation():
+    """The Ctrl+O pane passes full=True so a long thought is rendered whole (the
+    pane word-wraps it) — no 240-char clip, no '(+N chars)' tail. The default
+    (full=False) still clips for the one-line scrolling tail."""
+    from argus_skill.apps.cli._follow import _format_follow_event
+
+    long_text = "word " * 120  # ~600 chars, well over the 240 clip
+    ev = {
+        "type": "engineer.progress", "kind": "agent_message",
+        "text": long_text, "agent_layer": "engineer",
+    }
+    full = _format_follow_event(ev, "engineer", theme=None, full=True)
+    clipped = _format_follow_event(ev, "engineer", theme=None)  # default
+    assert "chars)" not in full and "…" not in full, full[-40:]
+    assert full.strip().endswith("word")
+    assert "chars)" in clipped, "default path should still clip for the tail"

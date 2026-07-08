@@ -745,6 +745,7 @@ def follow_mission_live_roles(
     """
     from ..cli.roles_status import (
         _clip_ansi_line,
+        _disp_width,
         role_activity,
         role_paint,
         render_roles_snapshot,
@@ -776,6 +777,10 @@ def follow_mission_live_roles(
     pane_start = time.monotonic()  # anchors the -ing verb rotation
     # Accumulate the in-flight message until it settles:
     _cur = {"mid": None, "role": "engineer", "text": ""}
+    # Scrollback: `off` = visual rows scrolled UP from the bottom (0 = follow the
+    # latest). Cache the wrapped rows so we don't re-wrap all history every tick.
+    scroll = {"off": 0, "prev_total": 0, "budget": 10}
+    _vcache: dict[str, Any] = {"n": -1, "w": -1, "rows": []}
 
     def _accumulate(prev: str, new: str) -> str:
         # Robust to BOTH stream shapes: growing prefixes (replace with the fuller
@@ -799,7 +804,7 @@ def follow_mission_live_roles(
                 "type": "engineer.progress", "kind": "agent_message",
                 "text": text, "agent_layer": _cur["role"],
             }
-            line = _format_follow_event(ev, str(_cur["role"]), theme=None)
+            line = _format_follow_event(ev, str(_cur["role"]), theme=None, full=True)
             if line:
                 committed.append((str(_cur["role"]), line))
         _cur["mid"] = None
@@ -822,13 +827,13 @@ def follow_mission_live_roles(
             # A non-replace complete agent_message: settle any in-flight one, then
             # add this whole message as history.
             _settle_current()
-            line = _format_follow_event(dict(ev), current_layer, theme=None)
+            line = _format_follow_event(dict(ev), current_layer, theme=None, full=True)
             if line:
                 committed.append((current_layer, line))
             return
         # Any other rendered event (tool / command / reasoning / planner verdict):
         # settle the in-flight thought first so ordering is preserved.
-        line = _format_follow_event(ev, current_layer, theme=None)
+        line = _format_follow_event(ev, current_layer, theme=None, full=True)
         if line:
             _settle_current()
             committed.append((current_layer, line))
@@ -914,25 +919,51 @@ def follow_mission_live_roles(
             if expanded:
                 rows = shutil.get_terminal_size((80, 24)).lines
                 panel_h = panel.count("\n") + 1
-                budget = max(3, rows - panel_h - 4)
-                sep = "  ── reasoning · Ctrl+O collapse "
-                sep = sep + "─" * max(0, width - len(sep) - 1)
+                # Reserve rows for: separator, up/down indicators, verb line.
+                budget = max(3, rows - panel_h - 6)
+                scroll["budget"] = budget
+                # (Re)wrap ALL settled history — cached by (count, width) so we
+                # only re-wrap when a message settles or the terminal resizes.
+                if _vcache["n"] != len(committed) or _vcache["w"] != width:
+                    v: list[str] = []
+                    for role, plain in committed:
+                        for vr in _wrap_plain(plain, max(8, width - 1)):
+                            v.append(role_paint(theme, role, vr)
+                                     if theme is not None else vr)
+                    _vcache["rows"] = v
+                    _vcache["n"] = len(committed)
+                    _vcache["w"] = width
+                visual: list[str] = _vcache["rows"]
+                total = len(visual)
+                # Keep a scrolled-up view anchored as new rows arrive at the
+                # bottom (don't yank the operator back down); when following
+                # (off==0) stay pinned to the latest.
+                if scroll["off"] > 0 and total > scroll["prev_total"]:
+                    scroll["off"] += total - scroll["prev_total"]
+                scroll["prev_total"] = total
+                max_off = max(0, total - budget)
+                scroll["off"] = max(0, min(scroll["off"], max_off))
+                off = scroll["off"]
+                end = total - off
+                start = max(0, end - budget)
+                window = visual[start:end]
+
+                title = "  ── reasoning · Ctrl+O collapse"
+                if total > budget:
+                    title += " · ↑↓/PgUp/PgDn scroll" + (
+                        " · End=latest" if off > 0 else "")
+                title += " "
+                sep = title + "─" * max(0, width - _disp_width(title) - 1)
                 lines.append(theme.gray(sep) if theme is not None else sep)
-                # Word-wrap the settled entries (display-width aware, so nothing
-                # is chopped at the edge), paint each in its role hue, then show
-                # the last `budget` VISUAL rows. A message appears as ONE clean
-                # line once it settles (its accumulated text is complete); the
-                # in-flight one stays hidden until done — the panel + animated
-                # verb line below cover the "still thinking" window.
-                visual: list[str] = []
-                for role, plain in list(committed)[-budget:]:
-                    for vr in _wrap_plain(plain, max(8, width - 1)):
-                        visual.append(
-                            role_paint(theme, role, vr) if theme is not None else vr
-                        )
-                window = visual[-budget:]
+
                 if window:
+                    if start > 0:
+                        ind = f"  ▲ {start} more line(s) above"
+                        lines.append(theme.dim(ind) if theme is not None else ind)
                     lines.extend(window)
+                    if off > 0:
+                        ind = f"  ▼ {off} more below · press End/G to follow"
+                        lines.append(theme.dim(ind) if theme is not None else ind)
                 else:
                     hint = "  (waiting for the agents' first thoughts…)"
                     lines.append(theme.gray(hint) if theme is not None else hint)
@@ -1015,6 +1046,25 @@ def follow_mission_live_roles(
                         data = b""
                     if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
                         expanded = not expanded
+                    if expanded:
+                        # Scrollback controls (arrows + PgUp/PgDn + Home/End,
+                        # plus vim-style k/j/g/G). `off` is measured from the
+                        # bottom; End/G resumes following the latest.
+                        pg = max(1, scroll["budget"] - 1)
+                        if b"\x1b[A" in data or b"k" in data:
+                            scroll["off"] += 1
+                        if b"\x1b[B" in data or b"j" in data:
+                            scroll["off"] -= 1
+                        if b"\x1b[5~" in data:            # PageUp
+                            scroll["off"] += pg
+                        if b"\x1b[6~" in data:            # PageDown
+                            scroll["off"] -= pg
+                        if b"\x1b[H" in data or b"\x1b[1~" in data or b"g" in data:
+                            scroll["off"] = 10 ** 9       # top (clamped on render)
+                        if b"\x1b[F" in data or b"\x1b[4~" in data or b"G" in data:
+                            scroll["off"] = 0             # follow the latest
+                        if scroll["off"] < 0:
+                            scroll["off"] = 0
             else:
                 time.sleep(tick)
         return None

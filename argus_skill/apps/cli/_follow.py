@@ -223,7 +223,7 @@ class _FollowCoalescer:
         self._commit()
 
 
-def _format_follow_agent_message(layer: str, text: str) -> str:
+def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -> str:
     summary = _verification_summary(text)
     if summary:
         return summary
@@ -249,7 +249,10 @@ def _format_follow_agent_message(layer: str, text: str) -> str:
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
             verdict = "project done" if done else f"queue {count} task(s)"
             return f"💭 planner verdict: {verdict}" + (f" · {reason}" if reason else "")
-    return "💭 " + _clip_follow_summary(_clean_follow_text(text, limit=None), 240)
+    body = _clean_follow_text(text, limit=None)
+    # ``full`` (the Ctrl+O reasoning pane) shows the WHOLE thought — the pane
+    # word-wraps it, so there is no edge truncation and no "(+N chars)" tail.
+    return "💭 " + (body if full else _clip_follow_summary(body, 240))
 
 
 def _format_follow_command(event: dict) -> str:
@@ -647,6 +650,7 @@ def _format_follow_event(
     *,
     mission_context: dict[str, str] | None = None,
     theme: Any = None,
+    full: bool = False,
 ) -> str | None:
     """Render one ``events.jsonl`` line for the scrolling follow view.
 
@@ -654,10 +658,12 @@ def _format_follow_event(
     recoloured in that role's signature hue (see ``_colorize_role_tags``);
     omitted entirely (``None``, the default), this is byte-for-byte the
     historical plain-text output every existing caller (the TUI's styled
-    feed pane, tests) already relies on.
+    feed pane, tests) already relies on. ``full=True`` (the Ctrl+O reasoning
+    pane) shows the WHOLE thought with no ``(+N chars)`` clip — the caller
+    word-wraps it.
     """
     rendered = _format_follow_event_body(
-        event, current_layer, mission_context=mission_context
+        event, current_layer, mission_context=mission_context, full=full,
     )
     if rendered and theme is not None:
         return _colorize_role_tags(theme, rendered)
@@ -669,6 +675,7 @@ def _format_follow_event_body(
     current_layer: str,
     *,
     mission_context: dict[str, str] | None = None,
+    full: bool = False,
 ) -> str | None:
     inbox_line = format_inbox_event(event) if isinstance(event, dict) else None
     if inbox_line is not None:
@@ -684,7 +691,7 @@ def _format_follow_event_body(
         if not text:
             return None
         if kind == "agent_message":
-            return f"  [{label}] {_format_follow_agent_message(layer, text)}"
+            return f"  [{label}] {_format_follow_agent_message(layer, text, full=full)}"
         if kind == "command_execution":
             action = str(event.get("action_summary") or "").strip()
             if action:
@@ -695,8 +702,9 @@ def _format_follow_event_body(
                 "1", "true", "yes", "on",
             ):
                 return None
-            return f"  [{label}] 🧠 {_clean_follow_text(text, limit=180)}"
-        return f"  [{label}] ▸ {_clean_follow_text(text, limit=160)}"
+            limit = None if full else 180
+            return f"  [{label}] 🧠 {_clean_follow_text(text, limit=limit)}"
+        return f"  [{label}] ▸ {_clean_follow_text(text, limit=(None if full else 160))}"
 
     # Manager events (front-door SELF/TEAM route, vertical division, stage
     # advance/hold/rollback) previously had NO branch here and silently
