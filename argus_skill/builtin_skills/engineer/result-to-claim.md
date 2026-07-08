@@ -61,7 +61,10 @@ Evaluate:
 4. missing_evidence: specific evidence gaps
 5. suggested_claim_revision: strengthen, weaken, or reframe?
 6. next_experiments_needed: specific experiments to fill gaps
-7. confidence: high | medium | low
+7. scenario_scope: the narrow problem setting or constraint where the method still has a coherent role
+8. comparison_boundary: which omitted or losing comparisons limit the claim, and how to state that boundary without turning the paper into a self-rejection
+9. contribution_after_reframe: operational benefit, mechanism insight, diagnostic value, protocol contribution, or scenario-specific trade-off that remains supported
+10. confidence: high | medium | low
 ```
 
 ### Step 3: Check Experiment Integrity
@@ -76,15 +79,18 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
 ### Step 4: Route Based on Verdict
 
 #### `no` — Claim not supported
-1. Record postmortem: what was tested, what failed, hypotheses for why
-2. Decide: pivot to next idea or try alternative approach
-3. Update pipeline state
+1. Record what was tested, what the evidence rejects, and which broad claim is unsafe.
+2. Before pivoting, check whether the evidence supports a narrower scenario-scoped paper: a bounded diagnostic result, method characterization, protocol/evidence-boundary study, no-go result for a specific candidate, or status report.
+3. If a coherent scenario remains, rewrite the claim around that scenario instead of saying the method is generally bad.
+4. If no coherent scenario or contribution remains, pivot to the next idea or try an alternative approach.
+5. Update pipeline state.
 
 #### `partial` — Claim partially supported
-1. Update the working claim to reflect what IS supported
-2. Record the gap
-3. Design supplementary experiments to fill evidence gaps
-4. Re-run result-to-claim after supplementary experiments complete
+1. Update the working claim to reflect what IS supported.
+2. Choose a concrete scenario/pain point that the completed evidence actually addresses.
+3. Record the comparison boundary: absent baselines, stronger baselines, missing ablations, or non-decisive metrics.
+4. Design supplementary experiments to fill evidence gaps when they are necessary for the chosen scenario.
+5. Re-run result-to-claim after supplementary experiments complete.
 
 #### `yes` — Claim supported
 1. Record confirmed claim
@@ -113,6 +119,9 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
 ### Suggested Claim Revision
 [how to reframe if needed]
 
+### Scenario-Scoped Paper Thesis
+[core pain point, selected scenario, why common alternatives are mismatched there, what the method contributes, and what boundary remains]
+
 ### Next Steps
 - [specific action items]
 ```
@@ -124,6 +133,9 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
 - If confidence is low, treat as inconclusive — add experiments rather than committing
 - Always record the verdict and reasoning, regardless of outcome
 - Multiple rounds of `partial` on the same claim → consider narrowing scope
+- Do not describe missing comparisons as absent because the method performed poorly. Explain comparison gaps in methodological terms: the current study isolates a narrower scenario, answers a different deployment question, or reports a bounded diagnostic.
+- If another method wins a reported metric, preserve the comparison in evidence artifacts and tables, but reframe the paper around the supported scenario-specific contribution rather than writing a broad self-defeating thesis.
+- A scenario-scoped reframing is valid only when the scenario, pain point, and contribution are supported by local evidence or cited literature; it must not imply untested superiority.
 
 ## Integration
 

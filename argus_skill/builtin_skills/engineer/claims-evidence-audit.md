@@ -34,6 +34,8 @@ Gate paper writing and revisions on evidence integrity. This is an argus-skill-n
    - Numeric performance claims.
    - Comparative claims such as "better", "lower cost", "faster", "more robust".
    - Scope claims such as "fully autonomous", "zero-touch", "SOTA", or "EMNLP-ready".
+   - Scenario-fit claims such as "for constrained setting X", "when other methods are unsuitable", "deployment-oriented", "training-free", "low-resource", or "diagnostic boundary"; these need evidence or citations just like performance claims.
+   - Comparison-boundary claims explaining why a baseline, SOTA comparison, ablation, or full matrix is absent. The explanation must be methodological and evidence-compatible, not a hidden admission that the comparison was omitted because the result was unfavorable.
    - Citation claims and related-work placeholders.
    - Figure/table claims: every caption with a number, every table headline, every figure takeaway, and every significance statement. A table caption without a numerical headline or a comparative caption without paired-significance evidence is an audit issue, not only a style issue.
    - Submission-readiness claims tied to format: official ACL/EMNLP template, anonymous author block, conclusion by page 8, References/Appendix starting on page 9 or later with no total-page cap after the body, Limitations/Ethical Considerations, References before Appendix, reproducibility appendix, no `[?]`, no `% UNVERIFIED`, no placeholders, every figure labeled/referenced, model-backed layout review accepts the middle-body visual rhythm, and no `Overfull \hbox > 5pt`.
@@ -59,6 +61,8 @@ Gate paper writing and revisions on evidence integrity. This is an argus-skill-n
    - Ensure no high-risk unsupported numeric or comparative claim remains.
    - Ensure every figure/table reference points to an existing file.
    - Ensure every figure has a `\label{}` and a text reference, every table caption has a numerical headline, and every paper-facing figure/table label uses human-readable names rather than snake_case/code identifiers.
+   - Ensure the paper has a closed narrative: core pain point, selected scenario, method mechanism, experiment evidence, comparison boundary, and contribution all point to the same thesis.
+   - Ensure adverse comparisons that were actually run remain visible in tables or results, while the prose frames them as scoped boundaries or trade-offs rather than hiding them or overstating superiority.
    - If the audit touches format readiness, require the same `research.md` hard preflight used by the drafting and assurance skills: no unresolved refs/citations, no `[?]`, no `% UNVERIFIED` entries unless disclosed, no placeholders, no `Overfull \hbox > 5pt`, at least one paired-significance table when applicable, and a complete reproducibility appendix.
    - Self-audit the artifact-manifest requirements (canonical sources, SHA-256 digests, TSV schemas, source links); digest or TSV schema drift means the audit is blocked.
    - Ensure every new TODO is explicit rather than hidden.
