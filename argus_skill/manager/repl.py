@@ -842,6 +842,8 @@ def follow_mission_live_roles(
     # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
     _kbd_fd: int | None = None
     _kbd_old = None
+    _mouse_on = False
+    _mouse_enabled = _env_flag("ARGUS_SKILL_FOLLOW_MOUSE", True)
     try:
         if sys.stdin.isatty() and sys.stdout.isatty():
             import termios
@@ -849,6 +851,14 @@ def follow_mission_live_roles(
             _kbd_fd = sys.stdin.fileno()
             _kbd_old = termios.tcgetattr(_kbd_fd)
             tty.setcbreak(_kbd_fd)
+            if _mouse_enabled:
+                # Enable button + SGR mouse reporting so the wheel scrolls the
+                # pane (buttons 64/65). SGR (1006) is text-safe to parse.
+                # ARGUS_SKILL_FOLLOW_MOUSE=0 disables it (keeps native text
+                # selection / copy) — then use the keyboard scroll keys.
+                sys.stdout.write("\x1b[?1000h\x1b[?1006h")
+                sys.stdout.flush()
+                _mouse_on = True
     except Exception:  # noqa: BLE001 — keyboard is optional; never break observing
         _kbd_fd = None
 
@@ -950,7 +960,7 @@ def follow_mission_live_roles(
 
                 title = "  ── reasoning · Ctrl+O collapse"
                 if total > budget:
-                    title += " · ↑↓/PgUp/PgDn scroll" + (
+                    title += " · wheel·↑↓·PgUp/PgDn scroll" + (
                         " · End=latest" if off > 0 else "")
                 title += " "
                 sep = title + "─" * max(0, width - _disp_width(title) - 1)
@@ -1041,15 +1051,15 @@ def follow_mission_live_roles(
                     r = []
                 if r:
                     try:
-                        data = os.read(_kbd_fd, 64)
+                        data = os.read(_kbd_fd, 256)
                     except OSError:
                         data = b""
                     if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
                         expanded = not expanded
                     if expanded:
                         # Scrollback controls (arrows + PgUp/PgDn + Home/End,
-                        # plus vim-style k/j/g/G). `off` is measured from the
-                        # bottom; End/G resumes following the latest.
+                        # plus vim-style k/j/g/G, plus the mouse wheel). `off` is
+                        # measured from the bottom; End/G resumes following.
                         pg = max(1, scroll["budget"] - 1)
                         if b"\x1b[A" in data or b"k" in data:
                             scroll["off"] += 1
@@ -1059,6 +1069,9 @@ def follow_mission_live_roles(
                             scroll["off"] += pg
                         if b"\x1b[6~" in data:            # PageDown
                             scroll["off"] -= pg
+                        # Mouse wheel (SGR 1006): button 64 = up, 65 = down.
+                        scroll["off"] += 3 * (data.count(b"\x1b[<64;"))
+                        scroll["off"] -= 3 * (data.count(b"\x1b[<65;"))
                         if b"\x1b[H" in data or b"\x1b[1~" in data or b"g" in data:
                             scroll["off"] = 10 ** 9       # top (clamped on render)
                         if b"\x1b[F" in data or b"\x1b[4~" in data or b"G" in data:
@@ -1074,6 +1087,12 @@ def follow_mission_live_roles(
         return None
     finally:
         _settle_current()  # don't lose the last in-flight thought on exit
+        if _mouse_on:
+            try:
+                sys.stdout.write("\x1b[?1006l\x1b[?1000l")  # disable mouse tracking
+                sys.stdout.flush()
+            except Exception:  # noqa: BLE001
+                pass
         if _kbd_fd is not None and _kbd_old is not None:
             try:
                 import termios
