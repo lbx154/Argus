@@ -704,7 +704,7 @@ def format_prompt_status_line(
     out of view after the very first reply — an operator several turns into a
     conversation has no ambient way to see which engine is live without
     separately typing ``/roles``, and a model/backend switch (see
-    ``_print_role_config_confirmation`` in ``manager/repl.py``) only proved
+    ``_apply_config_intent`` in ``manager/repl.py``) only proved
     itself for that one turn. Surfacing this line in the prompt box itself
     (drawn every turn, right where the operator is about to type) keeps it
     persistently visible instead of a one-shot banner. Collapses to the

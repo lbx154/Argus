@@ -64,6 +64,9 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
     "ARGUS_SKILL_TELEGRAM_CHAT_ID",
     "ARGUS_SKILL_TELEGRAM_USER_ID",
+    "ARGUS_SKILL_SAFE_MODE",
+    "ARGUS_SKILL_SHOW_REASONING",
+    "ARGUS_SKILL_ENABLE_TELEGRAM",
     "ARGUS_SKILL_WORKDIR",
 )
 
@@ -768,7 +771,6 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
     assert captured["head_obj"] == "right now please"
 
 
-
 def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
@@ -1362,298 +1364,6 @@ def test_config_cmd_rejects_continuous_on_memory_backend(
     assert not (tmp_path / "continuous.json").exists()
 
 
-def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "把argus里面默认的四角色的推理effort都改成xhigh",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert "manager_runner" not in chat_state
-    assert os.environ["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "xhigh"
-    assert os.environ["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "xhigh"
-    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
-    assert os.environ["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "xhigh"
-    assert chat_state["config"]["manager_effort"] == "xhigh"
-    assert chat_state["config"]["planner_effort"] == "xhigh"
-    assert chat_state["config"]["engineer_effort"] == "xhigh"
-    assert chat_state["config"]["reviewer_effort"] == "xhigh"
-    # Regression: this switch used to only set os.environ for THIS process —
-    # a restart of the REPL, or the daemon booting fresh, silently reverted
-    # to the default. It must also persist (core.knob_store), so "change it
-    # once" survives both.
-    from argus_skill.core.knob_store import read_persisted_knobs
-
-    persisted = read_persisted_knobs()
-    assert persisted["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "xhigh"
-    assert persisted["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "xhigh"
-    assert persisted["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
-    assert persisted["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "xhigh"
-
-
-def test_free_text_bare_effort_config_applies_all_roles(mem: LifeMemory) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "effort 设为 high",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert "manager_runner" not in chat_state
-    assert os.environ["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "high"
-    assert os.environ["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "high"
-    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"
-    assert os.environ["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "high"
-    assert chat_state["config"]["manager_effort"] == "high"
-    assert chat_state["config"]["planner_effort"] == "high"
-    assert chat_state["config"]["engineer_effort"] == "high"
-    assert chat_state["config"]["reviewer_effort"] == "high"
-
-
-def test_bare_effort_recognizer_does_not_misfire_on_advice() -> None:
-    chat_state: dict[str, Any] = {"backend": "codex"}
-
-    assert (
-        manager_repl._maybe_handle_role_effort_text(
-            None, "这个任务的 effort 应该用 high 还是 medium？", chat_state,
-        )
-        is False
-    )
-    assert "ARGUS_SKILL_MANAGER_REASONING_EFFORT" not in os.environ
-
-
-def test_local_switches_are_logged_so_manager_can_ground_on_them(
-    mem: LifeMemory,
-) -> None:
-    """Regression: effort/backend/model switches are handled entirely in
-    Python and return before ever reaching the Manager LLM, so its own
-    conversational memory never learns they happened. Confirmed live: an
-    operator set reasoning effort to max, then asked "what did you just
-    do?" and the Manager answered about an unrelated, older daemon mission
-    instead — the only grounded history it had (see
-    _SkillLoopRunner._recent_mission_history_block, which reads the most
-    recent event.jsonl entry). Each switch must log a user.note event so
-    that history is grounded in the switch itself, not stale daemon work.
-    """
-    import json
-
-    from argus_skill.life.memory import EventJournal
-
-    chat_state: dict[str, Any] = {"backend": "codex"}
-    manager_repl._free_text_cmd(
-        mem, "把argus里面默认的四角色的推理effort都改成xhigh", chat_state=chat_state,
-    )
-
-    events_path = mem.root / "events.jsonl"
-    assert events_path.exists()
-    rows = [json.loads(ln) for ln in events_path.read_text().splitlines() if ln.strip()]
-    notes = [r for r in rows if r.get("type") == "user.note"]
-    assert notes, "switch must be logged as a user.note event"
-    assert "xhigh" in notes[-1]["summary"]
-
-    recent = EventJournal(events_path).tail(1)
-    assert recent and recent[0].kind == "user_note"
-    assert "xhigh" in recent[0].summary
-
-
-def test_free_text_backend_switch_config_does_not_enqueue(mem: LifeMemory) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "把目前的argus默认后端都改成copilot",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert "manager_runner" not in chat_state
-    assert os.environ["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
-    assert chat_state["config"]["runner_backend"] == "copilot"
-    # Regression: must also persist (core.knob_store) — see the matching
-    # comment in test_free_text_role_effort_config_does_not_enqueue.
-    from argus_skill.core.knob_store import read_persisted_knobs
-
-    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
-
-
-def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    manager_repl._free_text_cmd(
-        mem,
-        "把 reviewer 换成 claude",
-        chat_state=chat_state,
-    )
-
-    assert mem.backlog.pending() == []
-    assert os.environ["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
-    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
-    from argus_skill.core.knob_store import read_persisted_knobs
-
-    assert read_persisted_knobs()["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
-
-
-def test_backend_switch_role_specific_confirmation_only_shows_that_role(
-    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
-) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    manager_repl._free_text_cmd(
-        mem,
-        "把 reviewer 换成 claude",
-        chat_state=chat_state,
-    )
-
-    out = capsys.readouterr().out
-    now_line = out.split("now:")[-1]
-    assert "reviewer" in now_line
-    assert "Claude Code" in now_line
-    assert "manager" not in now_line
-    assert "engineer" not in now_line
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "codex 和 claude 哪个好用",
-        "帮我用 copilot 写一个函数",
-        "今天天气不错",
-    ],
-)
-def test_backend_switch_recognizer_does_not_misfire(text: str) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex"}
-    assert manager_repl._maybe_handle_backend_switch_text(None, text, chat_state) is False
-    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
-
-
-def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "把模型换成 sonnet 5",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert "manager_runner" not in chat_state
-    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
-    assert chat_state["config"]["model"] == "claude-sonnet-5"
-    # Regression: must also persist (core.knob_store) — see the matching
-    # comment in test_free_text_role_effort_config_does_not_enqueue.
-    from argus_skill.core.knob_store import read_persisted_knobs
-
-    assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
-
-
-def test_free_text_model_switch_accepts_explicit_unknown_model_id(
-    mem: LifeMemory,
-) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "把模型换成 gpt-6.1-codex",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert os.environ["ARGUS_SKILL_MODEL"] == "gpt-6.1-codex"
-    assert chat_state["config"]["model"] == "gpt-6.1-codex"
-
-
-def test_free_text_model_switch_bare_sonnet_alias_matches(mem: LifeMemory) -> None:
-    """Regression: an operator said "把模型换成sonnet 5" (no "claude" prefix,
-    no space before the model name) and it fell through to the slow generic
-    Manager/SELF path instead of the instant recognizer — because
-    _MODEL_VALUE_ALIASES only listed "claude sonnet 5"/"claude-sonnet-5" for
-    this model, unlike "claude-haiku-4.5" which already had a bare "haiku"
-    alias. Bare "sonnet 5"/"opus 4.x" aliases close that gap."""
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
-        manager_repl._free_text_cmd(
-            mem,
-            "把模型换成sonnet 5",
-            chat_state=chat_state,
-        )
-
-    ensure.assert_not_called()
-    assert mem.backlog.pending() == []
-    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
-    assert chat_state["config"]["model"] == "claude-sonnet-5"
-
-
-def test_model_switch_prints_immediate_confirmation_of_new_value(
-    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Regression: switching the model used to only print a sentence
-    describing the change ("Set Argus default model to X…") — the operator
-    had no way to tell it actually took without separately running /roles,
-    and live observed exactly this: "it says it changed but /roles-equivalent
-    display still shows gpt-5.5". The switch must also print the freshly
-    resolved value right there."""
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    with patch.object(manager_repl, "_ensure_manager_runner"):
-        manager_repl._free_text_cmd(
-            mem,
-            "把模型换成 claude-sonnet-5",
-            chat_state=chat_state,
-        )
-
-    out = capsys.readouterr().out
-    assert "now:" in out
-    assert "claude-sonnet-5" in out.split("now:")[-1]
-    # All four resident roles follow the shared default (none pinned).
-    for role in ("manager", "planner", "engineer", "reviewer"):
-        assert role in out.split("now:")[-1]
-
-
-def test_free_text_model_switch_role_specific_prefers_longest_alias(mem: LifeMemory) -> None:
-    """Regression: "gpt-5.4" must not shadow the longer "gpt-5.4-mini" id."""
-    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
-
-    manager_repl._free_text_cmd(
-        mem,
-        "engineer 的模型换成 gpt-5.4-mini",
-        chat_state=chat_state,
-    )
-
-    assert mem.backlog.pending() == []
-    assert os.environ["ARGUS_SKILL_ENGINEER_MODEL"] == "gpt-5.4-mini"
-    assert "ARGUS_SKILL_MODEL" not in os.environ
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "如果是 Copilot 的话，也能允许他调用 Copilot 的所有模型",
-        "claude-opus-4.8 是最强的模型",
-        "换成 claude 后端",  # backend switch, not a model switch
-    ],
-)
-def test_model_switch_recognizer_does_not_misfire(text: str) -> None:
-    chat_state: dict[str, Any] = {"backend": "codex"}
-    assert manager_repl._maybe_handle_model_switch_text(None, text, chat_state) is False
-    assert "ARGUS_SKILL_MODEL" not in os.environ
-
-
 def test_unknown_slash_command_does_not_enter_codex(
     mem: LifeMemory,
     capsys: pytest.CaptureFixture[str],
@@ -2065,3 +1775,110 @@ def test_maybe_chat_outcome_false_returns_none(
         objective="build the thing", sink=sink
     ) is False
     assert sink.events == []
+
+
+# ── config-intent application (_apply_config_intent) ──────────────────────────
+#
+# The LLM classifier (life.router.classify_config_intent) is unit-tested in
+# tests/life/test_config_intent.py. Here we test the REPL-side application of a
+# parsed ConfigIntent: it must set the right env var(s), persist so a running
+# daemon reads the switch immediately, and honor the non-reasoning effort guard.
+
+from argus_skill.life.router import ConfigIntent  # noqa: E402
+
+
+def test_apply_model_intent_role_specific(mem: LifeMemory) -> None:
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("model", ("engineer",), "claude-sonnet-5"), {"theme": None}
+    )
+    assert ok is True
+    assert os.environ["ARGUS_SKILL_ENGINEER_MODEL"] == "claude-sonnet-5"
+
+
+def test_apply_model_intent_shared_default(mem: LifeMemory) -> None:
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("model", (), "o3"), {"theme": None}
+    )
+    assert ok is True and os.environ["ARGUS_SKILL_MODEL"] == "o3"
+
+
+def test_apply_backend_intent_normalizes_and_persists(mem: LifeMemory) -> None:
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("backend", ("reviewer",), "claude"), {"theme": None}
+    )
+    assert ok is True and os.environ["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
+    # persisted to config.json (isolated to the test ARGUS_SKILL_HOME) so the
+    # daemon picks it up without a restart
+    from argus_skill.core.knob_store import read_persisted_knobs
+    assert read_persisted_knobs().get("ARGUS_SKILL_REVIEWER_BACKEND") == "claude"
+
+
+def test_apply_effort_on_reasoning_model_applies(mem: LifeMemory) -> None:
+    os.environ["ARGUS_SKILL_ENGINEER_MODEL"] = "gpt-5.5"  # a reasoning model
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("effort", ("engineer",), "high"), {"theme": None}
+    )
+    assert ok is True
+    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"
+
+
+def test_apply_effort_on_non_reasoning_model_is_rejected(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    os.environ["ARGUS_SKILL_ENGINEER_MODEL"] = "gpt-4o-mini"  # non-reasoning
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("effort", ("engineer",), "high"), {"theme": None}
+    )
+    assert ok is True  # handled (grounded rejection), turn is done
+    assert "ARGUS_SKILL_ENGINEER_REASONING_EFFORT" not in os.environ  # NOT applied
+    assert "non-reasoning" in capsys.readouterr().out
+
+
+def test_apply_per_mission_cap(mem: LifeMemory) -> None:
+    ok = manager_repl._apply_config_intent(
+        mem, ConfigIntent("per_mission_cap", (), "50"), {"theme": None}
+    )
+    assert ok is True and os.environ["ARGUS_SKILL_PER_MISSION_CAP_USD"] == "50"
+
+
+@pytest.mark.parametrize("knob,env_var", [
+    ("safe_mode", "ARGUS_SKILL_SAFE_MODE"),
+    ("show_reasoning", "ARGUS_SKILL_SHOW_REASONING"),
+    ("telegram", "ARGUS_SKILL_ENABLE_TELEGRAM"),
+])
+def test_apply_toggle_on_off(mem: LifeMemory, knob: str, env_var: str) -> None:
+    assert manager_repl._apply_config_intent(
+        mem, ConfigIntent(knob, (), "on"), {"theme": None}
+    ) is True
+    assert os.environ[env_var] == "1"
+    assert manager_repl._apply_config_intent(
+        mem, ConfigIntent(knob, (), "off"), {"theme": None}
+    ) is True
+    assert os.environ[env_var] == "0"
+
+
+def test_maybe_handle_config_intent_none_flows_through(mem: LifeMemory, monkeypatch) -> None:
+    # A classifier verdict of None must NOT be handled here — the text has to
+    # flow on to the normal chat/task path (never swallow real work).
+    class _Mgr:
+        def classify_config_intent(self, text: str):
+            return None
+
+    class _Runner:
+        manager = _Mgr()
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda cs, m: _Runner())
+    assert manager_repl._maybe_handle_config_intent(mem, "train a resnet on cifar", {"theme": None}) is False
+
+
+def test_maybe_handle_config_intent_applies_when_classifier_hits(mem: LifeMemory, monkeypatch) -> None:
+    class _Mgr:
+        def classify_config_intent(self, text: str):
+            return ConfigIntent("model", ("planner",), "o3")
+
+    class _Runner:
+        manager = _Mgr()
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda cs, m: _Runner())
+    assert manager_repl._maybe_handle_config_intent(mem, "planner 用 o3", {"theme": None}) is True
+    assert os.environ["ARGUS_SKILL_PLAN_MODEL"] == "o3"

@@ -181,7 +181,6 @@ def _bottom_hint_line(theme: Any, status: str) -> str:  # noqa: ANN001
     return "  " + left + (" " * pad) + status
 
 
-
 # ---------------------------------------------------------------------------
 # Event-tail helpers (REPL = attach client; the daemon is the sole executor)
 # ---------------------------------------------------------------------------
@@ -1699,65 +1698,6 @@ _ROLE_EFFORT_ENVS: dict[str, str] = {
     "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
 }
-_ROLE_ALIASES: dict[str, tuple[str, ...]] = {
-    "manager": ("manager", "管理", "经理", "前台"),
-    "planner": ("planner", "计划", "规划"),
-    "engineer": ("engineer", "工程", "执行"),
-    "reviewer": ("reviewer", "评审", "验收"),
-}
-_EFFORT_VALUES = ("xhigh", "max", "high", "medium", "low")
-
-
-def _looks_like_bare_effort_control(text: str) -> bool:
-    """Recognize short operator controls such as ``effort 设为 high``.
-
-    Role-specific phrases are handled by alias matching below. This helper is
-    only for the Argus-native shorthand the operator sees in the cockpit, so it
-    requires an explicit assignment shape and does not fire on advisory text like
-    "should effort be high or medium?".
-    """
-    return bool(
-        re.search(
-            r"effort\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b|set\s+to\b|change\s+to\b)",
-            text,
-        )
-        or re.search(r"(?:推理|强度)\s*(?:设为|设置为|设置成|改成|换成)", text)
-        or re.search(
-            r"\b(?:set|change)\s+(?:reasoning\s+)?effort\s+to\b",
-            text,
-        )
-    )
-
-
-def _print_role_config_confirmation(
-    theme: Any, roles: list[str] | None = None
-) -> None:
-    """Print a compact ``now: role backend/model`` line right after a
-    backend/model/effort switch.
-
-    Without this, `_maybe_handle_backend_switch_text` /
-    `_maybe_handle_model_switch_text` / `_maybe_handle_role_effort_text`
-    only printed a plain-English sentence describing the change — the
-    operator had to separately run `/roles` to actually SEE the new value
-    took effect, and "it says it changed but the display still shows the
-    old model" was exactly the confusion this caused live. Re-resolves from
-    the just-updated env (same source `/roles` reads), so it can never show
-    something other than what `/roles` would.
-    """
-    from ..cli.roles_status import resolve_all_roles
-
-    names = roles or list(_ROLE_MODEL_ENVS)  # unspecified => all 4 resident roles
-    try:
-        cfgs = resolve_all_roles(names)
-    except Exception:  # noqa: BLE001 — this is a confirmation nicety, never fatal
-        return
-    parts = [f"{c.role} {c.backend_label}/{c.model}" for c in cfgs]
-    if not parts:
-        return
-    line = "now: " + "  ·  ".join(parts)
-    print(theme.gray("  " + line) if theme is not None else line, flush=True)
-
-
 def _live_cockpit_enabled() -> bool:
     """Default ON: the four-role idle-prompt panel shows automatically —
     the operator's explicit, standing requirement is that multi-role
@@ -1775,244 +1715,12 @@ def _live_follow_enabled() -> bool:
     return _env_flag("ARGUS_SKILL_FOLLOW_LIVE", True)
 
 
-def _maybe_handle_role_effort_text(
-    mem: Any,
-    text: str,
-    chat_state: dict[str, Any],
-) -> bool:
-    """Handle simple operator config requests before they become Planner work.
-
-    The REPL must not send "把四角色 effort 改成 xhigh" through the research
-    pipeline. This conservative recognizer only fires when the text mentions
-    Argus/roles plus an explicit effort value and a configuration verb.
-    """
-    raw = (text or "").strip()
-    low = raw.casefold()
-    if not raw:
-        return False
-    if not any(tok in low for tok in ("effort", "reasoning", "推理", "强度")):
-        return False
-    effort = next((v for v in _EFFORT_VALUES if v in low), "")
-    if not effort:
-        return False
-    if not any(tok in low for tok in ("改", "设置", "设为", "默认", "change", "set", "config", "配置")):
-        return False
-    mentions_product = (
-        "argus" in low
-        or "四角色" in low
-        or "4角色" in low
-        or "所有角色" in low
-        or _looks_like_bare_effort_control(low)
-    )
-    roles: list[str] = []
-    if any(tok in low for tok in ("四角色", "四个角色", "4角色", "所有角色", "全部角色", "all roles", "every role")):
-        roles = list(_ROLE_EFFORT_ENVS)
-    else:
-        for role, aliases in _ROLE_ALIASES.items():
-            if any(alias in low for alias in aliases):
-                roles.append(role)
-    if not roles and mentions_product:
-        roles = list(_ROLE_EFFORT_ENVS)
-    if not roles:
-        return False
-
-    # A reasoning-effort knob is a silent no-op on a non-reasoning model. If NONE
-    # of the targeted roles' current models take an effort (resolve_role_config
-    # returns effort=None iff non-reasoning), reject with a grounded explanation
-    # instead of pretending to apply it and silently doing nothing.
-    from ..cli.roles_status import resolve_role_config
-
-    _rcfg = {role: resolve_role_config(role, env=os.environ) for role in roles}
-    if all(_rcfg[role].effort is None for role in roles):
-        theme = chat_state.get("theme")
-        models = ", ".join(sorted({_rcfg[role].model for role in roles}))
-        msg = (
-            f"Current model ({models}) is non-reasoning — reasoning effort does "
-            "not apply, so I left it unchanged."
-        )
-        print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg)
-              if theme is not None else msg, flush=True)
-        try:
-            append_note(mem, f"declined to set reasoning effort to {effort}: "
-                             f"model(s) {models} are non-reasoning (no effect).")
-        except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
-            pass
-        return True
-
-    for role in roles:
-        os.environ[_ROLE_EFFORT_ENVS[role]] = effort
-    from ..core.knob_store import write_persisted_knob
-
-    for role in roles:
-        # Persist too — see the matching comment in
-        # _maybe_handle_backend_switch_text: without this, the switch only
-        # lasted for THIS process and was invisible to the daemon (a
-        # separate process) until restarted, and even the REPL forgot it on
-        # its own next launch.
-        write_persisted_knob(_ROLE_EFFORT_ENVS[role], effort)
-    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
-    for role in roles:
-        cfg[f"{role}_effort"] = effort
-    # The cached front-door runner captured the old namespace; rebuild it so
-    # subsequent chat/simple turns also use the new effort.
-    chat_state.pop("manager_runner", None)
-
-    theme = chat_state.get("theme")
-    role_names = " / ".join(role.title() for role in roles)
-    line = f"Set {role_names} default reasoning effort to {effort}."
-    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
-    _print_role_config_confirmation(theme, roles)
-    # BUG FIX: this switch is handled entirely in Python and returns before
-    # ever reaching the Manager LLM, so the Manager's OWN conversational
-    # memory never learns it happened — confirmed live: an operator set
-    # reasoning effort to max, then asked "what did you just do?" and got an
-    # answer about an unrelated, older DAEMON mission instead, because that
-    # was the only grounded history available (see
-    # _SkillLoopRunner._recent_mission_history_block). Log it as a
-    # user.note event (same shape /note already writes) so the NEXT "what
-    # just happened" question is grounded in this, not stale daemon history.
-    try:
-        append_note(mem, line)
-    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
-        pass
-
-    try:
-        from ..daemon.life_worker import read_daemon_status
-
-        st = read_daemon_status(_life_dir_for(mem))
-        if getattr(st, "alive", False):
-            msg = (
-                "A running daemon won't hot-reload this; use /daemon restart --drain "
-                "to fully apply at the next task boundary."
-            )
-            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
-    except Exception:  # noqa: BLE001
-        pass
-    return True
-
-
 _ROLE_BACKEND_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_BACKEND",
     "planner": "ARGUS_SKILL_PLANNER_BACKEND",
     "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
     "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
 }
-# Recognized agent CLIs. Checked in order; first alias match wins.
-_BACKEND_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
-    "claude": ("claude code", "claude-code", "claude"),
-    "copilot": ("github copilot", "copilot"),
-    "codex": ("codex",),
-}
-_BACKEND_SWITCH_VERBS = (
-    "换", "切", "改", "设置", "设为", "默认",
-    "switch", "change", "set", "use", "配置",
-)
-
-
-def _maybe_handle_backend_switch_text(
-    mem: Any,
-    text: str,
-    chat_state: dict[str, Any],
-) -> bool:
-    """Handle "switch the CLI backend to X" free text before it becomes work.
-
-    Mirrors ``_maybe_handle_role_effort_text``: a conservative recognizer that
-    only fires when the text names one of the supported agent CLIs (codex /
-    claude / copilot) AND a configuration verb AND either a role name, the
-    word "后端"/"backend", or "默认" — so ordinary chat that merely mentions
-    "copilot" or "codex" in passing is never misread as a config change.
-
-    Flips ``ARGUS_SKILL_RUNNER_BACKEND`` (all roles) or a single role's
-    ``ARGUS_SKILL_<ROLE>_BACKEND`` for THIS process only — the same
-    env-var contract ``_runtime._SkillLoopRunner`` already reads. The running
-    daemon is a separate process with its own environment snapshot, so it
-    keeps the old backend until restarted (``/daemon restart --drain`` or its
-    natural-language equivalent).
-    """
-    raw = (text or "").strip()
-    low = raw.casefold()
-    if not raw:
-        return False
-    backend = next(
-        (
-            name
-            for name, aliases in _BACKEND_VALUE_ALIASES.items()
-            if any(alias in low for alias in aliases)
-        ),
-        "",
-    )
-    if not backend:
-        return False
-    if not any(tok in low for tok in _BACKEND_SWITCH_VERBS):
-        return False
-    roles: list[str] = []
-    for role, aliases in _ROLE_ALIASES.items():
-        if any(alias in low for alias in aliases):
-            roles.append(role)
-    generic = any(
-        tok in low
-        for tok in ("后端", "backend", "默认", "所有角色", "全部角色", "all roles", "every role")
-    )
-    if not roles and not generic:
-        return False
-
-    from ..agent_cli.runner_backend import normalize_runner_backend
-
-    normalized = normalize_runner_backend(backend)
-    theme = chat_state.get("theme")
-    from ..core.knob_store import write_persisted_knob
-
-    if roles:
-        for role in roles:
-            os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
-            # Persist too — an env-var-only switch used to only last for THIS
-            # process; the daemon (a separate process) never saw it until
-            # restarted, and even the REPL forgot it on its own next launch.
-            # core.knobs.resolve_role_backend / cli.roles_status now check
-            # this file whenever no env var is set, so "change it once" holds
-            # across restarts, not just for the process that made the switch.
-            write_persisted_knob(_ROLE_BACKEND_ENVS[role], normalized)
-        role_names = " / ".join(role.title() for role in roles)
-        line = f"Set {role_names} CLI backend to {normalized}."
-    else:
-        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
-        write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", normalized)
-        line = (
-            f"Set Argus default CLI backend to {normalized} "
-            "(roles without their own backend follow)."
-        )
-
-    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
-    cfg["runner_backend"] = normalized
-    # The cached front-door runner captured the old backend; rebuild it so
-    # subsequent chat/simple turns also use the new one.
-    chat_state.pop("manager_runner", None)
-
-    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
-    _print_role_config_confirmation(theme, roles or None)
-    # See the matching comment in _maybe_handle_role_effort_text: this switch
-    # never reaches the Manager LLM, so log it as a user.note event to ground
-    # the next "what did you just do" question in this, not stale history.
-    try:
-        append_note(mem, line)
-    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
-        pass
-
-    try:
-        from ..daemon.life_worker import read_daemon_status
-
-        st = read_daemon_status(_life_dir_for(mem))
-        if getattr(st, "alive", False):
-            msg = (
-                "A running daemon won't hot-reload this; use /daemon restart --drain "
-                "to fully apply at the next task boundary."
-            )
-            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
-    except Exception:  # noqa: BLE001
-        pass
-    return True
-
-
 _ROLE_MODEL_ENVS: dict[str, str] = {
     # Manager REPL triage reuses the engineer route/model (see
     # ``_ensure_manager_runner`` and ``cli.roles_status._ROLE_MODEL_ENV``).
@@ -2021,176 +1729,6 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
     "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
 }
-# Known model ids per backend, as of this build. Not exhaustive — any model
-# the underlying CLI supports already works via ARGUS_SKILL_<ROLE>_MODEL /
-# ARGUS_SKILL_MODEL (agent_cli_runner passes --model straight through with no
-# whitelist). This table covers friendly aliases; explicit assignment forms like
-# ``model=gpt-6.1-codex`` are parsed by _extract_explicit_model_switch_value.
-_MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
-    "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5", "sonnet 5", "sonnet5"),
-    "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6", "sonnet 4.6"),
-    "claude-sonnet-4.5": ("claude-sonnet-4.5", "claude sonnet 4.5", "sonnet 4.5"),
-    "claude-haiku-4.5": ("claude-haiku-4.5", "claude haiku 4.5", "haiku"),
-    "claude-opus-4.8": ("claude-opus-4.8", "claude opus 4.8", "opus 4.8"),
-    "claude-opus-4.7": ("claude-opus-4.7", "claude opus 4.7", "opus 4.7"),
-    "claude-opus-4.6": ("claude-opus-4.6", "claude opus 4.6", "opus 4.6"),
-    "gpt-5.5": ("gpt-5.5", "gpt5.5"),
-    "gpt-5.4": ("gpt-5.4", "gpt5.4"),
-    "gpt-5.3-codex": ("gpt-5.3-codex", "gpt-5.3 codex", "gpt5.3-codex"),
-    "gpt-5.4-mini": ("gpt-5.4-mini", "gpt-5.4 mini", "gpt5.4-mini"),
-    "gpt-5-mini": ("gpt-5-mini", "gpt-5 mini", "gpt5-mini"),
-    "gemini-3.1-pro-preview": (
-        "gemini-3.1-pro-preview", "gemini 3.1 pro", "gemini-3.1-pro",
-    ),
-    "gemini-3.5-flash": ("gemini-3.5-flash", "gemini 3.5 flash"),
-    "mai-code-1-flash-picker": (
-        "mai-code-1-flash-picker", "mai-code-1-flash", "mai code",
-    ),
-}
-_MODEL_SWITCH_VERBS = _BACKEND_SWITCH_VERBS  # same verb vocabulary as backend switch
-_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,80}")
-
-
-def _normalize_explicit_model_id(value: str) -> str:
-    token = value.strip().strip("`'\"“”‘’.,，。;；")
-    if not token or not _MODEL_ID_RE.fullmatch(token):
-        return ""
-    if token in _BACKEND_VALUE_ALIASES:
-        return ""
-    # Avoid treating plain provider/backend names as model ids. Real model ids
-    # almost always carry a generation, family separator, or version marker.
-    if not any(ch.isdigit() or ch in ".:-" for ch in token):
-        return ""
-    return token
-
-
-def _extract_explicit_model_switch_value(raw: str) -> str:
-    """Extract the model id from explicit assignment phrases.
-
-    The backend runner already forwards arbitrary model ids; the REPL should not
-    require a code update every time a provider adds a new version. Keep this
-    conservative: only parse phrases that explicitly mention model/模型 and use
-    an assignment verb.
-    """
-    patterns = (
-        r"(?:模型|model)\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b)\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
-        r"\b(?:switch|change|set|use)\s+(?:the\s+)?model\s+(?:to\s+)?([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, raw, flags=re.IGNORECASE)
-        if match:
-            model = _normalize_explicit_model_id(match.group(1))
-            if model:
-                return model
-    return ""
-
-
-def _maybe_handle_model_switch_text(
-    mem: Any,
-    text: str,
-    chat_state: dict[str, Any],
-) -> bool:
-    """Handle "switch the model to X" free text before it becomes work.
-
-    Same conservative shape as ``_maybe_handle_backend_switch_text``: fires
-    only when the text names a known model id AND a configuration verb AND
-    either a role name or "模型"/"model"/"默认" — so a message that just
-    happens to mention a model name is never misread as a config change.
-    Runs AFTER the backend-switch recognizer, so "换成 claude 后端" is still
-    a backend switch, not a (non-matching) model one — only phrases that
-    fail the backend recognizer's checks (e.g. name a full model id and say
-    "模型") reach here.
-
-    Sets ARGUS_SKILL_<ROLE>_MODEL for a named role, or the shared
-    ARGUS_SKILL_MODEL (every role, unless a role already pins its own) when
-    no role is named — the same env-var contract ``cli.roles_status``
-    already resolves. This is how an operator on the copilot backend picks
-    any model Copilot supports (claude/gpt/gemini/...), not just the
-    gpt-5.5 default — the CLI plumbing already forwards --model verbatim
-    with no whitelist; this recognizer just makes picking one a one-liner.
-    """
-    raw = (text or "").strip()
-    low = raw.casefold()
-    if not raw:
-        return False
-    if not any(tok in low for tok in _MODEL_SWITCH_VERBS):
-        return False
-    roles: list[str] = []
-    for role, aliases in _ROLE_ALIASES.items():
-        if any(alias in low for alias in aliases):
-            roles.append(role)
-    generic = any(
-        tok in low
-        for tok in ("模型", "model", "默认", "所有角色", "全部角色", "all roles", "every role")
-    )
-    if not roles and not generic:
-        return False
-    # Pick the LONGEST matching alias across all models, not the first dict
-    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
-    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
-    model = ""
-    best_len = 0
-    for name, aliases in _MODEL_VALUE_ALIASES.items():
-        for alias in aliases:
-            if alias in low and len(alias) > best_len:
-                model, best_len = name, len(alias)
-    if not model:
-        model = _extract_explicit_model_switch_value(raw)
-    if not model:
-        return False
-
-    theme = chat_state.get("theme")
-    from ..core.knob_store import write_persisted_knob
-
-    if roles:
-        seen_envs = {_ROLE_MODEL_ENVS[role] for role in roles}
-        for env_var in seen_envs:
-            os.environ[env_var] = model
-            # Persist too — see the matching comment in
-            # _maybe_handle_backend_switch_text: without this, the switch
-            # only lasted for THIS process and was invisible to the daemon
-            # (a separate process) until restarted, and even the REPL forgot
-            # it on its own next launch.
-            write_persisted_knob(env_var, model)
-        role_names = " / ".join(role.title() for role in roles)
-        line = f"Set {role_names} model to {model}."
-    else:
-        os.environ["ARGUS_SKILL_MODEL"] = model
-        write_persisted_knob("ARGUS_SKILL_MODEL", model)
-        line = (
-            f"Set Argus default model to {model} "
-            "(roles without their own model follow)."
-        )
-
-    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
-    cfg["model"] = model
-    chat_state.pop("manager_runner", None)
-
-    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
-    _print_role_config_confirmation(theme, roles or None)
-    # See the matching comment in _maybe_handle_role_effort_text: this switch
-    # never reaches the Manager LLM, so log it as a user.note event to ground
-    # the next "what did you just do" question in this, not stale history.
-    try:
-        append_note(mem, line)
-    except Exception:  # noqa: BLE001 — this is a grounding nicety, never fatal
-        pass
-
-    try:
-        from ..daemon.life_worker import read_daemon_status
-
-        st = read_daemon_status(_life_dir_for(mem))
-        if getattr(st, "alive", False):
-            msg = (
-                "A running daemon won't hot-reload this; use /daemon restart --drain "
-                "to fully apply at the next task boundary."
-            )
-            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
-    except Exception:  # noqa: BLE001
-        pass
-    return True
-
-
 def _settings_cmd(chat_state: dict[str, Any]) -> None:
     """The full runtime-settings view rendered by ``/config`` (no args): every
     role's backend/model/effort plus every ``ARGUS_*`` knob, grouped, marking
@@ -2322,9 +1860,6 @@ def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None
         print(f"identity card updated ({len(lines)} lines)")
         return
     print(render_identity_cmd(mem, tokens, rest_text))
-
-
-
 
 
 def _should_autospawn_on_boot(args: argparse.Namespace, mem: Any = None) -> bool:
@@ -3258,31 +2793,130 @@ def _render_live_role_overlay(
     return format_roles_panel(theme, configs, activities, width=width)
 
 
-def _maybe_handle_extra_config_text(
-    mem: Any, text: str, chat_state: dict[str, Any]
-) -> bool:
-    """Apply a whitelisted safe-knob NL change (USD budget caps + on/off toggles)
-    before it becomes work. The recognition whitelist lives in the self-contained,
-    deletable :mod:`argus_skill.manager.config_nl_extras`; this is the thin
-    set-env / confirm seam. Returns True iff it handled the text. To drop the
-    whole feature: delete ``config_nl_extras.py`` + this function + its one
-    dispatch line."""
-    from .config_nl_extras import classify_extra_config
+def _maybe_handle_config_intent(mem: Any, text: str, chat_state: dict[str, Any]) -> bool:
+    """Recognize + apply a natural-language change to one of Argus's OWN runtime
+    knobs (a role's backend/model/effort, a budget cap, or the safe_mode/
+    show_reasoning/telegram toggles) BEFORE it becomes work.
 
-    hit = classify_extra_config(text)
-    if hit is None:
+    One low-reasoning LLM call decides intent (Manager.classify_config_intent →
+    life.router.classify_config_intent) — there is NO keyword/regex matching, so
+    a request phrased any way is caught and a bare mention of a model/backend is
+    not misread as a switch. Fail-soft: no runner, a classify error, or a NONE
+    verdict all return False, and the text flows on to the normal chat/task path.
+    Returns True iff it applied a change (and the turn is done)."""
+    runner = _ensure_manager_runner(chat_state, mem)
+    mgr = getattr(runner, "manager", None) if runner is not None else None
+    if mgr is None or not hasattr(mgr, "classify_config_intent"):
         return False
-    env_name, value = hit
-    os.environ[env_name] = value
-    theme = chat_state.get("theme")
-    line = f"Set {env_name} = {value}."
-    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
-          if theme is not None else line, flush=True)
     try:
-        append_note(mem, line)
-    except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
-        pass
-    return True
+        intent = mgr.classify_config_intent(text)
+    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
+        return False
+    if intent is None:
+        return False
+    return _apply_config_intent(mem, intent, chat_state)
+
+
+def _apply_config_intent(mem: Any, intent: Any, chat_state: dict[str, Any]) -> bool:
+    """Apply a parsed ConfigIntent: set the env var(s), persist via knob_store
+    (so a running daemon reads the switch immediately), confirm, and ground the
+    Manager with a note. Returns True iff a change was applied."""
+    from ..core.knob_store import write_persisted_knob
+
+    theme = chat_state.get("theme")
+
+    def _confirm(line: str) -> None:
+        print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
+              if theme is not None else line, flush=True)
+        try:
+            append_note(mem, line)
+        except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
+            pass
+
+    def _set(env_var: str, value: str) -> None:
+        os.environ[env_var] = value
+        write_persisted_knob(env_var, value)
+
+    knob = intent.knob
+    roles = list(intent.roles)
+
+    if knob == "backend":
+        from ..agent_cli.runner_backend import normalize_runner_backend
+
+        value = normalize_runner_backend(intent.value)
+        if roles:
+            for role in roles:
+                _set(_ROLE_BACKEND_ENVS[role], value)
+            _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
+        else:
+            _set("ARGUS_SKILL_RUNNER_BACKEND", value)
+            _confirm(f"Set Argus default CLI backend to {value} "
+                     "(roles without their own backend follow).")
+        chat_state.pop("manager_runner", None)
+        return True
+
+    if knob == "model":
+        value = intent.value
+        if roles:
+            for env_var in {_ROLE_MODEL_ENVS[role] for role in roles}:
+                _set(env_var, value)
+            _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {value}.")
+        else:
+            _set("ARGUS_SKILL_MODEL", value)
+            _confirm(f"Set Argus default model to {value} "
+                     "(roles without their own model follow).")
+        chat_state.pop("manager_runner", None)
+        return True
+
+    if knob == "effort":
+        value = intent.value.strip().lower()
+        target = roles or list(_ROLE_EFFORT_ENVS)
+        # A reasoning-effort knob is a silent no-op on a non-reasoning model —
+        # reject with a grounded explanation instead of pretending to apply it.
+        from ..cli.roles_status import resolve_role_config
+
+        rcfg = {r: resolve_role_config(r, env=os.environ) for r in target}
+        applicable = [r for r in target if rcfg[r].effort is not None]
+        if not applicable:
+            models = ", ".join(sorted({rcfg[r].model for r in target}))
+            _confirm(f"Current model ({models}) is non-reasoning — reasoning effort "
+                     "does not apply, so I left it unchanged.")
+            return True
+        for role in applicable:
+            _set(_ROLE_EFFORT_ENVS[role], value)
+        _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
+        chat_state.pop("manager_runner", None)
+        return True
+
+    if knob in ("per_mission_cap", "daily_cap"):
+        m = re.search(r"\d+(?:\.\d+)?", intent.value)
+        if m is None:
+            return False
+        env_var = ("ARGUS_SKILL_PER_MISSION_CAP_USD" if knob == "per_mission_cap"
+                   else "ARGUS_SKILL_DAILY_CAP_USD")
+        _set(env_var, m.group(0))
+        _confirm(f"Set {env_var} = {m.group(0)}.")
+        return True
+
+    if knob in ("safe_mode", "show_reasoning", "telegram"):
+        env_var = {
+            "safe_mode": "ARGUS_SKILL_SAFE_MODE",
+            "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
+            "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
+        }[knob]
+        v = intent.value.strip().lower()
+        on = v in ("on", "1", "true", "yes", "enable", "enabled",
+                   "开", "打开", "开启", "启用")
+        off = v in ("off", "0", "false", "no", "disable", "disabled",
+                    "关", "关闭", "关掉", "停用", "禁用")
+        if on == off:  # neither recognized, or contradictory — don't guess
+            return False
+        val = "1" if on else "0"
+        _set(env_var, val)
+        _confirm(f"Set {env_var} = {val} ({'on' if on else 'off'}).")
+        return True
+
+    return False
 
 
 def _free_text_cmd(
@@ -3309,16 +2943,10 @@ def _free_text_cmd(
     body = body or text.strip()
     theme = chat_state.get("theme")
 
-    if _maybe_handle_role_effort_text(mem, body, chat_state):
-        return
-
-    if _maybe_handle_backend_switch_text(mem, body, chat_state):
-        return
-
-    if _maybe_handle_model_switch_text(mem, body, chat_state):
-        return
-
-    if _maybe_handle_extra_config_text(mem, body, chat_state):
+    # Natural-language change to one of Argus's own runtime knobs (backend /
+    # model / effort / budget cap / a toggle)? One LLM intent call decides —
+    # no keyword/regex matching — before the text becomes research work.
+    if _maybe_handle_config_intent(mem, body, chat_state):
         return
 
     # Persist this turn to the session transcript (for /resume replay + labels).
@@ -3522,7 +3150,6 @@ def _free_text_cmd(
         print(theme.gray(note) if theme is not None else note, flush=True)
 
 
-
 def _daemon_alive_for(life_dir: Path | str) -> tuple[bool, int | None]:
     """(alive, pid) for the daemon owning ``life_dir`` — fail-soft to (False, None)."""
     try:
@@ -3569,7 +3196,6 @@ def _extract_chat_reply_text(msg: str) -> str:
         except Exception:  # noqa: BLE001
             pass
     return msg
-
 
 
 def _format_completion(
@@ -4768,7 +4394,7 @@ def _run_manager_repl_locked(
     pending_exit = False
     while True:
         # Backend/model status resolved fresh every turn (not just once in
-        # the startup banner) so a switch (see _print_role_config_confirmation)
+        # the startup banner) so a config switch (see _apply_config_intent)
         # keeps showing on every subsequent turn, not just the one right
         # after the switch.
         status = ""

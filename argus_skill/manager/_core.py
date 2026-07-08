@@ -661,6 +661,38 @@ class Manager:
 
         return classify_is_conversational(text, run_exec=run_exec)
 
+    def classify_config_intent(self, text: str, *, run_exec: Any = None) -> Any:
+        """Does this free text ask to change one of Argus's OWN runtime knobs
+        (a role's backend/model/effort, a budget cap, or a safe_mode/
+        show_reasoning/telegram toggle)? Returns a ``life.router.ConfigIntent``
+        or ``None``.
+
+        Intent recognition via one low-reasoning LLM call — never keyword/regex
+        matching. The Manager owns this decision; ``run_exec`` is the LLM caller,
+        built from ``self.runner`` when omitted. Biases hard toward ``None`` so a
+        real task that merely mentions a model/backend is never swallowed.
+        """
+        from ..life.router import classify_config_intent
+
+        if run_exec is None:
+            if self.runner is None:
+                return None
+            from ..core.models import RunnerOptions
+
+            _backend = self._session or self.runner
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-config-intent",
+                )
+
+        return classify_config_intent(text, run_exec=run_exec)
+
     def route(self, text: str, *, run_exec: Any = None) -> str:
         """The Manager's lego-block router: pick the SMALLEST block that fits the
         operator's input — ``"chat"`` (one codex reply), ``"simple"`` (one bounded
