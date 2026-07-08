@@ -750,8 +750,8 @@ def follow_mission_live_roles(
         render_roles_snapshot,
     )
     from ..apps.cli._follow import (
-        _FollowCoalescer,
         _follow_layer_from_event,
+        _follow_layer_label,
         _format_follow_event,
     )
     import select as _select
@@ -765,26 +765,74 @@ def follow_mission_live_roles(
     last_review: dict[str, Any] | None = None
     completed: dict[str, Any] | None = None
     prev_lines = 0
-    # ── Ctrl+O expand: a scrolling reasoning pane pinned UNDER the role panel ──
-    # The panel alone is a dashboard (one line per role); pressing Ctrl+O (like
-    # Claude Code's transcript toggle) unfolds a live, coalesced feed of the
-    # agents' thinking below it. Starts collapsed unless ARGUS_SKILL_FOLLOW_EXPAND=1.
+    # ── Ctrl+O expand: a ChatGPT-style STREAMING reasoning pane under the panel ─
+    # Instead of coalescing fragments after the fact (which leaked half-words on
+    # slow streams), we render the CURRENT message live: its accumulated text
+    # grows in place each redraw (a ▌ cursor marks it streaming), then settles
+    # into history when the next message starts. One message in flight at a time
+    # → no fragments, no duplicates, and it reads like the agent is typing.
     expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
-    feed_lines: "_deque[tuple[str, str]]" = _deque(maxlen=400)
+    committed: "_deque[tuple[str, str]]" = _deque(maxlen=400)  # (role, plain line)
     current_layer = "engineer"
     pane_start = time.monotonic()  # anchors the -ing verb rotation
+    # Live-streaming message state:
+    _cur = {"mid": None, "role": "engineer", "text": ""}
 
-    def _emit_feed(ev: dict) -> None:
+    def _accumulate(prev: str, new: str) -> str:
+        # Robust to BOTH stream shapes: growing prefixes (replace with the fuller
+        # copy) and raw non-overlapping fragments (append). A shorter stale
+        # duplicate is ignored.
+        new = new or ""
+        if not prev:
+            return new
+        if new.startswith(prev):
+            return new
+        if prev.startswith(new):
+            return prev
+        return prev + new
+
+    def _settle_current() -> None:
+        """Move the in-flight streaming message into history as one clean line
+        (JSON verdicts parsed via the shared formatter), then reset."""
+        text = str(_cur["text"] or "")
+        if _cur["mid"] is not None and text.strip():
+            ev = {
+                "type": "engineer.progress", "kind": "agent_message",
+                "text": text, "agent_layer": _cur["role"],
+            }
+            line = _format_follow_event(ev, str(_cur["role"]), theme=None)
+            if line:
+                committed.append((str(_cur["role"]), line))
+        _cur["mid"] = None
+        _cur["text"] = ""
+
+    def _feed_pane(ev: dict) -> None:
         nonlocal current_layer
         current_layer = _follow_layer_from_event(ev, current_layer)
-        # Store the PLAIN line + its role; the pane word-wraps it (display-width
-        # aware, no truncation) and paints the whole entry in the role's hue at
-        # render time. The coalescer already collapsed streamed fragments.
+        etype = str(ev.get("type") or "")
+        if etype == "engineer.progress" and str(ev.get("kind") or "") == "agent_message":
+            mid = str(ev.get("message_id") or "")
+            text = str(ev.get("text") or "")
+            if bool(ev.get("replace")) and mid:
+                if _cur["mid"] is not None and mid != _cur["mid"]:
+                    _settle_current()  # a new message started → settle the old
+                _cur["mid"] = mid
+                _cur["role"] = current_layer
+                _cur["text"] = _accumulate(str(_cur["text"] or ""), text)
+                return
+            # A non-replace complete agent_message: settle any in-flight one, then
+            # add this whole message as history.
+            _settle_current()
+            line = _format_follow_event(dict(ev), current_layer, theme=None)
+            if line:
+                committed.append((current_layer, line))
+            return
+        # Any other rendered event (tool / command / reasoning / planner verdict):
+        # settle the in-flight thought first so ordering is preserved.
         line = _format_follow_event(ev, current_layer, theme=None)
         if line:
-            feed_lines.append((current_layer, line))
-
-    coalescer = _FollowCoalescer(_emit_feed)
+            _settle_current()
+            committed.append((current_layer, line))
 
     # Raw-cbreak keyboard so Ctrl+O is caught without Enter (ISIG kept, so Ctrl+C
     # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
@@ -873,9 +921,17 @@ def follow_mission_live_roles(
                 lines.append(theme.gray(sep) if theme is not None else sep)
                 # Word-wrap the most recent entries (display-width aware, so
                 # nothing is chopped at the edge), paint each in its role hue,
-                # then show the last `budget` VISUAL rows.
+                # then show the last `budget` VISUAL rows. The in-flight message
+                # is rendered LIVE at the end with a ▌ cursor so it visibly
+                # streams (grows) each redraw — ChatGPT-style — before settling.
+                entries: list[tuple[str, str]] = list(committed)
+                live_text = " ".join(str(_cur["text"] or "").split())
+                if live_text:
+                    label = _follow_layer_label(str(_cur["role"]))
+                    entries.append((str(_cur["role"]),
+                                    f"  [{label}] 💭 {live_text} ▌"))
                 visual: list[str] = []
-                for role, plain in list(feed_lines)[-budget:]:
+                for role, plain in entries[-budget:]:
                     for vr in _wrap_plain(plain, max(8, width - 1)):
                         visual.append(
                             role_paint(theme, role, vr) if theme is not None else vr
@@ -918,7 +974,7 @@ def follow_mission_live_roles(
                     continue
                 if not isinstance(ev, dict):
                     continue
-                coalescer.feed(ev)
+                _feed_pane(ev)
                 t = str(ev.get("type") or "")
                 if t == "round.review.completed":
                     last_review = ev
@@ -926,7 +982,6 @@ def follow_mission_live_roles(
                     ev_item = str(ev.get("item_id") or "")
                     if not item_id or not ev_item or ev_item == str(item_id):
                         completed = ev
-            coalescer.flush_idle()  # settle a quiet streamed message into the pane
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
@@ -970,7 +1025,7 @@ def follow_mission_live_roles(
         print(theme.gray(note) if theme is not None else note, flush=True)
         return None
     finally:
-        coalescer.flush()
+        _settle_current()  # don't lose the last in-flight thought on exit
         if _kbd_fd is not None and _kbd_old is not None:
             try:
                 import termios

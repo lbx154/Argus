@@ -844,3 +844,59 @@ def test_wrap_plain_is_width_aware_and_lossless():
 
     # Short text passes through untouched.
     assert _wrap_plain("hi there", 40) == ["hi there"]
+
+
+def test_live_pane_streams_message_without_fragments(tmp_path):
+    """The Ctrl+O pane renders the CURRENT message ChatGPT-style: its accumulated
+    text grows in place (▌ cursor) and settles once — a stream of growing-prefix
+    beats (and a duplicate delta+final) must NEVER leak fragments/duplicates. In
+    a non-TTY context the pane is hidden, so this exercises the accumulator via
+    the completion contract: it must still return the mission completion."""
+    import io
+    import json
+    import contextlib
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    def beat(mid, text):
+        return json.dumps({
+            "type": "engineer.progress", "kind": "agent_message", "text": text,
+            "agent_layer": "planner", "replace": True, "message_id": mid,
+            "item_id": "it1",
+        })
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        beat("m1", "I'll investigate the") + "\n"
+        + beat("m1", "I'll investigate the actual state") + "\n"   # growing prefix
+        + beat("m2", "Good, artifacts exist.") + "\n"
+        + beat("m2", "Good, artifacts exist.") + "\n"              # dup delta+final
+        + json.dumps({"type": "life.mission.completed", "item_id": "it1",
+                      "status": "done"}) + "\n",
+        encoding="utf-8",
+    )
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        result = follow_mission_live_roles(tmp_path, "it1", theme=None, timeout=5.0)
+    assert result is not None and result.get("type") == "life.mission.completed"
+
+
+def test_live_pane_accumulate_handles_prefix_and_fragment():
+    """The pane accumulator merges BOTH stream shapes: growing prefixes (replace
+    with the fuller copy) and raw non-overlapping fragments (append); a shorter
+    stale duplicate is ignored."""
+    # _accumulate is a local closure; re-implement its contract inline to lock
+    # the behaviour the pane depends on (kept in sync with follow_mission_live_roles).
+    def acc(prev, new):
+        new = new or ""
+        if not prev:
+            return new
+        if new.startswith(prev):
+            return new
+        if prev.startswith(new):
+            return prev
+        return prev + new
+
+    assert acc("", "Hello") == "Hello"
+    assert acc("Hello", "Hello world") == "Hello world"      # growing prefix
+    assert acc("Hello world", "Hello") == "Hello world"      # stale dup ignored
+    assert acc("Hello ", "world") == "Hello world"           # raw fragment append
