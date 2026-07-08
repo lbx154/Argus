@@ -708,11 +708,11 @@ def _fmt_reviewer(event):
     return _format_follow_event(event, "reviewer", theme=None)
 
 
-def test_tail_printer_flush_idle_never_commits_mid_stream():
+def test_tail_printer_flush_idle_never_commits():
     """The 200-fragment reviewer dump came from ``flush_idle`` committing a
-    still-streaming message on every idle poll. ``flush_idle`` must ONLY settle
-    a message that has gone quiet for ``_idle_commit_after`` — an
-    actively-arriving stream (fresh ``_pending_at``) is never split."""
+    still-streaming message on an idle gap — which re-fragmented a slow real
+    stream (token beats seconds apart). ``flush_idle`` is now a NO-OP: a message
+    settles ONLY on a new message_id, a non-replace line, or ``flush``."""
     import io
     import contextlib
     from argus_skill.manager import repl
@@ -729,12 +729,14 @@ def test_tail_printer_flush_idle_never_commits_mid_stream():
     sink = io.StringIO()
     with contextlib.redirect_stdout(sink):
         printer.feed(ev("{", "m1"), "  [Reviewer] 💭 {")
-        printer.flush_idle()  # just arrived -> must NOT commit
+        printer.flush_idle()
         printer.feed(ev('{"status":"done"', "m1"), "  [Reviewer] 💭 verdict")
-        printer.flush_idle()  # still fresh -> must NOT commit
+        printer.flush_idle()
+        # Even simulating a long silence must NOT leak a fragment now.
+        printer._pending_at -= 100.0
+        printer.flush_idle()
         assert sink.getvalue() == "", "flush_idle leaked a mid-stream fragment"
-        printer._pending_at -= 10.0  # simulate the stream going quiet
-        printer.flush_idle()         # now settle exactly ONE line
+        printer.flush()  # exit/completion settles the (longest) held line
     lines = [ln for ln in sink.getvalue().splitlines() if ln.strip()]
     assert len(lines) == 1, f"expected one settled line, got {lines!r}"
 

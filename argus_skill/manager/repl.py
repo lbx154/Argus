@@ -550,14 +550,13 @@ class _TailPrinter:
         self._raw_print(rendered)
 
     def flush_idle(self) -> None:
-        """Settle a streamed message once it has gone quiet for a moment — but
-        NEVER mid-stream (that produced the fragmented reviewer dumps). Called
-        right before the spinner ticks."""
-        if (
-            self._pending_line is not None
-            and time.monotonic() - self._pending_at >= self._idle_commit_after
-        ):
-            self._commit_pending()
+        """Deliberately a NO-OP. A streamed message is settled only when the
+        NEXT message starts (new message_id), a non-replace line arrives, or on
+        :meth:`flush` (exit / completion) — combined with keep-longest, that
+        yields exactly one full line per message. Committing on an idle gap
+        used to split a SLOW real stream (token beats arriving seconds apart)
+        back into the very fragments this coalescer exists to remove."""
+        return
 
     def flush(self) -> None:
         """Commit any held line (tail exit / completion / Ctrl-C)."""
