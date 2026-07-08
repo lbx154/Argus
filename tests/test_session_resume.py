@@ -353,7 +353,15 @@ def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) 
         tid for label, tid in backend.resume_history if label.startswith("engineer-")
     ]
     assert engineer_seeds == ["incoming-thread", None]
-    assert [label for label, _, _ in backend.history] == [
+    # Scope to the round loop: the retry contract is "exactly two engineer rounds
+    # then the reviewer, in order". Intentional pre-engineer seeding calls
+    # (scientist.skill_distill, idea-search) may lead the history and are not part
+    # of this guarantee.
+    assert [
+        label
+        for label, _, _ in backend.history
+        if label.startswith("engineer-") or label == "reviewer"
+    ] == [
         "engineer-r1",
         "engineer-r2",
         "reviewer",
@@ -423,7 +431,7 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
 
 # ---- F5: resume rounds send DELTA only; static is a byte-stable prefix -------
 
-_STATIC_MARKERS = ("## Required output", "## Pipeline stage is Manager-owned")
+_STATIC_MARKERS = ("## Turn discipline", "## Required output")
 # Last line of the static block's final section ("## Required output") — a stable
 # anchor for extracting the static prefix for the byte-stability check.
 _STATIC_END = "describing what you changed."

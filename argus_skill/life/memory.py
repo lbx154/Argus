@@ -357,18 +357,25 @@ class EventJournal(Journal):
         if row.get("journal_kind") or row.get("type") == EventJournal.LEGACY_EVENT_TYPE:
             return JournalEntry.from_jsonable(row)
         etype = str(row.get("type") or "")
-        kind = {
-            "life.mission.started": "mission_started",
-            "life.mission.completed": (
-                "mission_complete" if row.get("success", True) else "mission_failed"
-            ),
-            "life.planner.verdict": "planner_cycle",
-            "life.planner.error": "planner_error",
-            "life.planner.waiting": "planner_waiting",
-            "life.budget.pause": "budget_pause",
-            "life.lifecycle.block": "lifecycle_block",
-            "user.note": "user_note",
-        }.get(etype)
+        # The mid-mission budget breaker emits ``life.mission.completed`` with
+        # ``status="budget_pause"`` (success=False). Derive the documented
+        # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —
+        # the generic completed→kind map below keys only on ``success``.
+        if etype == "life.mission.completed" and str(row.get("status") or "") == "budget_pause":
+            kind: str | None = "budget_pause"
+        else:
+            kind = {
+                "life.mission.started": "mission_started",
+                "life.mission.completed": (
+                    "mission_complete" if row.get("success", True) else "mission_failed"
+                ),
+                "life.planner.verdict": "planner_cycle",
+                "life.planner.error": "planner_error",
+                "life.planner.waiting": "planner_waiting",
+                "life.budget.pause": "budget_pause",
+                "life.lifecycle.block": "lifecycle_block",
+                "user.note": "user_note",
+            }.get(etype)
         if kind is None:
             return None
         return JournalEntry.from_jsonable({

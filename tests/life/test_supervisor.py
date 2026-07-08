@@ -18,11 +18,24 @@ from argus_skill.life.supervisor import (
 
 
 class _RecordingSink:
-    def __init__(self) -> None:
+    """Captures events in memory. When ``life_dir`` is given it ALSO tees every
+    event to ``<life_dir>/events.jsonl`` (verbosity="full") exactly like the
+    daemon's ``JsonlEventSink`` — so a ``LifeMemory`` whose journal is an
+    ``EventJournal`` (derived from that file) sees the events, matching how the
+    real daemon persists them and mirroring the sibling life tests."""
+
+    def __init__(self, life_dir: Any = None) -> None:
         self.events: list[dict[str, Any]] = []
+        self._tee = None
+        if life_dir is not None:
+            from argus_skill.life.event_log import JsonlEventSink
+
+            self._tee = JsonlEventSink(None, life_dir=life_dir, verbosity="full")
 
     def handle_event(self, event: dict[str, Any]) -> None:
         self.events.append(event)
+        if self._tee is not None:
+            self._tee.handle_event(event)
 
 
 @dataclass
@@ -75,7 +88,7 @@ def test_skill_miss_scientist_spend_is_journaled_and_budgeted(
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     runner = _ScientistSpendRunner()
-    sink = _RecordingSink()
+    sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
         budget=LifeBudget(
             per_mission_cap_usd=1.0,
@@ -248,7 +261,7 @@ def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
     tmp_path,
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
-    sink = _RecordingSink()
+    sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
         budget=LifeBudget(per_mission_cap_usd=30.0, daily_cap_usd=180.0, max_missions=2),
         poll_interval_seconds=0.01,

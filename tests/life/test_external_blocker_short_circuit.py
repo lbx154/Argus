@@ -167,10 +167,13 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
         def run_exec(self, **_kwargs):  # pragma: no cover - proves no call
             raise AssertionError("planner runner should not be called")
 
+    from argus_skill.life.event_log import JsonlEventSink
+    from argus_skill.skills.vertical_select import persist_vertical
+
     sup = LifeSupervisor(
         memory=mem,
         runner=_Runner(),
-        sink=_Sink(),
+        sink=JsonlEventSink(_Sink(), life_dir=mem.root),
         config=LifeSupervisorConfig(
             budget=LifeBudget(),
             poll_interval_seconds=0.01,
@@ -180,6 +183,14 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
         ),
         planner_runner=_PlannerRunnerThatMustNotBeCalled(),
     )
+
+    # Mirror daemon boot: the vertical is resolved + persisted before the
+    # supervisor loop runs, so the first cycle sees a research-gated vertical
+    # and the operator-external-blocker short-circuit fires (fail-hard resolve
+    # keeps the gate False until a vertical is persisted). The capturing sink is
+    # teed through JsonlEventSink so mem.journal (an EventJournal over
+    # events.jsonl) sees the emitted life.planner.waiting event.
+    persist_vertical(sup._artifact_root(), "research")
 
     result = sup._plan_next_work()
 
