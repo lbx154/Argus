@@ -112,6 +112,49 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     assert state["vertical"] == "research"
 
 
+def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):
+    """End-to-end regression for the vertical-resolution false-stage-advance
+    bug: an OLD custom vertical (``ops_continuity_runbook``) already reached
+    ITS OWN terminal stage ("review") with status="done". A brand-new,
+    operator-issued Task now gets divided into the "research" vertical, whose
+    8-stage order ALSO contains a stage literally named "review". Before the
+    fix, ``Manager.divide`` would persist "research" but leave
+    ``current_stage="review"`` untouched (``persist_vertical`` is seed-only),
+    and since "review" is a valid member of research's own order,
+    ``current_stage()`` would silently accept it as real progress on the
+    brand-new project. After the fix, ``divide`` must reset ``current_stage``
+    to research's FIRST stage.
+    """
+    from argus_skill.skills.stage_checklists import current_stage
+    from argus_skill.verticals._data_domain import write_data_domain
+
+    old_stage_order = ("investigate", "configure", "dry_run", "document", "review")
+    write_data_domain(
+        tmp_path, "ops_continuity_runbook",
+        stages=list(old_stage_order), checklist_stage_order=list(old_stage_order),
+        created_by="manager",
+    )
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "vertical": "ops_continuity_runbook",
+            "current_stage": "review",
+            "stages": {s: {"status": "done"} for s in old_stage_order},
+        }),
+        encoding="utf-8",
+    )
+    assert current_stage(tmp_path) == "review"  # old, unrelated project: done
+
+    mgr = Manager(project_root=tmp_path, runner=_existing("research"))
+    d = mgr.divide("write a brand new paper — totally unrelated to the old runbook")
+
+    assert d.vertical == "research"
+    state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
+    assert state["vertical"] == "research"
+    assert state["current_stage"] == "research"  # reset to the NEW vertical's first stage
+    assert current_stage(tmp_path) == "research"
+
+
 class _FakeResult:
     """Minimal RunnerResult shape the router classifier reads."""
     def __init__(self, msg: str) -> None:

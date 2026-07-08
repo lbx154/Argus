@@ -587,10 +587,25 @@ class Manager:
 
         FAIL-HARD: a blank task or an undecidable vertical RAISES. There is no
         silent fallback to the research default.
+
+        This is also the layer where a genuinely NEW, operator-issued intent is
+        dispatched, so — right after persisting the decided vertical — it
+        checks whether the PREVIOUSLY-persisted vertical had already reached
+        ITS OWN terminal stage with ``status="done"``. If so, and the newly
+        decided vertical differs, the old project is finished and this call is
+        superseding it with unrelated new work: ``current_stage`` is reset to
+        the new vertical's first stage (via
+        ``vertical_select.reset_stage_for_new_intent`` /
+        ``stage_checklists.rollback_stage``) instead of silently inheriting a
+        stale stage whose name happens to collide with one of the new
+        vertical's own stages. This does NOT touch ``persist_vertical``'s
+        seed-only, never-reset contract for the (common) in-project
+        reclassification case, where the prior vertical was not yet finished.
         """
         if not (task and task.strip()):
             raise ValueError("Manager.divide requires a non-empty task")
         decision = self.decide_vertical(task)
+        old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
             proposal = decision.proposal
             if ask_on_new_domain:
@@ -599,19 +614,34 @@ class Manager:
                     regular=True, stages=list(proposal.stages),
                     proposed_domain=proposal, pending_confirmation=True,
                 )
-            return self.commit_domain(task, proposal)
+            return self.commit_domain(task, proposal, _old_vertical=old_vertical)
         vertical = decision.vertical
         persist_vertical(self.project_root, vertical)   # supervisor reads & trusts this
+        vertical_select.reset_stage_for_new_intent(
+            self.project_root, old_vertical=old_vertical, new_vertical=vertical,
+        )
         stages = self.plan_stages(vertical)
         return Division(task=task, vertical=vertical, kind=self._kind_for(vertical),
                         regular=True, stages=stages)
 
-    def commit_domain(self, task: str, proposal: Any) -> Division:
+    def commit_domain(
+        self, task: str, proposal: Any, *, _old_vertical: str | None = None,
+    ) -> Division:
         """Write the authored data domain to disk and persist it as the active
         vertical (so the supervisor trusts it). FAIL-HARD: a write error
         PROPAGATES — no silent research fallback. Called autonomously by
-        :meth:`divide` or by the REPL after operator confirmation."""
+        :meth:`divide` or by the REPL after operator confirmation.
+
+        ``_old_vertical`` (private, optional) lets :meth:`divide` pass along the
+        vertical it read BEFORE deciding — so the new-intent-supersedes-a-
+        finished-vertical stage reset (see :meth:`divide`'s docstring) still
+        applies on the new-data-domain path. When called directly (e.g. by the
+        REPL after an operator confirms a pending proposal) it is re-read here.
+        """
         from ..verticals._data_domain import write_data_domain
+
+        if _old_vertical is None:
+            _old_vertical = vertical_select._persisted_vertical(self.project_root)
 
         write_data_domain(
             self.project_root,
@@ -620,6 +650,9 @@ class Manager:
             created_by="manager",
         )
         persist_vertical(self.project_root, proposal.name)
+        vertical_select.reset_stage_for_new_intent(
+            self.project_root, old_vertical=_old_vertical, new_vertical=proposal.name,
+        )
         return Division(
             task=task, vertical=proposal.name, kind="custom", regular=True,
             stages=list(proposal.stages), proposed_domain=proposal,

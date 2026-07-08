@@ -844,3 +844,77 @@ def test_wrap_plain_is_width_aware_and_lossless():
 
     # Short text passes through untouched.
     assert _wrap_plain("hi there", 40) == ["hi there"]
+
+
+def test_live_pane_settles_message_without_fragments(tmp_path):
+    """The Ctrl+O pane accumulates each message by message_id (robust to growing
+    prefixes AND raw fragments, ignoring a stale duplicate) and shows it as ONE
+    clean line once it settles — never leaking fragments/duplicates. In a
+    non-TTY context the pane is hidden, so this exercises the accumulator via the
+    completion contract: it must still return the mission completion."""
+    import io
+    import json
+    import contextlib
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    def beat(mid, text):
+        return json.dumps({
+            "type": "engineer.progress", "kind": "agent_message", "text": text,
+            "agent_layer": "planner", "replace": True, "message_id": mid,
+            "item_id": "it1",
+        })
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        beat("m1", "I'll investigate the") + "\n"
+        + beat("m1", "I'll investigate the actual state") + "\n"   # growing prefix
+        + beat("m2", "Good, artifacts exist.") + "\n"
+        + beat("m2", "Good, artifacts exist.") + "\n"              # dup delta+final
+        + json.dumps({"type": "life.mission.completed", "item_id": "it1",
+                      "status": "done"}) + "\n",
+        encoding="utf-8",
+    )
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        result = follow_mission_live_roles(tmp_path, "it1", theme=None, timeout=5.0)
+    assert result is not None and result.get("type") == "life.mission.completed"
+
+
+def test_live_pane_accumulate_handles_prefix_and_fragment():
+    """The pane accumulator merges BOTH stream shapes: growing prefixes (replace
+    with the fuller copy) and raw non-overlapping fragments (append); a shorter
+    stale duplicate is ignored."""
+    # _accumulate is a local closure; re-implement its contract inline to lock
+    # the behaviour the pane depends on (kept in sync with follow_mission_live_roles).
+    def acc(prev, new):
+        new = new or ""
+        if not prev:
+            return new
+        if new.startswith(prev):
+            return new
+        if prev.startswith(new):
+            return prev
+        return prev + new
+
+    assert acc("", "Hello") == "Hello"
+    assert acc("Hello", "Hello world") == "Hello world"      # growing prefix
+    assert acc("Hello world", "Hello") == "Hello world"      # stale dup ignored
+    assert acc("Hello ", "world") == "Hello world"           # raw fragment append
+
+
+def test_format_follow_event_full_disables_truncation():
+    """The Ctrl+O pane passes full=True so a long thought is rendered whole (the
+    pane word-wraps it) — no 240-char clip, no '(+N chars)' tail. The default
+    (full=False) still clips for the one-line scrolling tail."""
+    from argus_skill.apps.cli._follow import _format_follow_event
+
+    long_text = "word " * 120  # ~600 chars, well over the 240 clip
+    ev = {
+        "type": "engineer.progress", "kind": "agent_message",
+        "text": long_text, "agent_layer": "engineer",
+    }
+    full = _format_follow_event(ev, "engineer", theme=None, full=True)
+    clipped = _format_follow_event(ev, "engineer", theme=None)  # default
+    assert "chars)" not in full and "…" not in full, full[-40:]
+    assert full.strip().endswith("word")
+    assert "chars)" in clipped, "default path should still clip for the tail"

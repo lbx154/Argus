@@ -260,6 +260,17 @@ _TAIL_WAIT_VERBS: tuple[str, ...] = (
     "standing by",
     "warming up",
 )
+# The ALWAYS-animated bottom line of the live role panel rotates these when no
+# single role is currently active — so that line is never static (the operator
+# demanded constant motion when there's no fresh output). Honest-neutral: it
+# says the team is between steps, not that a specific role is working.
+_PANE_IDLE_VERBS: tuple[str, ...] = (
+    "standing by",
+    "watching for the next step",
+    "between steps",
+    "holding the line",
+    "listening for the agents",
+)
 # How long each verb stays before rotating to the next (seconds). The glyph
 # still spins at _TAIL_SPIN_INTERVAL; only the WORD changes this slowly, so it
 # stays readable.
@@ -734,12 +745,12 @@ def follow_mission_live_roles(
     """
     from ..cli.roles_status import (
         _clip_ansi_line,
+        _disp_width,
         role_activity,
         role_paint,
         render_roles_snapshot,
     )
     from ..apps.cli._follow import (
-        _FollowCoalescer,
         _follow_layer_from_event,
         _format_follow_event,
     )
@@ -754,26 +765,78 @@ def follow_mission_live_roles(
     last_review: dict[str, Any] | None = None
     completed: dict[str, Any] | None = None
     prev_lines = 0
-    # ── Ctrl+O expand: a scrolling reasoning pane pinned UNDER the role panel ──
-    # The panel alone is a dashboard (one line per role); pressing Ctrl+O (like
-    # Claude Code's transcript toggle) unfolds a live, coalesced feed of the
-    # agents' thinking below it. Starts collapsed unless ARGUS_SKILL_FOLLOW_EXPAND=1.
+    # ── Ctrl+O expand: a reasoning pane pinned UNDER the role panel ──
+    # Each agent message is accumulated by message_id (robust to both growing-
+    # prefix and raw-fragment stream shapes) and shown as ONE clean, wrapped
+    # line once it settles — no live typing, no half-word fragments, no
+    # duplicates. The in-flight message stays hidden until it completes; the
+    # panel + animated verb line cover the "still thinking" window.
     expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
-    feed_lines: "_deque[tuple[str, str]]" = _deque(maxlen=400)
+    committed: "_deque[tuple[str, str]]" = _deque(maxlen=400)  # (role, plain line)
     current_layer = "engineer"
     pane_start = time.monotonic()  # anchors the -ing verb rotation
+    # Accumulate the in-flight message until it settles:
+    _cur = {"mid": None, "role": "engineer", "text": ""}
+    # Scrollback: `off` = visual rows scrolled UP from the bottom (0 = follow the
+    # latest). Cache the wrapped rows so we don't re-wrap all history every tick.
+    scroll = {"off": 0, "prev_total": 0, "budget": 10}
+    _vcache: dict[str, Any] = {"n": -1, "w": -1, "rows": []}
 
-    def _emit_feed(ev: dict) -> None:
+    def _accumulate(prev: str, new: str) -> str:
+        # Robust to BOTH stream shapes: growing prefixes (replace with the fuller
+        # copy) and raw non-overlapping fragments (append). A shorter stale
+        # duplicate is ignored.
+        new = new or ""
+        if not prev:
+            return new
+        if new.startswith(prev):
+            return new
+        if prev.startswith(new):
+            return prev
+        return prev + new
+
+    def _settle_current() -> None:
+        """Move the in-flight streaming message into history as one clean line
+        (JSON verdicts parsed via the shared formatter), then reset."""
+        text = str(_cur["text"] or "")
+        if _cur["mid"] is not None and text.strip():
+            ev = {
+                "type": "engineer.progress", "kind": "agent_message",
+                "text": text, "agent_layer": _cur["role"],
+            }
+            line = _format_follow_event(ev, str(_cur["role"]), theme=None, full=True)
+            if line:
+                committed.append((str(_cur["role"]), line))
+        _cur["mid"] = None
+        _cur["text"] = ""
+
+    def _feed_pane(ev: dict) -> None:
         nonlocal current_layer
         current_layer = _follow_layer_from_event(ev, current_layer)
-        # Store the PLAIN line + its role; the pane word-wraps it (display-width
-        # aware, no truncation) and paints the whole entry in the role's hue at
-        # render time. The coalescer already collapsed streamed fragments.
-        line = _format_follow_event(ev, current_layer, theme=None)
+        etype = str(ev.get("type") or "")
+        if etype == "engineer.progress" and str(ev.get("kind") or "") == "agent_message":
+            mid = str(ev.get("message_id") or "")
+            text = str(ev.get("text") or "")
+            if bool(ev.get("replace")) and mid:
+                if _cur["mid"] is not None and mid != _cur["mid"]:
+                    _settle_current()  # a new message started → settle the old
+                _cur["mid"] = mid
+                _cur["role"] = current_layer
+                _cur["text"] = _accumulate(str(_cur["text"] or ""), text)
+                return
+            # A non-replace complete agent_message: settle any in-flight one, then
+            # add this whole message as history.
+            _settle_current()
+            line = _format_follow_event(dict(ev), current_layer, theme=None, full=True)
+            if line:
+                committed.append((current_layer, line))
+            return
+        # Any other rendered event (tool / command / reasoning / planner verdict):
+        # settle the in-flight thought first so ordering is preserved.
+        line = _format_follow_event(ev, current_layer, theme=None, full=True)
         if line:
-            feed_lines.append((current_layer, line))
-
-    coalescer = _FollowCoalescer(_emit_feed)
+            _settle_current()
+            committed.append((current_layer, line))
 
     # Raw-cbreak keyboard so Ctrl+O is caught without Enter (ISIG kept, so Ctrl+C
     # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
@@ -815,29 +878,33 @@ def follow_mission_live_roles(
         s = "○ no daemon"
         return theme.gray(s) if theme is not None else s
 
-    def _verb_line(width: int, glyph: str) -> str | None:
-        """An animated ``⠹ Planner planning…`` line: the ACTIVE role + a
-        slowly-rotating -ing verb from its own vocabulary, in the role's colour.
-        Reuses the scrolling-tail verb maps so the whole CLI speaks one language.
-        Returns ``None`` when no role is currently working (so we don't fake it).
-        """
+    def _verb_line(width: int, glyph: str) -> str:
+        """The ALWAYS-animated bottom line: a spinning braille glyph + a
+        rotating -ing verb. When a role is actively working it names that role
+        in its colour (``⠹ Planner planning…``); otherwise it rotates a neutral
+        standing-by phrase so this line is NEVER static — the glyph advances
+        every redraw and the word rotates, so there is always visible motion
+        even between steps."""
         try:
             acts = role_activity(life_dir)
         except Exception:  # noqa: BLE001
-            return None
+            acts = {}
         active = next(
             (r for r, a in acts.items() if getattr(a, "active", False)), None
         )
-        if not active:
-            return None
-        title = _TAIL_ROLE_TITLES.get(active, active.title())
-        verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
         step = int((time.monotonic() - pane_start) / _TAIL_PHRASE_INTERVAL)
-        verb = verbs[step % len(verbs)]
         g = theme.bold_cyan(glyph) if theme is not None else glyph
-        label = f"{title} {verb}…"
-        if theme is not None:
-            label = role_paint(theme, active, label)
+        if active:
+            title = _TAIL_ROLE_TITLES.get(active, active.title())
+            verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
+            label = f"{title} {verbs[step % len(verbs)]}…"
+            if theme is not None:
+                label = role_paint(theme, active, label)
+        else:
+            phrase = _PANE_IDLE_VERBS[step % len(_PANE_IDLE_VERBS)]
+            label = f"{phrase[:1].upper()}{phrase[1:]}…"
+            if theme is not None:
+                label = theme.gray(label)
         line = f"  {g} {label}"
         return _clip_ansi_line(line, max(1, width - 1)) if theme is not None \
             else line[: max(1, width - 1)]
@@ -852,32 +919,57 @@ def follow_mission_live_roles(
             if expanded:
                 rows = shutil.get_terminal_size((80, 24)).lines
                 panel_h = panel.count("\n") + 1
-                budget = max(3, rows - panel_h - 4)
-                sep = "  ── reasoning · Ctrl+O collapse "
-                sep = sep + "─" * max(0, width - len(sep) - 1)
+                # Reserve rows for: separator, up/down indicators, verb line.
+                budget = max(3, rows - panel_h - 6)
+                scroll["budget"] = budget
+                # (Re)wrap ALL settled history — cached by (count, width) so we
+                # only re-wrap when a message settles or the terminal resizes.
+                if _vcache["n"] != len(committed) or _vcache["w"] != width:
+                    v: list[str] = []
+                    for role, plain in committed:
+                        for vr in _wrap_plain(plain, max(8, width - 1)):
+                            v.append(role_paint(theme, role, vr)
+                                     if theme is not None else vr)
+                    _vcache["rows"] = v
+                    _vcache["n"] = len(committed)
+                    _vcache["w"] = width
+                visual: list[str] = _vcache["rows"]
+                total = len(visual)
+                # Keep a scrolled-up view anchored as new rows arrive at the
+                # bottom (don't yank the operator back down); when following
+                # (off==0) stay pinned to the latest.
+                if scroll["off"] > 0 and total > scroll["prev_total"]:
+                    scroll["off"] += total - scroll["prev_total"]
+                scroll["prev_total"] = total
+                max_off = max(0, total - budget)
+                scroll["off"] = max(0, min(scroll["off"], max_off))
+                off = scroll["off"]
+                end = total - off
+                start = max(0, end - budget)
+                window = visual[start:end]
+
+                title = "  ── reasoning · Ctrl+O collapse"
+                if total > budget:
+                    title += " · ↑↓/PgUp/PgDn scroll" + (
+                        " · End=latest" if off > 0 else "")
+                title += " "
+                sep = title + "─" * max(0, width - _disp_width(title) - 1)
                 lines.append(theme.gray(sep) if theme is not None else sep)
-                # Word-wrap the most recent entries (display-width aware, so
-                # nothing is chopped at the edge), paint each in its role hue,
-                # then show the last `budget` VISUAL rows.
-                visual: list[str] = []
-                for role, plain in list(feed_lines)[-budget:]:
-                    for vr in _wrap_plain(plain, max(8, width - 1)):
-                        visual.append(
-                            role_paint(theme, role, vr) if theme is not None else vr
-                        )
-                window = visual[-budget:]
+
                 if window:
+                    if start > 0:
+                        ind = f"  ▲ {start} more line(s) above"
+                        lines.append(theme.dim(ind) if theme is not None else ind)
                     lines.extend(window)
+                    if off > 0:
+                        ind = f"  ▼ {off} more below · press End/G to follow"
+                        lines.append(theme.dim(ind) if theme is not None else ind)
                 else:
                     hint = "  (waiting for the agents' first thoughts…)"
                     lines.append(theme.gray(hint) if theme is not None else hint)
-                verb = _verb_line(width, glyph)
-                if verb is not None:
-                    lines.append(verb)
+                lines.append(_verb_line(width, glyph))
             else:
-                verb = _verb_line(width, glyph)
-                if verb is not None:
-                    lines.append(verb)
+                lines.append(_verb_line(width, glyph))
                 hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
                 lines.append(theme.dim(hint) if theme is not None else hint)
         return "\n".join(lines)
@@ -907,7 +999,7 @@ def follow_mission_live_roles(
                     continue
                 if not isinstance(ev, dict):
                     continue
-                coalescer.feed(ev)
+                _feed_pane(ev)
                 t = str(ev.get("type") or "")
                 if t == "round.review.completed":
                     last_review = ev
@@ -915,7 +1007,10 @@ def follow_mission_live_roles(
                     ev_item = str(ev.get("item_id") or "")
                     if not item_id or not ev_item or ev_item == str(item_id):
                         completed = ev
-            coalescer.flush_idle()  # settle a quiet streamed message into the pane
+                        # Settle the last in-flight thought so it appears in the
+                        # final frame (mission end is a safe settle point — not
+                        # mid-stream, so it can't re-fragment).
+                        _settle_current()
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
@@ -951,6 +1046,25 @@ def follow_mission_live_roles(
                         data = b""
                     if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
                         expanded = not expanded
+                    if expanded:
+                        # Scrollback controls (arrows + PgUp/PgDn + Home/End,
+                        # plus vim-style k/j/g/G). `off` is measured from the
+                        # bottom; End/G resumes following the latest.
+                        pg = max(1, scroll["budget"] - 1)
+                        if b"\x1b[A" in data or b"k" in data:
+                            scroll["off"] += 1
+                        if b"\x1b[B" in data or b"j" in data:
+                            scroll["off"] -= 1
+                        if b"\x1b[5~" in data:            # PageUp
+                            scroll["off"] += pg
+                        if b"\x1b[6~" in data:            # PageDown
+                            scroll["off"] -= pg
+                        if b"\x1b[H" in data or b"\x1b[1~" in data or b"g" in data:
+                            scroll["off"] = 10 ** 9       # top (clamped on render)
+                        if b"\x1b[F" in data or b"\x1b[4~" in data or b"G" in data:
+                            scroll["off"] = 0             # follow the latest
+                        if scroll["off"] < 0:
+                            scroll["off"] = 0
             else:
                 time.sleep(tick)
         return None
@@ -959,7 +1073,7 @@ def follow_mission_live_roles(
         print(theme.gray(note) if theme is not None else note, flush=True)
         return None
     finally:
-        coalescer.flush()
+        _settle_current()  # don't lose the last in-flight thought on exit
         if _kbd_fd is not None and _kbd_old is not None:
             try:
                 import termios
