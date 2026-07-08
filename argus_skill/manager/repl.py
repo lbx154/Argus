@@ -260,6 +260,17 @@ _TAIL_WAIT_VERBS: tuple[str, ...] = (
     "standing by",
     "warming up",
 )
+# The ALWAYS-animated bottom line of the live role panel rotates these when no
+# single role is currently active — so that line is never static (the operator
+# demanded constant motion when there's no fresh output). Honest-neutral: it
+# says the team is between steps, not that a specific role is working.
+_PANE_IDLE_VERBS: tuple[str, ...] = (
+    "standing by",
+    "watching for the next step",
+    "between steps",
+    "holding the line",
+    "listening for the agents",
+)
 # How long each verb stays before rotating to the next (seconds). The glyph
 # still spins at _TAIL_SPIN_INTERVAL; only the WORD changes this slowly, so it
 # stays readable.
@@ -815,29 +826,33 @@ def follow_mission_live_roles(
         s = "○ no daemon"
         return theme.gray(s) if theme is not None else s
 
-    def _verb_line(width: int, glyph: str) -> str | None:
-        """An animated ``⠹ Planner planning…`` line: the ACTIVE role + a
-        slowly-rotating -ing verb from its own vocabulary, in the role's colour.
-        Reuses the scrolling-tail verb maps so the whole CLI speaks one language.
-        Returns ``None`` when no role is currently working (so we don't fake it).
-        """
+    def _verb_line(width: int, glyph: str) -> str:
+        """The ALWAYS-animated bottom line: a spinning braille glyph + a
+        rotating -ing verb. When a role is actively working it names that role
+        in its colour (``⠹ Planner planning…``); otherwise it rotates a neutral
+        standing-by phrase so this line is NEVER static — the glyph advances
+        every redraw and the word rotates, so there is always visible motion
+        even between steps."""
         try:
             acts = role_activity(life_dir)
         except Exception:  # noqa: BLE001
-            return None
+            acts = {}
         active = next(
             (r for r, a in acts.items() if getattr(a, "active", False)), None
         )
-        if not active:
-            return None
-        title = _TAIL_ROLE_TITLES.get(active, active.title())
-        verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
         step = int((time.monotonic() - pane_start) / _TAIL_PHRASE_INTERVAL)
-        verb = verbs[step % len(verbs)]
         g = theme.bold_cyan(glyph) if theme is not None else glyph
-        label = f"{title} {verb}…"
-        if theme is not None:
-            label = role_paint(theme, active, label)
+        if active:
+            title = _TAIL_ROLE_TITLES.get(active, active.title())
+            verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
+            label = f"{title} {verbs[step % len(verbs)]}…"
+            if theme is not None:
+                label = role_paint(theme, active, label)
+        else:
+            phrase = _PANE_IDLE_VERBS[step % len(_PANE_IDLE_VERBS)]
+            label = f"{phrase[:1].upper()}{phrase[1:]}…"
+            if theme is not None:
+                label = theme.gray(label)
         line = f"  {g} {label}"
         return _clip_ansi_line(line, max(1, width - 1)) if theme is not None \
             else line[: max(1, width - 1)]
@@ -871,13 +886,9 @@ def follow_mission_live_roles(
                 else:
                     hint = "  (waiting for the agents' first thoughts…)"
                     lines.append(theme.gray(hint) if theme is not None else hint)
-                verb = _verb_line(width, glyph)
-                if verb is not None:
-                    lines.append(verb)
+                lines.append(_verb_line(width, glyph))
             else:
-                verb = _verb_line(width, glyph)
-                if verb is not None:
-                    lines.append(verb)
+                lines.append(_verb_line(width, glyph))
                 hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
                 lines.append(theme.dim(hint) if theme is not None else hint)
         return "\n".join(lines)
