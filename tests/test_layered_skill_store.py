@@ -134,7 +134,6 @@ def test_save_distilled_lands_in_project_by_default(tmp_path: Path) -> None:
     skill = layered.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=raw,
-        enforce_quality_gate=False,
     )
     assert skill is not None
     assert layered.layer_for_skill(skill) == LAYER_PROJECT

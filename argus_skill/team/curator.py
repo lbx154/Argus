@@ -42,16 +42,6 @@ from . import leaderboard, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 
-_CURATOR_FALLBACK = (
-    "You are the team Curator. You do NOT engineer. From the leaderboard below, "
-    "for the stalled / weakest targets name the single highest-expected-value "
-    "next move per target — either carry the leading approach further toward "
-    "completion, or try a genuinely different one (never an approach already "
-    "tried) — and say which targets to prioritize. Judge each target by its "
-    "recorded outcome; a target with no recorded outcome is unproven, not good. "
-    "Output a concise prioritized strategy.md."
-)
-
 
 def _pid_is_teammate(pid: int, member_id: str) -> bool:
     """True iff ``pid`` is alive AND its cmdline is the teammate we recorded.
@@ -263,7 +253,7 @@ class Curator:
             # starves the tick). So FAIL it honestly and ONCE: a failed task leaves
             # the pending set (claim_top only picks pending) so it is never retried,
             # and its recorded reason + this log keep the vanished path visible —
-            # e.g. a leaked self-evolve gate temp dir — instead of masking it.
+            # e.g. a leaked temporary worktree — instead of masking it.
             if not task_cwd.is_dir():
                 task_board.fail(root, task["task_id"],
                                 reason=f"working dir vanished before spawn: {task_cwd}")
@@ -441,11 +431,9 @@ class Curator:
                 "the strategy.")
 
     def _curator_contract(self) -> str:
-        try:
-            from ..skills.role_context import load_builtin_skill_text
-            return load_builtin_skill_text("curator/argus-curator-role.md", _CURATOR_FALLBACK)
-        except Exception:  # noqa: BLE001 — fall back to the inline contract
-            return _CURATOR_FALLBACK
+        from ..skills.role_context import load_builtin_skill_text
+
+        return load_builtin_skill_text("curator/argus-curator-role.md")
 
     def _run(self) -> None:
         while not self._stop.is_set():

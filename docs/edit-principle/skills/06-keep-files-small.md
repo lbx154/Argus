@@ -55,22 +55,22 @@ unrelated control flows is not. The size is a smell, not a verdict.
 ## What an extraction looks like
 
 If you have a 1800-line `supervisor.py` and you want to add ~150
-lines of self-evolve hook logic:
+lines of experiment-health advisory logic:
 
 **Wrong**:
 ```python
 # in supervisor.py — appended at line 1700
-def _maybe_journal_self_evolve_advisory(self, item, result): ...
-def _recent_self_evolve_advisory_tools(self, limit): ...
+def _maybe_journal_run_health(self, item, result): ...
+def _recent_run_health_tools(self, limit): ...
 def _tail_events_for_item(self, item): ...
 ```
-→ file is now 1950 lines; self-evolve is intermingled with budget,
+→ file is now 1950 lines; run-health analysis is intermingled with budget,
 lifecycle, missions, journal, ...
 
 **Right**:
 ```python
-# argus_skill/life/self_evolve_advisor.py (new file, ~150 lines)
-class SelfEvolveAdvisor:
+# argus_skill/life/run_health_advisor.py (new file, ~150 lines)
+class RunHealthAdvisor:
     def __init__(self, memory, on_cost): ...
     def maybe_journal_advisory(self, item, result): ...
     def _recent_advisory_tools(self, limit): ...
@@ -78,18 +78,18 @@ class SelfEvolveAdvisor:
     def _tail_events_for_item(memory_root, item): ...
 
 # argus_skill/life/supervisor.py — 4-line delegate
-def _maybe_journal_self_evolve_advisory(self, item, result):
-    from .self_evolve_advisor import SelfEvolveAdvisor
-    return SelfEvolveAdvisor(
+def _maybe_journal_run_health(self, item, result):
+    from .run_health_advisor import RunHealthAdvisor
+    return RunHealthAdvisor(
         memory=self.memory,
         on_cost=self._inject_cumulative_cost,
     ).maybe_journal_advisory(item, result)
 ```
-→ supervisor.py grew 8 lines (a thin delegate), self-evolve has its
+→ supervisor.py grew 8 lines (a thin delegate), run-health logic has its
 own discoverable module + its own test file.
 
 The delegate exists so existing tests calling
-`supervisor._maybe_journal_self_evolve_advisory` still work; the
+`supervisor._maybe_journal_run_health` still work; the
 real logic moved.
 
 ## Reference incidents
@@ -97,7 +97,7 @@ real logic moved.
 | Date | File | Anti-pattern | Fix commit |
 |---|---|---|---|
 | 2026-06-01 | `argus_skill/skills/paper_calibration.py` (2324 lines, mixed quality + anti-fab logic) | grew by accretion, never split, became unwired and dead | `c142bf8` (deleted entirely) |
-| 2026-06-01 | `argus_skill/life/supervisor.py` (+130 lines self-evolve in commit `dbf746c`) | appended self-evolve into an already-1800-line file | (refactor in same commit as this skill) |
+| 2026-06-01 | `argus_skill/life/supervisor.py` (+130 lines of an optional subsystem) | appended a feature into an already-1800-line file | (refactor in same commit as this skill) |
 
 ## When NOT to split
 
@@ -123,9 +123,8 @@ unrelated helpers is a tease away from 1500.
   satisfy the rule — extraction has a cost (one more import,
   one more place to grep). Only extract when you're moving
   cohesive logic.
-- ❌ Putting all "self-evolve" code into one giant
-  `self_evolve.py` — that's just deferring the same problem.
-  Self-evolve has at least three sub-concerns (detector,
+- ❌ Putting an entire optional subsystem into one giant module — that's just
+  deferring the same problem. A large subsystem has at least three sub-concerns (detector,
   advisor/router, validator); each gets its own file.
 - ❌ Bundling cross-stage logic into a "utils.py" — that's a
   graveyard. Pick a real module name that names the responsibility.

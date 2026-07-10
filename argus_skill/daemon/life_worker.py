@@ -1063,65 +1063,12 @@ class LifeWorker:
         # /add'd from a coexisting REPL.
         from ..life.event_log import JsonlEventSink
 
-        # Telegram live-streaming reporter (daemon thread). Disabled unless
-        # ARGUS_SKILL_ENABLE_TELEGRAM=1 so stale bot tokens do not spam chats.
-        stream_reporter = None
-        try:
-            from ..life.notify import TelegramStreamReporter, telegram_enabled
-            if telegram_enabled():
-                stream_reporter = TelegramStreamReporter(stop_event=self._stop)
-                stream_reporter.start()
-                log.info("telegram stream reporter started")
-            else:
-                log.info("telegram stream reporter disabled")
-        except Exception:  # noqa: BLE001
-            log.debug("telegram stream reporter unavailable; continuing")
-
-        # events.jsonl is the single persistent timeline; _DaemonSink drives
-        # daemon stderr/debug and telegram streaming.
+        # events.jsonl is the single persistent timeline.
         sink = JsonlEventSink(
-            _DaemonSink(self, stream_reporter=stream_reporter),
+            _DaemonSink(self),
             life_dir=runtime_root,
             verbosity=getattr(cfg, "event_log_verbosity", "signal"),
         )
-
-        # Controlled self-EVOLUTION (opt-in via ARGUS_SKILL_SELF_EVOLVE): each
-        # captured self-repair is run through an independent test gate + Manager
-        # review, and the approved ones are landed AS 'argus' onto a dedicated
-        # branch (ARGUS_SKILL_SELF_EVOLVE_BRANCH, default argus-evolve) and pushed
-        # ONLY to an explicitly-configured remote (ARGUS_SKILL_SELF_EVOLVE_REMOTE)
-        # — never the shared main. Wired UNDER SelfRepairSink so it receives the
-        # self_repair.captured events that sink emits. Inert off a git checkout /
-        # without a Manager runner; fail-soft.
-        # 受控自演化(默认关):每个捕获过独立测试门 + Manager 审,批准的以 'argus' 身份
-        # 落到专属分支并仅 push 到显式配置的 remote,绝不碰共享 main。
-        if _truthy_env("ARGUS_SKILL_SELF_EVOLVE", "0"):
-            try:
-                from ..life.self_evolve import SelfEvolveSink
-                manager_runner = (
-                    getattr(runner, "manager_backend", None)
-                    or getattr(runner, "backend", None)
-                )
-                sink = SelfEvolveSink.build(sink, runner=manager_runner)
-            except Exception:  # noqa: BLE001 — evolve wiring must never block boot
-                log.exception("daemon: self-evolve sink wiring failed; continuing")
-
-        # Self-repair capture (opt-in via ARGUS_SKILL_SELF_REPAIR_CAPTURE): when a
-        # self-hosted mission edits the RUNNING argus_skill source (a code-level
-        # self-improvement), snapshot that change onto a review branch instead of
-        # leaving an unreviewed floating mutation. Inert off a git checkout or when
-        # the flag is unset; fail-soft so it can never block daemon boot.
-        # 自修复捕获(默认关,ARGUS_SKILL_SELF_REPAIR_CAPTURE 开):自托管 mission 改到
-        # 正在运行的 argus_skill 源码时,快照到 review 分支而非留作未审的游离改动。
-        if _truthy_env("ARGUS_SKILL_SELF_REPAIR_CAPTURE", "0"):
-            try:
-                from ..life.self_repair import SelfRepairSink
-                sink = SelfRepairSink.build(
-                    sink,
-                    session_label=str(getattr(cfg, "project_label", "") or "daemon"),
-                )
-            except Exception:  # noqa: BLE001 — capture wiring must never block boot
-                log.exception("daemon: self-repair sink wiring failed; continuing")
 
         # Classify the bootstrap need NOW (before the Manager's divide() below
         # can write anything to the project root), but DEFER the actual seed
@@ -1348,7 +1295,7 @@ class LifeWorker:
 
         # Start the Telegram inbound command poller only when explicitly enabled.
         try:
-            from ..life.notify import telegram_enabled
+            from ..life.telegram_bot import telegram_enabled
             if telegram_enabled():
                 from ..life.telegram_bot import TelegramPoller
                 tg_poller = TelegramPoller(
@@ -1802,12 +1749,10 @@ def _build_supervisor_config(
 
 
 class _DaemonSink:
-    """Minimal sink: counts mission completions, forwards progress to
-    the Telegram live-streaming reporter, logs everything else."""
+    """Minimal sink: count mission completions and log daemon events."""
 
-    def __init__(self, worker: LifeWorker, stream_reporter: Any = None) -> None:
+    def __init__(self, worker: LifeWorker) -> None:
         self._worker = worker
-        self._stream_reporter = stream_reporter
 
     def handle_event(self, event: dict[str, Any]) -> None:
         kind = event.get("type") or event.get("kind") or ""
@@ -1818,12 +1763,6 @@ class _DaemonSink:
             "life.mission.skipped",
         ):
             self._worker._missions_completed += 1
-        # Forward to Telegram live-streaming reporter (non-blocking)
-        if self._stream_reporter is not None:
-            try:
-                self._stream_reporter.on_event(event)
-            except Exception:  # noqa: BLE001
-                pass
         log.debug("daemon event: %s %s", kind, event)
 
 

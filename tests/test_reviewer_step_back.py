@@ -17,6 +17,7 @@ from argus_skill.core.models import ReviewDecision
 from argus_skill.life.supervisor import LifeSupervisor
 from argus_skill.reviewer import SCHEMA_PATH, _parse_step_back
 from argus_skill.reviewer._parsing import parse_decision_text
+from argus_skill.skills.role_context import load_builtin_skill_text
 
 
 def _review_json(**over):
@@ -186,15 +187,15 @@ def test_schema_step_back_nested_required_complete():
     assert alt_items["additionalProperties"] is False
 
 
-# --- planner is wired to triage it (rule 17d) --------------------------------
+# --- planner is wired to triage it -------------------------------------------
 
-def test_planner_preamble_has_step_back_triage_rule():
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE as preamble
-    assert "17d)" in preamble
-    assert "STEP_BACK" in preamble or "STEP-BACK" in preamble
-    assert "alt_direction" in preamble
+def test_planner_role_has_step_back_triage_rule():
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "STEP_BACK" in text
+    assert "alt_direction" in text
     # The anti-lock-in framing + the success-side fire are the load-bearing parts.
-    assert "locked into its initial plan" in preamble
+    assert "locked into its initial plan" in text
+    assert "successful round" in text
 
 
 # --- ReviewDecision default ---------------------------------------------------

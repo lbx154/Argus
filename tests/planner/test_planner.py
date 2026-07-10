@@ -17,6 +17,7 @@ from argus_skill.planner import (
     TaskSpec,
     parse_planner_text,
 )
+from argus_skill.skills.role_context import load_builtin_skill_text
 
 
 class _FakeRunner:
@@ -291,6 +292,17 @@ def _prompt_for_stage(monkeypatch, tmp_path, stage: str) -> str:
     )
 
 
+def test_prompt_has_concise_dynamic_host_policy(monkeypatch, tmp_path) -> None:
+    from argus_skill.planner.planner import MIN_PLANNER_IMPACT_SCORE
+
+    prompt = _prompt_for_stage(monkeypatch, tmp_path, "research")
+    assert "## Dynamic host policy" in prompt
+    assert f"`impact_score >= {MIN_PLANNER_IMPACT_SCORE}`" in prompt
+    assert "provided planner schema" in prompt
+    assert "JSON only" in prompt
+    assert "Output a JSON object with this exact shape" not in prompt
+
+
 def test_parallel_drafting_block_present_at_run(monkeypatch, tmp_path) -> None:
     prompt = _prompt_for_stage(monkeypatch, tmp_path, "run")
     assert "## Parallel paper-drafting track" in prompt
@@ -321,34 +333,30 @@ def test_parallel_drafting_block_absent_outside_run_analysis(
         assert "RESULT_PLACEHOLDERS.md" not in prompt, stage
 
 
-def test_rule7_exception_documented_in_preamble() -> None:
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
-
-    assert "Parallel paper-drafting track" in _PLANNER_SYSTEM_PREAMBLE
-    assert "EXCEPTION" in _PLANNER_SYSTEM_PREAMBLE
-
-
-def test_waiting_external_capability_documented_in_preamble() -> None:
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
-
-    assert "external capability blocker" in _PLANNER_SYSTEM_PREAMBLE
-    assert "written escalation/action artifact" in _PLANNER_SYSTEM_PREAMBLE
-    assert "operator action" in _PLANNER_SYSTEM_PREAMBLE
+def test_parallel_drafting_exception_documented_in_role() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "Parallel paper drafting is an overlap exception" in text
+    assert "does not complete or advance any stage" in text
 
 
-def test_stage_ordering_rule_in_preamble() -> None:
-    """The preamble must carry a GENERAL stage-ordering rule (all verticals):
+def test_waiting_external_capability_documented_in_role() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "external capability blocker" in text
+    assert "written action artifact" in text
+    assert "operator action" in text
+    assert "no independent high-impact work remains" in text
+
+
+def test_stage_ordering_rule_in_role() -> None:
+    """The role must carry a GENERAL stage-ordering rule (all verticals):
     finish the current stage before any downstream work; no skipping."""
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
-
-    text = _PLANNER_SYSTEM_PREAMBLE
+    text = load_builtin_skill_text("argus-planner-role.md")
     # Must advance stages in order and complete the current stage first.
     assert "STRICTLY IN ORDER" in text
-    assert "COMPLETES THE CURRENT STAGE" in text
-    # Skipping / working ahead of the current stage is forbidden.
-    assert "FORBIDDEN" in text
+    assert "current-stage" in text and "checklist" in text
     # Downstream optimization is explicitly named as blocked.
-    assert "optimization" in text
+    assert "downstream optimization" in text
+    assert "Manager alone advances or rolls back `current_stage`" in text
     # Phrased generally — not nanochat / setup / GROUND_TRUTH specific.
     lower = text.lower()
     assert "nanochat" not in lower
@@ -464,19 +472,15 @@ def test_parse_planner_text_accepts_up_to_six_tasks() -> None:
     assert len(v.new_tasks) == 6
 
 
-def test_dag_teaching_section_in_preamble() -> None:
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
-
-    text = _PLANNER_SYSTEM_PREAMBLE
-    assert "Emitting a DAG of new_tasks" in text
-    assert '"key"' in text and '"deps"' in text
+def test_dag_teaching_section_in_role() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "DAG" in text
+    assert "`key`" in text and "`deps`" in text
     # Self-contained objective requirement is taught.
     assert "self-contained" in text
-    # The worked example (parallel seeds + fan-in analysis) is present.
-    assert "run-s0" in text
-    assert "analysis/RESULTS.md" in text
+    assert "exact artifact paths" in text
     # Cap rule was raised to 6.
-    assert "Cap at 6 tasks" in text
+    assert "at most six tasks" in text
 
 
 def test_planner_schema_accepts_dag_and_flat_tasks() -> None:

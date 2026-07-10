@@ -346,10 +346,7 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
             tags=["auth"],
         )
     )
-    hits = mem.relevant_journal_for(
-        "Add a session expiry check to the authentication flow",
-        max_entries=2,
-    )
+    hits = mem.recent_journal(max_entries=2)
     assert len(hits) == 2
     titles = [h.title for h in hits]
     # Newest first; the two most recent are returned regardless of keywords.
@@ -367,7 +364,7 @@ def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
         mem,
         JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk."),
     )
-    hits = mem.relevant_journal_for("Add a database migration to users table")
+    hits = mem.recent_journal()
     assert [h.title for h in hits] == ["Pancake recipe"]
 
 
@@ -383,9 +380,7 @@ def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:
             tags=["database", "migration"],
         )
     )
-    block = mem.render_prelude(
-        objective="write a database migration for the orders table"
-    )
+    block = mem.render_prelude()
     assert "non-authoritative" in block.lower()
     assert "ignore them" in block.lower()
     assert "Database migration helper" in block
@@ -399,4 +394,4 @@ def test_render_prelude_empty_when_nothing_relevant_and_no_identity(
     mem = LifeMemory.open(tmp_path)
     mem.root.mkdir(parents=True, exist_ok=True)
     # Don't init — no identity, no journal.
-    assert mem.render_prelude(objective="something") == ""
+    assert mem.render_prelude() == ""

@@ -43,7 +43,7 @@ argus-skill / python -m argus_skill
 - `argus_skill/manager/repl.py`: 交互 cockpit，也包含真实 mission runner `_SkillLoopRunner` 和 memory backend runner。单个 backlog item 最终就是从这里进 `SkillLoop`。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。**只有 operator 在 REPL 里直接敲的自由文本**才会被分类（`_SkillLoopRunner._allow_chat_fast_path`，默认 False，仅 `_invoke_supervisor` 在 `_free_text_cmd` 非 continuous 路径置 True）；planner / `/add` backlog / daemon 的任何任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
-- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。`relevant_journal_for` / `_score_journal` 的 `min_score` 参数保留但忽略。
+- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
 常见状态文件：
 
@@ -174,7 +174,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 
 如果 reviewer 老是误判：
 
-- 先看 `Reviewer._build_prompt` 和 fallback role skill。
+- 先看 `Reviewer._build_prompt` 和固定 role skill。
 - 再看 `argus_skill/builtin_skills/reviewer/argus-reviewer-role.md`、`academic-paper-peer-review-benchmark.md`。
 - 最后才改 schema；schema 改动会影响 tests 和所有 verdict parser。
 
@@ -217,9 +217,8 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 - `argus_skill/skills/store.py`: markdown skill store、frontmatter parse、matcher、save/writeback。
 - `argus_skill/skills/scientist.py`: matcher miss 后让 Scientist/Distiller 生成 provisional skill。
-- 质量门：不再是独立的 `quality.py`（已删除，见 `638e074`）；`store.py::save_distilled` 的
-  `enforce_quality_gate` 参数保留但已忽略——不再对 skill 文本本身判质量（判断 skill 文案
-  比瞎猜还不准），改成 effect-gated：新蒸馏的 skill 一律 `provisional`，只有后续任务真的
+- 质量门：不再是独立的 `quality.py`（已删除，见 `638e074`）；不再对 skill 文本本身判质量
+  （判断 skill 文案比瞎猜还不准），改成 effect-gated：新蒸馏的 skill 一律 `provisional`，只有后续任务真的
   靠它拿到有效 reviewer verdict 才会被 confirm，没起作用就丢弃。
 - `argus_skill/skills/lifecycle.py`: reinforce/distill/revise/retire 决策。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
@@ -443,7 +442,6 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 - `argus_skill/apps/_watch.py`
 - `argus_skill/apps/cli/_core.py` 的 `--follow` helpers
 - `argus_skill/life/telegram_bot.py`
-- `argus_skill/life/notify.py`
 
 ## 实验和论文证据
 

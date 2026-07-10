@@ -464,7 +464,6 @@ class SkillStore:
         task_description: str,
         raw_distill_output: str,
         on_event: "Callable[[dict], None] | None" = None,
-        enforce_quality_gate: bool = True,  # noqa: ARG002 — keyword compat, see docstring
         provisional: bool = False,
     ) -> "Skill | None":
         """Parse the reviewer-authored skill markdown and persist it.
@@ -473,8 +472,7 @@ class SkillStore:
         chance (SkillLens), so quality is proven by EFFECT instead — a freshly
         created skill is born ``provisional`` and is only confirmed (kept) when
         a later round that carries it gets an effective reviewer verdict; an
-        ineffective one is discarded. ``enforce_quality_gate`` is accepted for
-        backward compatibility but ignored.
+        ineffective one is discarded.
         """
         name, description, category, content = Prompts.parse_skill_output(raw_distill_output)
         if not (content or "").strip():

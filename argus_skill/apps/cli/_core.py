@@ -1300,49 +1300,6 @@ def _render_mid_mission_progress_lines(bundle: Any, *, current_item_id: str | No
     return lines
 
 
-def _render_stage_budget_lines(bundle: Any, *, current_stage: str | None) -> list[str]:
-    """Render per-stage budget snapshot for --status. Facts-only; the
-    reviewer / planner agent decides whether to act on advisories.
-    Fail-soft: any error returns []."""
-    try:
-        from ...life.stage_budget import compute_snapshot
-    except Exception:  # noqa: BLE001
-        return []
-    try:
-        from ...daemon.life_worker import resolve_effective_budget
-        eff = resolve_effective_budget()
-        total_budget = float(getattr(eff, "daily_cap_usd", 180.0) or 180.0)
-    except Exception:  # noqa: BLE001
-        total_budget = 180.0
-    try:
-        entries = list(bundle.journal.all())
-    except Exception:  # noqa: BLE001
-        return []
-
-    snap = compute_snapshot(
-        journal_entries=entries,
-        total_budget_usd=total_budget,
-        current_stage=current_stage,
-    )
-    if snap.total_spent_usd <= 0.0 and not snap.spent_by_stage:
-        return []
-
-    lines = ["  stage_budget:"]
-    for stage, amount in sorted(snap.spent_by_stage.items(), key=lambda kv: -kv[1]):
-        fraction = (amount / total_budget * 100.0) if total_budget else 0.0
-        lines.append(
-            f"    {stage:14s} ${amount:7.2f}  ({fraction:5.1f}% of ${total_budget:.0f})"
-        )
-    if snap.advisory_signals:
-        lines.append(
-            f"    advisory      : {len(snap.advisory_signals)} signal(s) "
-            f"(stage > 30% of total — agent reads, harness does not act)"
-        )
-        for sig in snap.advisory_signals:
-            lines.append(f"      - [{sig.stage}] {sig.message}")
-    return lines
-
-
 def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
     """Render the structural/advisory gate snapshot for --status.
     Runs the F3/F4 gates against the current pipeline stage and shows
@@ -1513,14 +1470,6 @@ def _cmd_status(args: argparse.Namespace) -> int:
     current_stage = _read_current_stage(research_workdir)
     gate_lines = _render_gate_snapshot_lines(research_workdir, current_stage)
     for line in gate_lines:
-        print(line)
-
-    # Per-stage budget snapshot (Opt #2). Surfaces facts only: how
-    # much each stage has spent + an advisory when any stage has
-    # eaten >30% of total budget. Reviewer / planner agent decides
-    # what to do; harness does not auto-quarantine on spend.
-    budget_lines = _render_stage_budget_lines(bundle, current_stage=current_stage)
-    for line in budget_lines:
         print(line)
 
     # Mid-mission progress (Opt #3). Tails events.jsonl for the

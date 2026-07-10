@@ -45,22 +45,6 @@ class PlacementVerdict:
     why: str
 
 
-_PLACEMENT_RUBRIC = (
-    "A project-distilled skill has proven useful in ONE project. Decide where it "
-    "belongs in the shared library:\n"
-    "- GLOBAL — a CROSS-DOMAIN capability useful to many kinds of missions "
-    "(research, optimization, finance, …); it does not assume any one domain's "
-    "tools, data, or vocabulary.\n"
-    "- VERTICAL — a capability specific to ONE domain/vertical: its mechanism, "
-    "tools, metrics, or vocabulary only make sense within that vertical (e.g. "
-    "factor / backtest / alpha discipline → quant). Name that vertical from the "
-    "candidate list.\n"
-    "- STAY — keep it in the project layer: it is too project-specific to "
-    "generalize, OR you cannot confidently place it. Prefer STAY when unsure — "
-    "mis-filing a skill is worse than leaving it where it is."
-)
-
-
 def classify_skill_placement(
     *,
     content: str,
@@ -87,7 +71,10 @@ def classify_skill_placement(
         "You are the Manager tidying the skill library after a project finished. "
         "A reviewer distilled the playbook below while working this project. "
         "Decide where it belongs.\n\n"
-        f"## Rubric\n{_PLACEMENT_RUBRIC}\n\n"
+        "## Placement policy\n"
+        "- global: reusable across unrelated domains without domain assumptions.\n"
+        "- vertical: meaningful only within one named candidate vertical.\n"
+        "- stay: project-specific or uncertain; prefer stay over mis-filing.\n\n"
         f"## Candidate verticals\n{', '.join(candidates) or '(none)'}\n\n"
         f"## The task the skill was distilled on\n{task.strip()[:2000]}\n\n"
         f"## The skill playbook\n{content.strip()[:12000]}\n\n"

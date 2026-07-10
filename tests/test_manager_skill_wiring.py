@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import argus_skill.builtin_skills as _builtin
 from argus_skill.manager._core import Manager
 from argus_skill.skills.role_context import load_builtin_skill_text
@@ -36,12 +38,14 @@ def test_planner_role_skill_moved_to_planner_dir() -> None:
 
 
 def test_planner_role_skill_still_loads_from_new_location() -> None:
-    # The planner loads it by BARE filename via load_builtin_skill_text; after the
-    # move the subdir search must still resolve it (not fall back to the inline
-    # fallback text).
-    text = load_builtin_skill_text("argus-planner-role.md", "FALLBACK_SENTINEL")
-    assert "FALLBACK_SENTINEL" not in text
+    # Bare role filenames resolve across bundled role directories.
+    text = load_builtin_skill_text("argus-planner-role.md")
     assert "Argus Planner Role" in text
+
+
+def test_missing_required_role_skill_fails_loudly() -> None:
+    with pytest.raises(FileNotFoundError, match="required bundled role skill"):
+        load_builtin_skill_text("missing-role-skill.md")
 
 
 def test_planner_role_skill_no_longer_classified_as_engineer() -> None:
@@ -63,8 +67,7 @@ def test_manager_in_role_subdirs_and_pools() -> None:
 
 def test_manager_role_skill_file_exists_and_loads() -> None:
     assert (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").is_file()
-    text = load_builtin_skill_text("argus-manager-role.md", "FALLBACK_SENTINEL")
-    assert "FALLBACK_SENTINEL" not in text
+    text = load_builtin_skill_text("argus-manager-role.md")
     assert "Argus Manager Role" in text
 
 

@@ -48,7 +48,6 @@ def test_global_memory_open_uses_core_paths(isolated_home: Path) -> None:
     mem = GlobalMemory.open()
     assert mem.root == isolated_home
     assert mem.identity.path == isolated_home / "identity.md"
-    assert mem.journal.path == isolated_home / "journal.jsonl"
 
 
 def test_global_memory_lazy_creation(isolated_home: Path) -> None:
@@ -69,45 +68,6 @@ def test_global_memory_init_seeds_identity(isolated_home: Path) -> None:
     # Idempotent.
     again = mem.init()
     assert again == {"identity": False}
-
-
-def test_global_memory_journal_round_trip(isolated_home: Path) -> None:
-    mem = GlobalMemory.open()
-    mem.journal.append(
-        JournalEntry.new(
-            kind="mission_complete",
-            title="hello world",
-            summary="said hi",
-            tags=["greeting"],
-        )
-    )
-    rows = mem.journal.all()
-    assert len(rows) == 1
-    assert rows[0].title == "hello world"
-
-
-def test_global_memory_relevant_journal(isolated_home: Path) -> None:
-    # Recency-only: both entries are returned, newest first; the harness does
-    # not rank them by keyword overlap with the objective.
-    mem = GlobalMemory.open()
-    mem.journal.append(
-        JournalEntry.new(
-            kind="mission_complete",
-            title="rewrite postgres index",
-            summary="moved hot table to brin",
-            tags=["postgres", "perf"],
-        )
-    )
-    mem.journal.append(
-        JournalEntry.new(
-            kind="mission_complete",
-            title="add docker compose",
-            summary="orchestrated services",
-            tags=["docker"],
-        )
-    )
-    hits = mem.relevant_journal_for("optimise postgres index again")
-    assert [h.title for h in hits] == ["add docker compose", "rewrite postgres index"]
 
 
 def test_global_memory_explicit_root_overrides_env(
@@ -181,7 +141,7 @@ def test_project_memory_journal_isolated_per_fingerprint(
     assert b.memory.all() == []
 
 
-def test_project_memory_relevant_memory_for(isolated_home: Path) -> None:
+def test_project_memory_recent_journal(isolated_home: Path) -> None:
     proj = ProjectMemory.open("aaaaaaaaaaaa")
     _write_project_event(
         proj.memory,
@@ -192,7 +152,7 @@ def test_project_memory_relevant_memory_for(isolated_home: Path) -> None:
             tags=["sqlite"],
         )
     )
-    hits = proj.relevant_memory_for("sqlite tuning followup")
+    hits = proj.recent_journal()
     assert len(hits) == 1
     assert hits[0].title.startswith("refactor sqlite")
 
@@ -262,8 +222,11 @@ def test_memory_bundle_render_prelude_excludes_cross_project_journal(
     isolated_home: Path, tmp_path: Path
 ) -> None:
     bundle = MemoryBundle.for_cwd(tmp_path)
+    other = MemoryBundle.for_cwd(tmp_path / "other")
     bundle.init()
-    bundle.global_mem.journal.append(
+    other.init()
+    _write_project_event(
+        other.project.memory,
         JournalEntry.new(
             kind="mission_complete",
             title="cross-project postgres tuning",
@@ -280,7 +243,7 @@ def test_memory_bundle_render_prelude_excludes_cross_project_journal(
             tags=["postgres", "migration"],
         )
     )
-    rendered = bundle.render_prelude(objective="upgrade postgres again")
+    rendered = bundle.render_prelude()
     assert "Memory context (non-authoritative)" in rendered
     assert "Identity" in rendered
     assert "local postgres migration" in rendered
@@ -293,11 +256,6 @@ def test_memory_bundle_journal_writes_are_project_only(
 ) -> None:
     bundle = MemoryBundle.for_cwd(tmp_path)
     bundle.init()
-    bundle.global_mem.journal.append(
-        JournalEntry.new(
-            kind="mission_complete", title="global old", summary="wrong repo"
-        )
-    )
 
     local = JournalEntry.new(
         kind="mission_complete",
@@ -313,17 +271,12 @@ def test_memory_bundle_journal_writes_are_project_only(
     assert bundle.journal.path == bundle.project.memory.path
     assert bundle.journal.total_cost_since(0) == pytest.approx(0.25)
 
-    # The project journal write must NOT be mirrored into the global journal.
-    global_titles = [entry.title for entry in bundle.global_mem.journal.tail(5)]
-    assert global_titles == ["global old"]
-
-
 def test_memory_bundle_render_prelude_empty_when_nothing_relevant(
     isolated_home: Path, tmp_path: Path
 ) -> None:
     """Empty memory + un-initialised cards → empty string."""
     bundle = MemoryBundle.for_cwd(tmp_path)
-    rendered = bundle.render_prelude(objective="anything")
+    rendered = bundle.render_prelude()
     assert rendered == ""
 
 
@@ -373,9 +326,6 @@ def test_cli_status_and_prelude_are_project_scoped(
         bundle_b.project.memory,
         JournalEntry.new(kind="note", title="beta memory", summary="beta only")
     )
-    bundle_a.global_mem.journal.append(
-        JournalEntry.new(kind="note", title="global memory", summary="wrong workspace")
-    )
     bundle_a.backlog.add(BacklogItem.new(title="alpha backlog", objective="alpha"))
     bundle_b.backlog.add(BacklogItem.new(title="beta backlog", objective="beta"))
 
@@ -383,8 +333,8 @@ def test_cli_status_and_prelude_are_project_scoped(
     assert bundle_a.project.memory.path != bundle_b.project.memory.path
     assert bundle_a.backlog.path != bundle_b.backlog.path
 
-    prelude_a = bundle_a.render_prelude(objective="alpha objective")
-    prelude_b = bundle_b.render_prelude(objective="beta objective")
+    prelude_a = bundle_a.render_prelude()
+    prelude_b = bundle_b.render_prelude()
     assert "alpha memory" in prelude_a
     assert "beta memory" not in prelude_a
     assert "beta memory" in prelude_b

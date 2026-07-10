@@ -55,7 +55,17 @@ from .status import count_backlog_statuses, describe_continuous_state, select_cu
 
 log = logging.getLogger(__name__)
 
-__all__ = ["TelegramPoller"]
+__all__ = ["TelegramPoller", "telegram_enabled"]
+
+
+def telegram_enabled() -> bool:
+    """Whether the optional Telegram command interface is explicitly enabled."""
+    return (os.environ.get("ARGUS_SKILL_ENABLE_TELEGRAM") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -257,9 +267,7 @@ class _CommandRouter:
         cfg = self._state.setdefault("config", dict(_LIFE_CONFIG_DEFAULTS))
         iterate, cycles, budget, body = parse_add_flags(
             arg,
-            default_iterate=bool(cfg.get("iterate", True)),
-            default_cycles=int(cfg.get("cycles", 6)),
-            default_budget=float(cfg.get("budget", 30.0)),
+            defaults=cfg,
         )
         body = body.strip()
         if not body:
@@ -655,8 +663,6 @@ class TelegramPoller:
 
     @property
     def enabled(self) -> bool:
-        from .notify import telegram_enabled
-
         return telegram_enabled() and bool(self.token and self.chat_id)
 
     def _message_allowed(self, msg: dict[str, Any]) -> bool:

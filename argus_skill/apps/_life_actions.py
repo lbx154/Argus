@@ -7,7 +7,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from ..life import BacklogItem
 
@@ -32,14 +32,12 @@ def format_backlog_list(mem: Any, *, include_all: bool) -> str:
 def parse_add_flags(
     text: str,
     *,
-    default_iterate: bool = True,
-    default_cycles: int = 6,
-    default_budget: float = 30.0,
+    defaults: Mapping[str, Any],
 ) -> tuple[bool, int, float, str]:
     """Strip ``--once`` / ``--cycles=N`` / ``--budget=$X`` from an /add body."""
-    iterate = default_iterate
-    max_cycles = default_cycles
-    budget = default_budget
+    iterate = bool(defaults.get("iterate", _CONFIG_DEFAULTS["iterate"]))
+    max_cycles = int(defaults.get("cycles", _CONFIG_DEFAULTS["cycles"]))
+    budget = float(defaults.get("budget", _CONFIG_DEFAULTS["budget"]))
     tokens = text.split()
     keep: list[str] = []
     for tok in tokens:

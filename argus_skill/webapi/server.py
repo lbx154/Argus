@@ -417,7 +417,12 @@ def enqueue_task(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    iterate, cycles, budget, cleaned = parse_add_flags(text)
+    from ..apps._life_actions import _CONFIG_DEFAULTS
+
+    iterate, cycles, budget, cleaned = parse_add_flags(
+        text,
+        defaults=_CONFIG_DEFAULTS,
+    )
     mem = LifeMemory.open(life_dir)
     item = add_backlog_item(
         mem, cleaned or text.strip(),

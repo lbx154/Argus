@@ -256,11 +256,11 @@ def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -
 
 
 def _format_follow_command(event: dict) -> str:
-    from ...life.notify import _annotate_progress_result, _parse_command
+    from ...cli.event_format import annotate_progress_result, format_progress_command
 
     event_for_render = dict(event)
     cmd = str(event.get("text") or "")
-    parsed = _parse_command(cmd)
+    parsed = format_progress_command(cmd)
     excerpt = str(event.get("output_excerpt") or "")
     compact = excerpt
     if "pytest" in cmd and "[100%]" in excerpt:
@@ -277,7 +277,7 @@ def _format_follow_command(event: dict) -> str:
         event_for_render["output_excerpt"] = compact
     else:
         event_for_render.pop("output_excerpt", None)
-    return _annotate_progress_result(parsed, event_for_render)
+    return annotate_progress_result(parsed, event_for_render)
 
 
 def _format_bytes(value: Any) -> str:

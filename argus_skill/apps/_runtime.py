@@ -96,7 +96,7 @@ class _SplitMemory(_CommonMemory, Protocol):
     @property
     def global_root(self) -> Any: ...
 
-    def render_prelude(self, *, objective: str) -> str: ...
+    def render_prelude(self) -> str: ...
 
 
 def _memory_project_root(mem: Any) -> Path:
@@ -1352,51 +1352,9 @@ class _SkillLoopRunner:
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
-        # Opt-in LONG-TAILED SIMULATED HUMAN OPERATOR (default OFF). When
-        # ARGUS_SKILL_SIMULATED_OPERATOR=1 the env-gated helper returns a
-        # provider that injects one grounded, long-tailed operator message per
-        # engineer round (rendered by the loop as "## Operator guidance"). With
-        # the flag OFF it returns None and the loop is built exactly as before,
-        # so existing behaviour/tests are unchanged. Never raises into a mission.
-        sim_provider = None
         # The per-project state dir (life_dir) holds inbox.jsonl + events.jsonl,
         # next to the reviewer checkpoint.json; derive both from the checkpoint.
         operator_checkpoint_path = _checkpoint_path_for(args, workdir)
-        # Only import + build the simulated operator when explicitly enabled, so
-        # the 808-LOC test-double in life/operator_sim.py never loads on a real
-        # production run (default OFF). Truthiness mirrors
-        # operator_sim.simulated_operator_enabled() exactly.
-        if os.environ.get("ARGUS_SKILL_SIMULATED_OPERATOR", "").strip().lower() in {
-            "1", "true", "yes", "on"
-        }:
-            try:
-                from ..life.operator_sim import operator_guidance_provider_from_env
-
-                # GROUNDING (Bug 1): the run's real telemetry does NOT live in the
-                # git work-tree. The daemon/REPL fan events out to
-                # ``<life_dir>/events.jsonl`` in the per-project state dir, right
-                # next to the per-round reviewer ``checkpoint.json``. So derive the
-                # trace path from the checkpoint's parent dir; only fall back to a
-                # work-tree-local events.jsonl when checkpoint persistence is off.
-                if operator_checkpoint_path is not None:
-                    operator_trace_path = operator_checkpoint_path.parent / "events.jsonl"
-                else:
-                    operator_trace_path = workdir / "events.jsonl"
-
-                sim_provider = operator_guidance_provider_from_env(
-                    project_root=workdir,
-                    objective=objective,
-                    runner=self._backend,
-                    model=args.engineer_model,
-                    # GROUNDING (Bug 1): see the run's real progress.
-                    trace_path=operator_trace_path,
-                    checkpoint_path=operator_checkpoint_path,
-                    # OBSERVABILITY (Bug 2): emit a marker event per intervention
-                    # into the same sink that feeds events.jsonl.
-                    on_event=sink.handle_event,
-                )
-            except Exception:  # noqa: BLE001 — wiring must never break a mission
-                sim_provider = None
         # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
         # messages EACH engineer round — not just at mission start — so the
         # operator can steer a long in-flight mission instead of being locked out
@@ -1410,7 +1368,7 @@ class _SkillLoopRunner:
             else None
         )
 
-        def _combined_guidance_provider() -> list[str]:
+        def _inbox_guidance_provider() -> list[str]:
             msgs: list[str] = []
             if inbox_life_dir is not None:
                 try:
@@ -1418,19 +1376,11 @@ class _SkillLoopRunner:
                     msgs.extend(drain_inbox_messages(inbox_life_dir))
                 except Exception:  # noqa: BLE001 — never break a mission
                     pass
-            if sim_provider is not None:
-                try:
-                    msgs.extend(sim_provider() or [])
-                except Exception:  # noqa: BLE001
-                    pass
             return msgs
 
-        # Preserve the legacy "None when there is nothing to provide" contract
-        # (keeps existing tests / chat behaviour unchanged when there is neither
-        # an inbox nor the simulated operator).
         extra_guidance_provider = (
-            _combined_guidance_provider
-            if (sim_provider is not None or inbox_life_dir is not None)
+            _inbox_guidance_provider
+            if inbox_life_dir is not None
             else None
         )
         loop = self._SkillLoop(

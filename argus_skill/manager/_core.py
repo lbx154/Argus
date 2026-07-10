@@ -53,21 +53,6 @@ _DEFAULT_MANAGER_REASONING_EFFORT = "xhigh"
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 
-# Fixed role skill the Manager always injects into its decision prompts (mirrors
-# the planner's ``_PLANNER_ROLE_SKILL`` / the reviewer's role-context block).
-_MANAGER_ROLE_SKILL = "argus-manager-role.md"
-_MANAGER_ROLE_FALLBACK = """# Argus Manager Role
-
-You are the Manager: you divide a Task into a vertical and its stages, you are
-the SOLE authority over stage transitions (the reviewer and planner only advise),
-and you approve skills into the library. When ruling on a stage transition, reply
-with ONE JSON object and nothing else:
-{"action":"advance|hold|rollback","target_stage":"<stage>","reason":"<reason>"}
-advance/hold/rollback are your only outputs; final-stage completion is certified
-by the pipeline from the reviewer's verdict — never emit "complete".
-"""
-
-
 def _manager_reasoning_effort() -> str:
     for key in (
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
@@ -446,8 +431,7 @@ class Manager:
 
         block = format_role_context(
             "Argus manager role skill",
-            _MANAGER_ROLE_SKILL,
-            _MANAGER_ROLE_FALLBACK,
+            "argus-manager-role.md",
         )
         # Adaptive matched manager skill(s). Fail-soft: a matcher hiccup must
         # never break a stage decision, so any error degrades to role skill only.
@@ -1074,32 +1058,6 @@ class Manager:
 
         return StageTransition("hold", cur, decision.reason or "manager held",
                                cur, "manager_llm", decision.diagnostic)
-
-    def review_self_repair(
-        self,
-        *,
-        diff: str,
-        files: list[str],
-        test_tail: str,
-        reasoning_effort: str | None = None,
-    ) -> Any:
-        """Judge whether a captured self-repair may be landed to the shared branch.
-
-        The Manager owns the merge gate (most context, project-level view). Runs on
-        THIS Manager's backend and returns a ``SelfRepairVerdict`` — conservative,
-        fail-closed. The caller still enforces the independent test gate.
-        Manager 把关自修复能否合入共享分支;跑在 Manager 自己的后端,保守、失败即拒;
-        调用方另外强制独立测试门。
-        """
-        from ..life.self_evolve import review_self_repair as _review
-
-        return _review(
-            (self._session or self.runner),
-            diff=diff,
-            files=files,
-            test_tail=test_tail,
-            reasoning_effort=reasoning_effort or _manager_reasoning_effort(),
-        )
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:

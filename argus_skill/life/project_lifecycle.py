@@ -498,9 +498,7 @@ def infer_observable_status(
 
 def _read_pipeline_stage(project_root: Path) -> str | None:
     """Best-effort: read current_stage from research/PIPELINE_STATE.json.
-    Returns None on missing / malformed file. Duplicates the slim
-    helper in argus_skill.life.stage_budget so this module has no
-    cross-import dependency."""
+    Returns None on missing / malformed file."""
     import json as _json
     path = project_root / "research" / "PIPELINE_STATE.json"
     if not path.exists():

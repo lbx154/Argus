@@ -1802,21 +1802,6 @@ def _follow_events_stream(
 # Slash-command helpers (in-process; mirror the public CLI subcommands)
 # ---------------------------------------------------------------------------
 
-def _parse_add_flags(
-    text: str,
-    *,
-    default_iterate: bool = True,
-    default_cycles: int = 6,
-    default_budget: float = 30.0,
-) -> tuple[bool, int, float, str]:
-    return parse_add_flags(
-        text,
-        default_iterate=default_iterate,
-        default_cycles=default_cycles,
-        default_budget=default_budget,
-    )
-
-
 def _add_only(
     mem: _CommonMemory,
     text: str,
@@ -3190,11 +3175,9 @@ def _free_text_cmd(
     """
     cfg = chat_state.get("config", {})
     continuous = cfg.get("continuous", False)
-    iterate, max_cycles, budget, body = _parse_add_flags(
+    iterate, max_cycles, budget, body = parse_add_flags(
         text,
-        default_iterate=cfg.get("iterate", True),
-        default_cycles=cfg.get("cycles", 6),
-        default_budget=cfg.get("budget", 30.0),
+        defaults=cfg,
     )
     body = body or text.strip()
     theme = chat_state.get("theme")
@@ -4864,11 +4847,9 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
                 ))
                 return None
             cfg = chat_state.get("config", {})
-            iterate, max_cycles, budget, body = _parse_add_flags(
+            iterate, max_cycles, budget, body = parse_add_flags(
                 rest_text,
-                default_iterate=cfg.get("iterate", True),
-                default_cycles=cfg.get("cycles", 6),
-                default_budget=cfg.get("budget", 30.0),
+                defaults=cfg,
             )
             if not body:
                 print(theme.gray("/add: empty objective after flags"))
@@ -4957,7 +4938,6 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
 __all__ = [
     "run_manager_repl",
     "_run_manager_repl_locked",
-    "_parse_add_flags",
     "_add_only",
     "_backend_cmd",
     "_continuous_session_error",

@@ -1092,28 +1092,16 @@ class LifeMemory:
     # Retrieval
     # ------------------------------------------------------------------
 
-    def relevant_journal_for(
+    def recent_journal(
         self,
-        objective: str,
         *,
         max_entries: int = 3,
-        min_score: float = 0.05,
         recency_n: int = 30,
     ) -> list[JournalEntry]:
-        """Return up to ``max_entries`` of the most recent journal entries
-        as advisory context for the current mission.
-
-        Recency-only: the harness does not rank entries by lexical
-        "relevance" to ``objective`` — that judgment belongs to the agent,
-        which reads the injected (non-authoritative) block and ignores what
-        does not apply. ``objective`` and ``min_score`` are accepted for
-        backward compatibility and intentionally unused.
-        """
-        return _score_journal(
+        """Return the newest journal entries as non-authoritative context."""
+        return _recent_journal(
             self.journal,
-            objective,
             max_entries=max_entries,
-            min_score=min_score,
             recency_n=recency_n,
         )
 
@@ -1124,7 +1112,6 @@ class LifeMemory:
     def render_prelude(
         self,
         *,
-        objective: str,
         identity_chars: int = 600,
         max_journal_entries: int = 3,
     ) -> str:
@@ -1137,9 +1124,7 @@ class LifeMemory:
         identity = self.identity.read().strip()
         if identity_chars > 0:
             identity = identity[:identity_chars]
-        relevant = self.relevant_journal_for(
-            objective, max_entries=max_journal_entries
-        )
+        relevant = self.recent_journal(max_entries=max_journal_entries)
 
         if not identity and not relevant:
             return ""
@@ -1211,21 +1196,15 @@ def _resolve_project_root(
 
 @dataclass
 class GlobalMemory:
-    """Agent-wide identity (and shared skills) under ``~/.argus-skill/``.
+    """Agent-wide identity and shared skills under ``~/.argus-skill/``.
 
     The directory is *lazy*: nothing is written until you call
     :meth:`init` (idempotent) or perform a write through one of the
     sub-objects (which create their parent dirs on demand).
-
-    The ``journal`` attribute is retained as a lazy, write-on-demand handle
-    for legacy/standalone tooling only. The live daemon never writes it:
-    logs are per-project (``ProjectMemory.memory``) so no cross-project
-    audit trail accumulates. :meth:`init` therefore seeds identity only.
     """
 
     root: Path
     identity: IdentityCard
-    journal: Journal
 
     @classmethod
     def open(cls, root: Path | None = None) -> "GlobalMemory":
@@ -1233,18 +1212,14 @@ class GlobalMemory:
         return cls(
             root=actual,
             identity=IdentityCard(actual / "identity.md"),
-            journal=Journal(actual / "journal.jsonl"),
         )
 
     def init(self) -> dict[str, bool]:
         """Idempotently seed the global directory; returns core files created.
 
         Bundled default skills are also seeded into ``<root>/skills`` as a
-        side effect. The global root holds only cross-project *identity*; it
-        deliberately does **not** seed a global journal. Logs are per-project
-        (``projects/<fingerprint>/events.jsonl``) so nothing accumulates a
-        cross-project audit trail. The ``journal`` attribute is retained as a
-        lazy, write-on-demand handle for legacy/standalone callers only.
+        side effect. Logs are per-project
+        (``projects/<fingerprint>/events.jsonl``); there is no global journal.
         """
         from ..skills.builtins import seed_builtin_skills
 
@@ -1253,23 +1228,6 @@ class GlobalMemory:
         return {
             "identity": self.identity.ensure_default(),
         }
-
-    def relevant_journal_for(
-        self,
-        objective: str,
-        *,
-        max_entries: int = 3,
-        min_score: float = 0.05,
-        recency_n: int = 30,
-    ) -> list[JournalEntry]:
-        return _score_journal(
-            self.journal,
-            objective,
-            max_entries=max_entries,
-            min_score=min_score,
-            recency_n=recency_n,
-        )
-
 
 @dataclass
 class ProjectMemory:
@@ -1316,19 +1274,15 @@ class ProjectMemory:
             "backlog": _touch_file(self.backlog.path),
         }
 
-    def relevant_memory_for(
+    def recent_journal(
         self,
-        objective: str,
         *,
         max_entries: int = 3,
-        min_score: float = 0.05,
         recency_n: int = 30,
     ) -> list[JournalEntry]:
-        return _score_journal(
+        return _recent_journal(
             self.memory,
-            objective,
             max_entries=max_entries,
-            min_score=min_score,
             recency_n=recency_n,
         )
 
@@ -1423,13 +1377,12 @@ class MemoryBundle:
     def render_prelude(
         self,
         *,
-        objective: str,
         identity_chars: int = 600,
         max_project_entries: int = 3,
     ) -> str:
         """Render a unified memory prelude for prompt injection.
 
-        Order is: global identity → relevant project memories. Cross-project
+        Order is: global identity → recent project memories. Cross-project
         journal entries are intentionally excluded:
         workspace prompts must not satisfy or steer the current mission with
         artifacts from another project.
@@ -1438,9 +1391,7 @@ class MemoryBundle:
         if identity_chars > 0:
             identity = identity[:identity_chars]
 
-        project_hits = self.project.relevant_memory_for(
-            objective, max_entries=max_project_entries
-        )
+        project_hits = self.project.recent_journal(max_entries=max_project_entries)
 
         if not (identity or project_hits):
             return ""
@@ -1481,21 +1432,15 @@ def _touch_file(path: Path) -> bool:
     return True
 
 
-def _score_journal(
+def _recent_journal(
     journal: Journal,
-    objective: str,
     *,
     max_entries: int,
-    min_score: float,
     recency_n: int,
 ) -> list[JournalEntry]:
-    # Recency-only retrieval. ``objective``/``min_score`` are accepted for
-    # backward compatibility and intentionally ignored — the harness no
-    # longer scores prior missions for relevance (that is the agent's call).
-    # We return the most recent entries (newest first), bounded by both
+    # Return the most recent entries (newest first), bounded by both
     # ``recency_n`` (how far back to look) and ``max_entries`` (how many to
     # surface).
-    del objective, min_score
     recent = journal.tail(recency_n)
     if not recent:
         return []

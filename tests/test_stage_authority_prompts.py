@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import argus_skill
+from argus_skill.skills.role_context import load_builtin_skill_text
 
 ROOT = Path(argus_skill.__file__).resolve().parent
 
@@ -23,13 +24,16 @@ def _src(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_planner_preamble_gives_stage_authority_to_manager() -> None:
-    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE as preamble
-
-    assert "Manager can advance `current_stage`" in preamble
-    assert "Manager owns stage transitions" in preamble
+def test_planner_role_gives_stage_authority_to_manager() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "Manager alone advances or rolls back `current_stage`" in text
+    assert "Reviewer certifies work and reports defects" in text
+    assert "Planner owns checklist edits" in text
+    assert "Reviewer only reports `checklist_feedback`" in text
+    assert "Manager-authored domain starts with no checklist" in text
+    assert "author the current" in text
     # the old "the reviewer advances the stage" wording is gone
-    assert "until the reviewer has" not in preamble
+    assert "until the reviewer has" not in text
 
 
 def test_planner_source_has_no_rollback_recipe() -> None:

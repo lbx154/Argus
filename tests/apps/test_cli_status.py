@@ -13,7 +13,6 @@ import pytest
 from argus_skill.apps import cli as cli_mod
 from argus_skill.apps.cli import _check_logout_survival, _cmd_status
 from argus_skill.life import BacklogItem, MemoryBundle
-from argus_skill.life.memory import JournalEntry
 
 
 @pytest.fixture()
@@ -25,9 +24,6 @@ def project_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     monkeypatch.chdir(repo)
     mem = MemoryBundle.for_cwd(repo, global_root=home)
     mem.init()
-    mem.global_mem.journal.append(
-        JournalEntry.new(kind="mission_failed", title="old failure", summary="boom")
-    )
     done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
     mem.backlog.mark_done(done.id)
     failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
@@ -54,9 +50,6 @@ def project_with_active_and_history(
     monkeypatch.chdir(repo)
     mem = MemoryBundle.for_cwd(repo, global_root=home)
     mem.init()
-    mem.global_mem.journal.append(
-        JournalEntry.new(kind="mission_failed", title="old failure", summary="boom")
-    )
     pending = mem.backlog.add(BacklogItem.new(title="pending", objective="queued work"))
     running = mem.backlog.add(BacklogItem.new(title="running", objective="in flight"))
     mem.backlog.mark_running(running.id)

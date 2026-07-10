@@ -6,35 +6,30 @@ from importlib import resources
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 
 
-def load_builtin_skill_text(filename: str, fallback: str) -> str:
-    """Load a skill by filename, searching top-level and subdirectories."""
+def load_builtin_skill_text(filename: str) -> str:
+    """Load a required bundled role skill.
+
+    A missing role skill is a packaging error, not a recoverable model outcome.
+    Failing loudly prevents a stale inline fallback from becoming a second,
+    silently divergent source of role policy.
+    """
     root = resources.files(_BUILTIN_PACKAGE)
-    # Try direct path first (e.g. "reviewer/argus-reviewer-role.md")
-    try:
-        text = root.joinpath(filename).read_text(encoding="utf-8").strip()
-        if text:
-            return text
-    except (FileNotFoundError, ModuleNotFoundError, OSError, TypeError):
-        pass
-    # Search subdirectories for bare filename. Order does not matter for
-    # role-scoped filenames (each role-role skill has a unique name), but the
-    # list MUST include every role subdir that holds a fixed role skill —
-    # otherwise a bare filename like ``argus-planner-role.md`` (now under
-    # ``planner/``) or ``argus-manager-role.md`` (under ``manager/``) silently
-    # falls through to the fallback text. ``engineer`` stays first for the
-    # common case.
-    for subdir in ("engineer", "reviewer", "planner", "manager"):
+    candidates = [root.joinpath(filename)]
+    if "/" not in filename:
+        candidates.extend(
+            root.joinpath(subdir).joinpath(filename)
+            for subdir in ("engineer", "reviewer", "planner", "manager", "curator")
+        )
+    for path in candidates:
         try:
-            text = (
-                root.joinpath(subdir).joinpath(filename)
-                .read_text(encoding="utf-8").strip()
-            )
-            if text:
-                return text
-        except (FileNotFoundError, ModuleNotFoundError, OSError, TypeError):
+            text = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
             continue
-    return fallback.strip()
+        if not text:
+            raise RuntimeError(f"required bundled role skill is empty: {filename}")
+        return text
+    raise FileNotFoundError(f"required bundled role skill not found: {filename}")
 
 
-def format_role_context(heading: str, filename: str, fallback: str) -> str:
-    return f"{heading}:\n{load_builtin_skill_text(filename, fallback)}\n\n"
+def format_role_context(heading: str, filename: str) -> str:
+    return f"{heading}:\n{load_builtin_skill_text(filename)}\n\n"

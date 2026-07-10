@@ -22,6 +22,7 @@ import pytest
 
 import argus_skill.adapters.agent_cli_backend as agent_cli_backend_mod
 from argus_skill.apps import _runtime
+from argus_skill.apps._life_actions import parse_add_flags
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
 from argus_skill.life.memory import Backlog, BacklogItem, EventJournal, IdentityCard, LifeMemory
@@ -910,17 +911,14 @@ def test_run_manager_repl_releases_lock_on_exit(
 
 
 # ---------------------------------------------------------------------------
-# _parse_add_flags with session defaults
+# parse_add_flags with session defaults
 # ---------------------------------------------------------------------------
 
 def test_parse_add_flags_uses_session_defaults() -> None:
-    """When no inline flags are given, the session config defaults are
-    used rather than the hardcoded function defaults."""
-    iterate, cycles, budget, body = manager_repl._parse_add_flags(
+    """When no inline flags are given, the supplied session config is used."""
+    iterate, cycles, budget, body = parse_add_flags(
         "hello world",
-        default_iterate=False,
-        default_cycles=10,
-        default_budget=100.0,
+        defaults={"iterate": False, "cycles": 10, "budget": 100.0},
     )
     assert body == "hello world"
     assert iterate is False
@@ -930,11 +928,9 @@ def test_parse_add_flags_uses_session_defaults() -> None:
 
 def test_parse_add_flags_inline_overrides_session_defaults() -> None:
     """Inline ``--once`` and ``--cycles=3`` must override session defaults."""
-    iterate, cycles, budget, body = manager_repl._parse_add_flags(
+    iterate, cycles, budget, body = parse_add_flags(
         "--once --cycles=3 do some work",
-        default_iterate=True,
-        default_cycles=10,
-        default_budget=100.0,
+        defaults={"iterate": True, "cycles": 10, "budget": 100.0},
     )
     assert iterate is False
     assert cycles == 3
@@ -944,8 +940,9 @@ def test_parse_add_flags_inline_overrides_session_defaults() -> None:
 
 def test_parse_add_flags_budget_dollar_sign() -> None:
     """``--budget=$50`` must strip the $ and parse."""
-    iterate, cycles, budget, body = manager_repl._parse_add_flags(
+    iterate, cycles, budget, body = parse_add_flags(
         "--budget=$50 fix the bug",
+        defaults={"iterate": True, "cycles": 6, "budget": 30.0},
     )
     assert budget == 50.0
     assert body.strip() == "fix the bug"

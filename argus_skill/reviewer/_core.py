@@ -53,49 +53,12 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
-_REVIEWER_ROLE_SKILL = "argus-reviewer-role.md"
-_REVIEWER_ENGINEER_HANDOFF_SKILL = "reviewer-engineer-handoff.md"
-_ACADEMIC_PAPER_REVIEW_SKILL = "academic-paper-peer-review-benchmark.md"
-_WIKI_CURATOR_SKILL = "wiki-curator.md"
-_REVIEWER_ROLE_FALLBACK = """# Argus Reviewer Role
-
-The Reviewer is argus-skill's evidence gate. Decide done/continue/blocked from
-concrete artifacts and verification evidence, and turn failures into concise engineer
-next_action instructions.
-"""
-_REVIEWER_ENGINEER_HANDOFF_FALLBACK = """# Reviewer-to-engineer handoff
-
-When validation fails, your `next_action` is the engineer's next prompt. The
-engineer may be a smaller model, so convert logs into a concise repair brief:
-name failed commands, exit codes, issue codes, exact paths, ordered fixes, and
-the command that proves completion. Do not paste raw logs wholesale.
-"""
-_ACADEMIC_PAPER_REVIEW_FALLBACK = """# Academic paper peer-review benchmark
-
-Use for nearly complete EMNLP/ACL paper tasks. Simulate a strict reviewer:
-score contribution, claim-evidence alignment, experiment integrity, benchmark
-quality, literature/citations, reproducibility, writing, format/layout, and the
-strongest reviewer objection. Any remaining major actionable reviewer objection
-means `continue`, not `done`.
-"""
-_WIKI_CURATOR_FALLBACK = """# Wiki Curator
-
-If a project wiki exists, run the curator pass at mission close: backfill
-sources from literature artifacts, lift new sources into scratch pages, and
-regenerate/validate query indexes.
-"""
-
-
 def _load_reviewer_engineer_handoff_skill() -> str:
-    return load_builtin_skill_text(
-        _REVIEWER_ENGINEER_HANDOFF_SKILL, _REVIEWER_ENGINEER_HANDOFF_FALLBACK
-    )
+    return load_builtin_skill_text("reviewer-engineer-handoff.md")
 
 
 def _load_academic_paper_review_skill() -> str:
-    return load_builtin_skill_text(
-        _ACADEMIC_PAPER_REVIEW_SKILL, _ACADEMIC_PAPER_REVIEW_FALLBACK
-    )
+    return load_builtin_skill_text("academic-paper-peer-review-benchmark.md")
 
 
 def _load_wiki_curator_skill_if_present() -> str | None:
@@ -113,7 +76,7 @@ def _load_wiki_curator_skill_if_present() -> str | None:
         is_initialized_wiki(p / "wiki") for p in autors.iterdir() if p.is_dir()
     ):
         return None
-    return load_builtin_skill_text(_WIKI_CURATOR_SKILL, _WIKI_CURATOR_FALLBACK)
+    return load_builtin_skill_text("wiki-curator.md")
 
 
 def _format_academic_paper_review_skill_block(*, include: bool) -> str:
@@ -531,8 +494,7 @@ class Reviewer:
         error_text = main_error or "none"
         reviewer_role_context = format_role_context(
             "Argus reviewer role skill",
-            _REVIEWER_ROLE_SKILL,
-            _REVIEWER_ROLE_FALLBACK,
+            "argus-reviewer-role.md",
         )
         handoff_skill = _load_reviewer_engineer_handoff_skill()
         # Role-mission matcher (same primitive engineer/planner use). It

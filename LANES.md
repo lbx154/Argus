@@ -15,7 +15,7 @@
 | Lane | Subsystems / dirs | Owner |
 |---|---|---|
 | **L-hapi** | `skills/`, `manager/`, `reviewer/`, the per-role **backend/runner** wiring (`apps/_runtime.py` `_role_backend`, `agent_cli/`, `adapters/`, the `author_model` plumbing) | HAPI |
-| **L-claude** | `regime_jump/`, `verticals/`, `daemon/` (drain + handoff, NOT the role-config), `life/supervisor/_core.py` (structure), `life/` observability (`event_log/notify/telemetry/telegram_bot/activity_log/stage_budget`), `planner/planner.py` (EMNLP/restart, NOT backend config), `apps/cli/` (flags), `tools/subagent/` + `team/`, `core/knobs` (new), `deploy/`, `docs/`, `tools/new_auto_research_project.py` | claude loop |
+| **L-claude** | `regime_jump/`, `verticals/`, `daemon/` (drain + handoff, NOT the role-config), `life/supervisor/_core.py` (structure), `life/` observability (`event_log/telemetry/telegram_bot/activity_log`), `planner/planner.py` (EMNLP/restart, NOT backend config), `apps/cli/` (flags), `tools/subagent/` + `team/`, `core/knobs` (new), `deploy/`, `docs/`, `tools/new_auto_research_project.py` | claude loop |
 | **L-operator** | product-identity **semantics** (default vertical / paper-vs-benchmark defaults), any reviewer-contract / schema change | lbx (decision) |
 | **OFF-LIMITS** | `argus_skill/islands/`, top-level `argus/` | other collaborators — **nobody in this effort touches** |
 
@@ -31,9 +31,8 @@
 | 7 | delete dead blue/green handoff | `daemon/life_worker.py` (handoff), `planner/planner.py`, `life/research_profile.py` | **L-claude** | safe (dead code) — claude loop |
 | 9 | ARGUS_* knob registry + `--config-help` | `core/knobs.py` (new), `apps/cli/` | **L-claude** | must also register HAPI's per-role `*_BACKEND/_RUNNER_BIN` knobs |
 | 10 | split LifeSupervisor god-object | `life/supervisor/_core.py` | **L-claude** | coordinate: holds lbx's external-blocker latch + HAPI's role-config |
-| 11 | relocate operator_sim to dev-only | `life/operator_sim.py`, `apps/_runtime.py` (import) | **L-claude** | the `_runtime` import site is L-hapi-adjacent — touch minimally |
 | 12 | delete ghost dirs | `scientist/ missions/ codex_autoloop/ apps/_life_repl/` (untracked .pyc shells) | **L-claude** | trivial; `islands/ argus/` stay OFF-LIMITS |
-| 14 | observability → one event bus | `life/event_log/notify/telemetry/telegram_bot/...` | **L-claude** | pure L-claude |
+| 14 | observability → one event bus | `life/event_log/telemetry/telegram_bot/...` | **L-claude** | pure L-claude |
 
 Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 
@@ -48,7 +47,7 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 **Shipped by the autonomous loop (each tested + pushed):**
 - #1 drain-stop (`--daemon-stop --drain`), #5 meta jump-vs-exploit attribution,
   #8 proxy-gated NO-SCORE visibility, #9 `--config-help` knob registry,
-  #11 operator_sim import-gated, #12 ghost dirs removed, #13 systemd unit.
+  #11 retired, #12 ghost dirs removed, #13 systemd unit.
 - #2 mostly closed by HAPI (`58c293f`: dropped the `argus start` paper bypass;
   daemon now seeds AGENTS by vertical).
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 _NAME_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
@@ -47,7 +47,6 @@ class DomainProposal:
     stages: list[str]
     rationale: str = ""
     confidence: float = 0.0
-    raw_name: str = field(default="", repr=False)
 
 
 def build_domain_author_prompt(
@@ -186,7 +185,6 @@ def parse_domain_proposal(
         stages=stages,
         rationale=rationale,
         confidence=confidence,
-        raw_name=str(obj.get("name") or obj.get("vertical") or "").strip(),
     )
 
 

@@ -8,20 +8,11 @@ from __future__ import annotations
 
 from .role_context import format_role_context
 
-_AUTHOR_ROLE_SKILL = "argus-author-role.md"
-_AUTHOR_ROLE_FALLBACK = """# Skill-memory authoring
-
-Skill-memory work in argus-skill: match skills conservatively, distill reusable
-capability playbooks, and revise skills from evidence without hard-coding one
-task's solution. Distilled skills are written for the engineer model that will
-execute them, so they must be explicit and executable.
-"""
 
 def _author_role_context() -> str:
     return format_role_context(
         "Argus author role skill",
-        _AUTHOR_ROLE_SKILL,
-        _AUTHOR_ROLE_FALLBACK,
+        "skill-authoring-guide.md",
     )
 
 

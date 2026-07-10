@@ -64,7 +64,6 @@
 | lifecycle | `ARGUS_SKILL_SAFE_MODE` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_MEASURED_MODE` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_SIMULATED_OPERATOR` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_SKIP_VAULT_PREFLIGHT` | `off` | default | `off` |
 | meta | `ARGUS_META_JUMP_FROZEN_THRESHOLD` | `12` | default | `12` |
 | telemetry | `ARGUS_SKILL_ENABLE_TELEGRAM` | `off` | default | `off` |

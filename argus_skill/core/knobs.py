@@ -92,7 +92,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner/subagent): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify on the box (network/cache/B200) before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_MEASURED_MODE", "off", "measured-mode evaluation gating", "lifecycle"),
-    Knob("ARGUS_SKILL_SIMULATED_OPERATOR", "off", "inject a simulated human operator (dev/test only)", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
     Knob("ARGUS_META_JUMP_FROZEN_THRESHOLD", "12", "frozen-floor attempts before the meta layer convenes a regime jump", "meta"),
     # --- telemetry / notify ---

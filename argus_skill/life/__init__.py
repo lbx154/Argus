@@ -10,7 +10,7 @@ Public surface (intentionally small):
 - :class:`memory.Backlog` — ranked TODO of pending missions.
 - :class:`memory.IdentityCard` — editable self-card (name, voice, red lines).
 - :class:`memory.LifeMemory` — small facade bundling the three above plus
-  retrieval helpers (``relevant_journal_for(objective)``).
+  recent project-journal retrieval.
 - :class:`supervisor.LifeSupervisor` — owns the outer process; pulls one
   backlog item, runs one mission via ``MissionExecutor``, writes a
   journal entry, repeats until budget / iteration cap reached.

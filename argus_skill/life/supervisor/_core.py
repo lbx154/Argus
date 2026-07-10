@@ -211,8 +211,8 @@ class LifeSupervisor:
 
     Memory wiring:
 
-    - Before each mission, we render ``LifeMemory.render_prelude(...)``
-      using the live objective and forward it as ``prelude_context``.
+    - Before each mission, we render recent project memory with
+      ``LifeMemory.render_prelude()`` and forward it as ``prelude_context``.
     - After each mission, we emit a ``life.mission.completed`` event so the
       next mission can recall it from the event-backed history.
     """
@@ -1249,7 +1249,7 @@ class LifeSupervisor:
         return self.config.budget.effective_per_mission_cap(item)
 
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
-        prelude = self.memory.render_prelude(objective=item.objective)
+        prelude = self.memory.render_prelude()
         item_metadata = self._render_backlog_item_metadata(item)
         if item_metadata:
             prelude = item_metadata + "\n---\n\n" + prelude if prelude else item_metadata

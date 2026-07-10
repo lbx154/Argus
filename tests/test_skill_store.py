@@ -91,7 +91,6 @@ def test_save_distilled_extracts_name_and_description(tmp_path: Path) -> None:
     skill = store.save_distilled(
         task_description="set up an nginx site",
         raw_distill_output=raw,
-        enforce_quality_gate=False,
     )
     assert skill is not None
     assert skill.name == "Provision NGINX site"
