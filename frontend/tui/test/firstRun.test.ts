@@ -6,6 +6,7 @@ import { render, type Instance } from 'ink';
 import type { CreatedDaemon } from '../src/api.js';
 import { FirstRun } from '../src/components/FirstRun.js';
 import { initialProjectId, initialProjectSelection, interactiveStartup } from '../src/initialProject.js';
+import { projectsForLaunchCwd } from '../../core/src/projects.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const words = (output: string) => output.replace(/[│╭╮╰╯─]/g, ' ').replace(/\s+/g, ' ');
@@ -101,6 +102,16 @@ test('interactive launch is fresh by default and resumes only when explicit', ()
     kind: 'resume',
     project: 's-paper',
   });
+});
+
+test('resume scope keeps local and legacy Web sessions unless --all is used', () => {
+  const rows = [
+    { id: 'local', label: 'local', objective: '', launch_cwd: '/work/repo', last_active: 3, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { id: 'other', label: 'other', objective: '', launch_cwd: '/other', last_active: 2, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { id: 'legacy', label: 'legacy', objective: '', cwd: '/home/me/.argus-skill/projects/legacy', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+  ];
+  assert.deepEqual(projectsForLaunchCwd(rows, '/work', false).map((row) => row.id), ['local', 'legacy']);
+  assert.equal(projectsForLaunchCwd(rows, '/work', true).length, 3);
 });
 
 test('first-run screen remains usable from 40 to 120 columns', async () => {

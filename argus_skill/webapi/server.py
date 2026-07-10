@@ -194,13 +194,17 @@ def _roles_list(
 
 def _session_dict(meta: SessionMeta | None, sid: str) -> dict[str, Any]:
     if meta is None:
-        return {"id": sid, "display_name": "", "objective": "", "last_active": 0.0, "cwd": ""}
+        return {
+            "id": sid, "display_name": "", "objective": "", "last_active": 0.0,
+            "cwd": "", "launch_cwd": "",
+        }
     return {
         "id": meta.id,
         "display_name": meta.display_name,
         "objective": meta.objective,
         "last_active": meta.last_active,
         "cwd": meta.cwd,
+        "launch_cwd": meta.launch_cwd,
     }
 
 
@@ -486,6 +490,7 @@ def start_project_daemon(
 
 def create_daemon(
     objective: str = "", *, name: str = "",
+    launch_cwd: str = "",
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Mint a brand-new daemon (session). The objective is OPTIONAL: creating a
@@ -513,6 +518,7 @@ def create_daemon(
         SessionMeta(
             id=sid, display_name=(name or "").strip(),
             created=now, last_active=now, cwd=str(life_dir), objective=obj,
+            launch_cwd=str(Path(launch_cwd).expanduser().resolve()) if launch_cwd else "",
         ),
     )
     life_dir.mkdir(parents=True, exist_ok=True)
@@ -1081,6 +1087,7 @@ def create_app(
     class _CreateDaemonIn(BaseModel):
         objective: str = ""
         name: str = ""
+        launch_cwd: str = ""
 
     class _StopIn(BaseModel):
         drain: bool = False
@@ -1115,7 +1122,8 @@ def create_app(
         none, the daemon is idle and the user just talks to the Manager (which
         writes its own objectives). Threadpool: fs writes + optional fork."""
         return await run_in_threadpool(
-            create_daemon, body.objective, name=body.name, global_root=global_root,
+            create_daemon, body.objective, name=body.name,
+            launch_cwd=body.launch_cwd, global_root=global_root,
         )
 
     @app.get("/api/projects/{sid}/snapshot")

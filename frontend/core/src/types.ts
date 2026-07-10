@@ -83,6 +83,8 @@ export interface ProjectRow {
   label: string;
   objective: string;
   display_name?: string;
+  cwd?: string;
+  launch_cwd?: string;
   last_active: number;
   daemon_alive: boolean;
   daemon_pid: number | null;

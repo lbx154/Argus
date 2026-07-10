@@ -162,12 +162,12 @@ export class ApiClient {
     return ((await r.json()) as { projects: ProjectRow[] }).projects;
   }
 
-  async createDaemon(objective = '', name = ''): Promise<CreatedDaemon> {
+  async createDaemon(objective = '', name = '', launchCwd = process.cwd()): Promise<CreatedDaemon> {
     const path = '/api/daemons';
     const r = await fetch(`${this.httpBase}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ objective, name }),
+      body: JSON.stringify({ objective, name, launch_cwd: launchCwd }),
     });
     await ensureResponseOk(r, 'POST', path);
     return (await r.json()) as CreatedDaemon;

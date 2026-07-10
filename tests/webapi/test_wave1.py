@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, write_session_meta
+from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus_skill.life.memory import LifeMemory
 from argus_skill.webapi import server
 
@@ -48,6 +48,15 @@ def _make_project(root: Path, sid: str = "s-w1000001") -> Path:
 def ctx(tmp_path: Path):
     life = _make_project(tmp_path)
     return tmp_path, "s-w1000001", life, TestClient(server.create_app(global_root=tmp_path))
+
+
+def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
+    launch = tmp_path / "workspace"
+    launch.mkdir()
+    created = server.create_daemon("", launch_cwd=str(launch), global_root=tmp_path)
+    meta = read_session_meta(tmp_path, created["sid"])
+    assert meta is not None
+    assert meta.launch_cwd == str(launch.resolve())
 
 
 # ── read/inspect ────────────────────────────────────────────────────────────

@@ -45,6 +45,7 @@ class SessionMeta:
     last_active: float = 0.0
     cwd: str = ""
     objective: str = ""
+    launch_cwd: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -58,6 +59,7 @@ class SessionMeta:
             last_active=float(d.get("last_active", 0.0) or 0.0),
             cwd=str(d.get("cwd", "") or ""),
             objective=str(d.get("objective", "") or ""),
+            launch_cwd=str(d.get("launch_cwd", "") or ""),
         )
 
 

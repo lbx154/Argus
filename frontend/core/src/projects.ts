@@ -61,3 +61,28 @@ export function projectMatchesQuery(project: ProjectRow, query: string): boolean
 export function filterProjects(projects: ProjectRow[], query: string): ProjectRow[] {
   return projects.filter((project) => projectMatchesQuery(project, query));
 }
+
+function normalizedPath(value: string): string {
+  return value.replace(/\/+$/, '') || '/';
+}
+
+/** Scope resume results to the launch directory while retaining unscoped legacy Web sessions. */
+export function projectsForLaunchCwd(
+  projects: ProjectRow[],
+  cwd: string,
+  includeAll = false,
+): ProjectRow[] {
+  if (includeAll) return projects;
+  const root = normalizedPath(cwd);
+  return projects.filter((project) => {
+    const launch = (project.launch_cwd || '').trim();
+    if (launch) {
+      const candidate = normalizedPath(launch);
+      return candidate === root || candidate.startsWith(`${root}/`);
+    }
+    const legacyCwd = (project.cwd || '').trim();
+    if (!legacyCwd || legacyCwd.includes('/.argus-skill/projects/')) return true;
+    const candidate = normalizedPath(legacyCwd);
+    return candidate === root || candidate.startsWith(`${root}/`);
+  });
+}

@@ -9,9 +9,11 @@ import { Wordmark } from './Wordmark.js';
 
 export function ResumePicker({
   projects,
+  scopeLabel,
   onSelect,
 }: {
   projects: ProjectRow[];
+  scopeLabel: string;
   onSelect: (project: ProjectRow) => void;
 }) {
   const { exit } = useApp();
@@ -51,7 +53,7 @@ export function ResumePicker({
       <Wordmark />
       <Box marginTop={1} marginBottom={1}>
         <Text bold>Resume a conversation</Text>
-        <Text dimColor>{`  ${rows.length} project${rows.length === 1 ? '' : 's'}`}</Text>
+        <Text dimColor>{`  ${scopeLabel} · ${rows.length} project${rows.length === 1 ? '' : 's'}`}</Text>
       </Box>
       {shown.map((project, index) => {
         const absolute = page * pageSize + index;

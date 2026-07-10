@@ -10,6 +10,7 @@ import { ensureApi } from './ensureApi.js';
 import { SPINNER, theme } from './theme.js';
 import { initialProjectSelection, interactiveStartup } from './initialProject.js';
 import type { ProjectSelection } from '../../core/src/projects.js';
+import { projectsForLaunchCwd } from '../../core/src/projects.js';
 import { openWebBrowser, webUiUrl } from './webLaunch.js';
 
 interface Args {
@@ -17,6 +18,7 @@ interface Args {
   port: number;
   project?: string;
   resume: boolean;
+  resumeAll: boolean;
   token?: string;
   once: boolean;
   json: boolean;
@@ -32,6 +34,7 @@ function parseArgs(argv: string[]): Args {
     port: Number(process.env.ARGUS_TUI_PORT ?? 8799),
     project: process.env.ARGUS_TUI_PROJECT,
     resume: false,
+    resumeAll: false,
     token: process.env.ARGUS_SKILL_WEB_TOKEN,
     once: false,
     json: false,
@@ -46,7 +49,8 @@ function parseArgs(argv: string[]): Args {
     if (arg === '--host') a.host = eat();
     else if (arg === '--port') a.port = Number(eat());
     else if (arg === '--project') a.project = eat();
-    else if (arg === '--resume' || arg === '-r') a.resume = true;
+    else if (arg === 'resume' || arg === '--resume' || arg === '-r') a.resume = true;
+    else if (arg === '--all') a.resumeAll = true;
     else if (arg === '--token') a.token = eat();
     else if (arg === '--count') a.count = Number(eat());
     else if (arg === '--once') a.once = true;
@@ -60,19 +64,21 @@ function parseArgs(argv: string[]): Args {
 
 const HELP = `argus — the terminal cockpit for the argus-skill autonomous-research daemon
 
-Usage: argus [--resume] [--host H] [--port P] [--project SID] [--token T]
+Usage: argus resume [--all]
+       argus [--resume] [--host H] [--port P] [--project SID] [--token T]
        argus --web [--no-open]  # start Web UI and open/print its URL
        argus --once --json   # headless smoke: fetch snapshot + N events, print JSON, exit
 
 On launch it auto-starts the backend API (argus-skill --web) if it isn't already
-running. A plain interactive launch creates a fresh idle session; use --resume
-to choose a previous conversation before entering the cockpit.
+running. A plain interactive launch creates a fresh idle session. argus resume
+shows conversations from this directory; add --all for every account session.
 
 Options:
   --host H       API host (default 127.0.0.1, env ARGUS_TUI_HOST)
   --port P       API port (default 8799, env ARGUS_TUI_PORT)
   --project SID  project/session id (interactive recovers; --once is strict)
-  -r, --resume   choose a previous project/session before entering the cockpit
+  -r, --resume   compatibility alias for argus resume
+  --all          with resume, include sessions launched outside this directory
   --token T      bearer token if the API requires one (env ARGUS_SKILL_WEB_TOKEN)
   --web          ensure the Web UI backend is running, then open it in a browser
   --no-open      with --web, print the URL without launching a local browser
@@ -115,6 +121,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
   );
   const [project, setProject] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const launchCwd = process.cwd();
   const [initialNotice, setInitialNotice] = useState('');
   const [note, setNote] = useState('starting backend…');
   const [err, setErr] = useState('');
@@ -150,7 +157,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
           ? await base.createDaemon()
           : null;
         const resumable = startup.kind === 'pick'
-          ? await base.listProjects()
+          ? projectsForLaunchCwd(await base.listProjects(), launchCwd, args.resumeAll)
           : [];
         const sid = created?.sid ?? selection?.id ?? null;
         if (cancelled) return;
@@ -173,7 +180,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [args.host, args.port, args.project, args.resume, args.token, base]);
+  }, [args.host, args.port, args.project, args.resume, args.resumeAll, args.token, base, launchCwd]);
 
   const onSplashDone = () => {
     splashDone.current = true;
@@ -207,7 +214,15 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     );
   }
   if (phase === 'splash') return <Splash onDone={onSplashDone} />;
-  if (phase === 'picker') return <ResumePicker projects={projects} onSelect={onResume} />;
+  if (phase === 'picker') {
+    return (
+      <ResumePicker
+        projects={projects}
+        scopeLabel={args.resumeAll ? 'all account sessions' : launchCwd}
+        onSelect={onResume}
+      />
+    );
+  }
   if (phase === 'empty') return <FirstRun createDaemon={(objective, name) => base.createDaemon(objective, name)} onCreated={onFirstDaemon} />;
   if (phase === 'live' && project) {
     return <App host={args.host} port={args.port} token={args.token} project={project} initialNotice={initialNotice} />;

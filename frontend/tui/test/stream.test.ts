@@ -154,12 +154,16 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
   }) as typeof fetch;
   try {
     const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-old', token: 'secret' });
-    const created = await api.createDaemon('reproduce benchmark', 'Kernel run');
+    const created = await api.createDaemon('reproduce benchmark', 'Kernel run', '/work/kernel');
     assert.equal(created.sid, 's-new12345');
     assert.equal(created.spawned, true);
     assert.match(seenUrl, /\/api\/daemons$/);
     assert.equal(seenAuth, 'Bearer secret');
-    assert.deepEqual(seenBody, { objective: 'reproduce benchmark', name: 'Kernel run' });
+    assert.deepEqual(seenBody, {
+      objective: 'reproduce benchmark',
+      name: 'Kernel run',
+      launch_cwd: '/work/kernel',
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
