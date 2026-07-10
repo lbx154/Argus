@@ -41,6 +41,8 @@ class SkillScientist:
                     model=self.model or None,
                     reasoning_effort=self.reasoning_effort,
                     skip_git_repo_check=True,
+                    full_auto=True,
+                    live_search=True,
                 ),
                 run_label="scientist.skill_distill",
                 resume_thread_id=None,
@@ -73,6 +75,8 @@ def _build_scientist_prompt(task: str) -> str:
         "the family genuinely requires them.\n"
         "- Include enough operational detail for an Engineer to act without a "
         "second explanation.\n"
+        "- Before writing, use live web search to check current primary sources; "
+        "do not invent facts or citations.\n"
         "- If there is truly no reusable pattern, output exactly NONE.\n\n"
         "Required markdown shape:\n"
         "# <skill title>\n"

@@ -55,6 +55,15 @@ class RunnerOptions:
     inactivity_callback: Callable[[Any], str | None] | None = None
     watchdog_soft_idle_seconds: int = 0
     watchdog_hard_idle_seconds: int = 0
+    # ``on_agent_message`` is invoked with each NEW assistant message block the
+    # moment it arrives on the CLI's stdout stream (copilot/codex emit the reply
+    # as one or more complete blocks during a turn, not a single final blob).
+    # Lets a front-end stream the reply live instead of waiting for the whole
+    # turn. Opt-in: default ``None`` means the runner behaves byte-for-byte as
+    # before — only the Manager chat front-door sets it, so the 7×24 daemon's
+    # role turns are entirely unaffected. A callback exception never breaks the
+    # turn (it is swallowed by the runner).
+    on_agent_message: Callable[[str], None] | None = None
 
 
 @dataclass

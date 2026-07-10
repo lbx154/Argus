@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 VERTICALS: tuple[str, ...] = (
     "research", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
-    "learning",
+    "learning", "ale_last_exam",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -82,6 +82,8 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "B200, SOL-ExecBench/KernelBench) against a correctness-checked reference",
     "learning": "ingest operator-provided learning material and update the skill/wiki "
     "libraries (produce a change plan: create/update/archive skills)",
+    "ale_last_exam": "complete one Agents' Last Exam long-horizon professional "
+    "workflow in a real computer sandbox; hidden-reference, artifact-first GUI+CLI delivery",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
@@ -223,11 +225,12 @@ def resolve_vertical(project_root: object = ".") -> str:
            never clobbers a persisted project-local DATA domain.
         2. persisted ``vertical`` in ``research/PIPELINE_STATE.json``.
 
-    FAIL-HARD: if neither yields a known vertical, RAISE
-    ``VerticalResolutionError``. There is no silent default-to-``research`` — the
-    Manager must have DECIDED and PERSISTED the vertical at mission bootstrap
-    before any read. Still deterministic, never spends a token, and (apart from
-    the raise) never mutates state.
+    FAIL-SOFT: if neither yields a known vertical, WARN and return
+    ``DEFAULT_VERTICAL`` rather than raising — a rigid rule must never hard-crash
+    a mission. The Manager is still the decider (its persisted value wins above);
+    the default only catches the un-decided edge (a read that raced the persist,
+    or a conversational mission). Still deterministic, never spends a token, and
+    never mutates state.
     """
     env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
     persisted = _persisted_vertical(project_root)
@@ -237,11 +240,21 @@ def resolve_vertical(project_root: object = ".") -> str:
         return env
     if persisted is not None:
         return persisted
-    raise VerticalResolutionError(
-        f"no vertical resolved for {project_root!r}: ARGUS_SKILL_VERTICAL is unset/invalid "
-        f"and research/PIPELINE_STATE.json has no known 'vertical'. The Manager must decide "
-        f"and persist the vertical at mission bootstrap before this read."
+    # FAIL-SOFT (was fail-hard): the Manager is meant to DECIDE and PERSIST a
+    # vertical at mission bootstrap, but a rigid rule must never hard-crash a
+    # whole mission (and block the daemon) just because a read raced ahead of the
+    # persist, or a conversational/trivial mission never armed one. Fall back to
+    # the safe general default and WARN (visible, not silent) — the same thing
+    # the CLI already does (apps/cli/_core.py catches this and defaults to
+    # "research"). Real research missions still get the Manager-decided vertical
+    # via the persisted value above; only the un-decided edge lands here.
+    log.warning(
+        "no vertical resolved for %r (ARGUS_SKILL_VERTICAL unset/invalid and "
+        "research/PIPELINE_STATE.json has no known 'vertical'); falling back to %s. "
+        "The Manager should decide + persist a vertical at mission bootstrap.",
+        project_root, DEFAULT_VERTICAL,
     )
+    return DEFAULT_VERTICAL
 
 
 # --- persistence (write side) ---------------------------------------------

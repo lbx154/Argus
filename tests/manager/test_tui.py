@@ -323,6 +323,55 @@ def test_manager_triage_chat_returns_reply(tmp_path, monkeypatch) -> None:
     assert manager_repl.manager_triage(mem, "hello", {}) == "hi there"
 
 
+def test_manager_triage_relays_runner_phases_to_stream_fragments(tmp_path, monkeypatch) -> None:
+    """The web path supplies on_fragment only; real runner phases must reach it."""
+    from argus_skill.life.memory import LifeMemory
+
+    mem = LifeMemory.open(root=tmp_path)
+
+    class _Runner:
+        last_thread_id = "warm-session"
+
+        def chat_reply_if_conversational(
+            self,
+            objective,
+            sink,
+            seed_thread_id=None,
+            phase_cb=None,
+            route=None,
+        ):
+            phase_cb("Copilot handling it solo…", role="manager")
+            sink.handle_event({
+                "type": "engineer.progress",
+                "kind": "assistant_message",
+                "agent_layer": "manager",
+                "message_id": "reply-1",
+                "text": "ready",
+            })
+            sink.handle_event({"type": "round.main.completed", "last_message": "ready"})
+            return True
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda cs, m: _Runner())
+    fragments: list[tuple[str, dict[str, Any]]] = []
+
+    reply = manager_repl.manager_triage(
+        mem,
+        "hello",
+        {},
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+        route="simple",
+    )
+
+    assert reply == "ready"
+    assert fragments == [
+        (
+            "phase",
+            {"role": "manager", "label": "Copilot handling it solo…"},
+        ),
+        ("delta", {"text": "ready", "message_id": "reply-1"}),
+    ]
+
+
 def test_manager_triage_task_falls_through(tmp_path, monkeypatch) -> None:
     from argus_skill.life.memory import LifeMemory
     mem = LifeMemory.open(root=tmp_path)

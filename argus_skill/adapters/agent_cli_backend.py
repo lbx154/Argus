@@ -65,6 +65,14 @@ _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
 _LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
 _AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
+_COMPACT_IO_RUN_LABELS = frozenset({
+    "skill.compaction_batch",
+    "wiki.compaction_batch",
+})
+
+
+def _compact_agent_io(run_label: str) -> bool:
+    return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
 
 
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
@@ -284,6 +292,14 @@ class AgentCliBackend:
             before_exec=before_exec,
         )
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
+        # SOURCE-LEVEL per-mission budget cap. A live provider set per-mission
+        # (see ``set_budget_reason_provider``): it returns a non-empty reason once
+        # the mission's spend hits its cap, which is composed into the interrupt
+        # chain above so ``AgentCliRunner.run_exec`` refuses to spawn a NEW LLM
+        # call — enforcing the cap at the finest granularity (no round can
+        # overspend past it before the between-rounds breaker checks). ``None`` =
+        # no cap (default; every existing caller unchanged).
+        self._budget_reason_provider = None
         self._default_watchdog_soft_idle_seconds = max(
             0, int(default_watchdog_soft_idle_seconds or 0)
         )
@@ -300,6 +316,16 @@ class AgentCliBackend:
         # last-seen total per thread to charge each call only its delta.
         # copilot 的 premiumRequests 是会话累计值；按线程存上次累计，只计本次增量。
         self._thread_premium_totals: dict[str, float] = {}
+
+    def set_budget_reason_provider(self, provider) -> None:
+        """Install (or clear with ``None``) the per-mission budget guard.
+
+        ``provider() -> str | None`` is polled live: a non-empty string means the
+        mission has hit its cap. It is composed into the interrupt chain so a new
+        LLM call through this backend is refused at the source once the cap trips.
+        The mission entry (``_SkillLoopRunner.execute``) sets this for the mission
+        and clears it in a ``finally`` so it never leaks to a later mission."""
+        self._budget_reason_provider = provider
 
     # --- RunnerBackend.run_exec ------------------------------------------
 
@@ -321,8 +347,10 @@ class AgentCliBackend:
             "call_id": call_id,
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
+            "model": options.model,
+            "compact_io": _compact_agent_io(run_label),
         }
-        self._log_agent_io(log_path, {
+        start_row: dict[str, Any] = {
             "type": "agent.io.start",
             "io_kind": "start",
             "call_id": call_id,
@@ -332,9 +360,13 @@ class AgentCliBackend:
             "reasoning_effort": options.reasoning_effort,
             "working_dir": options.working_dir,
             "resume_thread_id": resume_thread_id,
-            "prompt": prompt,
             "ts": time.time(),
-        })
+        }
+        if _compact_agent_io(run_label):
+            start_row["prompt_chars"] = len(prompt)
+        else:
+            start_row["prompt"] = prompt
+        self._log_agent_io(log_path, start_row)
         try:
             argus_result = self._argus_runner.run_exec(
                 prompt=prompt,
@@ -392,24 +424,36 @@ class AgentCliBackend:
                 run_label, argus_result.exit_code,
             )
 
-        self._log_agent_io(log_path, {
+        complete_row: dict[str, Any] = {
             "type": "agent.io.complete",
             "io_kind": "complete",
             "call_id": call_id,
             "run_label": run_label,
             "backend": getattr(self._argus_runner, "backend", ""),
-            "command": list(getattr(argus_result, "command", []) or []),
+            "model": options.model,
             "exit_code": getattr(argus_result, "exit_code", None),
             "thread_id": getattr(argus_result, "thread_id", None),
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
             "fatal_error": getattr(argus_result, "fatal_error", None),
-            "agent_messages": list(getattr(argus_result, "agent_messages", []) or []),
-            "stdout_lines": list(getattr(argus_result, "stdout_lines", []) or []),
-            "stderr_lines": list(getattr(argus_result, "stderr_lines", []) or []),
-            "json_events": list(getattr(argus_result, "json_events", []) or []),
             "ts": time.time(),
-        })
+        }
+        if _compact_agent_io(run_label):
+            complete_row.update({
+                "agent_message_count": len(getattr(argus_result, "agent_messages", []) or []),
+                "stdout_line_count": len(getattr(argus_result, "stdout_lines", []) or []),
+                "stderr_line_count": len(getattr(argus_result, "stderr_lines", []) or []),
+                "json_event_count": len(getattr(argus_result, "json_events", []) or []),
+            })
+        else:
+            complete_row.update({
+                "command": list(getattr(argus_result, "command", []) or []),
+                "agent_messages": list(getattr(argus_result, "agent_messages", []) or []),
+                "stdout_lines": list(getattr(argus_result, "stdout_lines", []) or []),
+                "stderr_lines": list(getattr(argus_result, "stderr_lines", []) or []),
+                "json_events": list(getattr(argus_result, "json_events", []) or []),
+            })
+        self._log_agent_io(log_path, complete_row)
         self._io_context.current = None
         return self._translate_result(argus_result, resume_thread_id=resume_thread_id)
 
@@ -429,13 +473,14 @@ class AgentCliBackend:
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
-        if log_path:
+        if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": "agent.io.stream",
                 "io_kind": "stream",
                 "call_id": ctx.get("call_id"),
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),
+                "model": ctx.get("model"),
                 "stream": stream,
                 "line": line,
                 "ts": time.time(),
@@ -453,6 +498,7 @@ class AgentCliBackend:
         # outer supervisor can interrupt the codex subprocess.
         interrupt_provider = _compose_interrupt_providers(
             self._default_interrupt_reason_provider,
+            self._budget_reason_provider,
             options.external_interrupt_reason_provider,
         )
         soft_idle = (
@@ -482,6 +528,11 @@ class AgentCliBackend:
         # field; then we degrade gracefully to no live search rather than crash.
         if "live_search" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["live_search"] = getattr(options, "live_search", False)
+        # Forward the live assistant-block callback the same guarded way — only
+        # the Manager chat front-door sets it, and a vendored copy without the
+        # field degrades to no streaming rather than crashing.
+        if "on_agent_message" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
         return argus_cls(**kwargs)
 
     def _translate_result(

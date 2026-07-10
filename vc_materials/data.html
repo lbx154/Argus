@@ -1,0 +1,107 @@
+<!doctype html><html lang=zh><head><meta charset=utf-8>
+<title>fragile 正确轨迹 · 可售清单</title><style>
+body{font-family:-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;max-width:1060px;margin:0 auto;padding:28px;color:#1a1a1a;line-height:1.6;background:#fafafa}
+h1{border-bottom:3px solid #059669;padding-bottom:8px}
+h2{margin-top:34px;color:#047857;border-left:5px solid #059669;padding-left:10px}
+h3{color:#374151;margin-top:20px}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;background:#fff}
+th,td{border:1px solid #d1d5db;padding:6px 10px;text-align:left} th{background:#ecfdf5}
+tr:nth-child(even){background:#f8fafb}
+pre{background:#1e293b;color:#e2e8f0;padding:12px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+code{background:#d1fae5;padding:1px 5px;border-radius:3px;font-size:12.5px}
+.proof{background:#ecfdf5;border-left:4px solid #10b981;padding:10px 14px;margin:12px 0;border-radius:4px}
+.repro{background:#eff6ff;border-left:4px solid #3b82f6;padding:8px 12px;margin:8px 0;border-radius:4px;font-size:13px}
+.big{background:#fef3c7;border-left:4px solid #f59e0b;padding:10px 14px;margin:12px 0;border-radius:4px}
+.warn{background:#fee2e2;border-left:4px solid #ef4444;padding:10px 14px;margin:12px 0;border-radius:4px}
+.small{color:#6b7280;font-size:13px}
+.tag{display:inline-block;background:#a7f3d0;color:#065f46;border-radius:4px;padding:1px 8px;font-size:12px;margin:2px}
+</style></head><body>
+<h1>fragile · 正确轨迹的可售清单</h1>
+<p class=small>只统计<b>走到"被接受"(submission PASS)、未被回滚</b>的那部分轨迹。返工/失败/被打回的一律剔除。数据源 <code>bench-fragile-leaderboard</code>,均可复现。</p>
+
+
+
+<h2>1 · 证明数据真实、可复现</h2>
+<div class=proof>在盘 <code>/home/argustests/papermakers/bench-fragile-leaderboard/.argus/projects/085a3cbcebc4/events.jsonl(.1)</code> · 30 个 NFS 快照并集去重 · 在盘 <b>16174</b> 条 → 终身 <b>23,787</b> 条。下方每个数都可用所附命令核对。</div>
+<div class=repro>▶ mission 级正确/返工拆解:<br><code>grep '"life.mission.completed"' events.jsonl | jq -s 'group_by(.success)|map({success:.[0].success,n:length,rounds:(map(.rounds)|add),cost:(map(.cost_usd)|add)})'</code></div>
+
+<h2>2 · fragile 内部:正确 vs 返工(实测)</h2>
+<p>用每个 mission 自带的 <code>success / rounds / cost_usd</code> 直接分开(cost 合计 $46.26 ≈ delta 法 $46.68,互验通过):</p>
+<table>
+<tr><th></th><th>mission 数</th><th>轮数</th><th>成本</th><th>占成本</th></tr>
+<tr style="background:#ecfdf5;font-weight:600"><td>✅ 正确/被接受</td><td>8</td><td><b>29</b></td><td><b>$38.15</b></td><td>82%</td></tr>
+<tr style="background:#fee2e2"><td>❌ 返工/失败/废弃</td><td>10</td><td>19</td><td>$8.11</td><td>18%</td></tr>
+<tr style="font-weight:600"><td>合计</td><td>18</td><td>48</td><td>$46.26</td><td>100%</td></tr>
+</table>
+<div class=big>fragile 里只有 <b>60% 的轮、82% 的成本</b>是正确轨迹;其余是它试错回收的返工。返工便宜(只 $8.11)但不能当正确示范卖。</div>
+
+<h3>8 条正确 mission(正好对应 8 个流水线阶段 idea→提交)</h3>
+<table><tr><th>成本</th><th>轮</th><th>被接受的任务</th></tr><tr><td>$22.86</td><td>13</td><td>Repair and certify the review-stage gate</td></tr><tr><td>$5.28</td><td>5</td><td>Complete final submission assurance</td></tr><tr><td>$2.28</td><td>1</td><td>Expand the draft into a reviewable EMNLP long paper</td></tr><tr><td>$2.11</td><td>2</td><td>Establish ground truth and complete the research gate</td></tr><tr><td>$1.97</td><td>2</td><td>Complete the benchmark-stage gate with official lm-eval smoke evidence</td></tr><tr><td>$1.70</td><td>3</td><td>Complete the plan-stage experiment package</td></tr><tr><td>$1.14</td><td>2</td><td>Finalize the run-stage evidence package</td></tr><tr><td>$0.81</td><td>1</td><td>Complete the analysis-stage structural gate</td></tr></table>
+
+<h2>3 · 正确轨迹的可售清单(fragile,一条)</h2>
+<table>
+<tr><th>资产</th><th>正确/被接受的量</th><th>说明</th></tr>
+<tr><td><b>端到端正确轨迹</b></td><td><b>1 条</b></td><td>idea→plan→bench→run→analysis→draft→review→submission,全 advance 到 PASS</td></tr>
+<tr><td>可售 episode(mission 级)</td><td><b>8 个</b></td><td>8 个被接受的阶段任务,各含 objective/工具/结果/过门裁决</td></tr>
+<tr><td>可售 episode(round 级)</td><td><b>29 轮</b></td><td>成功 mission 内的轮(总 48 轮里剔掉 19 轮返工)</td></tr>
+<tr><td>模型自产 token(被接受)</td><td><b>~0.64M</b></td><td>被接受的研究推理+论文写作(总 1.06M 的 60%)</td></tr>
+<tr><td>随附:被接受评测</td><td><b>2,560 行</b></td><td>10 开源模型×5 benchmark 的 canonical 全量打分(CLAIM_GRAPH C1 认定)</td></tr>
+<tr><td>随附:被接受论文</td><td><b>13 页</b> + 15 结构化产物</td><td>编译好的 main.pdf + CLAIM_GRAPH/EVIDENCE_GAPS…</td></tr>
+</table>
+<h3>正确 episode 真实样本 · ①被接受任务的目标</h3>
+<pre>{
+ &quot;type&quot;: &quot;life.mission.started&quot;,
+ &quot;title&quot;: &quot;Complete the draft-stage EMNLP manuscript package&quot;,
+ &quot;objective&quot;: &quot;Work only on the current draft stage and do not edit Manager-owned fields in research/PIPELINE_STATE.json. First re-read AGENTS.md, research/PIPELINE_STATE.json, research/GROUND_TRUTH.md, argus_builtin_skills/engineer/emnlp-paper-skill-router.md, argus_builtin_skills/engineer/emnlp-paper-drafting.md, argus_builtin_skills/engineer/paper-exemplar-pdf-learning.md, argus_builtin_skills/engineer/research-results-analysis-and-figures.md, and argus_builtin_skills/engineer/emnlp-format-preflight.md. Before changing draft artifacts, append a fresh Draft-Stage Ground Truth Refresh to research/GROUND_TRUTH.md from direct probes: current stage, existing/missing paper files, model/image route status, pytest state, and the binding draft constraint. Then complete every draft checklist item:  …</pre><h3>②认证它通过的评审裁决(status=done)</h3>
+<pre>{
+ &quot;type&quot;: &quot;round.review.completed&quot;,
+ &quot;status&quot;: &quot;done&quot;,
+ &quot;reason&quot;: &quot;The bounded benchmark-stage objective is complete. I independently verified the artifacts, source paths, run outputs, tests, pipeline-state readback, and a process-log sample. The benchmark package now has official-source task files, execution-ready provenance, model/public-pair manifests, a captured preflight, official lm-eval/vLLM smoke rows for all five families, evaluator-authenticity documentation, and passing pytest/stage_check evidence. No Manager-owned stage/status fields were edited.&quot;,
+ &quot;round_index&quot;: 2
+}</pre>
+<div class=repro>▶ <code>grep '"round.review.completed"' events.jsonl | jq -c 'select(.status=="done")|{status,reason}'</code></div><h2>3.5 · "mission 级" 和 "round 级" episode 是什么</h2>
+<p>一条轨迹是<b>分层</b>的:<b>mission(有界大任务)⊃ round(一次"干活+审查"迭代)⊃ 工具调用</b>。两种都能当可售 episode,区别在完整度和数量:</p>
+<table>
+<tr><th></th><th>mission 级 episode</th><th>round 级 episode</th></tr>
+<tr><td><b>是什么</b></td><td>一个完整有界任务:1 目标 → 多轮执行 → 验证通过</td><td>大任务里的<b>一次迭代</b>:该轮干的活 + 审查裁决</td></tr>
+<tr><td><b>fragile 正确轨迹里</b></td><td><b>8 个</b></td><td><b>29 个</b></td></tr>
+<tr><td><b>完整度</b></td><td>高(含目标+全过程+最终结论)</td><td>中(单次 turn)</td></tr>
+<tr><td><b>单价锚点</b></td><td>$50–200/条</td><td>$10–50/条</td></tr>
+</table>
+<h3>真实嵌套示例:1 个 mission = 2 个 round</h3>
+<p class=small>mission「Complete the benchmark-stage gate with official lm-eval smoke evidence」——一个成功过门的任务,内部两轮:</p>
+<pre>【mission 级 episode】
+  目标: Work only on the current `benchmark` stage and do not edit Manager-owned stage fields in `research/PIPELINE_STATE.json`. First re-read `AGENTS.md`, `r…
+  结果: success=True · 2 轮 · $1.97
+  ↓ 展开成下面的 round 级 episode:
+
+  [round #1 · 干活] exit=0, 生成 7,178 token
+     → Updated [research/GROUND_TRUTH.md](/home/argustests/papermakers/bench-fragile-leaderboard/resea
+
+  [round #1 · 审查] status=continue（继续改）
+     → Bounded benchmark mission is not complete. The engineer correctly refreshed `research/GROUND_TR
+
+  [round #2 · 干活] exit=0, 生成 29,987 token
+     → ## Verification (verbatim)
+```text
+$ ./.venv/bin/python -m pytest -q
+Running 5 items in this sh
+
+  [round #2 · 审查] status=done（通过!）
+     → The bounded benchmark-stage objective is complete. I independently verified the artifacts, sour
+
+  ✅ 2 轮后 mission 通过 → 计入正确轨迹</pre>
+<div class=big>看懂了:<b>mission = 整件"过 benchmark 门"的任务</b>(卖它 = 一个完整任务的完整做法);<b>round = 里面的一次尝试+审查</b>(round#1 被判 <code>continue</code> 要继续改,round#2 被判 <code>done</code> 通过)。买家要<b>完整任务示范</b>就买 mission 级(8 条、贵);要<b>细粒度 RL step</b>就买 round 级(29 条、便宜)。</div>
+<div class=repro>▶ 复现:<code>grep '"life.mission.started"' events.jsonl</code> 取 ts 窗,窗内 <code>grep '"round.main.completed"\|"round.review.completed"'</code> 即该 mission 的组成 round。</div>
+<h2>4 · 这条正确轨迹能卖多少(锚点区间)</h2>
+<table>
+<tr><th>卖法</th><th>单价锚点</th><th>fragile 一条正确轨迹</th></tr>
+<tr><td>被接受 token(~0.64M 自产输出)</td><td>$0.05–0.5/1K</td><td>$32–320</td></tr>
+<tr><td>round 级已验证 episode(~29 条)</td><td>$10–50/条</td><td>$290–1,450</td></tr>
+<tr style="background:#ecfdf5;font-weight:600"><td>mission 级已验证 episode(8 条,粒度更完整)</td><td>$50–200/条</td><td>$400–1,600</td></tr>
+<tr><td>整条端到端正确轨迹当稀缺品</td><td>$1k–10k ×1</td><td>$1,000–10,000</td></tr>
+</table>
+<div class=big>这条正确轨迹的生产成本 <b>$38.15</b>(正确部分)。它是"全 advance 一次过、无回滚"的<b>干净示范</b>——正是买家训 agent 想要的"做对的样子",比含大量试错的原始轨迹更值钱。</div>
+<div class=warn><b>诚实边界</b>:①价格无公开挂牌市场,为按数据标注/RLHF 行情锚定的区间,非成交价;②要真卖须先换掉 gpt-5.5 生成源(ToS)+ 脱敏 + 剔公开 benchmark 内容;③<b>关键稀缺点</b>:正确轨迹=完成一篇才 1 条,而完成本身是 4 篇里 1 篇的稀有事件——产量才是瓶颈。</div>
+<p class=small>—— fragile 正确轨迹清单 · 终身 23,787 事件 · mission 成本合计 $46.26 与 token delta 法 $46.68 互验 · 每节可复现</p>
+</body></html>

@@ -1,0 +1,151 @@
+import { describe, it, expect } from 'vitest';
+import { renderEvent, isReasoning, eventKey, mergeFragment } from '../lib/eventRender';
+import { parseSSEFrames } from '../api';
+import { activeGuardianAlert } from '../lib/guardian';
+import type { EventMsg } from '../api';
+
+/** The clean whitelist renderer — noise is hidden, meaningful events get a
+ *  role + glyph + line, matching the terminal cockpit. */
+describe('renderEvent', () => {
+  it('hides raw CLI framing + telemetry (the noise)', () => {
+    expect(renderEvent({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
+    expect(renderEvent({ type: 'agent.io.start' })).toBeNull();
+    expect(renderEvent({ type: 'life.telemetry', running: true } as EventMsg)).toBeNull();
+    expect(renderEvent({ type: 'some.unknown.internal' })).toBeNull();
+  });
+
+  it('renders an assistant message as a bright role line', () => {
+    const r = renderEvent({ type: 'engineer.progress', kind: 'assistant_message', text: '你好', agent_layer: 'engineer' } as EventMsg);
+    expect(r).not.toBeNull();
+    expect(r!.role).toBe('engineer');
+    expect(r!.text).toContain('你好');
+    expect(r!.tone).toBe('bright');
+  });
+
+  it('colours a review verdict by status', () => {
+    expect(renderEvent({ type: 'round.review.completed', status: 'done', reason: 'ok' } as EventMsg)!.tone).toBe('ok');
+    expect(renderEvent({ type: 'round.review.completed', status: 'blocked', reason: 'x' } as EventMsg)!.tone).toBe('err');
+    expect(renderEvent({ type: 'round.review.completed', status: 'continue', reason: 'x' } as EventMsg)!.tone).toBe('warn');
+  });
+
+  it('accepts round and round_index lifecycle schemas', () => {
+    expect(renderEvent({ type: 'round.start', round: 1 } as EventMsg)!.text).toBe('round 1');
+    expect(renderEvent({ type: 'round.started', round_index: 2 } as EventMsg)!.text).toBe('round 2');
+  });
+
+  it('surfaces the guardian (监视守护) signals that actually persist to the feed', () => {
+    // These are the signals the daemon keeps in "signal" verbosity — the ones the
+    // operator must see the guardian catch.
+    const stall = renderEvent({ type: 'round.stall', text: 'no forward progress 2/3 rounds' } as EventMsg);
+    expect(stall!.label).toBe('Notice');
+    expect(stall!.tone).toBe('warn');
+    const rbf = renderEvent({ type: 'round.reviewer_backend_failure', text: 'backend down' } as EventMsg);
+    expect(rbf!.tone).toBe('err');
+    expect(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as EventMsg)!.tone).toBe('err');
+  });
+
+  it('surfaces ANY operator_alert event loud, even an unknown type', () => {
+    const r = renderEvent({ type: 'some.new.guardian.signal', operator_alert: true, text: 'look here' } as EventMsg);
+    expect(r).not.toBeNull();
+    expect(r!.label).toBe('Notice');
+    expect(r!.tone).toBe('err');
+    expect(r!.text).toContain('look here');
+  });
+
+  it('hides reviewer protocol JSON and empty phase markers', () => {
+    expect(renderEvent({
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
+      text: '{"status":"done","reason":"verified"}',
+    } as EventMsg)).toBeNull();
+    expect(renderEvent({
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
+      text: 'I am rerunning the tests.',
+    } as EventMsg)!.text).toBe('I am rerunning the tests.');
+    expect(renderEvent({ type: 'life.phase.started', agent_layer: 'reviewer' } as EventMsg)).toBeNull();
+  });
+
+  it('renders the manager target_stage field', () => {
+    const row = renderEvent({
+      type: 'life.manager.stage_decision', action: 'advance',
+      current_stage: 'inspect', target_stage: 'implement_cli', reason: 'verified',
+    } as EventMsg);
+    expect(row!.text).toContain('advance → implement_cli');
+  });
+});
+
+describe('isReasoning', () => {
+  it('only matches engineer.progress reasoning', () => {
+    expect(isReasoning({ type: 'engineer.progress', kind: 'reasoning' })).toBe(true);
+    expect(isReasoning({ type: 'engineer.progress', kind: 'assistant_message' })).toBe(false);
+    expect(isReasoning({ type: 'mission.started' })).toBe(false);
+  });
+});
+
+describe('mergeFragment', () => {
+  it('appends new blocks (no content lost — the streaming fix)', () => {
+    let acc = '';
+    acc = mergeFragment(acc, 'block one');
+    acc = mergeFragment(acc, 'block two');
+    expect(acc).toBe('block one\nblock two');
+  });
+  it('replaces on a cumulative resend and skips duplicates', () => {
+    expect(mergeFragment('你好', '你好！需要帮忙吗')).toBe('你好！需要帮忙吗'); // cumulative
+    expect(mergeFragment('full message here', 'message')).toBe('full message here'); // dup/substring
+  });
+});
+
+describe('eventKey', () => {
+  it('is stable per event and distinguishes different events', () => {
+    const a: EventMsg = { type: 'mission.started', ts: 1, seq: 1 };
+    const b: EventMsg = { type: 'mission.started', ts: 1, seq: 2 };
+    expect(eventKey(a, 0)).toBe(eventKey(a, 0));
+    expect(eventKey(a, 0)).not.toBe(eventKey(b, 0));
+  });
+  it('does not use REST/WS array position as identity', () => {
+    const event: EventMsg = { type: 'mission.completed', ts: 2, status: 'done' };
+    expect(eventKey(event, 0)).toBe(eventKey({ ...event }, 99));
+  });
+});
+
+describe('parseSSEFrames', () => {
+  it('decodes whole frames and buffers the partial tail', () => {
+    const { frames, rest } = parseSSEFrames(
+      'data: {"type":"phase","label":"Manager · reading"}\n\n' +
+        'data: {"type":"delta","text":"你好","message_id":"m1"}\n\n' +
+        'data: {"type":"delta","text":"需要', // partial — no terminating blank line
+    );
+    expect(frames.map((f) => f.type)).toEqual(['phase', 'delta']);
+    expect(frames[1].text).toBe('你好');
+    expect(rest).toContain('需要');
+  });
+
+  it('reassembles a frame split across two chunks', () => {
+    const a = parseSSEFrames('data: {"type":"del');
+    expect(a.frames).toHaveLength(0);
+    const b = parseSSEFrames(a.rest + 'ta","text":"hi"}\n\n');
+    expect(b.frames).toHaveLength(1);
+    expect(b.frames[0].text).toBe('hi');
+  });
+
+  it('skips a malformed data line without throwing', () => {
+    const { frames } = parseSSEFrames('data: nope\n\ndata: {"type":"done","result":{"kind":"chat"}}\n\n');
+    expect(frames).toHaveLength(1);
+    expect(frames[0].type).toBe('done');
+  });
+});
+
+describe('activeGuardianAlert', () => {
+  const ev = (o: Record<string, unknown>) => o as EventMsg;
+  it('pins the latest unresolved alert and clears it when work resumes', () => {
+    expect(activeGuardianAlert([ev({ type: 'round.main.completed' })])).toBeNull();
+    const blocked = activeGuardianAlert([ev({ type: 'life.lifecycle.block', reason: 'needs creds' })]);
+    expect(blocked?.tone).toBe('block');
+    expect(blocked?.text).toContain('needs creds');
+    // any operator_alert:true surfaces
+    expect(activeGuardianAlert([ev({ type: 'x.y', operator_alert: true, text: 'look' })])?.tone).toBe('block');
+    // cleared once the mission moves on
+    expect(
+      activeGuardianAlert([ev({ type: 'round.stall', text: 's' }), ev({ type: 'round.main.completed' })]),
+    ).toBeNull();
+  });
+});

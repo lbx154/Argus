@@ -24,12 +24,13 @@ def _isolate_project_vertical_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> 
 
 
 def _prompt(task: str, *, paper_mission: bool = False) -> str:
+    # paper_mission kept as a test label only — the prompt no longer branches on
+    # it (turn discipline is unconditional), so both call styles assert the same
+    # contract holds.
     return SkillLoop._build_engineer_prompt(
         task=task,
         skill_text="",
         next_action=None,
-        extra_guidance=None,
-        paper_mission=paper_mission,
     )
 
 

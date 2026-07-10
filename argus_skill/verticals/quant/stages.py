@@ -543,7 +543,7 @@ PROTECTED_ITEM_IDS: frozenset[str] = frozenset(
 completion_gate = "full_emnlp"
 
 
-def role_banner(role: str = "engineer") -> str:
+def role_banner(_role: str = "engineer") -> str:
     """Top-of-prompt framing for the quant-factor (finance) mission.
 
     Unlike the research vertical (which leaves the paper-authored prompts as-is),

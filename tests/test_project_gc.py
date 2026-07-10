@@ -54,9 +54,14 @@ def test_transcript_only_session_is_not_swept_as_empty(tmp_path):
         '{"id":"chatonly0001","display_name":"","objective":""}', encoding="utf-8"
     )
     T.append_turn(d, "operator", "hello there")
-    # sweep_empty is on by default AND prunes regardless of age — the transcript
-    # must be enough to keep the session.
-    assert gc_stale_projects(tmp_path, retention_days=30, sweep_empty=True) == []
+    # Even after the empty-session grace, a transcript must be enough to keep
+    # the session.
+    assert gc_stale_projects(
+        tmp_path,
+        retention_days=30,
+        sweep_empty=True,
+        now=time.time() + 7200,
+    ) == []
     assert (tmp_path / "projects" / "chatonly0001").exists()
 
 

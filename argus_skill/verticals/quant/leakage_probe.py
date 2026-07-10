@@ -138,24 +138,3 @@ class NaNFutureLeakageProbe:
             masked_metric=masked,
             rationale=rationale,
         )
-
-
-def render_leakage_section(reports: tuple[LeakageReport, ...]) -> str:
-    """Render a sequence of probe reports as a markdown section.
-
-    The reviewer's ``benchmark/LEAKAGE_CHECKS.md`` is supposed to be a human
-    document; this renderer lets the engineer drop the probe outputs in
-    verbatim instead of paraphrasing.
-    """
-    if not reports:
-        return "## Leakage probes\n\n_No probes were run._\n"
-    lines = ["## Leakage probes\n"]
-    for r in reports:
-        verdict = "PASS" if r.passed else "FAIL"
-        lines.append(
-            f"- **{r.probe_name}** — {verdict}. "
-            f"baseline={r.baseline_metric:.4f}, masked={r.masked_metric:.4f}. "
-            f"{r.rationale}"
-        )
-    lines.append("")
-    return "\n".join(lines)

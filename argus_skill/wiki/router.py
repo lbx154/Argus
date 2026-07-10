@@ -70,7 +70,7 @@ class WikiRouter:
         self,
         ops: list[dict],
         *,
-        task: str = "",
+        task: str = "",  # noqa: ARG002 — apply_ops keyword parity with SkillRouter.apply_ops
         on_event: EventSink | None = None,
         require_evidence: bool = False,
     ) -> dict[str, int]:

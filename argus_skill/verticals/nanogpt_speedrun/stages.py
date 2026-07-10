@@ -112,7 +112,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 completion_gate = "metric"
 
 
-def role_banner(role: str) -> str:
+def role_banner(_role: str) -> str:
     return (
         "MISSION — NanoGPT Speedrun (Recursive Task 2). This is a WALL-CLOCK TIME\n"
         "race, NOT a bits-per-byte task and NOT a kernel-SOL task. Objective:\n"

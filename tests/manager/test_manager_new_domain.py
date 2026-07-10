@@ -73,10 +73,10 @@ def test_ask_mode_defers_write(tmp_path, monkeypatch):
     assert div.proposed_domain is not None
     # Nothing written yet.
     assert not (tmp_path / "research" / "DOMAINS").exists()
-    # FAIL-HARD: nothing persisted yet, so resolve_vertical raises rather than
-    # silently defaulting to "research".
-    with pytest.raises(vs.VerticalResolutionError):
-        vs.resolve_vertical(tmp_path)
+    # FAIL-SOFT: nothing persisted yet, so resolve_vertical falls back to the
+    # safe default rather than hard-crashing (the Manager's committed domain wins
+    # once persisted, below).
+    assert vs.resolve_vertical(tmp_path) == "research"
     # Operator confirms.
     committed = mgr.commit_domain(div.task, div.proposed_domain)
     assert committed.vertical == "robotics_sim"

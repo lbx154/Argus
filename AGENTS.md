@@ -64,7 +64,7 @@ argus-skill / python -m argus_skill
 - `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、check commands、writeback、distill-on-miss、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
-- 论文任务的识别**不再用关键词猜 objective 文本**，改由显式信号决定：`SkillLoopConfig.paper_mission`（默认 False；life 执行路径 `_SkillLoopRunner` 显式置 True）。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
+- 论文任务的识别**不再用关键词猜 objective 文本**，改由已解析 vertical 的结构化 completion gate 决定：只有 `completion_gate == "full_emnlp"` 才会把 `SkillLoopConfig.paper_mission` 置 True；缺失/损坏/未决状态一律按 False 处理。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
 
 主流程：
 
@@ -197,7 +197,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 - `LifeSupervisor.run()`: 主循环。
 - `LifeSupervisor.tick()`: 处理一个 backlog item。
 - `_plan_next_work(...)`: L4 planner，continuous mode 下 backlog 空了就调用；论文 objective 的 `final_submission` 改派也在这里（约 `supervisor.py:1776` 一带）。
-- `LifeSupervisorConfig.paper_mission` / `full_emnlp_gate` / `open_ended`: 显式信号（前两个默认 True，因为 life supervisor 就是 EMNLP 自动研究驱动）。`paper_mission` 决定 planner 给 bounded item 的论文/通用指导语；`full_emnlp_gate` 决定 `project_done` 前是否必须拿到一次 reviewer 认证的 full-pipeline 通过；`open_ended` 决定 planner 认证 `project_done` 后是“硬停”还是“继续生成新工作”。**已删除**旧的关键词判断 `_objective_requires_full_emnlp_gate` / `_objective_is_paper_long_horizon` / `_objective_is_open_ended`，全部改用 config flag。`open_ended` dataclass 默认 False，但 daemon/REPL 入口路径默认置 True（除非 `--bounded`），并随 `LifeWorkerConfig.continuous_open_ended` 一起做 blue/green handoff 序列化（`_config_payload` / `_config_from_payload`）。
+- `LifeSupervisorConfig.paper_mission` / `full_emnlp_gate` / `open_ended`: 显式信号（前两个默认 False，只有 Manager 已解析出 `completion_gate == "full_emnlp"` 的 vertical 才开启）。`paper_mission` 决定 planner 给 bounded item 的论文/通用指导语；`full_emnlp_gate` 决定 `project_done` 前是否必须拿到一次 reviewer 认证的 full-pipeline 通过；`open_ended` 决定 planner 认证 `project_done` 后是“硬停”还是“继续生成新工作”。**已删除**旧的关键词判断 `_objective_requires_full_emnlp_gate` / `_objective_is_paper_long_horizon` / `_objective_is_open_ended`，全部改用 config flag。`open_ended` dataclass 默认 False，但 daemon/REPL 入口路径默认置 True（除非 `--bounded`），并随 `LifeWorkerConfig.continuous_open_ended` 一起做 blue/green handoff 序列化（`_config_payload` / `_config_from_payload`）。
 - `_is_emnlp_finalization_objective(...)`: 识别一个任务是否就是项目级 `final_submission` 认证任务（看 `scope: final_submission` 标记，不再看 retired 的 `validate-*` 命令）。
 - `_journal_has_full_emnlp_gate_success(...)`: 从 journal 里查是否已有一次被 reviewer 认证（`final_submission_certified=True`）的 full-pipeline 通过记录——这才是项目完成的唯一判据。
 - 标量：`_PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"`，`_FULL_EMNLP_GATE_DESCRIPTION` 现在就是“L2 reviewer 的 full pipeline checklist（research → submission）”这句话，不是任何 shell 命令。

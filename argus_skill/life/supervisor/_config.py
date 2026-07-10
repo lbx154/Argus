@@ -229,10 +229,10 @@ class LifeSupervisorConfig:
     # the planner hands to bounded items; ``full_emnlp_gate`` requires the L2
     # reviewer's full-pipeline checklist to be certified before ``project_done``
     # is honoured (and drives the auto-stop once that gate passes). Both default
-    # True because the life supervisor is the autonomous EMNLP-research driver;
-    # set them False for non-paper continuous missions.
-    paper_mission: bool = True
-    full_emnlp_gate: bool = True
+    # False: callers enable these only after the Manager has resolved
+    # a vertical whose completion gate is explicitly ``full_emnlp``.
+    paper_mission: bool = False
+    full_emnlp_gate: bool = False
     # ``open_ended`` controls what happens when the planner certifies
     # ``project_done`` on a continuous mission: when True the supervisor does
     # NOT hard-stop — it logs a planner retry and keeps the mission alive so the
@@ -290,5 +290,6 @@ class _MissionRunner(Protocol):
         prelude_context: str = "",
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
+        preplanned: bool = False,
     ) -> Any:  # MissionOutcome
         raise NotImplementedError

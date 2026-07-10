@@ -229,7 +229,7 @@ def render_paper_figure_prompt(
     framing: str = "",
     aspect_ratio: str = "1536x1024 landscape",
     # Legacy parameters — composed into content block if content is empty
-    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,  # noqa: ARG001 — kept for write_paper_figure_prompt's keyword pass-through
     input_label: str = "",
     mechanism_label: str = "",
     verification_label: str = "",
@@ -282,7 +282,51 @@ def render_paper_figure_prompt(
         content=content,
         layout_variant=layout_variant,
         aspect_ratio=aspect_ratio,
-    ).strip() + "\n"
+    ).strip() + _plan_section(
+        caption_plan=caption_plan,
+        legend_plan=legend_plan,
+        body_reference_plan=body_reference_plan,
+        core_step_visibility_plan=core_step_visibility_plan,
+        claimed_improvement_anchor=claimed_improvement_anchor,
+        symbol_formula_necessity=symbol_formula_necessity,
+        semantic_contract=semantic_contract,
+    ) + "\n"
+
+
+def _plan_section(
+    *,
+    caption_plan: str = "",
+    legend_plan: str = "",
+    body_reference_plan: str = "",
+    core_step_visibility_plan: str = "",
+    claimed_improvement_anchor: str = "",
+    symbol_formula_necessity: str = "",
+    semantic_contract: str = "",
+) -> str:
+    """Render the optional figure-plan directives as a labelled block.
+
+    These were previously accepted by ``render_paper_figure_prompt`` /
+    ``write_paper_figure_prompt`` and wired from real CLI flags + the
+    paper-illustration skill, but silently DROPPED — so an agent following the
+    documented workflow passed ``--caption-plan`` / ``--semantic-contract`` and
+    they never reached the prompt. This wires them through. Additive: when every
+    plan is empty (all legacy usage) it returns ``""`` so the base prompt is
+    byte-for-byte unchanged; a non-empty plan is appended as an explicit
+    "must honor" constraint the image model can act on.
+    """
+    directives = [
+        ("Caption plan", caption_plan),
+        ("Legend plan", legend_plan),
+        ("Body reference", body_reference_plan),
+        ("Core steps that must stay visible", core_step_visibility_plan),
+        ("Claimed-improvement anchor", claimed_improvement_anchor),
+        ("Symbol/formula necessity", symbol_formula_necessity),
+        ("Semantic contract", semantic_contract),
+    ]
+    lines = [f"- {label}: {val.strip()}" for label, val in directives if val and val.strip()]
+    if not lines:
+        return ""
+    return "\n\nFigure plan (must honor):\n" + "\n".join(lines)
 
 
 def write_paper_figure_prompt(
@@ -334,6 +378,13 @@ def write_paper_figure_prompt(
         evidence_label=evidence_label,
         benefit_label=benefit_label,
         failure_label=failure_label,
+        caption_plan=caption_plan,
+        legend_plan=legend_plan,
+        body_reference_plan=body_reference_plan,
+        core_step_visibility_plan=core_step_visibility_plan,
+        claimed_improvement_anchor=claimed_improvement_anchor,
+        symbol_formula_necessity=symbol_formula_necessity,
+        semantic_contract=semantic_contract,
     )
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(prompt, encoding="utf-8")
@@ -359,7 +410,7 @@ def _png_dimensions(data: bytes) -> tuple[int | None, int | None]:
     return struct.unpack(">II", data[16:24])
 
 
-def _image_dimensions(path: Path, data: bytes) -> tuple[int | None, int | None]:
+def _image_dimensions(data: bytes) -> tuple[int | None, int | None]:
     if data.startswith(_PNG_MAGIC):
         return _png_dimensions(data)
     if data.startswith(_JPEG_MAGIC):
@@ -392,7 +443,7 @@ def _jpeg_dimensions(data: bytes) -> tuple[int | None, int | None]:
 
 def inspect_image(image: Path) -> dict[str, Any]:
     data = image.read_bytes()
-    width, height = _image_dimensions(image, data)
+    width, height = _image_dimensions(data)
     return {
         "image": str(image),
         "exists": True,

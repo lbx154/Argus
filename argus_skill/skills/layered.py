@@ -190,6 +190,7 @@ class LayeredSkillStore:
         raw_distill_output: str,
         on_event: Callable[[dict], None] | None = None,
         enforce_quality_gate: bool = True,
+        provisional: bool = False,
     ) -> Skill | None:
         # ``enforce_quality_gate`` is accepted for backward compatibility but the
         # underlying store ignores it — skill quality is proven by EFFECT (a
@@ -201,6 +202,7 @@ class LayeredSkillStore:
             raw_distill_output=raw_distill_output,
             on_event=on_event,
             enforce_quality_gate=enforce_quality_gate,
+            provisional=provisional,
         )
 
     def update_skill(
@@ -208,6 +210,31 @@ class LayeredSkillStore:
     ) -> Skill:
         return self.store_for_skill(skill).update_skill(
             skill, new_content, task_desc
+        )
+
+    def confirm_provisional(self, skill: Skill) -> bool:
+        return self.store_for_skill(skill).confirm_provisional(skill)
+
+    def discard_provisional(
+        self, skill: Skill, *, on_event: Callable[[dict], None] | None = None,
+    ) -> str:
+        return self.store_for_skill(skill).discard_provisional(
+            skill, on_event=on_event,
+        )
+
+    def record_reuse(
+        self,
+        skill: Skill,
+        *,
+        task_desc: str,
+        success: bool,
+        on_event: Callable[[dict], None] | None = None,
+    ) -> str:
+        return self.store_for_skill(skill).record_reuse(
+            skill,
+            task_desc=task_desc,
+            success=success,
+            on_event=on_event,
         )
 
     # ------------------------------------------------------------------
@@ -232,19 +259,19 @@ class LayeredSkillStore:
                 f"promote_to_global: skill is not in project layer: {skill.path!r}"
             )
         old_path = Path(skill.path) if skill.path else None
-        # Choose target path inside global layer.
+        # Choose target path inside global layer. Exact-name collisions are an
+        # error, never a reason to mint ``-2``/``-3`` copies.
+        if any(
+            str(summary.get("name") or "").casefold() == skill.name.casefold()
+            for summary in self.global_.list_summaries()
+        ):
+            raise ValueError(
+                f"promote_to_global: global skill name already exists: {skill.name!r}"
+            )
         base = _slugify(skill.name) or "skill"
         candidate = self.global_.skills_dir / f"{base}.md"
         if candidate.exists():
-            for idx in range(2, 1000):
-                next_candidate = self.global_.skills_dir / f"{base}-{idx}.md"
-                if not next_candidate.exists():
-                    candidate = next_candidate
-                    break
-            else:  # pragma: no cover — pathological
-                raise RuntimeError(
-                    f"promote_to_global: cannot allocate global path for {skill.name!r}"
-                )
+            raise ValueError(f"promote_to_global: target path exists: {candidate}")
         # Atomic write into global, then optionally drop the project copy.
         candidate.parent.mkdir(parents=True, exist_ok=True)
         tmp = candidate.with_name(

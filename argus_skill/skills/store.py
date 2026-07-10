@@ -15,13 +15,15 @@ caller takes the full expensive path rather than silently guessing a match.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.ports import RunnerBackend
@@ -76,6 +78,12 @@ def role_of_path(path: str, skills_dir: Path) -> str:
 
 TASK_HISTORY_MAX_ITEMS = 32
 TASK_HISTORY_MAX_ITEM_LEN = 200
+SKILL_CONFIRM_REUSES_DEFAULT = 1
+
+
+def task_fingerprint(task_desc: str) -> str:
+    normalized = " ".join((task_desc or "").casefold().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
 
 # Boilerplate prefixes that historically polluted ``task_history``.
 # These come from the supervisor's prelude (memory/identity context) and
@@ -143,6 +151,11 @@ class Skill:
     created_at: str = ""
     task_history: list[str] = field(default_factory=list)
     path: str = ""
+    skill_id: str = ""
+    created_for_task: str = ""
+    successful_reuses: int = 0
+    failed_reuses: int = 0
+    reuse_fingerprints: list[str] = field(default_factory=list)
     # Provisional = a CANDIDATE skill change (a newly-created skill, or a fresh
     # revision of an existing one) that is NOT yet proven. It is kept ("入库")
     # only when a LATER round that carries it gets an effective reviewer verdict
@@ -170,6 +183,12 @@ class Skill:
             history = f"task_history:\n{items}\n"
         provisional_lines = "provisional: true\n" if self.provisional else ""
         protected_lines = "protected: true\n" if self.protected else ""
+        reuse_history = ""
+        if self.reuse_fingerprints:
+            reuse_history = "reuse_fingerprints:\n" + "".join(
+                f"  - {json.dumps(value)}\n"
+                for value in self.reuse_fingerprints[-TASK_HISTORY_MAX_ITEMS:]
+            )
         return (
             f"---\n"
             f"name: {self.name}\n"
@@ -177,9 +196,14 @@ class Skill:
             f"category: {self.category}\n"
             f"version: {self.version}\n"
             f"created_at: {self.created_at}\n"
+            f"skill_id: {self.skill_id}\n"
+            f"created_for_task: {self.created_for_task}\n"
+            f"successful_reuses: {int(self.successful_reuses)}\n"
+            f"failed_reuses: {int(self.failed_reuses)}\n"
             f"{protected_lines}"
             f"{provisional_lines}"
             f"{history}"
+            f"{reuse_history}"
             f"---\n\n"
             f"{self.content}"
         )
@@ -207,6 +231,24 @@ class Skill:
                 except json.JSONDecodeError:
                     history.append(raw_item.strip('"'))
 
+        reuse_fingerprints: list[str] = []
+        reuse_match = re.search(
+            r"reuse_fingerprints:\s*\n((?:\s+-\s+.+\n?)+)", fm
+        )
+        if reuse_match:
+            for match in re.finditer(r"-\s+(.+)", reuse_match.group(1)):
+                raw_item = match.group(1).strip()
+                try:
+                    reuse_fingerprints.append(str(json.loads(raw_item)))
+                except json.JSONDecodeError:
+                    reuse_fingerprints.append(raw_item.strip('"'))
+
+        def _get_int(key: str) -> int:
+            try:
+                return max(0, int(_get(key) or 0))
+            except ValueError:
+                return 0
+
         return cls(
             name=_get("name"),
             description=_get("description"),
@@ -216,6 +258,11 @@ class Skill:
             created_at=_get("created_at"),
             task_history=history,
             path=path,
+            skill_id=_get("skill_id"),
+            created_for_task=_get("created_for_task"),
+            successful_reuses=_get_int("successful_reuses"),
+            failed_reuses=_get_int("failed_reuses"),
+            reuse_fingerprints=reuse_fingerprints,
             provisional=_get("provisional").strip().strip('"').strip("'").lower()
             in {"true", "yes", "1"},
             protected=_get("protected").strip().strip('"').strip("'").lower()
@@ -334,13 +381,46 @@ class SkillStore:
                 "path": str(p),
                 "role": skill_role,
                 "provisional": skill.provisional,
+                "protected": skill.protected,
+                "version": skill.version,
+                "skill_id": skill.skill_id,
+                "successful_reuses": skill.successful_reuses,
+                "failed_reuses": skill.failed_reuses,
             }
             self._summary_cache[key] = (st.st_mtime_ns, st.st_size, summary)
             summaries.append(summary)
         if len(self._summary_cache) != len(seen):
             for stale in list(self._summary_cache.keys() - seen):
                 self._summary_cache.pop(stale, None)
-        return summaries
+        # Legacy/source races created numbered files with identical display
+        # names. Never hand an ambiguous name set to the matcher (whose JSON
+        # response names skills, not paths). Keep one deterministic,
+        # evidence-favoured representative per role+name until cleanup archives
+        # the redundant files.
+        selected: dict[tuple[str, str], dict] = {}
+
+        def _rank(summary: dict) -> tuple[int, int, int, int, int, int, str]:
+            filename = Path(str(summary.get("path") or "")).stem
+            numbered = bool(re.search(r"-\d+$", filename))
+            return (
+                int(bool(summary.get("protected"))),
+                int(not bool(summary.get("provisional"))),
+                int(summary.get("successful_reuses") or 0),
+                len(summary.get("task_history") or []),
+                int(summary.get("version") or 1),
+                int(not numbered),
+                str(summary.get("path") or ""),
+            )
+
+        for summary in summaries:
+            key = (
+                str(summary.get("role") or "general"),
+                str(summary.get("name") or "").casefold(),
+            )
+            current = selected.get(key)
+            if current is None or _rank(summary) > _rank(current):
+                selected[key] = summary
+        return sorted(selected.values(), key=lambda item: str(item.get("path") or ""))
 
     def load(self, path: str) -> Skill:
         text = Path(path).read_text(encoding="utf-8")
@@ -350,6 +430,8 @@ class SkillStore:
         import os
         import threading
         import uuid
+        if not skill.skill_id:
+            skill.skill_id = uuid.uuid4().hex
         path = Path(skill.path) if skill.path else self._build_skill_path(skill)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(
@@ -382,7 +464,7 @@ class SkillStore:
         task_description: str,
         raw_distill_output: str,
         on_event: "Callable[[dict], None] | None" = None,
-        enforce_quality_gate: bool = True,
+        enforce_quality_gate: bool = True,  # noqa: ARG002 — keyword compat, see docstring
         provisional: bool = False,
     ) -> "Skill | None":
         """Parse the reviewer-authored skill markdown and persist it.
@@ -411,9 +493,21 @@ class SkillStore:
             version=1,
             created_at=datetime.now(timezone.utc).isoformat(),
             task_history=[],
+            skill_id=uuid.uuid4().hex,
+            created_for_task=task_fingerprint(task_description),
             provisional=bool(provisional),
         )
         append_task_history(skill, task_description)
+        if any(
+            str(summary.get("name") or "").casefold() == skill.name.casefold()
+            for summary in self.list_summaries()
+        ):
+            if on_event is not None:
+                on_event({
+                    "type": "skill.distill.rejected",
+                    "text": f"skill name already exists: {skill.name}",
+                })
+            return None
         self.save(skill)
         return skill
 
@@ -494,6 +588,65 @@ class SkillStore:
             except OSError:
                 log.debug("confirm: prev-snapshot unlink failed", exc_info=True)
         return True
+
+    def record_reuse(
+        self,
+        skill: Skill,
+        *,
+        task_desc: str,
+        success: bool,
+        on_event: "Callable[[dict], None] | None" = None,
+    ) -> str:
+        """Record one independent post-creation use of ``skill``.
+
+        The creation mission never counts as proof. A repeated identical task
+        fingerprint counts once, preventing retries of the creation task from
+        confirming a candidate. One later successful independent reuse confirms
+        by default; operators may raise ``ARGUS_SKILL_CONFIRM_REUSES``.
+        """
+        if not skill.path:
+            return "noop"
+        fingerprint = task_fingerprint(task_desc)
+        if not fingerprint:
+            return "noop"
+        if skill.created_for_task and fingerprint == skill.created_for_task:
+            return "origin"
+        if fingerprint in skill.reuse_fingerprints:
+            return "duplicate"
+        skill.reuse_fingerprints.append(fingerprint)
+        skill.reuse_fingerprints = skill.reuse_fingerprints[-TASK_HISTORY_MAX_ITEMS:]
+        append_task_history(skill, task_desc)
+        if success:
+            skill.successful_reuses += 1
+        else:
+            skill.failed_reuses += 1
+        self.save(skill)
+
+        try:
+            threshold = max(
+                1,
+                int(os.environ.get(
+                    "ARGUS_SKILL_CONFIRM_REUSES",
+                    str(SKILL_CONFIRM_REUSES_DEFAULT),
+                ) or SKILL_CONFIRM_REUSES_DEFAULT),
+            )
+        except ValueError:
+            threshold = SKILL_CONFIRM_REUSES_DEFAULT
+        if skill.provisional and success and skill.successful_reuses >= threshold:
+            if self.confirm_provisional(skill):
+                if on_event is not None:
+                    on_event({
+                        "type": "skill.confirmed",
+                        "skill_id": skill.skill_id,
+                        "skill_name": skill.name,
+                        "successful_reuses": skill.successful_reuses,
+                        "text": (
+                            f"confirmed {skill.name} after "
+                            f"{skill.successful_reuses} independent successful reuses"
+                        ),
+                    })
+                return "confirmed"
+        return "recorded"
 
     def discard_provisional(
         self,

@@ -416,7 +416,7 @@ def render_reset_cmd(chat_state: dict[str, Any]) -> str:
     return "reset: no active codex session"
 
 
-def render_skills_cmd(cwd: Path, tokens: Sequence[str]) -> str:
+def render_skills_cmd(tokens: Sequence[str]) -> str:
     op = (tokens[0].lower() if tokens else "ls")
     if op in ("ls", "list"):
         from ..core import paths as core_paths

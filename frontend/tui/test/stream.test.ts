@@ -1,0 +1,199 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { ApiClient, parseSSEFrames } from '../src/api.js';
+import { messageId, mergeFragment, renderEvent } from '../src/eventRender.js';
+
+test('parseSSEFrames decodes whole frames and keeps the partial tail', () => {
+  const { frames, rest } = parseSSEFrames(
+    'data: {"type":"phase","label":"Manager · reading"}\n\n' +
+      'data: {"type":"delta","text":"你好","message_id":"m1"}\n\n' +
+      'data: {"type":"delta","text":"需要', // partial — no terminating blank line
+  );
+  assert.equal(frames.length, 2);
+  assert.equal(frames[0].type, 'phase');
+  assert.equal(frames[1].type, 'delta');
+  assert.equal(frames[1].text, '你好');
+  assert.ok(rest.startsWith('data: {"type":"delta","text":"需要')); // buffered for the next chunk
+});
+
+test('parseSSEFrames handles a frame split across two chunks', () => {
+  const a = parseSSEFrames('data: {"type":"del');
+  assert.equal(a.frames.length, 0);
+  const b = parseSSEFrames(a.rest + 'ta","text":"hi","message_id":"m1"}\n\n');
+  assert.equal(b.frames.length, 1);
+  assert.equal(b.frames[0].text, 'hi');
+});
+
+test('parseSSEFrames skips a malformed data line without throwing', () => {
+  const { frames } = parseSSEFrames('data: not-json\n\ndata: {"type":"done","result":{"kind":"chat"}}\n\n');
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].type, 'done');
+});
+
+test('messageId coalesces ui.argus reply blocks by message_id', () => {
+  // Same message_id across blocks → they belong to one growing reply row.
+  assert.equal(messageId({ type: 'ui.argus', text: 'block one', message_id: 'argus-1' } as never), 'argus-1');
+  assert.equal(messageId({ type: 'ui.argus', text: 'x' } as never), '');
+  assert.equal(messageId({ type: 'ui.operator', text: 'hi' } as never), '');
+});
+
+test('mergeFragment grows a multi-block Manager reply (nothing dropped)', () => {
+  let acc = '';
+  acc = mergeFragment(acc, 'block one');
+  acc = mergeFragment(acc, 'block two');
+  assert.equal(acc, 'block one\nblock two');
+  // a cumulative resend replaces; a duplicate is skipped
+  assert.equal(mergeFragment('你好', '你好,需要帮忙吗'), '你好,需要帮忙吗');
+  assert.equal(mergeFragment('full reply here', 'reply'), 'full reply here');
+});
+
+test('renderEvent surfaces the guardian signals that actually persist to the feed', () => {
+  // The daemon drops round.watchdog.* in "signal" mode; render the ones that persist.
+  const stall = renderEvent({ type: 'round.stall', text: 'no forward progress 2/3 rounds' } as never);
+  assert.equal(stall?.label, 'Watch');
+  assert.equal(stall?.tone, 'warn');
+  assert.equal(renderEvent({ type: 'round.reviewer_backend_failure', text: 'down' } as never)?.tone, 'err');
+  assert.equal(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as never)?.tone, 'err');
+});
+
+test('renderEvent surfaces ANY operator_alert event loud, even an unknown type', () => {
+  const r = renderEvent({ type: 'some.new.guardian.signal', operator_alert: true, text: 'look here' } as never);
+  assert.equal(r?.label, 'Watch');
+  assert.equal(r?.tone, 'err');
+  assert.ok(r?.text.includes('look here'));
+});
+
+test('renderEvent accepts round and round_index lifecycle schemas', () => {
+  assert.equal(
+    renderEvent({ type: 'round.start', round: 1 } as never)?.text,
+    'round 1',
+  );
+  assert.equal(
+    renderEvent({ type: 'round.started', round_index: 2 } as never)?.text,
+    'round 2',
+  );
+});
+
+test('default feed hides internal actions but keeps settled activity milestones', () => {
+  assert.equal(renderEvent({ type: 'engineer.progress', kind: 'reasoning', text: 'private thought' } as never), null);
+  assert.equal(renderEvent({ type: 'engineer.progress', kind: 'command_execution', command: 'pytest' } as never), null);
+  const milestone = renderEvent({
+    type: 'role.activity', role: 'engineer', status: 'done', milestone: true,
+    label: 'generated 6 candidate ideas',
+  } as never);
+  assert.equal(milestone?.text, 'generated 6 candidate ideas');
+  assert.equal(milestone?.tone, 'ok');
+});
+
+test('default feed hides reviewer protocol JSON and empty phase markers', () => {
+  assert.equal(renderEvent({
+    type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
+    text: '{"status":"done","reason":"verified"}',
+  } as never), null);
+  assert.equal(renderEvent({
+    type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
+    text: 'I am rerunning the tests.',
+  } as never)?.text, 'I am rerunning the tests.');
+  assert.equal(renderEvent({ type: 'life.phase.started', agent_layer: 'reviewer' } as never), null);
+});
+
+test('manager stage decision renders its real target_stage', () => {
+  const row = renderEvent({
+    type: 'life.manager.stage_decision', action: 'advance',
+    current_stage: 'inspect', target_stage: 'implement_cli', reason: 'verified',
+  } as never);
+  assert.ok(row?.text.includes('advance → implement_cli'));
+});
+
+test('protected artifact reads carry the configured bearer token', async () => {
+  const originalFetch = globalThis.fetch;
+  let authorization = '';
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    authorization = new Headers(init?.headers).get('Authorization') ?? '';
+    return new Response(JSON.stringify({ artifacts: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test', token: 'secret' });
+    assert.deepEqual(await api.getArtifacts(), []);
+    assert.equal(authorization, 'Bearer secret');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ink API errors include the backend detail instead of only a status code', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    JSON.stringify({ detail: 'invalid or missing bearer token' }),
+    { status: 401, headers: { 'Content-Type': 'application/json' } },
+  )) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
+    await assert.rejects(() => api.getArtifacts(), /401: invalid or missing bearer token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ink can create a global daemon with auth, name, and objective', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = '';
+  let seenAuth = '';
+  let seenBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(input);
+    seenAuth = new Headers(init?.headers).get('Authorization') ?? '';
+    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      sid: 's-new12345', rc: 0, spawned: true, objective: seenBody.objective,
+      daemon: { alive: true, pid: 42 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-old', token: 'secret' });
+    const created = await api.createDaemon('reproduce benchmark', 'Kernel run');
+    assert.equal(created.sid, 's-new12345');
+    assert.equal(created.spawned, true);
+    assert.match(seenUrl, /\/api\/daemons$/);
+    assert.equal(seenAuth, 'Bearer secret');
+    assert.deepEqual(seenBody, { objective: 'reproduce benchmark', name: 'Kernel run' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ink Manager requests forward AbortSignal and suppress frames after cancellation', async () => {
+  const originalFetch = globalThis.fetch;
+  const seenSignals: Array<AbortSignal | null | undefined> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenSignals.push(init?.signal);
+    if (String(input).endsWith('/message/stream')) {
+      return new Response('data: {"type":"delta","text":"stale","message_id":"old"}\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
+    return new Response(JSON.stringify({ kind: 'chat', reply: 'ok' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-old' });
+    const streamController = new AbortController();
+    streamController.abort();
+    let deltas = 0;
+    await api.messageStream('old request', { onDelta: () => { deltas += 1; } }, streamController.signal);
+    assert.equal(deltas, 0);
+    assert.strictEqual(seenSignals[0], streamController.signal);
+
+    const messageController = new AbortController();
+    assert.equal((await api.message('fallback', messageController.signal)).reply, 'ok');
+    assert.strictEqual(seenSignals[1], messageController.signal);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

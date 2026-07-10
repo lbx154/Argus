@@ -189,8 +189,12 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
 
 def test_execute_team_answer_uses_full_pipeline() -> None:
     """A TEAM route answer must not short-circuit."""
-    backend = _FakeBackend(classify_answer="TEAM")
+    backend = _FakeBackend(
+        classify_answer="TEAM",
+        response_message='{"steps":[{"title":"Check the premise","detail":"decide whether it is true"},{"title":"Build the argument"},{"title":"Verify the conclusion"}]}',
+    )
     runner = _make_runner(backend)
+    runner.planner_backend = backend
     out = runner._maybe_chat_outcome(objective="optimize the kernel", sink=_RecordingSink())
     assert out is None
 
@@ -220,8 +224,18 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
     SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
     setting a sentinel that would raise if called.
     """
-    backend = _FakeBackend(classify_answer="TEAM")
+    backend = _FakeBackend(
+        classify_answer="TEAM",
+        response_message=(
+            '{"steps":['
+            '{"title":"Check the premise","detail":"decide whether it is true"},'
+            '{"title":"Build the argument"},'
+            '{"title":"Verify the conclusion"}'
+            ']}'
+        ),
+    )
     runner = _make_runner(backend)
+    runner.planner_backend = backend
     sink = _RecordingSink()
 
     # Replace the chat path with a sentinel — if the runner mistakenly
@@ -248,10 +262,13 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
         reason: str = ""
         last_thread_id: str | None = None
 
+    planned_tasks: list[str] = []
+
     class _StubLoop:
         def __init__(self, **kw: Any) -> None:
             self.kw = kw
         def run(self, *args: Any, **kw: Any) -> _StubLoopOutcome:
+            planned_tasks.append(str(args[0]))
             return _StubLoopOutcome()
 
     runner._SkillLoop = _StubLoop
@@ -273,6 +290,20 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
 
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
+    assert any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
+    assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
+    assert "Check the premise" in planned_tasks[0]
+    assert any(event.get("type") == "plan.completed" for event in sink.events)
+
+    backend.calls.clear()
+    planned_tasks.clear()
+    runner.execute(
+        objective="planner already authored this backlog item",
+        sink=_RecordingSink(),
+        preplanned=True,
+    )
+    assert not any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
+    assert planned_tasks and "## Planner execution plan" not in planned_tasks[0]
 
 
 def test_chat_path_emits_minimum_event_sequence() -> None:

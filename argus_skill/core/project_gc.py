@@ -14,6 +14,9 @@ This module adds a conservative, REVERSIBLE garbage collector:
      touched), and
   2. **stale** — nothing under it has been modified within
      ``retention_days``.
+* Newly-created empty sessions receive a grace period. This closes the race
+  where another user's concurrent daemon startup sweeps the session between
+  ``POST /api/daemons`` and the TUI's first snapshot/message.
 * Removal is a **move to ``projects_trash/<date>/``**, never an ``rm`` —
   so an over-eager prune is fully recoverable (the operator has been
   bitten by irreversible deletes before).
@@ -35,6 +38,7 @@ from .daemon_lock import is_pid_running, read_daemon_pid
 log = logging.getLogger(__name__)
 
 _DEFAULT_RETENTION_DAYS = 30
+_DEFAULT_EMPTY_GRACE_SECONDS = 3600.0
 _LOCK_FILES = ("daemon.pid", "repl.pid")
 # Files whose mtime signals real activity in a project (appends bump the
 # file mtime, not always the dir mtime, so we check them explicitly).
@@ -44,6 +48,9 @@ _ACTIVITY_FILES = (
     "daemon.status.json",
     "continuous.json",
     "transcript.jsonl",
+    # An idle web session has no events/backlog yet. Its session metadata is the
+    # only activity signal between creation and the operator's first message.
+    "session.json",
 )
 
 
@@ -87,8 +94,9 @@ def _project_is_empty(project_dir: Path) -> bool:
 
     Empty = no backlog items, no events, no saved conversation, no
     named/objective session, no continuous objective. Such dirs are minted by
-    every bare ``argus-skill`` launch (a fresh session) and accumulate fast;
-    they carry zero data, so moving them to trash is safe even when recent.
+    every bare ``argus-skill`` launch (a fresh session) and accumulate fast.
+    The caller applies an age grace before moving one; this predicate only
+    describes content and must not decide startup liveness by itself.
     """
     import json
 
@@ -118,6 +126,7 @@ def gc_stale_projects(
     retention_days: int | None = None,
     dry_run: bool = False,
     sweep_empty: bool = True,
+    empty_grace_seconds: float = _DEFAULT_EMPTY_GRACE_SECONDS,
     now: float | None = None,
     exclude: set[str] | None = None,
 ) -> list[str]:
@@ -125,7 +134,9 @@ def gc_stale_projects(
 
     A project is pruned when it is not-live (no running daemon/repl) AND either
     (a) untouched for ``retention_days``, or (b) ``sweep_empty`` and it is
-    content-less litter (regardless of age — every bare launch mints one).
+    content-less litter older than ``empty_grace_seconds``. The grace period is
+    load-bearing for concurrent Web/TUI startups: a fresh idle session exists
+    briefly without a daemon, backlog, transcript, or event.
     Returns the fingerprints pruned (or that WOULD be, when ``dry_run``).
 
     ``exclude`` names project fingerprints that must NEVER be pruned. A startup
@@ -141,6 +152,7 @@ def gc_stale_projects(
     exclude = exclude or set()
     now = time.time() if now is None else now
     cutoff = now - retention_days * 86400.0
+    empty_cutoff = now - max(0.0, float(empty_grace_seconds))
 
     root = (global_root or core_paths.global_root()) / "projects"
     if not root.exists():
@@ -158,8 +170,13 @@ def gc_stale_projects(
                 continue  # the caller's own active session — never prune
             if _project_is_live(project_dir):
                 continue
-            empty = sweep_empty and _project_is_empty(project_dir)
-            if not empty and _project_last_active(project_dir) >= cutoff:
+            last_active = _project_last_active(project_dir)
+            empty = (
+                sweep_empty
+                and last_active < empty_cutoff
+                and _project_is_empty(project_dir)
+            )
+            if not empty and last_active >= cutoff:
                 continue  # not empty and too recent
             pruned.append(project_dir.name)
             if dry_run:

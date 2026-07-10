@@ -170,7 +170,7 @@ class _ManagerSession:
         prompt: str,
         options: Any,
         run_label: str,
-        resume_thread_id: str | None = None,  # IGNORED: persistent session wins.
+        resume_thread_id: str | None = None,  # noqa: ARG002 — runner Protocol parity; ignored
     ) -> Any:
         """Run one turn on the shared persistent session, serialized by flock.
 
@@ -309,9 +309,6 @@ class StageTransition:
     source: str = "manager_llm"
     # Non-secret parser/runtime code for log triage (never raw model output).
     diagnostic: str = ""
-
-    def is_write(self) -> bool:
-        return self.action in ("advance", "rollback", "complete")
 
 
 def _read_json_object(path: Path) -> dict[str, Any] | None:
@@ -716,7 +713,17 @@ class Manager:
                 return None
             from ..core.models import RunnerOptions
 
-            _backend = self._session or self.runner
+            # Config-intent is a STATELESS yes/no check on the CURRENT message
+            # ("does this ask to change a knob?") — it needs no prior turns. Run it
+            # FRESH on the raw backend (``self.runner``), NOT through ``self._session``:
+            # the persistent Manager session reloads its FULL history on every
+            # resume (tens of seconds on a long-lived copilot session — it was
+            # adding ~30s to EVERY operator message at the cockpit front door), and
+            # continuing it here would also pollute that conversation with throwaway
+            # classify prompts. ``route`` is already run fresh at the front door for
+            # exactly this reason (see ``apps/_runtime.py``'s ``_classify_run_exec``);
+            # this makes config-intent match instead of resuming the big session.
+            _backend = self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 return _backend.run_exec(
@@ -726,9 +733,50 @@ class Manager:
                         skip_git_repo_check=True,
                     ),
                     run_label="manager-config-intent",
+                    resume_thread_id=None,
                 )
 
         return classify_config_intent(text, run_exec=run_exec)
+
+    def classify_front_door(self, text: str, *, run_exec: Any = None) -> Any:
+        """Merged cockpit front-door classify: ONE model call returning BOTH
+        ``(config-intent | None, route)`` where route is ``"simple"``/
+        ``"complex"``. Replaces the two sequential ``classify_config_intent`` +
+        ``route`` calls the cockpit used to make, halving that turn's cold-start
+        latency. The Manager owns the decision; ``run_exec`` is the LLM caller.
+
+        Same discipline as ``classify_config_intent``: built FRESH on the raw
+        backend (``self.runner``, NEVER ``self._session`` — no giant-session
+        resume, no pollution), ``resume_thread_id=None``. Effort comes from
+        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a two-axis
+        label classification needs no heavy reasoning, and ``low`` is what makes
+        this cheap. Biases each axis to its own safe default on any error."""
+        from ..life.router import classify_front_door
+
+        if run_exec is None:
+            if self.runner is None:
+                return None, "complex"
+            import os
+
+            from ..core.models import RunnerOptions
+
+            _backend = self.runner
+            _effort = os.environ.get(
+                "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low"
+            ).strip() or "low"
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort=_effort,
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-frontdoor-classify",
+                    resume_thread_id=None,
+                )
+
+        return classify_front_door(text, run_exec=run_exec)
 
     def route(self, text: str, *, run_exec: Any = None) -> str:
         """The Manager's lego-block router: pick the SMALLEST block that fits the

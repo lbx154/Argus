@@ -257,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.watch)
         + bool(args.follow)
         + bool(getattr(args, "dashboard", False))
+        + bool(getattr(args, "web", False))
         + bool(args.notify)
         + bool(args.init_identity)
         + bool(args.setup)
@@ -323,6 +324,19 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "dashboard", False):
         from ...tools.dashboard import serve
         return serve(port=int(getattr(args, "dashboard_port", 8787) or 8787))
+    if getattr(args, "web", False):
+        try:
+            from ...webapi.server import serve as serve_web
+        except ImportError:
+            sys.stderr.write(
+                "argus-skill: --web needs the web extra — install it with "
+                "`pip install 'argus-skill[web]'` (fastapi + uvicorn).\n"
+            )
+            return 2
+        return serve_web(
+            host=str(getattr(args, "web_host", "127.0.0.1") or "127.0.0.1"),
+            port=int(getattr(args, "web_port", 8799) or 8799),
+        )
     if args.notify:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
     if args.init_identity:

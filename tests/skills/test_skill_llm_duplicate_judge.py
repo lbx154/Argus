@@ -24,7 +24,10 @@ _VALID_SKILL = (
     "## Description\n{desc}\n\n"
     "## Category\nmisc\n\n"
     "## When to use\nWhen this applies.\n\n"
-    "## How to solve\nDo the thing.\n"
+    "## How to solve\nDo the thing.\n\n"
+    "## Sources\n"
+    "- [Python documentation](https://docs.python.org/3/) — implementation reference.\n"
+    "- [Git documentation](https://git-scm.com/docs) — workflow reference.\n"
 )
 
 
@@ -79,6 +82,22 @@ def test_llm_judge_allows_when_model_says_not_duplicate(tmp_path: Path) -> None:
     assert len(store.list_summaries()) == 2
 
 
+def test_scientist_candidate_uses_zero_token_exact_dedupe_only(tmp_path: Path) -> None:
+    store = _store_with_existing(tmp_path)
+
+    class _MustNotRun:
+        def run_exec(self, **_kwargs):  # pragma: no cover - must stay zero-call
+            raise AssertionError("Scientist candidate must not trigger a second LLM judge")
+
+    router = SkillRouter(skill_store=store, judge_runner=_MustNotRun(), judge_model="m")
+    created = router.create_candidate(
+        _content(name="Different Exact Name", desc="Different exact description."),
+        task="new task",
+    )
+    assert created is not None
+    assert created.provisional is True
+
+
 def test_llm_judge_empty_library_short_circuits_without_calling_runner(tmp_path: Path) -> None:
     """An empty library can never contain a duplicate — must not waste a
     call on the judge runner (and must not accidentally consume its queue)."""
@@ -99,12 +118,15 @@ def test_no_judge_runner_rejects_when_library_is_nonempty(tmp_path: Path) -> Non
     store = _store_with_existing(tmp_path, name="Write a hello message")
     router = SkillRouter(skill_store=store)  # no judge_runner
     dup_content = (
-        "## Title\nWrite a hello message\n\n"
-        "## Description\nExisting capability.\n\n"
-        "## Category\nmisc\n\n"
-        "## When to use\nWhen this applies.\n\n"
-        "## How to solve\nDo the thing.\n"
-    )
+        "## Title\nAlternative hello workflow\n\n"
+        "## Description\nDifferent wording around the same capability.\n\n"
+            "## Category\nmisc\n\n"
+            "## When to use\nWhen this applies.\n\n"
+            "## How to solve\nDo the thing.\n\n"
+            "## Sources\n"
+            "- [Python documentation](https://docs.python.org/3/) — implementation reference.\n"
+            "- [Git documentation](https://git-scm.com/docs) — workflow reference.\n"
+        )
     events: list[dict] = []
     counts = router.apply_ops(
         [{"op": "create", "content": dup_content, "why": "x"}],

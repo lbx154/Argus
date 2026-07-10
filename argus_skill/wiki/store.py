@@ -173,15 +173,6 @@ class WikiStore:
             src.unlink()
         return dest
 
-    def iter_run_sources(self) -> list[SourceRun]:
-        out: list[SourceRun] = []
-        runs_root = self.root / "sources" / "runs"
-        if not runs_root.exists():
-            return out
-        for md in sorted(runs_root.rglob("*.md")):
-            out.append(parse_frontmatter(md.read_text(encoding="utf-8"), SourceRun))
-        return out
-
     def iter_note_sources(self) -> list[SourceNote]:
         out: list[SourceNote] = []
         notes_root = self.root / "sources" / "notes"

@@ -193,6 +193,18 @@ def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
 
 
+def fatal_error_looks_like_model_configuration(fatal_error: str | None) -> bool:
+    """True for an explicit CLI diagnostic rejecting the selected model."""
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    return (
+        ("--model" in low and "not available" in low)
+        or "unknown model" in low
+        or "unsupported model" in low
+    )
+
+
 def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> bool:
     """Return True for Codex CLI reconnect progress notices.
 
@@ -1112,6 +1124,8 @@ class SupervisedEngineer:
             if on_event:
                 on_event({
                     "type": "round.start",
+                    "round_index": round_index,
+                    # Kept for readers of the historical event schema.
                     "round": round_index,
                     "round_max": supervised_config.max_rounds,
                     "text": f"engineer round {round_index}"
@@ -1233,6 +1247,45 @@ class SupervisedEngineer:
                 ))
                 return (
                     "error",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    None,
+                )
+
+            if fatal_error_looks_like_model_configuration(fatal_error):
+                review = model_configuration_review_decision(
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.model_configuration_error",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "agent_layer": "engineer",
+                        "model": self.engineer_config.model,
+                        "error": fatal_error,
+                        "operator_alert": True,
+                        "text": review.reason,
+                    })
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text="review: skipped (model unavailable)",
+                        review_skipped=True,
+                    ))
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    checks=[],
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                return (
+                    "blocked",
                     rounds,
                     last_engineer_message,
                     review.reason,
@@ -1655,7 +1708,6 @@ class SupervisedEngineer:
 
             terminal_status, reason = self._classify(
                 review=review,
-                checks_results=checks_results,
                 no_progress_streak=no_progress_streak,
                 no_progress_threshold=supervised_config.no_progress_threshold,
                 semantic_stall_streak=semantic_stall_streak,
@@ -1773,7 +1825,6 @@ class SupervisedEngineer:
     def _classify(
         *,
         review: ReviewDecision,
-        checks_results: list[CheckResult],
         no_progress_streak: int,
         no_progress_threshold: int,
         semantic_stall_streak: int = 0,
@@ -1850,6 +1901,33 @@ def backend_failure_review_decision(
     )
 
 
+def model_configuration_review_decision(
+    *, fatal_error: str | None, exit_code: int,
+) -> ReviewDecision:
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    return ReviewDecision(
+        status="blocked",
+        reason=(
+            "Configured model is unavailable; Engineer and Reviewer were not "
+            f"run. error={error_text}"
+        ),
+        next_action="Select a model supported by the configured CLI, then retry.",
+        operator_question=(
+            "The configured model is unavailable. Choose a valid model in "
+            "/config, then tell me to retry this task."
+        ),
+        round_summary_markdown=(
+            "# Review Summary\n\n"
+            "- Reviewer skipped because the selected model was rejected before "
+            "a model turn started.\n"
+            f"- Error: {error_text}\n"
+        ),
+        completion_summary_markdown="",
+        failure_cause="environmental",
+        backend_unavailable=True,
+    )
+
+
 def daemon_stop_review_decision(
     *,
     fatal_error: str | None,
@@ -1911,9 +1989,11 @@ __all__ = [
     "SupervisedEngineer",
     "LoopOutcome",
     "backend_failure_review_decision",
+    "model_configuration_review_decision",
     "daemon_stop_review_decision",
     "operator_abort_review_decision",
     "fatal_error_looks_like_backend_failure",
+    "fatal_error_looks_like_model_configuration",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_operator_abort_request",
     "fatal_error_looks_like_effective_progress_timeout",

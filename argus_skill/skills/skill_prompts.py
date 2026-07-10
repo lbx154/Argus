@@ -17,7 +17,6 @@ task's solution. Distilled skills are written for the engineer model that will
 execute them, so they must be explicit and executable.
 """
 
-
 def _author_role_context() -> str:
     return format_role_context(
         "Argus author role skill",
@@ -256,16 +255,18 @@ class Prompts:
 
         if not name:
             # Fall back to the first non-meta markdown heading.
+            reserved = {
+                "skill name", "title", "name", "description", "category",
+                "when to use", "when not to use", "how to solve", "examples",
+                "step-by-step", "step by step", "playbook", "sources",
+                "pitfalls", "task",
+            }
             for m in re.finditer(r"^\s{0,3}#{1,6}\s*(.+?)\s*$", raw, re.MULTILINE):
                 candidate = clean(m.group(1))
                 low = candidate.casefold()
                 if not candidate:
                     continue
-                if any(k in low for k in (
-                    "skill name", "title", "description", "category",
-                    "when to use", "how to", "examples", "step-by-step",
-                    "step by step", "playbook",
-                )):
+                if low in reserved:
                     continue
                 name = candidate
                 break

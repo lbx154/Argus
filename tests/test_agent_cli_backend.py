@@ -293,12 +293,51 @@ def test_run_exec_writes_full_agent_io_log(
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
     assert rows[1]["stream"] == "stdout"
+    assert rows[1]["model"] == "gpt-5.5"
     assert rows[1]["line"].startswith('{"type"')
     assert rows[2]["stream"] == "stderr"
+    assert rows[2]["model"] == "gpt-5.5"
     assert rows[-1]["agent_messages"] == ["final answer"]
     assert rows[-1]["stdout_lines"]
     assert rows[-1]["stderr_lines"] == ["tool stderr line"]
     assert rows[-1]["thread_id"] == "thread-1"
+
+
+def test_compaction_agent_io_is_bounded_and_drops_token_stream(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    backend = AgentCliBackend(backend="copilot")
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        assert self.event_callback is not None
+        self.event_callback("stdout", '{"type":"assistant.message_delta","data":{"deltaContent":"huge"}}')
+        return _make_argus_result(
+            command=["copilot", "-p", "HUGE PROMPT"],
+            agent_messages=["result"],
+            json_events=[{"large": "payload"}],
+            stdout_lines=["huge stream payload"],
+            stderr_lines=[],
+            thread_id="compact-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    backend.run_exec(
+        prompt="private compaction prompt" * 100,
+        options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
+        run_label="skill.compaction_batch",
+    )
+
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [row["type"] for row in rows] == ["agent.io.start", "agent.io.complete"]
+    assert "prompt" not in rows[0] and rows[0]["prompt_chars"] > 100
+    assert "command" not in rows[1]
+    assert "stdout_lines" not in rows[1]
+    assert "json_events" not in rows[1]
+    assert rows[1]["stdout_line_count"] == 1
 
 
 def test_run_exec_normalizes_recoverable_reconnect_notice(

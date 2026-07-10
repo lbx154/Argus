@@ -21,7 +21,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .config import STRATEGY_TYPES, MetaConfig
+from .config import STRATEGY_TYPES
 from .ledger import MetaLedger
 from .saturation import SaturationSignal
 
@@ -44,7 +44,6 @@ def build_meta_block(
     ledger: MetaLedger,
     strategy_pool: str,
     mode: str,
-    config: MetaConfig | None = None,
 ) -> str:
     """Render the meta-control block appended to the planner prompt.
 

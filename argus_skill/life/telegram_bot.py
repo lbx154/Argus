@@ -453,7 +453,7 @@ class _CommandRouter:
 
     def _cmd_skills(self, arg: str) -> None:
         tokens = shlex.split(arg) if arg.strip() else []
-        self._reply(f"<pre>{_esc(render_skills_cmd(self.life_dir, tokens))}</pre>")
+        self._reply(f"<pre>{_esc(render_skills_cmd(tokens))}</pre>")
 
     def _cmd_backlog(self, arg: str) -> None:
         from .memory import LifeMemory

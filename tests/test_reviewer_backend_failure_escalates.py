@@ -108,6 +108,54 @@ def test_empty_clean_output_stays_continue() -> None:
     assert decision.backend_unavailable is False
 
 
+def test_unavailable_engineer_model_blocks_once_with_actionable_error(
+    tmp_path: Path,
+) -> None:
+    events: list[dict] = []
+
+    class _UnavailableModelEngineer:
+        calls = 0
+
+        def run_exec(self, **_kwargs):
+            self.calls += 1
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[],
+                fatal_error='Error: Model "gpt5.6" from --model flag is not available.',
+            )
+
+    class _ReviewerMustNotRun:
+        def evaluate(self, **_kwargs):  # pragma: no cover - contract assertion
+            raise AssertionError("Reviewer must not run when Engineer model is invalid")
+
+    engineer_runner = _UnavailableModelEngineer()
+    engine = SupervisedEngineer(
+        engineer_runner=engineer_runner,
+        reviewer=_ReviewerMustNotRun(),
+        engineer_config=EngineerConfig(model="gpt5.6"),
+        reviewer_config=ReviewerConfig(model="gpt5.6"),
+    )
+    status, rounds, _message, reason, _tid = engine.run(
+        objective="prove a theorem",
+        engineer_prompt_builder=lambda _next, _static=True: "prove it",
+        supervised_config=SupervisedConfig(
+            max_rounds=10,
+            backend_failure_backoff_seconds=0,
+            effective_progress_timeout_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "blocked"
+    assert engineer_runner.calls == 1
+    assert len(rounds) == 1
+    assert "model is unavailable" in reason.lower()
+    alerts = [event for event in events if event.get("type") == "round.model_configuration_error"]
+    assert len(alerts) == 1 and alerts[0]["operator_alert"] is True
+
+
 # --------------------------------------------------------------------------- #
 # Loop-level contract: streak of reviewer-backend deaths escalates to "error"
 # --------------------------------------------------------------------------- #

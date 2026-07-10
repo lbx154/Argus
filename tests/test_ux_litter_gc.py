@@ -1,9 +1,9 @@
-"""UX-C: hide empty-session litter from the picker + GC sweeps it.
+"""UX-C: hide empty-session litter from the picker + GC sweeps it safely.
 
 Every bare ``argus-skill`` launch mints a fresh session dir; they piled up to 69
 empty shells that made the resume picker useless. list_sessions(include_empty=
-False) hides content-less sessions (unless live), and GC now sweeps them to
-trash regardless of age.
+False) hides content-less sessions (unless live), and GC sweeps them to trash
+after a startup grace period.
 """
 from __future__ import annotations
 
@@ -23,11 +23,13 @@ def _mk(gr: Path, sid: str, *, name="", objective="", backlog="", pid=None, now=
         meta["display_name"] = name
     if objective:
         meta["objective"] = objective
-    (d / "session.json").write_text(json.dumps(meta), encoding="utf-8")
+    session = d / "session.json"
+    session.write_text(json.dumps(meta), encoding="utf-8")
     if backlog:
         (d / "backlog.jsonl").write_text(backlog, encoding="utf-8")
     if pid is not None:
         (d / "daemon.pid").write_text(str(pid), encoding="utf-8")
+    os.utime(session, (now, now))
     os.utime(d, (now, now))
     return d
 
@@ -59,16 +61,25 @@ def test_project_is_empty_detection(tmp_path):
     assert _project_is_empty(work) is False
 
 
-def test_gc_sweeps_empty_regardless_of_age(tmp_path):
-    # all are RECENT (now=200, so not past the 30d retention) — only the empty
-    # ones get swept; named/content/live survive.
+def test_gc_protects_recent_empty_session_during_startup(tmp_path):
+    # This is the exact Web/TUI race: POST /api/daemons created an idle session,
+    # then another user's daemon boot ran GC before the first snapshot/message.
+    _mk(tmp_path, "s-empty1", now=200)
+
+    assert gc_stale_projects(tmp_path, now=300.0) == []
+    assert (tmp_path / "projects" / "s-empty1").is_dir()
+
+
+def test_gc_sweeps_empty_after_startup_grace(tmp_path):
+    # Empty sessions older than the one-hour grace remain reversible litter and
+    # are swept; named/content/live sessions still survive.
     _mk(tmp_path, "s-empty1", now=200)
     _mk(tmp_path, "s-empty2", now=200)
     _mk(tmp_path, "s-named1", name="real", now=200)
     _mk(tmp_path, "s-work1", backlog='{"id":"a"}', now=200)
     _mk(tmp_path, "s-live1", pid=os.getpid(), now=200)
 
-    pruned = set(gc_stale_projects(tmp_path, now=300.0))
+    pruned = set(gc_stale_projects(tmp_path, now=4000.0))
     assert pruned == {"s-empty1", "s-empty2"}
     # survivors still on disk; litter moved to trash (reversible, not deleted)
     for keep in ("s-named1", "s-work1", "s-live1"):

@@ -261,3 +261,62 @@ def test_copilot_tool_call_and_result_emit_progress() -> None:
     kinds = [e["kind"] for e in sink.events if e["type"] == "engineer.progress"]
     assert "tool_use" in kinds
     assert "tool_result" in kinds
+
+
+# ---------------------------------------------------------------------------
+# StreamProgressRelay — the callback (and its copilot delta-accumulation buffer)
+# MUST be reused across stdout lines. Regression: the runner rebuilt it per line,
+# resetting the buffer every token, so copilot's per-token reply deltas were
+# emitted standalone and the cockpit showed ONE WORD PER LINE.
+# ---------------------------------------------------------------------------
+
+def _delta_line(content: str, mid: str = "m1") -> str:
+    return json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": mid, "deltaContent": content},
+    })
+
+
+def test_relay_reuses_callback_so_deltas_accumulate() -> None:
+    from argus_skill.adapters.stream_progress import StreamProgressRelay
+
+    sink = _RecordingSink()
+    relay = StreamProgressRelay()
+    for tok in ("I", "'ll ", "verify"):
+        relay(sink, None, "main.stdout", _delta_line(tok))
+
+    texts = [e["text"] for e in sink.events if e["type"] == "engineer.progress"]
+    # Accumulating: each fragment CONTAINS the previous, so the front-end's
+    # mergeFragment replaces the row in place (one growing reply) instead of
+    # newline-appending (one word per line).
+    assert texts == ["I", "I'll", "I'll verify"]
+    for prev, cur in zip(texts, texts[1:]):
+        assert prev in cur
+
+
+def test_rebuilding_callback_per_line_breaks_accumulation() -> None:
+    # Documents the OLD bug: a FRESH callback per line loses the delta buffer, so
+    # each token is emitted standalone (never containing the previous). Feeding
+    # those to mergeFragment newline-appends them → one word per line.
+    sink = _RecordingSink()
+    for tok in ("I", "'ll ", "verify"):
+        make_stream_progress_callback(sink)("main.stdout", _delta_line(tok))
+
+    texts = [e["text"] for e in sink.events if e["type"] == "engineer.progress"]
+    assert texts == ["I", "'ll", "verify"]  # just the tokens — no accumulation
+    assert texts[0] not in texts[1]  # the breakage that produced one-word-per-line
+
+
+def test_relay_rebuilds_on_sink_change() -> None:
+    # A new mission (new sink) must start a FRESH accumulation buffer, never
+    # leaking the previous message's text into the new one.
+    from argus_skill.adapters.stream_progress import StreamProgressRelay
+
+    relay = StreamProgressRelay()
+    sink1 = _RecordingSink()
+    relay(sink1, None, "main.stdout", _delta_line("first"))
+    sink2 = _RecordingSink()
+    relay(sink2, None, "main.stdout", _delta_line("second"))
+
+    t2 = [e["text"] for e in sink2.events if e["type"] == "engineer.progress"]
+    assert t2 == ["second"]  # fresh buffer — "first" never leaks in

@@ -377,9 +377,9 @@ class _TailWaitSpinner:
         self._start = time.monotonic()
         self._layer: str | None = None
 
-    def set_activity(self, layer: str | None, note: str = "") -> None:
+    def set_activity(self, layer: str | None, _note: str = "") -> None:
         """Record the REAL current role so the idle label shows role-appropriate
-        motion. ``note`` is accepted for call-site compatibility but ignored —
+        motion. ``_note`` is accepted for call-site compatibility but ignored —
         we deliberately don't echo the last log line (it just repeats the
         scrollback)."""
         lay = (layer or "").strip().lower() or None
@@ -767,7 +767,6 @@ def follow_mission_live_roles(
     theme: Any = None,
     timeout: float = 3600.0,
     header: str | None = None,
-    interval: float = 1.0,
 ) -> dict[str, Any] | None:
     """Live multi-agent view: pin the four-role panel and refresh it in place
     while a mission runs, so the operator watches Engineer / Reviewer / Planner /
@@ -1307,7 +1306,7 @@ def _build_slash_completer():
     from prompt_toolkit.completion import Completer, Completion
 
     class _SlashCompleter(Completer):
-        def get_completions(self, document, complete_event):  # noqa: ANN001
+        def get_completions(self, document, _complete_event):  # noqa: ANN001
             word = document.text_before_cursor
             if not word.startswith("/"):
                 return
@@ -2539,8 +2538,15 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             plan_model=None,
             max_rounds=500,
             check=[],
-            workdir=None,
+            # A web-created session has no operator-selected repository.  Keep
+            # every Manager artifact (vertical, pipeline state, authored domain)
+            # in the same isolated project root the daemon will execute in.
+            # Leaving this as None made the web process use its launch cwd while
+            # the detached daemon used cwd=/, splitting one mission across two
+            # unrelated trees.
+            workdir=str(session_root) if session_root else None,
             manager_session_root=str(session_root) if session_root else None,
+            project_state_dir=str(session_root) if session_root else None,
             life_dir=getattr(mem, "root", None),
             stop_event=None,
         )
@@ -2694,7 +2700,8 @@ def _manager_divide_user_task(
 
 
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
-                   *, on_phase: Any = None) -> str | None:
+                   *, on_phase: Any = None, on_fragment: Any = None,
+                   route: str | None = None) -> str | None:
     """Front-door route: one-Codex SELF work returns a reply; TEAM work returns
     ``None`` so the caller queues the Argus Planner/Engineer/Reviewer pipeline.
 
@@ -2704,11 +2711,25 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     ``role`` is a best-effort extra (falls back to the plain one-arg call for
     any callback that does not accept it) naming which of the four roles
     drove this update, so the caller can retint a live spinner to match.
+
+    ``on_fragment(kind, payload)`` — optional streaming callback for a live
+    front-end (the web/TUI SSE bridge). Fires ``("delta", {"text", "message_id"})``
+    for each assistant reply block the instant it arrives, and ``("phase",
+    {"role", "label"})`` at each phase transition. Opt-in: default ``None``
+    leaves triage behaving exactly as the line REPL.
     """
     runner = _ensure_manager_runner(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     captured: list[str] = []
+
+    def _fragment(kind: str, payload: dict[str, Any]) -> None:
+        if not callable(on_fragment):
+            return
+        try:
+            on_fragment(kind, payload)
+        except Exception:  # noqa: BLE001 — a UI callback must never break triage
+            pass
 
     def _progress_label(event: dict[str, Any]) -> tuple[str, str] | None:
         try:
@@ -2734,28 +2755,53 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             return None
 
     def _emit_phase(role: str, label: str) -> None:
-        if not callable(on_phase):
-            return
-        try:
-            on_phase(label, role=role)
-            return
-        except TypeError:
-            pass
-        except Exception:  # noqa: BLE001 — a UI callback must never break triage
-            return
-        try:
-            on_phase(label)
-        except Exception:  # noqa: BLE001
-            pass
+        # The terminal REPL consumes ``on_phase`` directly; the web/TUI bridge
+        # consumes ``on_fragment("phase", ...)``. Relay every real runner phase
+        # to both surfaces. Previously the runner received the raw ``on_phase``
+        # argument (which is None on the web path), so SSE never saw classify /
+        # direct-reply transitions and could only display a generic spinner.
+        if callable(on_phase):
+            try:
+                on_phase(label, role=role)
+            except TypeError:
+                try:
+                    on_phase(label)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001 — a UI callback must never break triage
+                pass
+        _fragment("phase", {"role": role, "label": label})
+
+    def _runner_phase(label: str, *, role: str = "manager") -> None:
+        _emit_phase(str(role or "manager"), str(label or ""))
 
     class _Capture:
+        def __init__(self, *, progress_phases: bool) -> None:
+            self._progress_phases = progress_phases
+
         def handle_event(self, event: dict[str, Any]) -> None:
             try:
                 etype = str(event.get("type") or "")
+                # A live assistant reply block → stream it as a delta fragment
+                # (grows the reply in the front-end) rather than treating it as a
+                # phase label. Keep capturing the authoritative reply below.
+                if etype == "engineer.progress" and str(event.get("kind") or "") == "assistant_message":
+                    blk = str(event.get("text") or "").strip()
+                    if blk:
+                        _fragment("delta", {
+                            "text": blk,
+                            "message_id": str(event.get("message_id") or ""),
+                        })
+                    return
                 if etype in {"loop.start", "engineer.progress"}:
-                    parsed = _progress_label(event)
-                    if parsed:
-                        _emit_phase(*parsed)
+                    # The current runner reports these same events through its
+                    # phase_cb wrapper, already normalized as Manager activity.
+                    # Only legacy runners (which reject phase_cb and hit the
+                    # fallback below) need the capture sink to synthesize them.
+                    if self._progress_phases:
+                        parsed = _progress_label(event)
+                        if parsed:
+                            _emit_phase(*parsed)
                     return
                 if etype != "round.main.completed":
                     return
@@ -2767,17 +2813,19 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
     try:
         if runner.chat_reply_if_conversational(
-            objective=body, sink=_Capture(),
+            objective=body, sink=_Capture(progress_phases=False),
             seed_thread_id=chat_state.get("last_thread_id"),
-            phase_cb=on_phase,
+            phase_cb=_runner_phase,
+            route=route,
         ):
             chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else "(no reply)"
     except TypeError:
-        # Older runner without phase_cb support — retry without it (fail-soft).
+        # Older runner without phase_cb / route support — retry without them
+        # (fail-soft; the older runner will classify route internally).
         try:
             if runner.chat_reply_if_conversational(
-                objective=body, sink=_Capture(),
+                objective=body, sink=_Capture(progress_phases=True),
                 seed_thread_id=chat_state.get("last_thread_id"),
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
@@ -2965,7 +3013,31 @@ def _render_live_role_overlay(
     return format_roles_panel(theme, configs, activities, width=width)
 
 
-def _maybe_handle_config_intent(mem: Any, text: str, chat_state: dict[str, Any]) -> bool:
+def _front_door_classify(
+    mem: Any, text: str, chat_state: dict[str, Any]
+) -> "tuple[Any, str]":
+    """ONE merged LLM call for the cockpit front-door: returns
+    ``(ConfigIntent | None, route)`` where route is ``"simple"``/``"complex"``.
+
+    Replaces the old sequential config-intent + route classify (two copilot
+    cold-starts → one) — see ``Manager.classify_front_door`` /
+    ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
+    error → ``(None, "complex")`` so the message flows through the normal
+    task path unchanged (never swallow real work on a classify hiccup)."""
+    try:
+        runner = _ensure_manager_runner(chat_state, mem)
+        mgr = getattr(runner, "manager", None) if runner is not None else None
+        if mgr is None or not hasattr(mgr, "classify_front_door"):
+            return None, "complex"
+        intent, route = mgr.classify_front_door(text)
+        return intent, (route if route in ("simple", "complex") else "complex")
+    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
+        return None, "complex"
+
+
+def _maybe_handle_config_intent(
+    mem: Any, text: str, chat_state: dict[str, Any], *, on_confirm: Any = None
+) -> bool:
     """Recognize + apply a natural-language change to one of Argus's OWN runtime
     knobs (a role's backend/model/effort, a budget cap, or the safe_mode/
     show_reasoning/telegram toggles) BEFORE it becomes work.
@@ -2975,7 +3047,12 @@ def _maybe_handle_config_intent(mem: Any, text: str, chat_state: dict[str, Any])
     a request phrased any way is caught and a bare mention of a model/backend is
     not misread as a switch. Fail-soft: no runner, a classify error, or a NONE
     verdict all return False, and the text flows on to the normal chat/task path.
-    Returns True iff it applied a change (and the turn is done)."""
+    Returns True iff it applied a change (and the turn is done).
+
+    ``on_confirm(line)`` — optional sink for the confirmation line(s). When given
+    (the web/TUI cockpit front-door), the confirmation is handed to it INSTEAD of
+    printed to stdout, so a non-REPL surface can show it as a chat reply. Default
+    ``None`` keeps the line-REPL's print behaviour byte-for-byte."""
     runner = _ensure_manager_runner(chat_state, mem)
     mgr = getattr(runner, "manager", None) if runner is not None else None
     if mgr is None or not hasattr(mgr, "classify_config_intent"):
@@ -2986,10 +3063,12 @@ def _maybe_handle_config_intent(mem: Any, text: str, chat_state: dict[str, Any])
         return False
     if intent is None:
         return False
-    return _apply_config_intent(mem, intent, chat_state)
+    return _apply_config_intent(mem, intent, chat_state, on_confirm=on_confirm)
 
 
-def _apply_config_intent(mem: Any, intent: Any, chat_state: dict[str, Any]) -> bool:
+def _apply_config_intent(
+    mem: Any, intent: Any, chat_state: dict[str, Any], *, on_confirm: Any = None
+) -> bool:
     """Apply a parsed ConfigIntent: set the env var(s), persist via knob_store
     (so a running daemon reads the switch immediately), confirm, and ground the
     Manager with a note. Returns True iff a change was applied."""
@@ -2998,8 +3077,14 @@ def _apply_config_intent(mem: Any, intent: Any, chat_state: dict[str, Any]) -> b
     theme = chat_state.get("theme")
 
     def _confirm(line: str) -> None:
-        print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
-              if theme is not None else line, flush=True)
+        if callable(on_confirm):
+            try:
+                on_confirm(line)  # cockpit: surface as a chat reply, not stdout
+            except Exception:  # noqa: BLE001 — a UI sink must never break the apply
+                pass
+        else:
+            print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
+                  if theme is not None else line, flush=True)
         try:
             append_note(mem, line)
         except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
@@ -3550,7 +3635,6 @@ def _invoke_and_track(
 
 def _run_cmd(
     mem: _SplitMemory,
-    opts: list[str],
     chat_state: dict[str, Any],
 ) -> None:
     """``/run`` — follow the daemon draining the backlog (live tail).
@@ -3559,8 +3643,7 @@ def _run_cmd(
     ``render_run_command`` → ``_invoke_supervisor``. Since the 2026-06-26
     fusion the daemon is the sole executor, so ``/run`` attaches to it and
     live-renders every event until the operator hits Ctrl-C, returning to
-    the REPL. ``opts`` are accepted for backward compatibility but the
-    daemon owns the actual budget/iteration knobs now.
+    the REPL.
     """
     theme = chat_state.get("theme")
     life_dir = _life_dir_for(mem)
@@ -4098,10 +4181,10 @@ def _render_help(theme) -> str:  # noqa: ANN001
 # Slash-command helpers + public REPL entry point — invoked by apps/cli.main
 # ---------------------------------------------------------------------------
 
-def _skills_cmd(mem: _CommonMemory, tokens: list[str]) -> None:
+def _skills_cmd(tokens: list[str]) -> None:
     """``/skills [ls|promote <name>]`` — inspect or promote a skill
     from the current project layer to the global layer."""
-    print(render_skills_cmd(Path.cwd(), tokens))
+    print(render_skills_cmd(tokens))
 
 
 def _seed_chat_state(
@@ -4250,13 +4333,8 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     except core_paths.PathResolutionError as exc:
         sys.stderr.write(f"argus-skill: {exc}\n")
         return 2
-    state = mem.init()
+    mem.init()
     os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(mem.project.root / "events.jsonl")
-    created: list[str] = []
-    for scope, rows in state.items():
-        for name, was_created in rows.items():
-            if was_created:
-                created.append(f"{scope}.{name}")
     # Housekeeping: prune stale projects (no live daemon/repl + untouched for
     # the retention window) to projects_trash/. Best-effort, never blocks boot.
     try:
@@ -4325,7 +4403,7 @@ def run_manager_repl(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        rc = _run_manager_repl_locked(args, mem, created, chat_state=chat_state)
+        rc = _run_manager_repl_locked(args, mem, chat_state=chat_state)
     finally:
         try:
             repl_lock.release()
@@ -4377,7 +4455,6 @@ def _print_daemon_boot_status(
 def _run_manager_repl_locked(
     args: argparse.Namespace,
     mem: _SplitMemory,
-    created: list[str],
     *,
     chat_state: dict[str, Any],
 ) -> int:
@@ -4862,10 +4939,10 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
             print(theme.gray(render_reset_cmd(chat_state)))
             return None
         if cmd == "/run":
-            _run_cmd(mem, rest, chat_state)
+            _run_cmd(mem, chat_state)
             return None
         if cmd == "/skills":
-            _skills_cmd(mem, rest)
+            _skills_cmd(rest)
             return None
         hint = _closest_slash_command(cmd)
         if hint:

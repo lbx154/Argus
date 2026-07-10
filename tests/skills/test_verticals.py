@@ -67,16 +67,18 @@ def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> P
 # --- resolve_vertical precedence: env > state > research --------------------
 
 
-def test_resolve_raises_when_nothing_persisted(tmp_path: Path) -> None:
-    # FAIL-HARD: no silent default-to-research. No PIPELINE_STATE at all raises...
-    with pytest.raises(VerticalResolutionError):
-        resolve_vertical(tmp_path / "nope")
-    # ...and a state file with no ``vertical`` field also raises.
-    with pytest.raises(VerticalResolutionError):
-        resolve_vertical(_project(tmp_path, None))
+def test_resolve_failsoft_when_nothing_persisted(tmp_path: Path) -> None:
+    # FAIL-SOFT: a rigid rule must never hard-crash a mission. With nothing
+    # persisted, resolve returns the safe default rather than raising.
+    assert resolve_vertical(tmp_path / "nope") == "research"
+    # ...and a state file with no ``vertical`` field also falls back.
+    assert resolve_vertical(_project(tmp_path, None)) == "research"
 
 
 def test_resolve_raises_on_corrupt_state(tmp_path: Path) -> None:
+    # Corruption of Manager-owned state is a REAL fault (distinct from the
+    # legitimate "not decided yet" case) — it still raises rather than silently
+    # masking a broken state file as fresh.
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text("{not json", encoding="utf-8")
     with pytest.raises(VerticalResolutionError):

@@ -30,6 +30,12 @@ _BACKEND_ENVS = (
 def _clear_backend_env(monkeypatch):
     for name in _BACKEND_ENVS:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    # Isolate from the operator's persisted knob store (config.json): the
+    # resolver now consults it, so tests must not depend on the real file.
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs", lambda: {}
+    )
 
 
 def test_default_probes_all_required_routes() -> None:
@@ -40,6 +46,18 @@ def test_default_probes_all_required_routes() -> None:
 def test_global_copilot_skips_all_routes(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     assert required_codex_routes() == []  # empty → daemon skips the preflight
+
+
+def test_persisted_copilot_skips_without_env(monkeypatch) -> None:
+    # A copilot choice persisted via ``/backend`` (config.json) MUST be honoured
+    # even with no shell env — a non-interactive launcher (web autostart, tmux
+    # exec, cron) never sources .bashrc, so the interactive-only export is
+    # invisible and the daemon would otherwise wrongly probe the codex vault.
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs",
+        lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
+    )
+    assert required_codex_routes() == []
 
 
 def test_mixed_probes_only_codex_roles(monkeypatch) -> None:

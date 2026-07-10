@@ -32,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
@@ -129,6 +130,16 @@ def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None
     if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
         return None
     try:
+        # Composition roots that already know the canonical session state dir
+        # pass it explicitly. Never hash a Web session workdir such as
+        # `projects/s-...`: that produced a second phantom fingerprint dir and
+        # sent the Reviewer to a nonexistent events.jsonl.
+        explicit_state_dir = getattr(args, "project_state_dir", None)
+        if explicit_state_dir:
+            state_dir = Path(explicit_state_dir).expanduser()
+            state_dir.mkdir(parents=True, exist_ok=True)
+            return state_dir / "checkpoint.json"
+
         from ..core.project import project_fingerprint
 
         global_root = _resolve_global_root(args)
@@ -552,12 +563,13 @@ class _MemoryRunner:
         self,
         *,
         objective: str,
-        original_objective: str = "",
+        original_objective: str = "",  # noqa: ARG002 — protocol parity
         sink: EventSink,
-        preload_injects: list[str] | None = None,
-        prelude_context: str = "",
+        preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
+        prelude_context: str = "",  # noqa: ARG002 — protocol parity
         seed_thread_id: str | None = None,  # noqa: ARG002 — protocol parity
         scope: str = "",  # noqa: ARG002 — protocol parity
+        preplanned: bool = False,  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
         self._materialize_bootstrap_skeleton(objective)
         ack = f"(memory backend) acknowledged objective: {objective[:80]}"
@@ -684,7 +696,6 @@ class _SkillLoopRunner:
         self._SkillLoopConfig = SkillLoopConfig
         try:
             from ..adapters.agent_cli_backend import AgentCliBackend
-            from ..adapters.stream_progress import make_stream_progress_callback
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
                 f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
@@ -698,22 +709,34 @@ class _SkillLoopRunner:
         # Per-mission ledger of failed tool/command beats. Reset on every
         # execute() so warnings don't bleed across missions.
         self._current_failure_ledger: object | None = None
+        # ONE stream-progress callback, reused across stdout lines. It closes over
+        # copilot's delta-accumulation buffer, which must persist line-to-line —
+        # rebuilding it per line (the old bug here) reset the buffer every token,
+        # so copilot's per-token reply deltas were emitted as standalone fragments
+        # and the cockpit showed one word per line. The relay rebuilds only when
+        # the sink/ledger changes (a new mission). See ``StreamProgressRelay``.
+        from ..adapters.stream_progress import StreamProgressRelay
+        self._stream_progress_relay = StreamProgressRelay()
 
         def _trampoline(stream: str, line: str) -> None:
             sink = self._current_sink
             if sink is None:
                 return
             try:
-                make_stream_progress_callback(
-                    sink, ledger=self._current_failure_ledger
-                )(stream, line)
+                self._stream_progress_relay(
+                    sink, self._current_failure_ledger, stream, line
+                )
             except Exception:  # noqa: BLE001 — never let logging crash the runner
                 pass
 
         # Mirror build_agent_cli_backend_from_env's env-var contract here so
         # we can also pass event_callback (the helper doesn't expose it).
         from ..adapters.agent_cli_backend import _strip_legacy_codex_profile_args
-        backend_name = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
+        # An explicit env override wins, else honour the backend the caller
+        # already resolved into ``args.backend`` (which includes the persisted
+        # ``/backend`` knob). Env-only reads here silently fell back to codex for
+        # the in-process Manager front-door — see ``_resolve_runner_backend_name``.
+        backend_name = _resolve_runner_backend_name(args)
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
         extra = _strip_legacy_codex_profile_args(
@@ -952,10 +975,18 @@ class _SkillLoopRunner:
         sink: EventSink,
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
+        route: str | None = None,
     ) -> "_Outcome | None":
         # Operator-REPL front door: classify into SELF (one Codex can handle it)
         # or TEAM (queue the Planner/Engineer/Reviewer pipeline). Daemon/backlog
         # work never takes this path.
+        #
+        # ``route`` — a PRECOMPUTED "simple"/"complex" verdict. The cockpit
+        # front-door now decides config-intent + route in ONE merged call
+        # (``Manager.classify_front_door``) and passes the route in here, so we
+        # SKIP the second classify below (one fewer copilot cold-start per turn).
+        # ``None`` (the line-REPL / daemon / test callers) keeps the original
+        # behavior: classify route right here.
         from ..core.models import RunnerOptions
 
         _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
@@ -1007,16 +1038,29 @@ class _SkillLoopRunner:
 
             def handle_event(self, event: dict[str, Any]) -> None:
                 etype = str(event.get("type") or "")
-                if etype in {"loop.start", "engineer.progress"}:
-                    txt = str(
-                        event.get("text")
-                        or event.get("title")
-                        or event.get("reason")
-                        or event.get("kind")
-                        or ""
-                    ).strip()
-                    if txt:
-                        _phase(f"Manager · {txt[:80]}")
+                kind = str(event.get("kind") or "")
+                # Assistant text is streamed separately as a reply delta. It is
+                # content, not an execution phase; echoing its first 80 chars in
+                # the spinner would duplicate the answer above the answer.
+                is_reply = etype == "engineer.progress" and kind in {
+                    "assistant_message",
+                    "agent_message",
+                    "message",
+                }
+                if etype == "loop.start":
+                    # ``loop.start.text`` includes the raw objective. On a
+                    # rotated Manager session that objective starts with the
+                    # internal SESSION HANDOFF block; never leak it into UI.
+                    _phase(f"{_backend_label} working on your message…")
+                elif etype == "engineer.progress" and not is_reply:
+                    summary = str(event.get("action_summary") or "").strip()
+                    safe = summary or {
+                        "reasoning": "reasoning about the response",
+                        "command_execution": "checking project state",
+                        "file_change": "preparing a change",
+                        "tool_use": "using a tool",
+                    }.get(kind, "working on your message")
+                    _phase(safe[:80])
                 self._inner.handle_event(event)
 
             def handle_stream_line(self, stream: str, line: str) -> None:
@@ -1033,7 +1077,9 @@ class _SkillLoopRunner:
         _backend_label = runner_backend_label()
 
         _phase(f"Deciding: {_backend_label} solo vs. the Argus team…")
-        route = self.manager.route(objective, run_exec=_classify_run_exec)
+        if route not in ("simple", "complex"):
+            # No precomputed verdict → classify here (line-REPL / daemon path).
+            route = self.manager.route(objective, run_exec=_classify_run_exec)
         if route == "simple":
             _phase(f"{_backend_label} handling it solo…")
             return self._simple_quick_reply(
@@ -1091,6 +1137,7 @@ class _SkillLoopRunner:
         sink: EventSink,
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
+        route: str | None = None,
     ) -> bool:
         """Front-end hook: classify + (if chat/simple) reply in-band.
 
@@ -1100,14 +1147,89 @@ class _SkillLoopRunner:
         complex work — enqueue it for the daemon".
 
         ``phase_cb(label)`` is invoked at the real phase transitions (classify →
-        reply) so a live status line can reflect the actual step.
+        reply) so a live status line can reflect the actual step. ``route`` — an
+        optional PRECOMPUTED "simple"/"complex" verdict from the merged
+        front-door classifier; when given the internal route classify is skipped.
         """
         return self._maybe_chat_outcome(
             objective=objective,
             sink=sink,
             seed_thread_id=seed_thread_id,
             phase_cb=phase_cb,
+            route=route,
         ) is not None
+
+    def reset_chat_session(self) -> None:
+        """Forget the remembered chat thread so the NEXT front-door reply starts a
+        FRESH session.
+
+        The Manager front-door rotates its session once its turn count fills
+        (``webapi.manager_bridge`` sets ``chat_state["last_thread_id"] = None`` and
+        seeds the fresh thread with a structured handoff). But
+        ``_simple_quick_reply`` falls back to ``self._next_seed_thread_id`` when the
+        caller passes ``seed_thread_id=None`` — so it RESURRECTED the just-rotated
+        session and rotation never took: the copilot/codex thread grew unbounded and
+        its resume cost climbed every turn (a long-lived cockpit's replies slowed to
+        a ~30s-per-turn crawl). The bridge calls this on rotation so the runner's own
+        session memory is cleared too and the fresh thread is genuinely fresh."""
+        self._next_seed_thread_id = None
+        self.last_thread_id = None
+
+    def _manager_reply_runtime_context(self, run_label: str) -> str:
+        """Ground the Manager when its operator-facing session is truly warm.
+
+        This prevents the model from guessing that each reply is a fresh CLI
+        process or that Argus re-injects the whole transcript.  Empty on every
+        backend/path that is not using the ACP fast path, so the prompt never
+        claims a lifecycle guarantee the runtime is not providing.
+        """
+        try:
+            runner = getattr(self._backend, "_argus_runner", None)
+            if runner is None or not runner._acp_enabled(run_label):
+                return ""
+        except Exception:  # noqa: BLE001 — metadata must never block a reply
+            return ""
+        return (
+            "Runtime fact (answer accurately if the operator asks): this "
+            "operator-facing Manager conversation is one logical session on a "
+            "long-lived Copilot ACP process. Ordinary turns use session/prompt "
+            "on that same live process and session; they do NOT spawn a fresh "
+            "CLI process with --resume, and Argus does NOT resend the full chat "
+            "transcript each turn. The front-door classifier is isolated from "
+            "this conversation, and the background task daemon is a separate "
+            "process. A deliberate context rotation starts a new conversation "
+            "session with a structured handoff."
+        )
+
+    def _distinct_backends(self) -> list:
+        """The distinct role AgentCliBackend instances this runner drives (each
+        appears once), that support the source-level budget guard."""
+        seen: set[int] = set()
+        out: list = []
+        for be in (
+            getattr(self, "_backend", None),
+            getattr(self, "engineer_backend", None),
+            getattr(self, "reviewer_backend", None),
+            getattr(self, "planner_backend", None),
+            getattr(self, "curator_backend", None),
+            getattr(self, "manager_backend", None),
+        ):
+            if be is not None and id(be) not in seen and hasattr(be, "set_budget_reason_provider"):
+                seen.add(id(be))
+                out.append(be)
+        return out
+
+    def _set_budget_guard(self, provider) -> list:
+        """Install ``provider`` (or clear with ``None``) as the per-mission budget
+        guard on every role backend; returns the backends it touched so the caller
+        can clear them in a ``finally``."""
+        backends = self._distinct_backends()
+        for be in backends:
+            try:
+                be.set_budget_reason_provider(provider)
+            except Exception:  # noqa: BLE001 — a guard-set fault must never fail the mission
+                pass
+        return backends
 
     def execute(
         self,
@@ -1115,11 +1237,12 @@ class _SkillLoopRunner:
         objective: str,
         original_objective: str = "",
         sink: EventSink,
-        preload_injects: list[str] | None = None,
+        preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
         seed_thread_id: str | None = None,
         scope: str = "",
         per_mission_budget: Any | None = None,
+        preplanned: bool = False,
     ) -> _Outcome:
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -1165,15 +1288,18 @@ class _SkillLoopRunner:
             ),
             "auto_compact_enabled": _env_flag(
                 "ARGUS_SKILL_AUTO_COMPACT",
-                default=True,
+                # Compaction is an explicit maintenance operation, not part of
+                # every mission close. Per-mission sweeps scale with the entire
+                # shared library and historically regenerated/archived the same
+                # duplicates in a costly loop.
+                default=False,
             ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,
-            # Explicit paper-mission signal (replaces objective keyword sniffing).
-            # Defaults True because this runner is the life/EMNLP execution path;
-            # an operator can pass ``--no-paper-mission`` to turn it off.
-            "paper_mission": getattr(args, "paper_mission", True),
+            # Filled from the resolved vertical below.  Fail-safe default: an
+            # undecided task is bounded/non-paper.
+            "paper_mission": False,
             # Persist the curated working-memory checkpoint to the per-project
             # state dir so the reviewer handoff survives across missions and
             # daemon restarts (cross-session continuity).
@@ -1197,23 +1323,18 @@ class _SkillLoopRunner:
         config_kwargs["engineer_log_path"] = (
             str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
         )
-        # paper_mission follows the VERTICAL, not the True default. An optimize
-        # vertical (kernelbench / speedrun / nanochat / nanogpt_speedrun) is never
-        # a paper mission: force it off so the supervisor picks the lean grind
-        # scaffold instead of the research run-stage pilot gate (the source of the
-        # "kernel objective → fill PILOT_OPERATOR_DECISION_TEMPLATE.json" misroute).
-        try:
-            from ..skills.vertical_select import resolve_vertical
-            from ..verticals._base import load_vertical, vertical_completion_gate
-            _proot = Path(
-                os.environ.get("ARGUS_SKILL_ARTIFACT_ROOT", "")
-                or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
-            )
-            if vertical_completion_gate(load_vertical(resolve_vertical(_proot),
-                                                      project_root=_proot)) != "full_emnlp":
-                config_kwargs["paper_mission"] = False
-        except Exception:  # noqa: BLE001 — fail-soft: keep the default paper_mission
-            pass
+        # A paper contract is enabled only by a positively resolved
+        # ``full_emnlp`` vertical.  An explicit False from a specialized caller
+        # may still opt out; True cannot turn a non-paper vertical into a paper.
+        _proot = Path(
+            getattr(self, "_artifact_root", None)
+            or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
+        )
+        _paper_override = getattr(args, "paper_mission", None)
+        _paper_allowed = True if _paper_override is None else bool(_paper_override)
+        config_kwargs["paper_mission"] = (
+            _paper_allowed and _paper_mission_for_project_root(_proot)
+        )
         try:
             from inspect import signature
 
@@ -1335,7 +1456,60 @@ class _SkillLoopRunner:
         # We no longer re-parse it out of the objective prose — the harness
         # should consume the structured field, not sniff the rendered text.
         mission_scope = (scope or "").strip().lower()
+        # SOURCE-LEVEL budget cap: gate EVERY LLM call this mission makes on the
+        # live per-mission spend. Set the guard on the role backends for the
+        # duration of the mission and clear it in the finally so it can never leak
+        # into a later mission. ``None`` budget → no guard (cap unenforced, as before).
+        _guarded = self._set_budget_guard(_budget_reason_provider(per_mission_budget))
         try:
+            # User-authored bounded work now follows the full team chain:
+            # Manager → Planner → Engineer → Reviewer. Planner-authored backlog
+            # items set ``preplanned=True`` and skip this call, avoiding a second
+            # redundant planning pass. The plan is advisory context, not a gate:
+            # if drafting fails, Engineer still receives the immutable objective.
+            if not preplanned:
+                try:
+                    from ..manager.plan_mode import draft_plan
+
+                    plan = draft_plan(
+                        getattr(self, "planner_backend", None) or self._backend,
+                        original_objective or objective,
+                        sink=sink,
+                        model=getattr(args, "plan_model", None),
+                        reasoning_effort=resolve_role_reasoning_effort(
+                            "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
+                        ),
+                        run_label="planner-bounded-plan",
+                    )
+                    if plan.steps:
+                        lines = ["## Planner execution plan (advisory)"]
+                        for index, step in enumerate(plan.steps, 1):
+                            detail = f" — {step.detail}" if step.detail else ""
+                            lines.append(f"{index}. {step.title}{detail}")
+                        if plan.notes:
+                            lines.append("Notes: " + "; ".join(plan.notes))
+                        full_task += "\n\n---\n" + "\n".join(lines)
+                        sink.handle_event({
+                            "type": "plan.completed",
+                            "agent_layer": "planner",
+                            "plan_mode": "bounded",
+                            "steps": len(plan.steps),
+                            "text": f"bounded execution plan · {len(plan.steps)} steps",
+                        })
+                    else:
+                        sink.handle_event({
+                            "type": "life.planner.error",
+                            "agent_layer": "planner",
+                            "error": plan.error or "bounded plan unavailable",
+                            "text": plan.error or "bounded plan unavailable; Engineer continues",
+                        })
+                except Exception as exc:  # noqa: BLE001 — planning is advisory
+                    sink.handle_event({
+                        "type": "life.planner.error",
+                        "agent_layer": "planner",
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "text": "bounded plan unavailable; Engineer continues",
+                    })
             outcome = loop.run(
                 full_task, workdir=workdir, seed_thread_id=seed,
                 objective_for_skill=objective,
@@ -1346,6 +1520,11 @@ class _SkillLoopRunner:
         finally:
             self._current_sink = None
             self._current_failure_ledger = None
+            for _be in _guarded:
+                try:
+                    _be.set_budget_reason_provider(None)
+                except Exception:  # noqa: BLE001 — clearing the guard must never fail the mission
+                    pass
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
             status=str(getattr(outcome, "status", "")),
@@ -1497,7 +1676,10 @@ class _SkillLoopRunner:
             "chat_mode": True,
         })
 
-        prompt = build_chat_prompt(objective=objective)
+        prompt = build_chat_prompt(
+            objective=objective,
+            runtime_context=self._manager_reply_runtime_context("chat-1"),
+        )
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
@@ -1749,6 +1931,7 @@ class _SkillLoopRunner:
         prompt = build_simple_prompt(
             objective=objective,
             mission_status=self._live_mission_status_block(),
+            runtime_context=self._manager_reply_runtime_context("simple-1"),
         )
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
@@ -1767,6 +1950,29 @@ class _SkillLoopRunner:
                 pass
             return None
 
+        # Stream each assistant block to the sink the moment it arrives (copilot/
+        # codex emit the reply as complete blocks during the turn). A stable
+        # message_id lets the front-end coalesce blocks into one growing reply
+        # (mergeFragment) so a chat answer types in live instead of appearing all
+        # at once after a frozen pause. The authoritative last_message + tokens
+        # still ride the final round.main.completed below (unchanged).
+        _reply_msg_id = f"manager-reply-{id(sink):x}"
+
+        def _emit_block(block: str) -> None:
+            body = (block or "").strip()
+            if not body:
+                return
+            try:
+                sink.handle_event({
+                    "type": "engineer.progress",
+                    "kind": "assistant_message",
+                    "agent_layer": "manager",
+                    "message_id": _reply_msg_id,
+                    "text": body,
+                })
+            except Exception:  # noqa: BLE001 — a UI sink must never break the reply
+                pass
+
         try:
             result = self._backend.run_exec(
                 prompt=prompt,
@@ -1784,6 +1990,7 @@ class _SkillLoopRunner:
                         "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10,
                     ),
                     inactivity_callback=_self_inactivity,
+                    on_agent_message=_emit_block,
                 ),
                 run_label="simple-1",
                 resume_thread_id=seed,
@@ -1943,6 +2150,62 @@ def _inbox_drainer_for(life_dir: Path):
     return _drain_one
 
 
+def _resolve_runner_backend_name(
+    args: argparse.Namespace, env: Mapping[str, str] | None = None,
+) -> str | None:
+    """Resolve the CLI backend name for a ``_SkillLoopRunner``'s default backend.
+
+    Precedence: an explicit ``ARGUS_SKILL_RUNNER_BACKEND`` env override wins;
+    otherwise fall back to the backend the CALLER already resolved into
+    ``args.backend``. ``core.knobs.resolve_role_backend`` walks the FULL chain —
+    role env → shared env → persisted ``/backend`` knob → codex — so
+    ``args.backend`` already encodes the operator's choice. Reading the env var
+    ALONE misses the persisted knob: the 7×24 daemon exports the env before it
+    spawns, so it was unaffected, but the IN-PROCESS Manager front-door (web
+    cockpit / REPL bridge) resolves e.g. copilot into ``args.backend`` WITHOUT
+    exporting the env var. Env-only reads therefore silently fell back to codex
+    and spawned ``codex exec`` against an Azure endpoint a copilot operator never
+    configured (401 ``Reconnecting… n/100`` retry storm → the front-door lock is
+    held for minutes → the cockpit shows "couldn't reach Argus: fetch failed").
+
+    ``None`` → let ``AgentCliBackend`` apply its own codex default (matches the
+    prior env-unset behaviour for the ``memory``/unknown case).
+    """
+    env_map = env if env is not None else os.environ
+    explicit = str(env_map.get("ARGUS_SKILL_RUNNER_BACKEND", "") or "").strip()
+    if explicit:
+        return explicit
+    resolved = getattr(args, "backend", None)
+    if resolved in ("codex", "claude", "copilot"):
+        return resolved
+    return None
+
+
+def _budget_reason_provider(budget: Any) -> "Callable[[], str | None] | None":
+    """A live interrupt provider that trips once a ``MissionBudget`` hits its cap.
+
+    ``None`` when there is no budget (or it lacks ``exceeded``) — the cap is then
+    unenforced, exactly as before. Otherwise returns a callable polled at the
+    source (``AgentCliRunner.run_exec``) before every LLM call: a non-empty reason
+    once ``budget.exceeded()`` (which is itself ``cap_usd > 0 and spent >= cap``),
+    so no new call fires past the cap."""
+    if budget is None or not hasattr(budget, "exceeded"):
+        return None
+
+    def _check() -> "str | None":
+        try:
+            if budget.exceeded():
+                return (
+                    f"per-mission budget ${float(budget.cap_usd):.2f} exhausted "
+                    f"(spent ${float(budget.spent()):.2f})"
+                )
+        except Exception:  # noqa: BLE001 — a budget-probe fault must never wedge a call
+            return None
+        return None
+
+    return _check
+
+
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
     """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
     if args.backend == "memory":
@@ -1956,7 +2219,13 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
         if scripted_backend is not None:
             runner.backend = scripted_backend
         return runner
-    if args.backend == "codex":
+    if args.backend in ("codex", "claude", "copilot"):
+        # All three are agent-CLI backends: _SkillLoopRunner drives the codex /
+        # claude / copilot CLI via AgentCliBackend (per-role resolution), so the
+        # SAME runner serves every backend. Gating this on "codex" alone used to
+        # SystemExit the Manager front-door (repl triage / web bridge) whenever
+        # the operator ran on copilot/claude — the daemon already runs missions
+        # on those backends through this very runner.
         return _SkillLoopRunner(args, seed_thread_id=seed_thread_id)
     raise SystemExit(f"unknown backend: {args.backend}")
 
@@ -1964,6 +2233,44 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 # ---------------------------------------------------------------------------
 # Supervisor driver (used by both `life run` and chat-mode free text)
 # ---------------------------------------------------------------------------
+
+def _paper_mission_for_project_root(project_root: Path | str) -> bool:
+    """Return True only for an explicitly resolved paper-shaped vertical.
+
+    Missing/corrupt state is deliberately non-paper.  ``resolve_vertical`` has
+    a compatibility fallback to ``research`` for undecided projects; using that
+    fallback as a mission-type signal caused ordinary bounded tasks to pay for
+    paper idea search and inherit EMNLP guidance.  A persisted Manager decision
+    (or a valid explicit ``ARGUS_SKILL_VERTICAL`` override) is required here.
+    """
+    try:
+        from ..skills.vertical_select import (
+            ENV_VERTICAL,
+            _persisted_vertical,
+            require_vertical,
+            resolve_vertical,
+        )
+        from ..verticals._base import load_vertical, vertical_completion_gate
+
+        root = Path(project_root).expanduser()
+        persisted = _persisted_vertical(root)
+        raw_override = str(os.environ.get(ENV_VERTICAL, "") or "").strip()
+        if persisted is None:
+            if not raw_override:
+                return False
+            # Reject an invalid override instead of allowing resolve_vertical's
+            # compatibility fallback to turn it into `research`.
+            require_vertical(raw_override, project_root=root)
+        vertical = resolve_vertical(root)
+        return (
+            vertical_completion_gate(
+                load_vertical(vertical, project_root=root)
+            )
+            == "full_emnlp"
+        )
+    except Exception:  # noqa: BLE001 — mission typing must fail safe
+        return False
+
 
 def _build_repl_supervisor_config(
     *,
@@ -1983,27 +2290,10 @@ def _build_repl_supervisor_config(
 ) -> LifeSupervisorConfig:
     from ..life.telemetry import telemetry_interval_from_env
 
-    # paper_mission follows the RESOLVED VERTICAL, not the True default. The
-    # LifeSupervisorConfig default is True (the life supervisor IS the paper
-    # driver), but an optimize vertical (kernelbench / speedrun / nanochat /
-    # nanogpt_speedrun) is never a paper mission — without this gate every
-    # bounded backlog item on a kernel/speedrun mission gets "continue through
-    # adjacent paper blockers" guidance (see _render_backlog_item_metadata).
-    # Mirrors the SkillLoop engine-config gate; the continuous divide() persists
-    # the vertical before this config is built, and fail-soft keeps the paper
-    # default when the vertical is not yet decided.
-    paper_mission = True
-    try:
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import load_vertical, vertical_completion_gate
-
-        _proot = artifact_root or project_root
-        if vertical_completion_gate(
-            load_vertical(resolve_vertical(_proot), project_root=_proot)
-        ) != "full_emnlp":
-            paper_mission = False
-    except Exception:  # noqa: BLE001 — fail-soft: keep the paper default
-        pass
+    # Mission type follows a positive Manager-authored vertical decision.  An
+    # undecided or malformed project is bounded/non-paper, never implicitly an
+    # EMNLP campaign.
+    paper_mission = _paper_mission_for_project_root(artifact_root or project_root)
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
@@ -2024,7 +2314,7 @@ def _build_repl_supervisor_config(
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,
-        full_emnlp_gate=open_ended,
+        full_emnlp_gate=paper_mission and open_ended,
         paper_mission=paper_mission,
         telemetry_dir=project_root,
         artifact_root=artifact_root or project_root,
@@ -2058,7 +2348,7 @@ def run_life_supervisor(
     """
     stop_event = threading.Event()
 
-    def _on_signal(signum: int, frame: Any) -> None:  # noqa: ANN401
+    def _on_signal(signum: int, _frame: Any) -> None:  # noqa: ANN401
         print(f"\nlife: received signal {signum}, requesting stop", file=sys.stderr)
         stop_event.set()
 
@@ -2188,8 +2478,10 @@ def _invoke_supervisor(
     )
     try:
         ns.manager_session_root = str(_memory_project_root(mem))
+        ns.project_state_dir = str(_memory_project_root(mem))
     except Exception:  # noqa: BLE001
         ns.manager_session_root = None
+        ns.project_state_dir = None
     # Life-mode default: 500 engineer rounds. The earlier low cap was
     # too small for "implement + test + polish" tasks that need many
     # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.

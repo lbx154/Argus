@@ -195,18 +195,15 @@ def test_promote_to_global_rejects_global_skill(tmp_path: Path) -> None:
         layered.promote_to_global(g)
 
 
-def test_promote_to_global_avoids_name_collision(tmp_path: Path) -> None:
+def test_promote_to_global_rejects_name_collision(tmp_path: Path) -> None:
     layered = _layered(tmp_path)
     _write(layered.global_, "shared-name")
     p = _write(layered.project, "shared-name")
-    promoted = layered.promote_to_global(p)
-    # New global file must NOT have overwritten the existing one — the
-    # store falls back to a -2 sibling.
-    assert Path(promoted.path).name.startswith("shared-name")
-    assert Path(promoted.path).name != "shared-name.md"
-    # Original global skill is still readable.
+    with pytest.raises(ValueError, match="name already exists"):
+        layered.promote_to_global(p)
+    # Original global skill remains the sole copy.
     glob_summaries = layered.layer_summaries(LAYER_GLOBAL)
-    assert sum(1 for s in glob_summaries if s["name"] == "shared-name") == 2
+    assert sum(1 for s in glob_summaries if s["name"] == "shared-name") == 1
 
 
 def test_import_global_into_project_creates_independent_copy(

@@ -19,7 +19,6 @@ from dataclasses import dataclass
 _RESET = "\x1b[0m"
 _BOLD = "\x1b[1m"
 _DIM = "\x1b[2m"
-_ITALIC = "\x1b[3m"
 
 # Foreground colors (8-color palette — broadest terminal compatibility).
 _RED = "\x1b[31m"
@@ -276,9 +275,6 @@ class Theme:
 
     def dim(self, text: str) -> str:
         return self._wrap(text, _DIM)
-
-    def italic(self, text: str) -> str:
-        return self._wrap(text, _ITALIC)
 
     def red(self, text: str) -> str:
         return self._wrap(text, self._sgr("red"))

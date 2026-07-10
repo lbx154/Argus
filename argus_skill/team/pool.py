@@ -37,7 +37,7 @@ def read(root: Path) -> dict[str, Any]:
 
 
 def update(root: Path, *, width: int | None = None, state: str | None = None,
-           now: float | None = None) -> dict[str, Any]:
+           now: float | None = None) -> dict[str, Any]:  # noqa: ARG001 — now: keyword compat, see docstring
     """Merge-write the lead's width/state intent.
 
     ``now`` is accepted for caller stability but no longer used (the heartbeat

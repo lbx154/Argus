@@ -566,7 +566,7 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
 
     @kb.add("up", filter=modal_filter)
     @kb.add("k", filter=modal_filter)
-    def _(ev) -> None:
+    def _(_ev) -> None:
         choices = modal.get("choices") or []
         if choices:
             modal["selected"] = (int(modal.get("selected") or 0) - 1) % len(choices)
@@ -574,18 +574,18 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
 
     @kb.add("down", filter=modal_filter)
     @kb.add("j", filter=modal_filter)
-    def _(ev) -> None:
+    def _(_ev) -> None:
         choices = modal.get("choices") or []
         if choices:
             modal["selected"] = (int(modal.get("selected") or 0) + 1) % len(choices)
             invalidate()
 
     @kb.add("escape", filter=modal_filter)
-    def _(ev) -> None:
+    def _(_ev) -> None:
         close_decision_modal()
 
     @kb.add("<any>", filter=modal_filter)
-    def _(ev) -> None:
+    def _(_ev) -> None:
         # While the decision sheet is open, ignore stray typing so it doesn't
         # accumulate invisibly in the prompt buffer behind the modal.
         return
@@ -607,7 +607,7 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
 
     @kb.add("escape", "enter")
     @kb.add("c-o")
-    def _(ev) -> None:
+    def _(_ev) -> None:
         """Insert a newline in the prompt (Enter submits)."""
         inp.insert_text("\n")
 
@@ -620,16 +620,16 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
     # ACTIVITY scroll: PageUp pauses the live tail and scrolls back through
     # history; PageDown scrolls toward the bottom; End jumps back to following.
     @kb.add("pageup")
-    def _(ev) -> None:
+    def _(_ev) -> None:
         view["off"] = min(view["off"] + 10, max(0, len(feed) - 1))
 
     @kb.add("pagedown")
-    def _(ev) -> None:
+    def _(_ev) -> None:
         view["off"] = max(view["off"] - 10, 0)
 
     @kb.add("end")
     @kb.add("c-e")
-    def _(ev) -> None:
+    def _(_ev) -> None:
         view["off"] = 0  # resume following the live tail
 
     input_row = VSplit([

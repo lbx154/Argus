@@ -1,0 +1,33 @@
+{
+  "name": "argus-tui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ink terminal frontend for the argus-skill autonomous-research daemon. A client of the argus-skill webapi (events over WS, snapshots/commands over REST).",
+  "type": "module",
+  "bin": {
+    "argus": "bin/argus.mjs",
+    "argus-tui": "bin/argus.mjs"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "start": "node dist/tui/src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ink": "^5.0.1",
+    "react": "^18.3.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^18",
+    "@types/ws": "^8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

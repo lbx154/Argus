@@ -796,6 +796,19 @@ def test_worker_runtime_context_includes_research_profile(
     assert "profile_sha256:" in context
 
 
+def test_worker_runtime_context_omits_research_profile_for_bounded_vertical(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    monkeypatch.setenv(
+        "ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(tmp_path / "no_special_prompts")
+    )
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
+
+    assert _worker_runtime_context(cfg, paper_mission=False) == ""
+
+
 def test_worker_runtime_context_empty_without_research_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

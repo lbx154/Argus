@@ -1365,6 +1365,11 @@ class LifeSupervisor:
                     execute_kwargs["original_objective"] = original_objective
                 if "per_mission_budget" in params or _accepts_kw:
                     execute_kwargs["per_mission_budget"] = mission_budget
+                if "preplanned" in params or _accepts_kw:
+                    execute_kwargs["preplanned"] = any(
+                        str(tag).strip().lower() == "planner"
+                        for tag in getattr(item, "tags", [])
+                    )
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
                 execute_kwargs["per_mission_budget"] = mission_budget
@@ -1513,6 +1518,14 @@ class LifeSupervisor:
             "scientist_cost_usd": cost_sink.scientist_usd(),
             "engineer_cost_usd": cost_sink.engineer_usd(),
             "reviewer_cost_usd": cost_sink.reviewer_usd(),
+            # util (manager/classify) + copilot premium-request cost were folded
+            # into total_usd() but never surfaced in the breakdown — emit them so
+            # the cost is fully auditable. copilot_premium_requests is the raw
+            # count (GitHub bills per premium request, flat $/req — NOT per token,
+            # so a copilot mission's whole dollar cost is this count * rate).
+            "util_cost_usd": cost_sink.util_usd(),
+            "copilot_cost_usd": cost_sink.copilot_usd(),
+            "copilot_premium_requests": cost_sink.copilot_premium_requests,
             "scientist_input_tokens": cost_sink.scientist_input_tokens,
             "scientist_cached_input_tokens": (
                 cost_sink.scientist_cached_input_tokens

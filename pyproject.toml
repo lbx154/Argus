@@ -50,6 +50,17 @@ codex = []
 signing = [
   "cryptography>=41",
 ]
+# `argus-skill[web]` — the optional web/TUI backend API (argus_skill/webapi/).
+# A thin FastAPI layer over the file-based daemon pub/sub (events.jsonl +
+# backlog/inbox) that the Ink terminal frontend (frontend/tui/) and the React
+# web frontend (frontend/web/) both talk to. Kept OUT of the base deps so the
+# 7x24 daemon + Rich cockpit stay dependency-light; install only to run
+# `argus-skill --web`. Defaults to a 127.0.0.1 bind.
+web = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "websockets>=12",
+]
 dev = [
   "build>=1",
   "mypy>=1.8,<2",

@@ -121,7 +121,7 @@ def default_probe(
     base_url: str,
     api_key: str,
     model: str,
-    wire_api: str,
+    _wire_api: str,
     *,
     timeout_s: float = DEFAULT_PROBE_TIMEOUT_S,
 ) -> ProbeResult:

@@ -105,6 +105,7 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
     review_evts = [e for e in events if e.get("type") == "round.review.completed"]
 
     assert round_start_evts[0]["round_max"] == 1
+    assert round_start_evts[0]["round_index"] == 1
     assert len(main_evts) == 1, (
         "expected exactly one round.main.completed per engineer round; got: "
         + repr([e.get("type") for e in events])

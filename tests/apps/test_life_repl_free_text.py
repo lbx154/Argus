@@ -1619,6 +1619,8 @@ def test_ensure_manager_runner_session_root_matches_daemon_convention(
 
     def fake_build(ns: argparse.Namespace, *, seed_thread_id: Any = None) -> Any:
         captured["manager_session_root"] = ns.manager_session_root
+        captured["project_state_dir"] = ns.project_state_dir
+        captured["workdir"] = ns.workdir
         return object()
 
     monkeypatch.setattr(_runtime, "build_life_runner", fake_build)
@@ -1626,6 +1628,8 @@ def test_ensure_manager_runner_session_root_matches_daemon_convention(
     manager_repl._ensure_manager_runner(chat_state, bundle)
 
     assert captured["manager_session_root"] == str(bundle.project_root)
+    assert captured["project_state_dir"] == str(bundle.project_root)
+    assert captured["workdir"] == str(bundle.project_root)
 
 
 def test_manager_divide_user_task_fallback_uses_session_root_not_worktree(
@@ -1740,8 +1744,10 @@ def test_chat_reply_if_conversational_true_emits_self_reply(
     ) is True
     assert self_called["objective"] == "你好"
     assert any(e.get("type") == "round.main.completed" for e in sink.events)
-    assert any("SELF: one Codex handling" in p for p in phases)
-    assert any("Manager · reading context" in p for p in phases)
+    # Internal loop text may contain raw objectives/session handoffs; the live
+    # phase deliberately exposes only the safe activity label.
+    assert any("working on your message" in p for p in phases)
+    assert not any("reading context" in p for p in phases)
 
 
 def test_maybe_chat_outcome_false_returns_none(

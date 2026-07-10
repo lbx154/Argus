@@ -183,7 +183,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 }
 
 
-def role_banner(role: str) -> str:
+def role_banner(_role: str) -> str:
     return (
         "MISSION — KernelBench / SOL-ExecBench (Recursive Task 3). This is a GPU\n"
         "KERNEL-SPEED task, NOT bits-per-byte and NOT time-to-loss. Objective:\n"

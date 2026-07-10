@@ -1,4 +1,5 @@
 """Tiny REPL front-door prompts."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +19,14 @@ def build_route_prompt(text: str) -> str:
     )
 
 
+def _route_from_token(token: str) -> str:
+    """``SELF``/``SIMPLE`` → ``"simple"``; anything else (TEAM / COMPLEX /
+    unrecognized) → ``"complex"`` (the safe default that never routes work
+    needing review to a lone worker). Shared by ``classify_route`` and
+    ``classify_front_door`` so the two paths can never drift."""
+    return "simple" if str(token or "").upper() in {"SELF", "SIMPLE"} else "complex"
+
+
 def classify_route(
     text: str,
     *,
@@ -32,10 +41,7 @@ def classify_route(
         return "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         return "complex"
-    token = _first_alpha_token(_extract_answer(result)).upper()
-    if token in {"SELF", "SIMPLE"}:
-        return "simple"
-    return "complex"  # TEAM / COMPLEX / anything unrecognized → the safe default
+    return _route_from_token(_first_alpha_token(_extract_answer(result)))
 
 
 def build_classify_prompt(text: str) -> str:
@@ -81,12 +87,12 @@ def build_persistence_prompt(text: str) -> str:
     return (
         "Reply with exactly one word: BOUNDED or STANDING.\n"
         "BOUNDED = the task has a natural finish line — work stops once one "
-        "concrete goal is met. e.g. \"fix the bug in module X\", \"add feature "
-        "Y\", \"answer whether Z is faster\", \"run one benchmark\".\n"
+        'concrete goal is met. e.g. "fix the bug in module X", "add feature '
+        'Y", "answer whether Z is faster", "run one benchmark".\n'
         "STANDING = open-ended work with NO natural finish line that should "
         "keep running autonomously (7x24) until the objective is exhausted or "
-        "the operator stops it. e.g. \"optimize as many X as possible\", "
-        "\"keep improving Y\", \"continuously search/monitor Z\".\n"
+        'the operator stops it. e.g. "optimize as many X as possible", '
+        '"keep improving Y", "continuously search/monitor Z".\n'
         "When in doubt, answer BOUNDED — never force standing/continuous mode "
         "onto a task that did not ask for it.\n\n"
         f"Message:\n{(text or '').strip()}\n\n"
@@ -117,7 +123,10 @@ def classify_needs_persistence(
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         return False
     return _first_alpha_token(_extract_answer(result)).upper() in {
-        "STANDING", "CONTINUOUS", "PERSIST", "PERSISTENT",
+        "STANDING",
+        "CONTINUOUS",
+        "PERSIST",
+        "PERSISTENT",
     }
 
 
@@ -127,36 +136,50 @@ _IDENTITY_GUARD = (
     "touches directly, not a separate product with its own terminal. The "
     "operator's ONLY interface is Argus itself. If asked to change Argus's "
     "own model, backend, or reasoning effort, never tell them to open, run a "
-    "command in, or otherwise interact with \"the backend's CLI\" — you have "
+    'command in, or otherwise interact with "the backend\'s CLI" — you have '
     "no ability to do that on their behalf, and neither do they from inside "
     "Argus. Instead tell them the actual Argus-native ways: plain sentences "
-    "like \"switch the model to <name>\" / \"把模型换成 <name>\" / \"把backend"
-    "换成 <name>\" / \"effort 设为 <level>\" (Argus recognizes these directly, "
+    'like "switch the model to <name>" / "把模型换成 <name>" / "把backend'
+    '换成 <name>" / "effort 设为 <level>" (Argus recognizes these directly, '
     "no restart needed), or the /backend and /config slash commands.\n\n"
 )
 
 
-def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
+def build_chat_prompt(
+    *,
+    objective: str,
+    identity_card: str = "",
+    runtime_context: str = "",
+) -> str:
     from ..cli.roles_status import runner_backend_label
+
     prefix = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
+    runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     return (
         f"{prefix}You are Argus Manager, powered by one {runner_backend_label()} "
         "worker. Answer as Argus Manager.\n\n"
         f"{_IDENTITY_GUARD}"
+        f"{runtime}"
         f"Message:\n{objective.strip()}"
     )
 
 
 def build_simple_prompt(
-    *, objective: str, mission_status: str = ""
+    *,
+    objective: str,
+    mission_status: str = "",
+    runtime_context: str = "",
 ) -> str:
     from ..cli.roles_status import runner_backend_label
+
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
+    runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     return (
         f"{prefix}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
         "Answer as Argus Manager.\n\n"
         f"{_IDENTITY_GUARD}"
+        f"{runtime}"
         f"Task:\n{objective.strip()}"
     )
 
@@ -200,9 +223,9 @@ _CONFIG_ROLES = frozenset({"manager", "planner", "engineer", "reviewer"})
 class ConfigIntent:
     """A parsed "change one of Argus's own runtime knobs" request."""
 
-    knob: str               # see _CONFIG_KNOBS
+    knob: str  # see _CONFIG_KNOBS
     roles: tuple[str, ...]  # role-scoped knobs only; () = ALL roles / the shared default
-    value: str              # target value, verbatim (backend / model id / effort / $amount / on|off)
+    value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
 
 def build_config_intent_prompt(text: str) -> str:
@@ -220,19 +243,19 @@ def build_config_intent_prompt(text: str) -> str:
         "  GLOBAL (no role):\n"
         "    per_mission_cap — the STANDING default USD cap applied to EVERY "
         "future mission (a dollar amount). A budget stated for ONE specific / "
-        "current run (\"这轮就给 200\", \"for this mission only\", \"this run gets "
-        "$50\") is a per-mission TASK constraint, NOT a settings write — answer NONE.\n"
+        'current run ("这轮就给 200", "for this mission only", "this run gets '
+        '$50") is a per-mission TASK constraint, NOT a settings write — answer NONE.\n'
         "    daily_cap       — the STANDING default USD cap per local day (a dollar amount)\n"
         "    safe_mode       — extra-conservative guardrails: on | off\n"
         "    show_reasoning  — stream the agent's reasoning to the cockpit: on | off\n"
         "    telegram        — the Telegram notification bridge: on | off\n\n"
         "Answer NONE if the message is a real task to execute, a question "
-        "(including \"should I use X?\" / \"which model is better?\"), small talk, "
+        '(including "should I use X?" / "which model is better?"), small talk, '
         "or merely MENTIONS a model/backend/setting without asking to change it. "
         "When in doubt, answer NONE — never swallow real work as a settings change. "
         "A budget stated for ONE specific run, or a model / backend / effort asked "
-        "for WITHIN a single task (\"这轮\" / \"do THIS on claude with high effort\" "
-        "/ \"for this task\"), is part of the task, not a standing knob change — "
+        'for WITHIN a single task ("这轮" / "do THIS on claude with high effort" '
+        '/ "for this task"), is part of the task, not a standing knob change — '
         "answer NONE.\n\n"
         "If it IS a settings-change request, reply with EXACTLY one line:\n"
         "SET <knob> <roles> <value>\n"
@@ -249,6 +272,39 @@ def build_config_intent_prompt(text: str) -> str:
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
+
+
+def _parse_config_line(line: str) -> "ConfigIntent | None":
+    """Parse ONE ``SET <knob> <roles> <value>`` line into a ``ConfigIntent``.
+
+    Returns ``None`` for ``NONE`` / empty / malformed. Shared by
+    ``classify_config_intent`` and ``classify_front_door`` so the two paths can
+    never drift on what counts as a valid config write."""
+    line = (line or "").strip()
+    if not line or line.upper() == "NONE":
+        return None
+    parts = line.split(maxsplit=3)
+    if len(parts) < 4 or parts[0].upper() != "SET":
+        return None
+    knob = parts[1].strip().lower()
+    if knob not in _CONFIG_KNOBS:
+        return None
+    roles_raw = parts[2].strip().lower()
+    if knob in _CONFIG_ROLE_KNOBS:
+        if roles_raw == "all":
+            roles: tuple[str, ...] = ()
+        else:
+            roles = tuple(
+                r for r in (tok.strip() for tok in roles_raw.split(",")) if r in _CONFIG_ROLES
+            )
+            if not roles:
+                return None
+    else:
+        roles = ()  # global knob — roles field ("-") is ignored
+    value = parts[3].strip().strip("`\"'")
+    if not value:
+        return None
+    return ConfigIntent(knob=knob, roles=roles, value=value)
 
 
 def classify_config_intent(
@@ -277,31 +333,105 @@ def classify_config_intent(
         return None
     answer = _extract_answer(result).strip()
     line = next((ln.strip() for ln in answer.splitlines() if ln.strip()), "")
-    if not line or line.upper() == "NONE":
-        return None
-    parts = line.split(maxsplit=3)
-    if len(parts) < 4 or parts[0].upper() != "SET":
-        return None
-    knob = parts[1].strip().lower()
-    if knob not in _CONFIG_KNOBS:
-        return None
-    roles_raw = parts[2].strip().lower()
-    if knob in _CONFIG_ROLE_KNOBS:
-        if roles_raw == "all":
-            roles: tuple[str, ...] = ()
-        else:
-            roles = tuple(
-                r for r in (tok.strip() for tok in roles_raw.split(","))
-                if r in _CONFIG_ROLES
-            )
-            if not roles:
-                return None
-    else:
-        roles = ()  # global knob — roles field ("-") is ignored
-    value = parts[3].strip().strip("`\"'")
-    if not value:
-        return None
-    return ConfigIntent(knob=knob, roles=roles, value=value)
+    return _parse_config_line(line)
+
+
+def _line_after_prefix(answer: str, prefix: str) -> "str | None":
+    """First line whose stripped form starts (case-insensitively) with
+    ``prefix``, returned with the prefix removed and stripped. ``None`` when no
+    such line exists — the caller then applies that axis's safe default."""
+    up = prefix.upper()
+    for ln in str(answer or "").splitlines():
+        s = ln.strip()
+        if s.upper().startswith(up):
+            return s[len(prefix) :].strip()
+    return None
+
+
+def build_front_door_prompt(text: str) -> str:
+    """Merged cockpit front-door classifier: decide BOTH axes in ONE call —
+    (1) is this a settings change, and (2) can one worker handle it (SELF) or
+    does it need the Planner/Engineer/Reviewer team (TEAM). Reuses the exact
+    per-axis wording of ``build_config_intent_prompt`` + ``build_route_prompt``
+    so each axis's semantics are byte-for-byte unchanged; only the OUTPUT shape
+    differs (two labelled lines instead of one classifier per call)."""
+    cleaned = (text or "").strip()
+    return (
+        "Classify one operator message on TWO independent axes.\n\n"
+        "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
+        "runtime settings (its cockpit knobs), as opposed to a research task, a "
+        "question, or small talk?\n"
+        "Argus has four roles — manager, planner, engineer, reviewer. The "
+        "operator-changeable settings are:\n"
+        "  PER-ROLE (may name one role, several, or ALL / the shared default):\n"
+        "    backend  — which agent CLI runs a role: codex | claude | copilot\n"
+        "    model    — which model a role calls, e.g. gpt-5.5, claude-sonnet-5, "
+        "o3, gemini-3.5 (any id the backend supports)\n"
+        "    effort   — a role's reasoning effort: low | medium | high | max | xhigh\n"
+        "  GLOBAL (no role):\n"
+        "    per_mission_cap — the STANDING default USD cap applied to EVERY "
+        'future mission. A budget for ONE specific / current run ("这轮就给 '
+        '200", "for this mission only") is a TASK constraint, NOT a settings '
+        "write — CONFIG is NONE.\n"
+        "    daily_cap       — the STANDING default USD cap per local day\n"
+        "    safe_mode       — extra-conservative guardrails: on | off\n"
+        "    show_reasoning  — stream the agent's reasoning to the cockpit: on | off\n"
+        "    telegram        — the Telegram notification bridge: on | off\n"
+        'CONFIG is NONE if the message is a real task, a question ("should I use '
+        'X?" / "which model is better?"), small talk, or merely MENTIONS a '
+        "model/backend/setting without asking to change the STANDING default. A "
+        'model/backend/effort/budget asked for WITHIN a single task ("这轮" / '
+        '"do THIS on claude with high effort") is part of the task — CONFIG is '
+        "NONE. When in doubt, NONE.\n\n"
+        "AXIS 2 — ROUTE: SELF or TEAM?\n"
+        "  SELF = one worker can carry it out end-to-end on its own (a greeting, "
+        "an ack, a capability question, a trivial one-shot).\n"
+        "  TEAM = needs Argus's Planner/Engineer/Reviewer coordination — "
+        "multi-step research or engineering, or a change to Argus itself.\n"
+        "  When in doubt, answer TEAM — never route work that needs review to a "
+        "lone worker.\n\n"
+        "Reply with EXACTLY two lines and nothing else:\n"
+        "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
+        "ROUTE: <SELF | TEAM>\n"
+        "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
+        "daily_cap | safe_mode | show_reasoning | telegram; <roles> = a "
+        "comma-separated list from manager,planner,engineer,reviewer or ALL "
+        "(role knobs), or a single dash - (global knobs); <value> = the target "
+        "verbatim (backend name / model id / effort / dollar amount / on | off).\n\n"
+        f"Message:\n{cleaned}\n\n"
+        "Answer:\n"
+    )
+
+
+def classify_front_door(
+    text: str,
+    *,
+    run_exec: Callable[[str], Any],
+) -> "tuple[ConfigIntent | None, str]":
+    """One model call, two axes: ``(config-intent | None, route)`` where route
+    is ``"simple"``/``"complex"``. Merges ``classify_config_intent`` +
+    ``classify_route`` so the cockpit front-door pays ONE round-trip (one
+    ``copilot`` invocation) instead of two. Each axis falls to its OWN safe
+    default in isolation — ``None`` for config, ``"complex"`` for route — so a
+    malformed/absent CONFIG line never corrupts the ROUTE verdict and vice-versa,
+    and any exec error / nonzero exit yields ``(None, "complex")``."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None, "complex"
+    try:
+        result = run_exec(build_front_door_prompt(cleaned))
+    except Exception:  # noqa: BLE001
+        return None, "complex"
+    if int(getattr(result, "exit_code", 0) or 0) != 0:
+        return None, "complex"
+    answer = _extract_answer(result)
+    config_line = _line_after_prefix(answer, "CONFIG:")
+    route_line = _line_after_prefix(answer, "ROUTE:")
+    intent = _parse_config_line(config_line) if config_line is not None else None
+    route = (
+        _route_from_token(_first_alpha_token(route_line)) if route_line is not None else "complex"
+    )
+    return intent, route
 
 
 __all__ = [
@@ -310,10 +440,12 @@ __all__ = [
     "classify_route",
     "classify_needs_persistence",
     "classify_config_intent",
+    "classify_front_door",
     "build_classify_prompt",
     "build_route_prompt",
     "build_persistence_prompt",
     "build_config_intent_prompt",
+    "build_front_door_prompt",
     "build_chat_prompt",
     "build_simple_prompt",
 ]

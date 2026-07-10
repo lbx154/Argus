@@ -31,6 +31,9 @@ When teaching yourself from operator-supplied material.
 ## How to solve
 Read the material, inventory the current library, then propose evidence-anchored
 create/update/archive changes with a source span for every claim.
+## Sources
+- [Python documentation](https://docs.python.org/3/) — implementation reference.
+- [Git documentation](https://git-scm.com/docs) — change-management reference.
 """
 
 

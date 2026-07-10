@@ -43,7 +43,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Planner | `planner/planner.py` | L4 continuous planner: next tasks + (optional) meta decision |
 | Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
 | Meta (anti-stuck) | `regime_jump/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
-| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); the three metric verticals reuse `speedrun`'s shape by re-export |
+| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research,learning,ale_last_exam}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
 | Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot) + a deterministic memory backend for tests |
 

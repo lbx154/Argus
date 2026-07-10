@@ -969,7 +969,7 @@ def run_setup() -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     return run_setup()
 
 

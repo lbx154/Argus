@@ -408,6 +408,34 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
     return cb
 
 
+class StreamProgressRelay:
+    """Reuse ONE ``make_stream_progress_callback`` per ``(sink, ledger)`` pair.
+
+    The callback closes over a per-instance copilot delta-accumulation buffer:
+    copilot streams a reply as MANY per-token ``assistant.message_delta`` events
+    that the callback folds into a growing string, emitting the accumulated text
+    each time so the front-end's ``mergeFragment`` replaces the row in place. That
+    buffer MUST survive across stdout lines. A caller that rebuilds the callback
+    per line resets the buffer every token, so each token is emitted as a
+    standalone fragment — ``mergeFragment`` then newline-appends them and the
+    cockpit shows one WORD PER LINE. This relay builds the callback lazily and
+    reuses it until the sink or ledger changes (a new mission — exactly when a
+    fresh accumulation buffer IS wanted).
+    """
+
+    def __init__(self) -> None:
+        self._cb: Callable[[str, str], None] | None = None
+        self._sink: Any = None
+        self._ledger: Any = None
+
+    def __call__(self, sink: Any, ledger: Any, stream: str, line: str) -> None:
+        if self._cb is None or self._sink is not sink or self._ledger is not ledger:
+            self._cb = make_stream_progress_callback(sink, ledger=ledger)
+            self._sink = sink
+            self._ledger = ledger
+        self._cb(stream, line)
+
+
 def _agent_layer_for_actor(actor: str) -> str:
     actor = (actor or "").lower()
     if actor.startswith("reviewer"):

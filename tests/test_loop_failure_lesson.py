@@ -33,6 +33,9 @@ SKILL_MD = (
     "## How to solve\n- Read the task and identify the desired tone.\n"
     "- Compose a one-line greeting that answers without filler.\n\n"
     "## Examples\n- 'say hi' → reply with 'hello world'\n"
+    "\n## Sources\n"
+    "- [Python documentation](https://docs.python.org/3/) — deterministic text handling.\n"
+    "- [Unicode Standard](https://www.unicode.org/standard/standard.html) — user-facing text.\n"
 )
 
 
@@ -113,6 +116,10 @@ def test_reviewer_create_is_stored_as_provisional_no_manager_gate(tmp_path: Path
     _loop(skills_dir, backend, events).run("say hi to the user", workdir=tmp_path)
 
     assert any(e.get("type") == "skill.created" for e in events), [e.get("type") for e in events]
+    reviewer_options = next(
+        options for label, _prompt, options in backend.history if label == "reviewer"
+    )
+    assert reviewer_options.live_search is True
     store = SkillStore(skills_dir)
     created = next((s for s in store.list_summaries()
                     if s["name"] == "Write a hello message"), None)
@@ -161,7 +168,7 @@ def test_create_rejected_when_too_similar(tmp_path: Path) -> None:
     _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
 
     rejected = [e for e in events if e.get("type") == "skill.proposal.rejected"]
-    assert rejected and "similar" in rejected[0].get("text", "")
+    assert rejected and "name already exists" in rejected[0].get("text", "")
     # still exactly the one seeded skill
     assert len(SkillStore(skills_dir).list_summaries()) == 1
 
@@ -201,13 +208,16 @@ def test_provisional_confirmed_on_successful_reuse(tmp_path: Path) -> None:
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
     events: list[dict] = []
-    outcome = _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
+    loop = _loop(skills_dir, backend, events)
+    outcome = loop.run("greet Alice", workdir=tmp_path)
 
     assert outcome.status == "done"
     assert any(e.get("type") == "skill.confirmed" for e in events)
     store = SkillStore(skills_dir)
     s = next(x for x in store.list_summaries() if x["name"] == "Write a hello message")
-    assert store.load(s["path"]).provisional is False
+    learned = store.load(s["path"])
+    assert learned.provisional is False
+    assert learned.successful_reuses == 1
 
 
 def _continue_review() -> str:

@@ -167,6 +167,17 @@ class FinanceArgusEngine:
         warnings.extend(metric_warnings)
         if kind == "qlib":
             warnings.append("ic is a sharpe/8 proxy from the qlib path, not a measured cross-sectional IC")
+        if kind == "qlib" and self.backtest_fn is None:
+            # The default qlib_runner.qlib_backtest_run scores once at
+            # test_start with declared weights; train_start/train_end (still
+            # recorded in config_hash/window_dates for provenance) do not
+            # shape this particular backtest_fn's computation. See that
+            # module's docstring for the full rationale.
+            warnings.append(
+                "default qlib_backtest_run does not fit on train_start/train_end "
+                "(declared-weight, one-shot scoring at test_start); the train "
+                "window shapes provenance/OOS-labelling only, not this computation"
+            )
         warnings.append("combination weights recorded are declared, not realised IC weights")
 
         # 6) surface picks / combination recipe via the optional sink.

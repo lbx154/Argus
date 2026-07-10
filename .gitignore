@@ -5,6 +5,7 @@ __pycache__/
 .eggs/
 dist/
 build/
+node_modules/
 .venv/
 venv/
 env/

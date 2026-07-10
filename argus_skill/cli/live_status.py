@@ -47,7 +47,7 @@ except Exception:  # noqa: BLE001 — never let a helper import break the spinne
     def _clip_display(text: str, budget: int) -> str:  # type: ignore[misc]
         return text if len(text) <= budget else text[: max(0, budget - 1)] + "…"
 
-    def _clip_ansi_line(s: str, budget: int) -> str:  # type: ignore[misc]
+    def _clip_ansi_line(s: str, _budget: int) -> str:  # type: ignore[misc]
         return s
 
 # Braille dot-spinner — identical frames/cadence to Codex CLI + Rich `dots`.

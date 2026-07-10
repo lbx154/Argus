@@ -180,6 +180,8 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
             project_worktree=project,
             continuous=True,
             continuous_objective="bounded survey",
+            paper_mission=True,
+            full_emnlp_gate=True,
         ),
         planner_runner=_PlannerRunnerThatMustNotBeCalled(),
     )
@@ -237,6 +239,8 @@ def test_blocker_present_but_cooldown_elapsed_allows_one_wiki_collect(
             project_worktree=project,
             continuous=True,
             continuous_objective="bounded survey",
+            paper_mission=True,
+            full_emnlp_gate=True,
         ),
         planner_runner=None,
     )
@@ -296,6 +300,8 @@ def test_blocker_present_cooldown_not_elapsed_pure_skip(tmp_path: Path):
             project_worktree=project,
             continuous=True,
             continuous_objective="bounded survey",
+            paper_mission=True,
+            full_emnlp_gate=True,
         ),
         planner_runner=_PlannerRunnerThatMustNotBeCalled(),
     )

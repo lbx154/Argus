@@ -84,8 +84,7 @@ class SkillLoopConfig:
     # project has no initialized wiki (see ``wiki.auto_hooks.discover_wikis``).
     # Off by default; the daemon enables it.
     wiki_ops_enabled: bool = False
-    # Automatic (unattended) library housekeeping — runs after EVERY mission
-    # close, mirroring the wiki mechanical hooks' always-on cadence. Finds
+    # Automatic library housekeeping (explicit opt-in). Finds
     # near-duplicate skills/wiki-pages that slipped past the CREATE-time
     # independence checks (e.g. skills seeded before this check existed, or
     # two concurrent missions that each passed their OWN check against a
@@ -289,11 +288,10 @@ class SkillLoop:
                     reasoning_effort=self.config.engineer_reasoning_effort,
                 ).distill(skill_task)
                 if raw_skill:
-                    distilled = self.skill_store.save_distilled(
-                        task_description=skill_task,
-                        raw_distill_output=raw_skill,
+                    distilled = self.skill_router.create_candidate(
+                        raw_skill,
+                        task=skill_task,
                         on_event=self._emit,
-                        provisional=True,
                     )
                     if distilled is not None:
                         primary_skills = [distilled]
@@ -339,7 +337,8 @@ class SkillLoop:
 
                 is_research_vertical = (_persisted_vertical(workdir) or "research") == "research"
                 if (
-                    is_research_vertical
+                    self.config.paper_mission
+                    and is_research_vertical
                     and (_cur_stage(workdir) or "").strip().lower() == "research"
                     and not _ideas_seeded(workdir)
                 ):
@@ -374,8 +373,6 @@ class SkillLoop:
                 task=task,
                 skill_text=skill_text,
                 next_action=next_action,
-                extra_guidance=[],
-                paper_mission=self.config.paper_mission,
                 original_request=request_anchor,
                 include_static=include_static,
             )
@@ -413,21 +410,46 @@ class SkillLoop:
         # is confirmed ("入库"); an unproven one that dragged through an
         # INEFFECTIVE mission is closed out (reverted/discarded) — the
         # provisional lifecycle gates both ends.
-        if skill is not None and getattr(skill, "provisional", False):
+        if skill is not None:
             try:
-                if status == "done":
-                    if self.skill_store.confirm_provisional(skill):
-                        self._emit({"type": "skill.confirmed",
-                                    "text": f"confirmed {skill.name} — it proved effective"})
+                if skill_distilled:
+                    # The creation mission is not independent proof. A failed
+                    # origin mission rejects the candidate; a successful one
+                    # leaves it provisional for two later independent reuses.
+                    if status in _INEFFECTIVE_PROVISIONAL_STATUSES:
+                        self.skill_store.discard_provisional(
+                            skill, on_event=self._emit,
+                        )
+                    elif status == "done":
+                        self._emit({
+                            "type": "skill.awaiting_reuse",
+                            "skill_id": getattr(skill, "skill_id", ""),
+                            "skill_name": skill.name,
+                            "text": (
+                                f"{skill.name} remains provisional; creation "
+                                "mission does not count as reuse proof"
+                            ),
+                        })
+                elif status == "done":
+                    self.skill_store.record_reuse(
+                        skill,
+                        task_desc=skill_task,
+                        success=True,
+                        on_event=self._emit,
+                    )
                 elif status in _INEFFECTIVE_PROVISIONAL_STATUSES:
-                    # Root-cause fix for the dead ``discard_provisional`` wire:
-                    # a candidate carried through a mission that never became
-                    # effective is UNPROVEN. Revert it (if a revision of a
-                    # confirmed skill) or discard it (if fresh) so it can't
-                    # linger provisional and be FALSELY confirmed by an
-                    # unrelated later success. ``discard_provisional`` emits the
-                    # ``skill.reverted`` / ``skill.discarded`` event itself.
-                    self.skill_store.discard_provisional(skill, on_event=self._emit)
+                    self.skill_store.record_reuse(
+                        skill,
+                        task_desc=skill_task,
+                        success=False,
+                        on_event=self._emit,
+                    )
+                    if getattr(skill, "provisional", False):
+                        # One independent ineffective use is sufficient to reject
+                        # a still-provisional candidate; external blocks neutral.
+                        self.skill_store.discard_provisional(
+                            skill, on_event=self._emit,
+                        )
             except Exception as exc:  # noqa: BLE001 — never break the loop
                 log.warning("provisional close-out failed (%s: %s)",
                             type(exc).__name__, exc)
@@ -652,8 +674,6 @@ class SkillLoop:
         task: str,
         skill_text: str,
         next_action: str | None,
-        extra_guidance: list[str] | None = None,
-        paper_mission: bool = False,
         original_request: str = "",
         include_static: bool = True,
     ) -> str:
@@ -730,16 +750,6 @@ class SkillLoop:
             return static_text + ("\n\n" + delta_text if delta_text else "")
         # Resume send: DELTA only (may be "" when nothing changed this round).
         return delta_text
-
-    def _collect_extra_guidance(self) -> list[str]:
-        if self.extra_guidance_provider is None:
-            return []
-        try:
-            collected = self.extra_guidance_provider() or []
-        except Exception:  # never let a hook raise into the loop
-            log.exception("extra_guidance_provider raised")
-            return []
-        return [str(item).strip() for item in collected if str(item).strip()]
 
     # ------------------------------------------------------------------
     # Reviewer-owned skill memory (applied at mission end from per-round ops)

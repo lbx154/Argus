@@ -27,7 +27,6 @@ def _classify(streak: int, threshold: int, *, round_index: int = 5,
               max_rounds: int = 500):
     return SupervisedEngineer._classify(
         review=_review("continue"),
-        checks_results=[],
         no_progress_streak=0,
         no_progress_threshold=2,
         semantic_stall_streak=streak,

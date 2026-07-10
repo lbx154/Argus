@@ -271,7 +271,13 @@ def build_plan_prompt(objective: str) -> str:
     )
 
 
-def _resolve_run_exec(runner: Any):  # noqa: ANN202 — returns a callable or None
+def _resolve_run_exec(
+    runner: Any,
+    *,
+    model: str | None = None,
+    reasoning_effort: str = "low",
+    run_label: str = "manager-plan",
+):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
     The REPL hands us its high-level runner (``_SkillLoopRunner``), which exposes
@@ -295,9 +301,11 @@ def _resolve_run_exec(runner: Any):  # noqa: ANN202 — returns a callable or No
             return _run_exec(
                 prompt=prompt,
                 options=RunnerOptions(
-                    reasoning_effort="low", skip_git_repo_check=True
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    skip_git_repo_check=True,
                 ),
-                run_label="manager-plan",
+                run_label=run_label,
             )
 
         return _call
@@ -341,7 +349,15 @@ def _draft_failed(
     return Plan(objective=objective, steps=[], notes=list(notes or []), error=reason)
 
 
-def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
+def draft_plan(
+    runner: Any,
+    objective: str,
+    *,
+    sink: Any = None,
+    model: str | None = None,
+    reasoning_effort: str = "low",
+    run_label: str = "manager-plan",
+) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
     Uses the same runner the REPL already holds (its underlying backend is
@@ -357,7 +373,12 @@ def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
     objective = objective or ""
     _emit(sink, "plan.draft.start", objective=_truncate(objective, 120))
 
-    run_exec = _resolve_run_exec(runner)
+    run_exec = _resolve_run_exec(
+        runner,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        run_label=run_label,
+    )
     if run_exec is None:
         _emit(sink, "plan.draft.failed", reason="no runner backend")
         return _draft_failed(objective, reason="could not draft plan: no runner backend")

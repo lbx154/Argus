@@ -14,8 +14,10 @@ They are standing instructions: the agent treats them as authoritative house
 rules and follows them like a human operator would.
 
 Files are read in sorted filename order, so a numeric prefix (``10-...``,
-``20-...``) controls precedence. The directory is operator-owned and lives
-outside the repo so it never gets committed.
+``20-...``) controls precedence. An optional tiny frontmatter block may set
+``scope: paper`` (or ``scope: nonpaper``); mission type comes from the resolved
+vertical, never from objective keywords. The directory is operator-owned and
+lives outside the repo so it never gets committed.
 """
 from __future__ import annotations
 
@@ -30,7 +32,35 @@ def special_prompts_dir() -> Path:
     return Path.home() / ".argus-skill" / "special_prompts"
 
 
-def load_special_prompts() -> list[tuple[str, str]]:
+def _scoped_body(raw: str) -> tuple[str, str]:
+    """Return ``(scope, body)`` from optional minimal frontmatter.
+
+    Unknown/malformed metadata is treated as ``all`` so a typo never silently
+    drops an operator directive.  This intentionally parses only ``scope``;
+    pulling in a YAML dependency for two explicit mission classes would add
+    complexity without value.
+    """
+    text = raw.strip()
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return "all", text
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        return "all", text
+    scope = "all"
+    for line in lines[1:end]:
+        key, sep, value = line.partition(":")
+        if sep and key.strip().lower() == "scope":
+            candidate = value.strip().lower()
+            if candidate in {"all", "paper", "nonpaper"}:
+                scope = candidate
+    return scope, "\n".join(lines[end + 1 :]).strip()
+
+
+def load_special_prompts(
+    *, paper_mission: bool | None = None,
+) -> list[tuple[str, str]]:
     """Return ``[(name, body)]`` for each trusted ``*.md`` directive.
 
     Sorted by filename. Empty/whitespace-only files are skipped. For safety —
@@ -56,21 +86,27 @@ def load_special_prompts() -> list[tuple[str, str]]:
                 continue  # not owned by the operator
             if st.st_mode & 0o022:
                 continue  # group/world-writable -> untrusted
-            body = path.read_text(encoding="utf-8").strip()
+            scope, body = _scoped_body(path.read_text(encoding="utf-8"))
         except OSError:
+            continue
+        if scope == "paper" and paper_mission is False:
+            continue
+        if scope == "nonpaper" and paper_mission is True:
             continue
         if body:
             out.append((path.stem, body))
     return out
 
 
-def render_special_prompts_context() -> str:
+def render_special_prompts_context(
+    *, paper_mission: bool | None = None,
+) -> str:
     """Render operator directives as a high-priority runtime context block.
 
     Returns ``""`` when no directives exist, so callers can concatenate
     unconditionally.
     """
-    prompts = load_special_prompts()
+    prompts = load_special_prompts(paper_mission=paper_mission)
     if not prompts:
         return ""
     parts = [

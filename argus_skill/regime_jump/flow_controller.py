@@ -90,7 +90,7 @@ def decide(
         else:
             mode = "exploit"
         block = build_meta_block(
-            signal, ledger, _strategy_pool(vmod, project_root), mode, cfg
+            signal, ledger, _strategy_pool(vmod, project_root), mode
         )
         # When the meta layer convenes (explore/jump → non-empty block), append a
         # NO-VERDICT attribution line so the agent SEES whether prior jumps moved

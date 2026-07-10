@@ -221,6 +221,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="port for --dashboard (default 8787)",
     )
     cockpit_grp.add_argument(
+        "--web",
+        action="store_true",
+        help="serve the web/TUI backend API (argus-skill[web] extra) — the "
+             "shared API that the React web UI (frontend/web) and the Ink "
+             "terminal UI (frontend/tui) both talk to. Binds 127.0.0.1 by "
+             "default; set ARGUS_SKILL_WEB_TOKEN to require a bearer token.",
+    )
+    cockpit_grp.add_argument(
+        "--web-host",
+        default="127.0.0.1",
+        help="bind host for --web (default 127.0.0.1; use 0.0.0.0 to expose on "
+             "the LAN — only with ARGUS_SKILL_WEB_TOKEN set)",
+    )
+    cockpit_grp.add_argument(
+        "--web-port",
+        type=int,
+        default=8799,
+        help="port for --web (default 8799)",
+    )
+    cockpit_grp.add_argument(
         "--init-identity",
         action="store_true",
         help="run the interactive identity-card wizard "

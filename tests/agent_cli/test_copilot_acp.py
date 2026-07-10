@@ -1,0 +1,483 @@
+"""Warm-copilot ACP client (agent_cli.copilot_acp) — offline via a fake process.
+
+The client speaks JSON-RPC 2.0 / ndjson over a subprocess's stdio. Here a
+``_FakeAcpProc`` stands in for ``copilot --acp``: its stdin parses each request
+and a scripted responder enqueues the matching responses/notifications onto
+stdout, so the whole exchange runs with no real copilot and no network.
+"""
+
+from __future__ import annotations
+
+import json
+import queue
+import threading
+import time
+
+from argus_skill.agent_cli import copilot_acp
+from argus_skill.agent_cli.copilot_acp import CopilotAcpClient
+
+
+class _Opt:
+    model = None
+    working_dir = None
+    external_interrupt_reason_provider = None
+    on_agent_message = None
+
+
+class _FakeAcpProc:
+    """Minimal Popen stand-in driven by a ``script(request, proc) -> [responses]``
+    responder. stdin.write parses ndjson requests; stdout iterates the responses."""
+
+    def __init__(self, script) -> None:
+        self._q: "queue.Queue" = queue.Queue()
+        self._script = script
+        self._alive = True
+        self.session_seq = 0
+        self.written: list[dict] = []
+        self.stdin = self._Stdin(self)
+        self.stdout = self._Stdout(self)
+
+    def poll(self):
+        return None if self._alive else 0
+
+    def _on_write(self, obj: dict) -> None:
+        self.written.append(obj)
+        for resp in self._script(obj, self) or []:
+            self._q.put(json.dumps(resp) + "\n")
+
+    def eof(self) -> None:
+        self._alive = False
+        self._q.put(None)  # closes stdout → reader loop ends
+
+    class _Stdin:
+        def __init__(self, p) -> None:
+            self.p = p
+
+        def write(self, s: str) -> None:
+            for line in s.splitlines():
+                line = line.strip()
+                if line:
+                    self.p._on_write(json.loads(line))
+
+        def flush(self) -> None:
+            pass
+
+    class _Stdout:
+        def __init__(self, p) -> None:
+            self.p = p
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            item = self.p._q.get()
+            if item is None:
+                raise StopIteration
+            return item
+
+
+def _init_ok(req):
+    return {
+        "jsonrpc": "2.0",
+        "id": req["id"],
+        "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": True}},
+    }
+
+
+def _session_ok(req, sid="sess-1"):
+    return {"jsonrpc": "2.0", "id": req["id"], "result": {"sessionId": sid}}
+
+
+def _happy_script(req, proc):
+    m = req.get("method")
+    if m == "initialize":
+        return [_init_ok(req)]
+    if m == "session/new":
+        return [_session_ok(req)]
+    if m == "session/prompt":
+        sid = req["params"]["sessionId"]
+
+        def upd(text):
+            return {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    },
+                },
+            }
+
+        return [
+            upd("CONFIG: NONE"),
+            upd("\nROUTE: SELF"),
+            # a server→client permission request the client must auto-allow
+            {
+                "jsonrpc": "2.0",
+                "id": 9001,
+                "method": "session/request_permission",
+                "params": {
+                    "options": [
+                        {"optionId": "allow", "kind": "allow_always", "name": "Allow"},
+                        {"optionId": "deny", "kind": "reject_once", "name": "Deny"},
+                    ]
+                },
+            },
+            {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+        ]
+    return []
+
+
+def _multi_session_script(req, proc):
+    """Dynamic sessions + a small model multiplier for continuity tests."""
+    m = req.get("method")
+    if m == "initialize":
+        return [_init_ok(req)]
+    if m == "session/new":
+        proc.session_seq += 1
+        return [
+            {
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": {
+                    "sessionId": f"sess-{proc.session_seq}",
+                    "models": {
+                        "currentModelId": "small",
+                        "availableModels": [
+                            {
+                                "modelId": "small",
+                                "_meta": {"copilotUsage": "0.33x"},
+                            }
+                        ],
+                    },
+                },
+            }
+        ]
+    if m == "session/load":
+        return [
+            {
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": {"sessionId": req["params"]["sessionId"]},
+            }
+        ]
+    if m == "session/prompt":
+        sid = req["params"]["sessionId"]
+        prompt_text = req["params"]["prompt"][0]["text"]
+        tool_updates = []
+        if "use tool" in prompt_text:
+            tool_updates = [
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": sid,
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": "tool-1",
+                            "title": "Reading state.json",
+                            "kind": "read",
+                            "status": "pending",
+                            "rawInput": {"path": "state.json"},
+                        },
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": sid,
+                        "update": {
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": "tool-1",
+                            "status": "completed",
+                        },
+                    },
+                },
+            ]
+        return [
+            *tool_updates,
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "ok"},
+                    },
+                },
+            },
+            {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+        ]
+    return []
+
+
+def test_acp_happy_path_maps_to_agent_run_result(monkeypatch) -> None:
+    proc = _FakeAcpProc(_happy_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+
+    client = CopilotAcpClient("copilot-bin")
+    blocks: list[str] = []
+    r = client.run_prompt(
+        prompt="classify this",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="manager-frontdoor-classify",
+        on_block=blocks.append,
+    )
+
+    assert r.exit_code == 0
+    assert r.turn_completed is True and r.turn_failed is False
+    assert r.thread_id == "sess-1"
+    assert r.agent_messages == ["CONFIG: NONE\nROUTE: SELF"]  # chunks accumulated
+    # on_block fired with the growing accumulated text (last = full reply)
+    assert blocks and blocks[-1] == "CONFIG: NONE\nROUTE: SELF"
+    # handshake order: initialize → session/new → session/prompt
+    methods = [w.get("method") for w in proc.written if w.get("method")]
+    assert methods[:3] == ["initialize", "session/new", "session/prompt"]
+    # permission auto-allowed
+    perm = [w for w in proc.written if w.get("id") == 9001]
+    assert perm and perm[0]["result"]["outcome"]["optionId"] == "allow"
+
+
+def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
+    proc = _FakeAcpProc(_happy_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    client.run_prompt(
+        prompt="a", resume_thread_id=None, options=_Opt(), run_label="manager-frontdoor-classify"
+    )
+    client.run_prompt(
+        prompt="b", resume_thread_id=None, options=_Opt(), run_label="manager-frontdoor-classify"
+    )
+
+    inits = [w for w in proc.written if w.get("method") == "initialize"]
+    news = [w for w in proc.written if w.get("method") == "session/new"]
+    prompts = [w for w in proc.written if w.get("method") == "session/prompt"]
+    assert len(inits) == 1  # initialized ONCE (warm)
+    assert len(news) == 1  # front-door session reused (recycle default high)
+    assert len(prompts) == 2  # both prompts ran on the warm process
+
+
+def test_manager_chat_is_isolated_then_resumed_on_same_process(monkeypatch) -> None:
+    proc = _FakeAcpProc(_multi_session_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    classify_1 = client.run_prompt(
+        prompt="classify a",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="manager-frontdoor-classify",
+    )
+    chat_1 = client.run_prompt(
+        prompt="reply a",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+    chat_2 = client.run_prompt(
+        prompt="reply b",
+        resume_thread_id=chat_1.thread_id,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+    classify_2 = client.run_prompt(
+        prompt="classify b",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="manager-frontdoor-classify",
+    )
+
+    assert classify_1.thread_id == classify_2.thread_id == "sess-1"
+    assert chat_1.thread_id == chat_2.thread_id == "sess-2"
+    assert chat_1.thread_id != classify_1.thread_id
+    methods = [w.get("method") for w in proc.written]
+    assert methods.count("initialize") == 1
+    assert methods.count("session/new") == 2
+    assert methods.count("session/load") == 0
+    prompt_sids = [
+        w["params"]["sessionId"] for w in proc.written if w.get("method") == "session/prompt"
+    ]
+    assert prompt_sids == ["sess-1", "sess-2", "sess-2", "sess-1"]
+
+
+def test_manager_chat_none_means_intentional_session_rotation(monkeypatch) -> None:
+    proc = _FakeAcpProc(_multi_session_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    first = client.run_prompt(
+        prompt="reply a",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+    second = client.run_prompt(
+        prompt="handoff + reply b",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+
+    assert first.thread_id == "sess-1"
+    assert second.thread_id == "sess-2"
+
+
+def test_acp_reports_cumulative_premium_usage_for_budget_meter(monkeypatch) -> None:
+    proc = _FakeAcpProc(_multi_session_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    first = client.run_prompt(
+        prompt="reply a",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+    second = client.run_prompt(
+        prompt="reply b",
+        resume_thread_id=first.thread_id,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+
+    assert first.json_events[-1]["usage"]["premiumRequests"] == 0.33
+    assert second.json_events[-1]["usage"]["premiumRequests"] == 0.66
+
+
+def test_acp_tool_updates_are_forwarded_as_progress_events(monkeypatch) -> None:
+    proc = _FakeAcpProc(_multi_session_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    emitted: list[str] = []
+
+    result = client.run_prompt(
+        prompt="use tool",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+        emit=emitted.append,
+    )
+
+    structured = [json.loads(line) for line in emitted if line.startswith("{")]
+    assert result.turn_completed
+    assert [event["type"] for event in structured] == ["tool.call", "tool.result"]
+    assert structured[0]["data"]["name"] == "Reading state.json"
+    assert structured[1]["data"]["content"] == "Reading state.json (completed)"
+
+
+def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> None:
+    """ACP must honor the same idle callback as the one-shot CLI watchdog."""
+    def _delayed_script(req, proc):
+        method = req.get("method")
+        if method == "initialize":
+            return [_init_ok(req)]
+        if method == "session/new":
+            return [_session_ok(req)]
+        if method != "session/prompt":
+            return []
+
+        sid = req["params"]["sessionId"]
+
+        def _later() -> None:
+            time.sleep(0.035)
+            proc._q.put(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "tool-quiet-reset",
+                        "title": "Reading status",
+                    },
+                },
+            }) + "\n")
+            time.sleep(0.035)
+            proc._q.put(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "ok"},
+                    },
+                },
+            }) + "\n")
+            proc._q.put(json.dumps({
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": {"stopReason": "end_turn"},
+            }) + "\n")
+
+        threading.Thread(target=_later, daemon=True).start()
+        return []
+
+    proc = _FakeAcpProc(_delayed_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    snapshots = []
+    options = _Opt()
+    options.watchdog_soft_idle_seconds = 0.02
+    options.watchdog_hard_idle_seconds = 0
+    options.inactivity_callback = lambda snapshot: snapshots.append(snapshot)
+
+    result = client.run_prompt(
+        prompt="wait then answer",
+        resume_thread_id=None,
+        options=options,
+        run_label="simple-1",
+    )
+
+    assert result.turn_completed
+    assert len(snapshots) >= 2  # once before and once after the real tool event
+    assert all(snapshot.idle_seconds < 0.05 for snapshot in snapshots)
+    count_at_completion = len(snapshots)
+    time.sleep(0.04)
+    assert len(snapshots) == count_at_completion  # completion stops heartbeats
+
+
+def test_acp_crash_midturn_is_failure(monkeypatch) -> None:
+    def _crash_script(req, proc):
+        m = req.get("method")
+        if m == "initialize":
+            return [_init_ok(req)]
+        if m == "session/new":
+            return [_session_ok(req)]
+        if m == "session/prompt":
+            proc.eof()  # process dies before answering the prompt
+            return []
+        return []
+
+    proc = _FakeAcpProc(_crash_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    r = client.run_prompt(
+        prompt="x", resume_thread_id=None, options=_Opt(), run_label="manager-frontdoor-classify"
+    )
+    assert r.exit_code != 0
+    assert r.turn_completed is False and r.turn_failed is True
+    assert r.fatal_error
+
+
+def test_acp_fresh_session_mode(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP_SESSION_MODE", "fresh")
+    proc = _FakeAcpProc(_happy_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    client.run_prompt(
+        prompt="a", resume_thread_id=None, options=_Opt(), run_label="manager-frontdoor-classify"
+    )
+    client.run_prompt(
+        prompt="b", resume_thread_id=None, options=_Opt(), run_label="manager-frontdoor-classify"
+    )
+    news = [w for w in proc.written if w.get("method") == "session/new"]
+    assert len(news) == 2  # a fresh session per call in fresh mode

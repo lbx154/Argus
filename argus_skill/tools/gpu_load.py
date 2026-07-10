@@ -39,7 +39,7 @@ import time
 _STOP = False
 
 
-def _handle_stop(signum, frame):  # noqa: ANN001 - signal handler signature
+def _handle_stop(_signum, _frame):  # noqa: ANN001 - signal handler signature
     global _STOP
     _STOP = True
 

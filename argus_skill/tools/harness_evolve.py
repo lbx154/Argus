@@ -137,7 +137,7 @@ def _cmd_add_rule(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
-def _cmd_list(args: argparse.Namespace, root: Path) -> int:
+def _cmd_list(_args: argparse.Namespace, root: Path) -> int:
     for state in ("active", "pending"):
         overlay = ho.load_overlay(root, state=state)
         items = overlay.get("checklist_items", [])

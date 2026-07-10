@@ -197,6 +197,25 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
     assert reviewer.seen_log_path == ""
 
 
+def test_checkpoint_path_prefers_explicit_session_state_dir(tmp_path: Path) -> None:
+    """Web session ids are not cwd fingerprints. The Reviewer log/checkpoint
+    must stay beside the canonical session events.jsonl, not in a second
+    hash-derived phantom project directory."""
+    import argparse
+
+    from argus_skill.apps._runtime import _checkpoint_path_for
+
+    session_dir = tmp_path / "projects" / "s-1d7da0e9"
+    workdir = tmp_path / "some-worktree"
+    path = _checkpoint_path_for(
+        argparse.Namespace(project_state_dir=str(session_dir), life_dir=None),
+        workdir,
+    )
+
+    assert path == session_dir / "checkpoint.json"
+    assert path.parent == session_dir
+
+
 # --------------------------------------------------------------------------- #
 # The reviewer skill exists in the reviewer pool
 # --------------------------------------------------------------------------- #

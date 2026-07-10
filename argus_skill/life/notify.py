@@ -827,44 +827,6 @@ class TelegramStreamReporter:
             log.debug("tg-stream send failed", exc_info=True)
             return None
 
-    def _edit_message(self, msg_id: int, text: str) -> bool:
-        try:
-            import urllib.request
-            url = f"https://api.telegram.org/bot{self._token}/editMessageText"
-            body = json.dumps({
-                "chat_id": self._chat_id,
-                "message_id": msg_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }, ensure_ascii=False).encode("utf-8")
-            req = urllib.request.Request(
-                url, data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return resp.status < 400
-        except Exception:  # noqa: BLE001
-            log.debug("tg-stream edit failed", exc_info=True)
-            return False
-
-    def _delete_message(self, msg_id: int) -> None:
-        try:
-            import urllib.request
-            url = f"https://api.telegram.org/bot{self._token}/deleteMessage"
-            body = json.dumps({
-                "chat_id": self._chat_id,
-                "message_id": msg_id,
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                url, data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=5)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 __all__ = [

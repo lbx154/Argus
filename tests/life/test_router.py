@@ -46,10 +46,18 @@ def _runner(result_or_exc: Any):
 
 # ---- classify_route: SELF (simple) vs TEAM (complex) -----------------------
 
-@pytest.mark.parametrize(("answer", "expected"), [
-    ("SELF", "simple"), ("self", "simple"), (" SELF ", "simple"),
-    ("TEAM", "complex"), ("team", "complex"), ("TEAM.", "complex"),
-])
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("SELF", "simple"),
+        ("self", "simple"),
+        (" SELF ", "simple"),
+        ("TEAM", "complex"),
+        ("team", "complex"),
+        ("TEAM.", "complex"),
+    ],
+)
 def test_classify_route_two_way(answer: str, expected: str) -> None:
     assert classify_route("x", run_exec=_runner(_FakeResult(message=answer))) == expected
 
@@ -75,16 +83,21 @@ def test_route_prompt_has_two_labels_and_safe_default() -> None:
 
 # ---- classify_is_conversational: CHAT (True) vs TASK (False) ----------------
 
+
 @pytest.mark.parametrize("answer", ["CHAT", "chat", " CHAT "])
 def test_chat_answer_is_conversational(answer: str) -> None:
-    assert classify_is_conversational("hello", run_exec=_runner(_FakeResult(message=answer))) is True
+    assert (
+        classify_is_conversational("hello", run_exec=_runner(_FakeResult(message=answer))) is True
+    )
 
 
 @pytest.mark.parametrize("answer", ["TASK", "task", "SELF", "maybe", ""])
 def test_non_chat_answer_is_not_conversational(answer: str) -> None:
     # Anything that is not exactly CHAT resolves to TASK — a real task is never
     # silently answered as chat. (SELF, the old route token, is NOT conversational.)
-    assert classify_is_conversational("fix it", run_exec=_runner(_FakeResult(message=answer))) is False
+    assert (
+        classify_is_conversational("fix it", run_exec=_runner(_FakeResult(message=answer))) is False
+    )
 
 
 def test_backend_exception_is_safe_default() -> None:
@@ -93,19 +106,28 @@ def test_backend_exception_is_safe_default() -> None:
 
 
 def test_nonzero_exit_is_safe_default() -> None:
-    assert classify_route("x", run_exec=_runner(_FakeResult(message="SELF", exit_code=1))) == "complex"
-    assert classify_is_conversational(
-        "hi", run_exec=_runner(_FakeResult(message="CHAT", exit_code=1))
-    ) is False
+    assert (
+        classify_route("x", run_exec=_runner(_FakeResult(message="SELF", exit_code=1))) == "complex"
+    )
+    assert (
+        classify_is_conversational("hi", run_exec=_runner(_FakeResult(message="CHAT", exit_code=1)))
+        is False
+    )
 
 
 def test_reads_last_of_agent_messages_when_no_last_message() -> None:
-    assert classify_route(
-        "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "SELF"]))
-    ) == "simple"
-    assert classify_is_conversational(
-        "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "CHAT"]))
-    ) is True
+    assert (
+        classify_route(
+            "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "SELF"]))
+        )
+        == "simple"
+    )
+    assert (
+        classify_is_conversational(
+            "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "CHAT"]))
+        )
+        is True
+    )
 
 
 def test_classify_prompt_asks_chat_or_task() -> None:
@@ -117,9 +139,11 @@ def test_classify_prompt_asks_chat_or_task() -> None:
 
 # ---- chat / simple answer prompts ------------------------------------------
 
+
 def test_build_chat_prompt_names_the_worker_and_guards_identity() -> None:
     out = build_chat_prompt(objective="你好")
     from argus_skill.cli.roles_status import runner_backend_label
+
     assert "You are Argus Manager" in out
     assert f"{runner_backend_label()} worker" in out
     assert _IDENTITY_GUARD in out
@@ -149,6 +173,7 @@ def test_build_simple_prompt_is_minimal() -> None:
     assert "17*23" in out
     assert "Argus Manager" in out
     from argus_skill.cli.roles_status import runner_backend_label
+
     assert f"{runner_backend_label()} worker" in out
     assert "Answer as Argus Manager" in out
 
@@ -170,31 +195,49 @@ def test_build_simple_prompt_omits_mission_status_block_when_empty() -> None:
 
 
 def test_build_simple_prompt_includes_mission_status_when_given() -> None:
-    status = "## Live mission status\n- item: \"demo\" (id=abc)"
+    status = '## Live mission status\n- item: "demo" (id=abc)'
     out = build_simple_prompt(objective="how's it going?", mission_status=status)
     assert out.startswith(status + "\n\n")
     assert "how's it going?" in out
     assert "Argus Manager" in out
 
 
+def test_manager_prompts_include_runtime_context_only_when_given() -> None:
+    fact = "Runtime fact: one warm ACP conversation session."
+    chat = build_chat_prompt(objective="how are you?", runtime_context=fact)
+    simple = build_simple_prompt(objective="status", runtime_context=fact)
+
+    assert fact in chat and fact in simple
+    assert fact not in build_chat_prompt(objective="how are you?")
+    assert fact not in build_simple_prompt(objective="status")
+
+
 # ---- classify_needs_persistence: BOUNDED vs STANDING -----------------------
 
-@pytest.mark.parametrize(("answer", "expected"), [
-    ("STANDING", True), ("standing", True), (" STANDING ", True),
-    ("CONTINUOUS", True), ("PERSIST", True), ("PERSISTENT", True),
-    ("BOUNDED", False), ("bounded", False), ("BOUNDED.", False),
-])
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("STANDING", True),
+        ("standing", True),
+        (" STANDING ", True),
+        ("CONTINUOUS", True),
+        ("PERSIST", True),
+        ("PERSISTENT", True),
+        ("BOUNDED", False),
+        ("bounded", False),
+        ("BOUNDED.", False),
+    ],
+)
 def test_classify_needs_persistence_two_way(answer: str, expected: bool) -> None:
-    assert classify_needs_persistence(
-        "x", run_exec=_runner(_FakeResult(message=answer))
-    ) is expected
+    assert (
+        classify_needs_persistence("x", run_exec=_runner(_FakeResult(message=answer))) is expected
+    )
 
 
 @pytest.mark.parametrize("answer", ["", "maybe", "yes"])
 def test_classify_needs_persistence_unknown_falls_back_to_bounded(answer: str) -> None:
-    assert classify_needs_persistence(
-        "x", run_exec=_runner(_FakeResult(message=answer))
-    ) is False
+    assert classify_needs_persistence("x", run_exec=_runner(_FakeResult(message=answer))) is False
 
 
 def test_classify_needs_persistence_empty_is_bounded_without_calling_model() -> None:

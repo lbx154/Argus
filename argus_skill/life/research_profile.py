@@ -23,15 +23,6 @@ _DEFAULT_TEXT_MODELS = "gpt-5.5,gpt-5.5"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
 _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
 
-# Per-profile default vertical. A profile listed here declares the vertical its
-# missions should run under by default (e.g. the nanochat autoresearch contest
-# is a recipe-optimization speedrun, not a paper pipeline).
-# Profiles absent from this map (EMNLP/AAAI) declare no override and resolve to
-# None, which callers treat as the default "research" vertical.
-PROFILE_VERTICAL: dict[str, str] = {
-    _NANOCHAT_PROFILE: "speedrun",
-}
-
 
 @dataclass(frozen=True)
 class ResearchProfile:
@@ -498,21 +489,6 @@ _PROFILE_REGISTRY = {
     _AAAI2026_PROFILE: _default_aaai2026_profile,
     _NANOCHAT_PROFILE: _default_nanochat_profile,
 }
-
-
-def profile_vertical(name: str | None) -> str | None:
-    """Return the default vertical declared by a research profile.
-
-    Profiles that declare an override in ``PROFILE_VERTICAL`` (e.g. the
-    nanochat autoresearch contest -> "speedrun") return that vertical name.
-    Every other profile name, an unknown name, or ``None`` returns ``None`` so
-    callers fall back to their default ("research") vertical. EMNLP/AAAI
-    profiles are intentionally absent here and keep their default behavior.
-    """
-
-    if not name:
-        return None
-    return PROFILE_VERTICAL.get(name)
 
 
 def load_research_profile(

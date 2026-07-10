@@ -287,7 +287,7 @@ CHECKLIST_ITEMS = STAGE_CHECKLISTS
 completion_gate = "full_emnlp"
 
 
-def role_banner(role: str = "engineer") -> str:
+def role_banner(_role: str = "engineer") -> str:
     """No top-of-prompt override for the research vertical (the default).
 
     The planner/reviewer/engineer prompts are already authored for the paper

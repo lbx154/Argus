@@ -1,0 +1,117 @@
+import { describe, expect, it } from 'vitest';
+import {
+  authoritativeSpend,
+  computeSpend,
+  defaultProject,
+  deriveMissionView,
+  eventKey,
+  eventMatchesView,
+  filterProjects,
+  resolveProjectSelection,
+  responseError,
+  visibleBacklogItems,
+} from '../../../core/src';
+import { formatBytes } from '../lib/format';
+import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
+
+describe('shared frontend core', () => {
+  it('selects live work first and gives replayed events one identity', () => {
+    const rows = [
+      { id: 'new', label: 'new', objective: '', last_active: 20, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+      { id: 'live', label: 'Research', objective: '', last_active: 10, daemon_alive: true, daemon_pid: 1, uptime_seconds: 5 },
+    ];
+    expect(defaultProject(rows)?.id).toBe('live');
+    const event = { type: 'life.mission.completed', ts: 10, status: 'done' };
+    expect(eventKey(event)).toBe(eventKey({ ...event }));
+  });
+
+  it('finds projects consistently by multiple fields and palette keywords', () => {
+    const rows = [
+      { id: 's-kernel-42', label: 'AAAI Paper', objective: 'Reproduce flash attention benchmark', last_active: 2, daemon_alive: true, daemon_pid: 1, uptime_seconds: 3 },
+      { id: 's-vision-7', label: 'Vision notes', objective: 'Review VLM datasets', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    ];
+    expect(filterProjects(rows, 'aaai live').map((row) => row.id)).toEqual(['s-kernel-42']);
+    expect(filterProjects(rows, 'flash benchmark').map((row) => row.id)).toEqual(['s-kernel-42']);
+    expect(filterProjects(rows, 'vision stopped').map((row) => row.id)).toEqual(['s-vision-7']);
+
+    const items: PaletteItem[] = rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      group: 'Project',
+      keywords: `${row.id} ${row.objective}`,
+      run: () => {},
+    }));
+    expect(filterPaletteItems(items, 'kernel benchmark').map((item) => item.id)).toEqual(['s-kernel-42']);
+    expect(resolveProjectSelection(rows, 's-kernel-42')).toEqual({
+      id: 's-kernel-42', requested: 's-kernel-42', recovered: false,
+    });
+    expect(resolveProjectSelection(rows, 'missing')).toEqual({
+      id: 's-kernel-42', requested: 'missing', recovered: true,
+    });
+    expect(resolveProjectSelection([], 'missing')).toEqual({
+      id: null, requested: 'missing', recovered: true,
+    });
+  });
+
+  it('uses all settled phases and the authoritative project total', () => {
+    const spend = computeSpend([
+      { type: 'life.planner.verdict', cost_usd: 0.2 },
+      { type: 'life.mission.completed', cost_usd: 0.3 },
+    ]);
+    expect(spend.total).toBe(0.5);
+    expect(authoritativeSpend(spend, 0.8)).toBe(0.8);
+  });
+
+  it('distinguishes mission completion from daemon liveness', () => {
+    const view = deriveMissionView({
+      session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', per_mission_cap_usd: 1, daily_cap_usd: 2, global_daily_cap_usd: 0 },
+      roles: [],
+      backlog: [],
+      recent_events: [],
+      continuous: { enabled: false, objective: 'CO2 paper', done_reason: 'done' },
+    });
+    expect(view).toMatchObject({ state: 'complete', objective: 'CO2 paper' });
+  });
+
+  it('treats a fresh session with a lazy daemon as ready, not offline', () => {
+    const view = deriveMissionView({
+      session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+      roles: [],
+      backlog: [],
+      recent_events: [],
+      continuous: { enabled: false, objective: '', done_reason: '' },
+    });
+    expect(view).toMatchObject({ state: 'idle', stateLabel: 'ready' });
+  });
+
+  it('formats artifact sizes for compact result metadata', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(1536)).toBe('1.5 KB');
+    expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
+  });
+
+  it('turns API JSON detail into a useful operator-facing error', async () => {
+    const error = await responseError(
+      { ok: false, status: 401, statusText: 'Unauthorized', text: async () => '{"detail":"invalid Web token"}' },
+      'GET',
+      '/api/projects/s/artifacts',
+    );
+    expect(error.message).toBe('GET /api/projects/s/artifacts → 401: invalid Web token');
+    expect(error.status).toBe(401);
+  });
+
+  it('shares feed filters and backlog lifecycle semantics with Ink', () => {
+    const alert = { type: 'life.lifecycle.block', reason: 'needs credentials', operator_alert: true };
+    expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'attention')).toBe(true);
+    expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'messages')).toBe(false);
+    expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'all', 'credentials')).toBe(true);
+    const items = [
+      { id: 'run', title: 'running', objective: '', status: 'running', priority: 1, max_cost_usd: 1 },
+      { id: 'done', title: 'done', objective: '', status: 'done', priority: 2, max_cost_usd: 1 },
+    ];
+    expect(visibleBacklogItems(items, false).map((item) => item.id)).toEqual(['run']);
+    expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done']);
+  });
+});

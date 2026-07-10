@@ -80,7 +80,6 @@ def test_render_agents_md_fills_placeholders_and_quality_contracts() -> None:
     rendered = render_agents_md(
         load_template_text(),
         project_name="agent-emnlp-auto-research-v15",
-        version="v15",
     )
 
     # Structural: all placeholder tokens are substituted and the project
@@ -103,7 +102,6 @@ def test_rendered_agents_md_has_no_stale_validator_or_critic_prose() -> None:
     rendered = render_agents_md(
         load_template_text(),
         project_name="agent-emnlp-auto-research-v15",
-        version="v15",
     )
     forbidden = (
         "exact command to exit 0",
@@ -149,7 +147,6 @@ def test_optimize_template_renders_without_paper_or_venue() -> None:
     rendered = render_agents_md(
         load_template_text(template_path),
         project_name="kbench-proj",
-        version="v1",
         objective="maximize kernelbench SOL score on B200",
         non_goals="Do not produce a paper or venue submission.",
         compute_budget="Run the real harness on real hardware.",
@@ -167,13 +164,11 @@ def test_render_agents_md_can_suppress_harness_map() -> None:
     body_with = render_agents_md(
         load_template_text(),
         project_name="p",
-        version="v1",
         append_harness_map=True,
     )
     body_without = render_agents_md(
         load_template_text(),
         project_name="p",
-        version="v1",
         append_harness_map=False,
     )
     assert "## Argus harness modification map" in body_with

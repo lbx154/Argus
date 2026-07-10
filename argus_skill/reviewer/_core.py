@@ -175,7 +175,7 @@ def _verification_directive() -> str:
 
 
 def _engineer_log_audit_block(
-    engineer_log_path: str, *, round_index: int, measured: bool
+    engineer_log_path: str, *, round_index: int, measured: bool  # noqa: ARG001 — round_index kept for call-site symmetry with the other audit blocks
 ) -> str:
     """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
 
@@ -386,6 +386,9 @@ class Reviewer:
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     output_schema_path=self.schema_path,
                     working_dir=config.working_dir,
+                    # Search is available for the rare turn that proposes a
+                    # skill; ordinary review turns need not invoke it.
+                    live_search=True,
                 ),
                 run_label="reviewer",
             )
@@ -507,7 +510,7 @@ class Reviewer:
         session_id: str | None,
         main_summary: str,
         main_error: str | None,
-        checks: list[CheckResult],
+        checks: list[CheckResult],  # noqa: ARG002 — parity with evaluate(); the prompt renderer takes the same shape
         active_skill_id: str | None = None,
         prev_review_summary: str = "",
         raw_evidence: str = "",
@@ -1013,7 +1016,9 @@ class Reviewer:
             "    content=the full skill markdown, written for a FAMILY of tasks\n"
             "    (title a CAPABILITY, use <placeholders>, never hardcode this\n"
             "    mission's paths/ids/numbers); include When-to-use / When-NOT /\n"
-            "    How-to-solve (+pitfalls).\n"
+            "    How-to-solve (+pitfalls). Before emitting create/update, use\n"
+            "    live web search to check current primary sources; if that search\n"
+            "    cannot ground the lesson, omit the skill_op.\n"
             "  * update — fold a lesson into a matched skill: op=update, name,\n"
             "    content=the FULL revised markdown.\n"
             "  * archive/delete — retire a matched skill you found WRONG/harmful/\n"

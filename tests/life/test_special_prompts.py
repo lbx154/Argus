@@ -47,6 +47,30 @@ def test_render_has_authoritative_header_and_bodies(
     assert "### 10-gpu" in rendered
 
 
+def test_explicit_paper_scope_is_omitted_from_bounded_missions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    d = tmp_path / "sp"
+    d.mkdir()
+    paper = d / "10-paper.md"
+    paper.write_text(
+        "---\nscope: paper\n---\nPaper-only research direction.",
+        encoding="utf-8",
+    )
+    paper.chmod(0o644)
+    global_rule = d / "20-machine.md"
+    global_rule.write_text("Machine rule for every task.", encoding="utf-8")
+    global_rule.chmod(0o644)
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
+
+    bounded = special_prompts.render_special_prompts_context(paper_mission=False)
+    assert "Paper-only" not in bounded
+    assert "Machine rule" in bounded
+    paper_context = special_prompts.render_special_prompts_context(paper_mission=True)
+    assert "Paper-only" in paper_context
+    assert "Machine rule" in paper_context
+
+
 def test_world_writable_directive_is_rejected(
     tmp_path: Path, monkeypatch
 ) -> None:

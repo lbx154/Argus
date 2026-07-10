@@ -174,8 +174,8 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
 
 
 def test_skill_loop_scientist_distills_candidate_on_miss(tmp_path: Path) -> None:
-    """A matcher miss asks the Scientist to author a provisional skill, which the
-    engineer uses immediately and the reviewer proves by accepting the mission."""
+    """A matcher miss authors a web-enabled provisional skill; the creation
+    mission may use it but cannot self-confirm it."""
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("scientist.skill_distill", CannedResponse(message="""# Solve Trivial Task
@@ -192,17 +192,22 @@ general
 2. Do the smallest correct action.
 ## Pitfalls
 - Do not invent extra scope.
+## Sources
+- [Python documentation](https://docs.python.org/3/) — deterministic execution basics.
+- [Git documentation](https://git-scm.com/docs) — reproducible change tracking.
 """))
     backend.queue("engineer-r1", CannedResponse(
         message="Done: solved with the scientist skill. Remaining: none.",
     ))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
+    loop_events: list[dict] = []
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(max_rounds=2),
+        on_event=loop_events.append,
     )
     outcome = loop.run("trivial task", workdir=tmp_path)
     assert outcome.successful
@@ -210,7 +215,13 @@ general
     assert outcome.skill_distilled is True
     summaries = SkillStore(tmp_path / "skills").list_summaries()
     assert [s["name"] for s in summaries] == ["Solve Trivial Task"]
-    assert summaries[0]["provisional"] is False
+    assert summaries[0]["provisional"] is True
+    assert any(event.get("type") == "skill.awaiting_reuse" for event in loop_events)
+    scientist_options = next(
+        options for label, _prompt, options in backend.history
+        if label == "scientist.skill_distill"
+    )
+    assert scientist_options.live_search is True
 
 def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> None:
     from argus_skill.skills.store import Skill

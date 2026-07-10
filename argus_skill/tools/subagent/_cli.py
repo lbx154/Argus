@@ -237,7 +237,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
     return 0
 
-def cmd_list(args: argparse.Namespace) -> int:
+def cmd_list(_args: argparse.Namespace) -> int:
     """List all sub-agent tasks with their current state."""
     tasks = _list_tasks()
     if not tasks:
@@ -299,7 +299,7 @@ def cmd_wait(args: argparse.Namespace) -> int:
     print(json.dumps({"error": "wait timeout", "task_id": args.task_id}))
     return 1
 
-def cmd_clean(args: argparse.Namespace) -> int:
+def cmd_clean(_args: argparse.Namespace) -> int:
     """Remove completed/failed task records."""
     tasks = _list_tasks()
     removed = 0

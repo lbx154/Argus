@@ -183,6 +183,96 @@ def test_activity_empty_when_no_events(tmp_path):
         assert acts[r].status == "idle" and acts[r].active is False
 
 
+def test_activity_inactive_stale_role_decays_to_idle(tmp_path):
+    # LIVE bug: an inactive role whose last event is ~2.7h old must decay to a
+    # clean "idle" — not freeze its last (possibly verbose) label until it
+    # scrolls out of the 200-line tail. Manager/Engineer were stuck on stale
+    # content while Planner/Reviewer (no recent events) correctly read "idle".
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "life.manager.decision", "action": "hold",
+         "reason": "The operator's only message was a greeting ('你好'), which "
+                   "the engineer should not be interrupted for.",
+         "ts": now - 9966},
+        {"type": "loop.done", "status": "done", "ts": now - 9966},
+    ])
+    acts = role_activity(tmp_path, now=now)
+    assert acts["manager"].active is False and acts["manager"].label == "idle"
+    assert acts["engineer"].active is False and acts["engineer"].label == "idle"
+    # age_s stays recorded (the panel de-emphasizes it, it is not zeroed)
+    assert acts["manager"].age_s is not None and acts["manager"].age_s > 9000
+
+
+def test_activity_manager_label_is_terse_not_prose(tmp_path):
+    # A manager decision carries its reasoning as prose in text/reason; the
+    # compact role panel must show a TERSE state token (its action), never a
+    # truncated sentence — even while the manager is active/fresh.
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "life.manager.decision", "action": "hold",
+         "reason": "The operator's only message was a greeting ('你好'), which "
+                   "the engineer should not be interrupted for.",
+         "ts": now - 3},
+    ])
+    lab = role_activity(tmp_path, now=now)["manager"].label
+    assert lab == "hold"
+    assert "operator" not in lab and "greeting" not in lab
+
+
+def test_manager_stage_decision_is_terminal_not_active(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "life.manager.stage_decision",
+        "action": "advance",
+        "current_stage": "inspect",
+        "target_stage": "implement_cli",
+        "ts": now - 3,
+    }])
+
+    manager = role_activity(tmp_path, now=now)["manager"]
+    assert manager.label == "advance"
+    assert manager.status == "done"
+    assert manager.active is False
+
+
+def test_activity_engineer_done_not_duplicated(tmp_path):
+    # A terminal loop.done carrying status=="done" must render a single clean
+    # "done", never the redundant "done · done".
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "loop.done", "status": "done", "ts": now - 3},
+    ])
+    lab = role_activity(tmp_path, now=now)["engineer"].label
+    assert lab == "done"
+    assert "·" not in lab
+
+
+def test_activity_recognizes_concurrent_agent_io_without_leaking_stream_text(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "agent.io.stream", "run_label": "engineer-r4",
+         "line": "SECRET INTERNAL PAYLOAD", "ts": now - 2},
+        {"type": "agent.io.stream", "run_label": "simple-1",
+         "line": "[SESSION HANDOFF SECRET]", "ts": now - 1},
+    ])
+    acts = role_activity(tmp_path, now=now)
+    assert acts["engineer"].active is True
+    assert acts["engineer"].label == "round 4"
+    assert acts["manager"].active is True
+    assert acts["manager"].label == "handling your message"
+    assert "SECRET" not in acts["engineer"].label + acts["manager"].label
+
+
+def test_activity_does_not_put_assistant_prose_in_role_bar(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "engineer.progress", "kind": "assistant_message",
+        "agent_layer": "reviewer", "text": "a very long private review paragraph",
+        "ts": now - 1,
+    }])
+    assert role_activity(tmp_path, now=now)["reviewer"].label == "reporting progress"
+
+
 # ── panel rendering ────────────────────────────────────────────────────────
 
 def test_panel_default_is_compact_activity_only(tmp_path):
@@ -408,4 +498,3 @@ def test_prompt_status_line_unchanged_when_life_dir_omitted():
     from argus_skill.cli.roles_status import format_prompt_status_line
     out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
     assert out == "Codex · gpt-5.5"
-

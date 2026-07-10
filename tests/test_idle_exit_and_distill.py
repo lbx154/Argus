@@ -96,6 +96,7 @@ class _Backend:
 
 def test_distill_on_shutdown_calls_tidy(monkeypatch):
     from argus_skill.daemon import life_worker
+    monkeypatch.setenv("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "1")
 
     calls = {}
 
@@ -123,6 +124,7 @@ def test_distill_on_shutdown_calls_tidy(monkeypatch):
 
 def test_distill_on_shutdown_skips_memory_backend(monkeypatch):
     from argus_skill.daemon import life_worker
+    monkeypatch.setenv("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "1")
 
     called = {"n": 0}
 
@@ -148,6 +150,7 @@ def test_distill_on_shutdown_skips_memory_backend(monkeypatch):
 
 def test_distill_on_shutdown_is_failsoft(monkeypatch):
     from argus_skill.daemon import life_worker
+    monkeypatch.setenv("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "1")
 
     def boom(*a, **k):
         raise RuntimeError("tidy exploded")
@@ -166,6 +169,27 @@ def test_distill_on_shutdown_is_failsoft(monkeypatch):
     worker.config = _Backend("codex")
     # must not raise even though tidy explodes
     worker._distill_on_shutdown(_Sup())
+
+
+def test_distill_on_shutdown_is_disabled_by_default(monkeypatch):
+    from argus_skill.daemon import life_worker
+
+    monkeypatch.delenv("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", raising=False)
+    called = {"n": 0}
+    monkeypatch.setattr(
+        "argus_skill.manager.skill_tidy.tidy_after_mission",
+        lambda *a, **k: called.__setitem__("n", called["n"] + 1),
+    )
+
+    class _Sup:
+        runner = object()
+        def _project_workdir(self):
+            return "/work/dir"
+
+    worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
+    worker.config = _Backend("codex")
+    worker._distill_on_shutdown(_Sup())
+    assert called["n"] == 0
 
 
 # ---- operator clock-out: graceful stop quiesces continuous (别干了) ---------

@@ -40,7 +40,7 @@ def test_bounded_disables_full_emnlp_gate(tmp_path: Path):
     assert cfg.full_emnlp_gate is False
 
 
-def test_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
+def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
     cfg = _build_supervisor_config(
         _worker_cfg(tmp_path, open_ended=True),
         runtime_root=tmp_path / "life",
@@ -54,7 +54,8 @@ def test_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
     )
 
     assert cfg.open_ended is True
-    assert cfg.full_emnlp_gate is True
+    assert cfg.paper_mission is False
+    assert cfg.full_emnlp_gate is False
 
 
 def test_repl_bounded_disables_full_emnlp_gate(tmp_path: Path):
@@ -77,7 +78,7 @@ def test_repl_bounded_disables_full_emnlp_gate(tmp_path: Path):
     assert cfg.full_emnlp_gate is False
 
 
-def test_repl_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
+def test_repl_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
     cfg = _build_repl_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
@@ -94,7 +95,8 @@ def test_repl_unbounded_keeps_full_emnlp_gate(tmp_path: Path):
     )
 
     assert cfg.open_ended is True
-    assert cfg.full_emnlp_gate is True
+    assert cfg.paper_mission is False
+    assert cfg.full_emnlp_gate is False
 
 
 def _repl_cfg_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
@@ -130,3 +132,27 @@ def test_repl_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path)
 def test_repl_supervisor_paper_mission_on_for_research_vertical(tmp_path: Path):
     cfg = _repl_cfg_for_vertical(tmp_path, "research")
     assert cfg.paper_mission is True
+    assert cfg.full_emnlp_gate is True
+
+
+def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
+    tmp_path: Path,
+):
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    cfg = _build_supervisor_config(
+        _worker_cfg(tmp_path, open_ended=True),
+        runtime_root=tmp_path / "life",
+        stop_event=threading.Event(),
+        init_continuous=True,
+        init_objective="paper campaign",
+        continuous_provider=lambda: (True, "paper campaign"),
+        planner_runtime_context_provider=lambda: "",
+        planner_restart_handler=lambda _reason: False,
+        post_mission_hook=lambda: "",
+    )
+
+    assert cfg.paper_mission is True
+    assert cfg.full_emnlp_gate is True
+    assert cfg.artifact_root == tmp_path

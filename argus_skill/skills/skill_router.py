@@ -86,6 +86,7 @@ class SkillRouter:
         # Restartable internal session: the router resumes this for its agentic
         # calls and clears it between projects via ``restart_session``.
         self._thread_id: str | None = None
+        self._last_created_skill: Any | None = None
 
     def restart_session(self) -> None:
         self._thread_id = None
@@ -144,12 +145,32 @@ class SkillRouter:
                                       "text": f"{kind} failed: {type(exc).__name__}"})
         return counts
 
+    def create_candidate(
+        self,
+        content: str,
+        *,
+        task: str,
+        on_event: EventSink | None = None,
+    ) -> Any | None:
+        """Validated Scientist write path (same gates as Reviewer create)."""
+        self._last_created_skill = None
+        if not self._handle_proposal(
+            {"op": "create", "content": content, "why": "scientist miss"},
+            task,
+            on_event,
+            check_semantic_duplicate=False,
+        ):
+            return None
+        return self._last_created_skill
+
     # ------------------------------------------------------------------
     def _handle_proposal(
         self,
         op: dict,
         task: str,
         on_event: EventSink | None,
+        *,
+        check_semantic_duplicate: bool = True,
     ) -> bool:
         content = (op.get("content") or "").strip()
         kind = op.get("op")
@@ -161,6 +182,34 @@ class SkillRouter:
             return False
 
         name, description, category, _ = Prompts.parse_skill_output(content)
+        if kind == "create" and self._find_skill_by_name(name) is not None:
+            self._reject(
+                on_event,
+                kind,
+                f"skill name already exists: '{name}' — update it instead of "
+                "creating a numbered duplicate",
+            )
+            return False
+        if kind == "create":
+            normalized_description = " ".join(description.casefold().split())
+            normalized_category = category.casefold().strip()
+            for summary in self.skill_store.list_summaries():
+                existing_description = " ".join(
+                    str(summary.get("description") or "").casefold().split()
+                )
+                existing_category = str(summary.get("category") or "").casefold().strip()
+                if (
+                    normalized_description
+                    and normalized_description == existing_description
+                    and normalized_category == existing_category
+                ):
+                    self._reject(
+                        on_event,
+                        kind,
+                        "exact description/category already exists as "
+                        f"'{summary.get('name')}'",
+                    )
+                    return False
         # Self-governance: a CREATE must not SHADOW a protected skill by reusing
         # its name. A top-level shadow with an identical display name wins the
         # matcher's last-wins name resolution and would neutralize the protected
@@ -180,20 +229,21 @@ class SkillRouter:
         # runner configured, or the call fails -> the check is skipped
         # (fail-open); there is no scored/lexical fallback.
         exclude = op.get("name") if kind == "update" else None
-        try:
-            verdict = self._llm_duplicate_check(
-                name=name, description=description, category=category,
-                exclude_name=exclude,
-            )
-        except RuntimeError as exc:
-            self._reject(on_event, kind, str(exc))
-            return False
-        if verdict is not None:
-            is_dup, near, why = verdict
-            if is_dup:
-                self._reject(on_event, kind,
-                             f"too similar to '{near}' (llm judge: {why})")
+        if check_semantic_duplicate:
+            try:
+                verdict = self._llm_duplicate_check(
+                    name=name, description=description, category=category,
+                    exclude_name=exclude,
+                )
+            except RuntimeError as exc:
+                self._reject(on_event, kind, str(exc))
                 return False
+            if verdict is not None:
+                is_dup, near, why = verdict
+                if is_dup:
+                    self._reject(on_event, kind,
+                                 f"too similar to '{near}' (llm judge: {why})")
+                    return False
 
         # 3. store (born provisional — must still prove effective on later reuse).
         if kind == "update":
@@ -223,6 +273,7 @@ class SkillRouter:
             on_event=on_event, provisional=True,
         )
         if new_skill is not None:
+            self._last_created_skill = new_skill
             self._emit(on_event, {"type": "skill.created",
                                   "text": f"created candidate skill {new_skill.name}"})
             return True

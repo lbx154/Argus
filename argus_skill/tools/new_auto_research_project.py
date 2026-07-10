@@ -13,7 +13,6 @@ and build a per-project ``.venv``.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -140,7 +139,6 @@ def render_agents_md(
     template_text: str,
     *,
     project_name: str,
-    version: str,
     objective: str | None = None,
     non_goals: str | None = None,
     compute_budget: str | None = None,
@@ -155,7 +153,7 @@ def render_agents_md(
     """
     body = extract_copy_ready_agents_md(template_text)
     objective = objective or default_objective(project_name)
-    non_goals = non_goals or default_non_goals(project_name, version)
+    non_goals = non_goals or default_non_goals(project_name)
     compute_budget = compute_budget or default_compute_budget()
     replacements = {
         "[write the target research problem and deliverable]": objective,
@@ -204,7 +202,7 @@ def default_objective(project_name: str) -> str:
     )
 
 
-def default_non_goals(project_name: str, version: str) -> str:
+def default_non_goals(project_name: str) -> str:
     return (
         f"Do not copy, rename, polish, or continue any prior `agent-emnlp-auto-research-v*` "
         f"workspace as {project_name}. Do not reuse prior titles, claims, benchmark "

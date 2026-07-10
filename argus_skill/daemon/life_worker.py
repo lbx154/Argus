@@ -171,28 +171,31 @@ def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
 def _preflight_route_on_codex(route: str) -> bool:
     """Will this preflight route actually run on the codex/Azure backend?
 
-    EN: Mirrors ``_runtime._role_backend`` resolution
-    (``ARGUS_SKILL_{ROLE}_BACKEND`` → ``ARGUS_SKILL_RUNNER_BACKEND`` → codex). A
-    role pinned to copilot/claude authenticates through its OWN CLI (the copilot
-    subscription / claude), NOT the ``model_api`` vault — so probing its Azure
-    route is a FALSE gate. The generic ``text`` route (no dedicated backend env)
-    follows the default runner backend. Unknown/typo'd values fall back to codex
-    so the safety probe is preserved (fail-closed toward probing).
-    中文：镜像 ``_role_backend`` 的解析顺序。固定到 copilot/claude 的角色用自己的 CLI
-    (copilot 订阅 / claude) 认证，不走 ``model_api`` vault，故探测其 Azure 路由是误判
-    的门禁。通用 ``text`` 路由跟随默认 runner backend。未知/拼错值回退 codex 以保留
-    安全探测。
+    EN: Uses the SAME canonical resolution as the role runners
+    (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
+    ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
+    knob store → codex). A role pinned to copilot/claude authenticates through
+    its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
+    — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
+    ``os.environ``) is load-bearing: a non-interactive launcher (the web
+    autostart, a bare ``tmux`` exec) never sources the operator's ``.bashrc``,
+    so a copilot choice that lives only in an interactive-shell export would be
+    invisible here and the daemon would wrongly probe — and fail on — the codex
+    vault. The persisted ``/backend`` switch is honoured for exactly this case.
+    Unknown/typo'd values fall back to codex so the safety probe is preserved.
+    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：角色 env →
+    RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → codex）。读解析后的后端而非裸
+    ``os.environ`` 是关键：web/tmux 这类非交互启动器不 source ``.bashrc``，只写在
+    交互 shell 里的 copilot 选择在这里就看不见，daemon 会误探并崩在 codex 金库上；
+    持久化的 ``/backend`` 切换正是为这种情况兜底。未知值回退 codex 保留安全探测。
     """
     from ..agent_cli.runner_backend import BACKEND_CODEX, normalize_runner_backend
+    from ..core.knobs import resolve_role_backend
 
-    runner_default = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip()
-    if route in ("engineer", "reviewer", "planner", "manager", "curator"):
-        raw = os.environ.get(f"ARGUS_SKILL_{route.upper()}_BACKEND", "").strip()
-        chosen = raw or runner_default
-    else:  # "text" and any other generic route track the default runner backend
-        chosen = runner_default
+    role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
+    chosen = resolve_role_backend(role)
     if not chosen:
-        return True  # nothing overridden → codex default → probe it
+        return True  # nothing resolved → codex default → probe it
     try:
         return normalize_runner_backend(chosen) == BACKEND_CODEX
     except Exception:  # noqa: BLE001 — unknown value: keep the safety probe
@@ -811,7 +814,6 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    version="v1",
                     objective=objective_arg,
                     non_goals=(
                         "Do not produce a paper, venue submission, literature "
@@ -833,7 +835,6 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    version="v1",
                     objective=objective_arg,
                 )
             agents_path.write_text(agents_md, encoding="utf-8")
@@ -1211,17 +1212,6 @@ class LifeWorker:
                 objective=init_objective,
             )
 
-        sup_cfg = _build_supervisor_config(
-            cfg,
-            runtime_root=runtime_root,
-            stop_event=self._stop,
-            init_continuous=init_continuous,
-            init_objective=init_objective,
-            continuous_provider=_continuous_provider,
-            planner_runtime_context_provider=self._planner_runtime_context,
-            planner_restart_handler=self._planner_restart_handler,
-            post_mission_hook=self._post_mission_hook,
-        )
         # New daemon = fresh isolation generation: drop the Manager's persistent
         # codex session so it does NOT resume the PRIOR daemon's accumulated
         # conversation. Runs BEFORE the boot divide() so even boot classification
@@ -1282,6 +1272,23 @@ class LifeWorker:
         # the race — no vertical is threaded through by hand here.
         if bootstrap_preflight_pending is not None:
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
+
+        # Build supervisor policy only AFTER Manager.divide() has persisted the
+        # vertical.  Mission typing is fail-safe (non-paper until a
+        # ``full_emnlp`` vertical is positively resolved), so constructing this
+        # before divide would incorrectly leave a brand-new paper campaign in
+        # bounded mode for its whole daemon lifetime.
+        sup_cfg = _build_supervisor_config(
+            cfg,
+            runtime_root=runtime_root,
+            stop_event=self._stop,
+            init_continuous=init_continuous,
+            init_objective=init_objective,
+            continuous_provider=_continuous_provider,
+            planner_runtime_context_provider=self._planner_runtime_context,
+            planner_restart_handler=self._planner_restart_handler,
+            post_mission_hook=self._post_mission_hook,
+        )
 
         sup = LifeSupervisor(
             memory=mem,
@@ -1482,6 +1489,12 @@ class LifeWorker:
         LLM runner to classify placement, which the in-memory test/cheap backend
         does not provide (and it would otherwise reach the global skill store).
         """
+        # Source-tree promotion is a deliberate operator action. It used to run
+        # on every clean shutdown even when auto-commit was disabled, leaving
+        # hundreds of untracked ``-2``/``-3`` skills which were seeded back on
+        # the next boot. Default OFF; runtime skills remain safely persisted.
+        if not _truthy_env("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "0"):
+            return
         if str(getattr(self.config, "backend", "") or "").lower() == "memory":
             return
         # Process-lesson distillation is retired. Reusable behavior should be
@@ -1644,6 +1657,9 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         else os.environ.get("ARGUS_SKILL_WORKDIR")
     )
     ns.manager_session_root = str(cfg.life_dir)
+    # Canonical per-session state directory for checkpoint + execution log.
+    # This must not be re-derived by hashing project_workdir.
+    ns.project_state_dir = str(cfg.life_dir)
     # This is the ONE runner construction that actually drives real mission
     # rounds 7×24, so it is the only one that should ever consume a pending
     # mission-abort request (see ``apps/_runtime.py:_SkillLoopRunner._stop_reason``
@@ -1661,16 +1677,26 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     return ns
 
 
-def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
-    """Return static context injected into daemon-driven missions."""
+def _worker_runtime_context(
+    cfg: LifeWorkerConfig, *, paper_mission: bool | None = None,
+) -> str:
+    """Return static context injected into daemon-driven missions.
+
+    ``paper_mission`` is the already-resolved vertical signal.  It scopes
+    operator prompts and suppresses a configured research profile for bounded
+    work without guessing from objective prose. ``None`` preserves the legacy
+    all-context view for diagnostics and direct callers.
+    """
     from ..life.research_profile import render_research_profile_context
     from ..life.special_prompts import render_special_prompts_context
     from ..tools.capability_vault import format_api_context, format_gpu_context
 
     # Operator directives ("special prompts") are machine-specific house
     # rules; they lead the runtime context so the agent sees them first.
-    special_context = render_special_prompts_context()
-    research_context = render_research_profile_context()
+    special_context = render_special_prompts_context(paper_mission=paper_mission)
+    research_context = (
+        render_research_profile_context() if paper_mission is not False else ""
+    )
     if not research_context:
         return special_context
     argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
@@ -1740,8 +1766,15 @@ def _build_supervisor_config(
     planner_restart_handler: Any,
     post_mission_hook: Any,
 ) -> LifeSupervisorConfig:
-    from ..apps._runtime import _inbox_drainer_for
+    from ..apps._runtime import (
+        _inbox_drainer_for,
+        _paper_mission_for_project_root,
+    )
     from ..life.telemetry import telemetry_interval_from_env
+
+    paper_mission = _paper_mission_for_project_root(
+        cfg.project_workdir or runtime_root
+    )
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
@@ -1758,16 +1791,18 @@ def _build_supervisor_config(
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,
         user_inbox=_inbox_drainer_for(runtime_root),
-        runtime_context=_worker_runtime_context(cfg),
+        runtime_context=_worker_runtime_context(cfg, paper_mission=paper_mission),
         continuous=init_continuous,
         continuous_objective=init_objective,
         open_ended=cfg.continuous_open_ended,
-        full_emnlp_gate=cfg.continuous_open_ended,
+        paper_mission=paper_mission,
+        full_emnlp_gate=paper_mission and cfg.continuous_open_ended,
         continuous_config_provider=continuous_provider,
         planner_runtime_context_provider=planner_runtime_context_provider,
         planner_restart_handler=planner_restart_handler,
         post_mission_hook=post_mission_hook,
         telemetry_dir=runtime_root,
+        artifact_root=cfg.project_workdir or runtime_root,
         telemetry_interval_seconds=telemetry_interval_from_env(),
     )
 
@@ -1862,10 +1897,22 @@ def _redirect_std_to_log(log_path: Path, *, keep_console: bool = False) -> int |
 
 
 def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> dict[str, Any]:
+    # Report the RUNNER backend (what actually executes role turns — codex /
+    # claude / copilot), not the life-orchestration backend. Otherwise a
+    # copilot-backed run would mislabel itself "codex" in every UI. Resolved the
+    # same way the role config is (env → persisted → codex), so it matches the
+    # roles panel.
+    try:
+        from ..agent_cli.runner_backend import normalize_runner_backend
+        from ..core.knobs import resolve_role_backend
+
+        backend = normalize_runner_backend(resolve_role_backend("engineer"))
+    except Exception:  # noqa: BLE001
+        backend = config.backend
     return {
         "pid": os.getpid(),
         "started_at_iso": started_at_iso,
-        "backend": config.backend,
+        "backend": backend,
         "life_dir": str(config.life_dir),
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
@@ -2244,6 +2291,29 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
     devnull_fd = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull_fd, sys.stdin.fileno())
     os.close(devnull_fd)
+
+    # Close every inherited fd beyond std{in,out,err}. ``os.fork`` (unlike
+    # ``subprocess(close_fds=True)``) inherits the WHOLE fd table of whoever
+    # called ``spawn_detached_daemon`` — which is often the web server
+    # (``argus-skill --web``), whose LISTENING SOCKET would otherwise be kept
+    # open here and wedge that port after the web restarts (a real fd leak:
+    # connections queue to a daemon that never accepts). The daemon opens every
+    # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
+    # so dropping the inherited table is safe and correct daemonisation.
+    try:
+        _keep = {0, 1, 2}
+        for _name in os.listdir("/proc/self/fd"):
+            try:
+                _fd = int(_name)
+            except ValueError:
+                continue
+            if _fd not in _keep:
+                try:
+                    os.close(_fd)
+                except OSError:
+                    pass
+    except FileNotFoundError:  # /proc unavailable — bounded fallback
+        os.closerange(3, 4096)
 
     logging.basicConfig(
         level=logging.INFO,

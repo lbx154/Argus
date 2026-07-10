@@ -24,6 +24,30 @@ from .runner_backend import (
 EventCallback = Callable[[str, str], None]
 InactivityDecision = Literal["continue", "restart"]
 
+# Manager run labels routed through the warm ``copilot --acp`` client (see
+# ``_acp_enabled``).  The classifier and the operator-facing conversation use
+# separate ACP sessions; each configured model gets one long-lived process.
+# Mission roles remain on the ordinary one-shot CLI path. The set is overridable via
+# ``ARGUS_SKILL_COPILOT_ACP_LABELS``.
+_ACP_MANAGER_LABELS = frozenset(
+    {
+        "manager-frontdoor-classify",
+        "simple-1",
+        "chat-1",
+    }
+)
+
+
+def _incomplete_turn_error(stderr_lines: list[str]) -> str:
+    """Best available diagnostic for a CLI that exited without a model turn."""
+    nonempty = [line.strip() for line in stderr_lines if line.strip()]
+    for line in reversed(nonempty):
+        if line.casefold().startswith(("error:", "fatal:")):
+            return line
+    if nonempty:
+        return nonempty[-1]
+    return "Agent CLI exited without completing a model turn."
+
 
 @dataclass
 class InactivitySnapshot:
@@ -67,6 +91,11 @@ class RunnerOptions:
     plugin_dirs: list[str] | None = None
     file_specs: list[str] | None = None
     worktree_name: str | None = None
+    # Fired with each NEW assistant message block the instant it lands on stdout
+    # (see ``run_exec``). Opt-in — default ``None`` leaves every existing caller
+    # (the whole daemon) byte-for-byte unchanged; only the Manager chat
+    # front-door sets it, to stream the reply live.
+    on_agent_message: Callable[[str], None] | None = None
 
 
 class AgentCliRunner:
@@ -95,8 +124,44 @@ class AgentCliRunner:
     ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
+        # SOURCE-LEVEL gate: refuse to start a NEW LLM call if the (composed)
+        # interrupt provider ALREADY signals a reason — a per-mission budget hit
+        # its cap, or the operator/daemon requested a stop. Checked BEFORE the ACP
+        # fast path and the CLI spawn, so the cap is enforced at the finest
+        # granularity: once tripped no further call fires, and a single round can
+        # never overspend past the cap while waiting for the between-rounds
+        # breaker. A ``None`` provider (every non-mission call) makes this a no-op.
+        _gate = options.external_interrupt_reason_provider
+        if _gate is not None:
+            try:
+                _reason = _gate()
+            except Exception:  # noqa: BLE001 — a provider fault must never wedge the call
+                _reason = None
+            if _reason:
+                return AgentRunResult(
+                    command=[self.agent_bin],
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    turn_completed=False,
+                    turn_failed=True,
+                    fatal_error=f"refused before start: {_reason}",
+                )
+        # Warm-copilot fast path: Manager front-door classify + direct replies go
+        # through a persistent ``copilot --acp`` process.  The ACP client keeps
+        # the classifier and conversation in separate logical sessions.
+        if self._acp_enabled(run_label):
+            _acp = self._run_exec_acp(
+                prompt=prompt,
+                resume_thread_id=resume_thread_id,
+                options=options,
+                run_label=run_label,
+            )
+            if _acp is not None:
+                return _acp
         options = self._apply_sandbox_policy(options)
-        command = self._build_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
+        command = self._build_command(
+            prompt=prompt, resume_thread_id=resume_thread_id, options=options
+        )
         command[0] = self._resolve_executable(command[0])
         process = subprocess.Popen(
             command,
@@ -220,11 +285,7 @@ class AgentCliRunner:
                         self._terminate_process(process)
                         watchdog_terminated = True
 
-                if (
-                    hard_idle > 0
-                    and process.poll() is None
-                    and idle_seconds >= hard_idle
-                ):
+                if hard_idle > 0 and process.poll() is None and idle_seconds >= hard_idle:
                     watchdog_reason = (
                         f"Forced restart after hard idle timeout ({int(idle_seconds)}s)."
                     )
@@ -253,6 +314,7 @@ class AgentCliRunner:
                 if event is None:
                     continue
                 events.append(event)
+                _msgs_before = len(agent_messages)
                 (
                     thread_id,
                     turn_completed,
@@ -266,6 +328,18 @@ class AgentCliRunner:
                     turn_failed=turn_failed,
                     fatal_error=fatal_error,
                 )
+                # Stream each NEW assistant block to the opt-in callback the
+                # instant it lands — this is what lets the Manager chat front-door
+                # render the reply live instead of after the whole turn. Default
+                # ``None`` (every daemon/role turn) skips this entirely, so the
+                # hot path is unchanged. A callback fault must never break the run.
+                _cb = options.on_agent_message
+                if _cb is not None and len(agent_messages) > _msgs_before:
+                    for _blk in agent_messages[_msgs_before:]:
+                        try:
+                            _cb(_blk)
+                        except Exception:  # noqa: BLE001 — UI callback must not break the turn
+                            pass
             else:
                 stderr_lines.append(text)
 
@@ -284,6 +358,14 @@ class AgentCliRunner:
         elif process.returncode != 0 and fatal_error is None:
             turn_failed = True
             fatal_error = f"Process exited with code {process.returncode} before turn completion."
+        elif not turn_completed and not agent_messages and fatal_error is None:
+            # Some CLIs report configuration errors on stderr but still exit 0
+            # (Copilot does this for an unavailable --model). A clean process
+            # exit is not a successful model turn: preserve the concrete stderr
+            # diagnostic so the supervisor fails fast instead of laundering it
+            # into two rounds of "empty output" / no_progress.
+            turn_failed = True
+            fatal_error = _incomplete_turn_error(stderr_lines)
 
         return AgentRunResult(
             command=command,
@@ -298,11 +380,78 @@ class AgentCliRunner:
             fatal_error=fatal_error,
         )
 
-    def _build_command(self, *, prompt: str, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
+    # ── warm-copilot (ACP) fast path ─────────────────────────────────────────
+    def _acp_enabled(self, run_label: str | None) -> bool:
+        """Route this call through the persistent ``copilot --acp`` client?
+
+        True only for the copilot backend and a Manager label. It defaults ON;
+        ``ARGUS_SKILL_COPILOT_ACP=0`` is the explicit rollback switch, while
+        ``ARGUS_SKILL_COPILOT_ACP_LABELS`` overrides the default label set. All
+        engineer/reviewer/planner/mission turns stay on the CLI ``Popen`` path.
+        """
+        if self.backend != BACKEND_COPILOT or not run_label:
+            return False
+        raw_flag = os.environ.get("ARGUS_SKILL_COPILOT_ACP")
+        flag = str(raw_flag or "").strip().lower()
+        if raw_flag is not None and flag not in ("1", "true", "yes", "on"):
+            return False
+        raw = os.environ.get("ARGUS_SKILL_COPILOT_ACP_LABELS", "")
+        allowed = frozenset(x.strip() for x in raw.split(",") if x.strip()) or _ACP_MANAGER_LABELS
+        return run_label in allowed
+
+    def _run_exec_acp(
+        self,
+        *,
+        prompt: str,
+        resume_thread_id: str | None,
+        options: RunnerOptions,
+        run_label: str | None,
+    ) -> "AgentRunResult | None":
+        """Run one prompt on the warm ACP client.
+
+        A failure before an ACP session exists returns ``None`` so the caller can
+        safely fall back to the ordinary CLI.  Once a conversational prompt may
+        have started, return its failure instead of replaying a tool-capable turn
+        in a second process (which could duplicate side effects).
+        """
+        try:
+            from .copilot_acp import get_client
+
+            client = get_client(
+                self.agent_bin,
+                options.model,
+                options.reasoning_effort,
+            )
+
+            def _emit(text: str) -> None:
+                self._emit(self._stream_name("stdout", run_label), text)
+
+            result = client.run_prompt(
+                prompt=prompt,
+                resume_thread_id=resume_thread_id,
+                options=options,
+                run_label=run_label,
+                cwd=options.working_dir,
+                emit=_emit,
+                on_block=options.on_agent_message,
+            )
+        except Exception:  # noqa: BLE001 — fast path must never break the turn
+            return None
+        if result.exit_code == 0 and result.turn_completed and result.agent_messages:
+            return result
+        if run_label in {"simple-1", "chat-1"} and result.thread_id:
+            return result
+        return None
+
+    def _build_command(
+        self, *, prompt: str, resume_thread_id: str | None, options: RunnerOptions
+    ) -> list[str]:
         if self.backend == BACKEND_CLAUDE:
             return self._build_claude_command(resume_thread_id=resume_thread_id, options=options)
         if self.backend == BACKEND_COPILOT:
-            return self._build_copilot_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
+            return self._build_copilot_command(
+                prompt=prompt, resume_thread_id=resume_thread_id, options=options
+            )
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _apply_sandbox_policy(self, options: RunnerOptions) -> RunnerOptions:
@@ -349,7 +498,9 @@ class AgentCliRunner:
             working_dir=working_dir,
         )
 
-    def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
+    def _build_codex_command(
+        self, *, resume_thread_id: str | None, options: RunnerOptions
+    ) -> list[str]:
         command = [self.agent_bin, "exec"]
         if resume_thread_id:
             command.append("resume")
@@ -416,7 +567,9 @@ class AgentCliRunner:
         command.append("-")
         return command
 
-    def _build_claude_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
+    def _build_claude_command(
+        self, *, resume_thread_id: str | None, options: RunnerOptions
+    ) -> list[str]:
         command = [
             self.agent_bin,
             "-p",
@@ -434,7 +587,9 @@ class AgentCliRunner:
         elif options.full_auto:
             command.extend(["--permission-mode", "acceptEdits"])
         if options.output_schema_path and not resume_thread_id:
-            command.extend(["--json-schema", self._load_compact_schema_text(options.output_schema_path)])
+            command.extend(
+                ["--json-schema", self._load_compact_schema_text(options.output_schema_path)]
+            )
 
         # --add-dir
         if options.add_dirs:

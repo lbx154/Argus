@@ -32,7 +32,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 fcntl: Any
 try:  # pragma: no cover - platform-specific import
@@ -95,13 +95,21 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _read_jsonl_tail(path: Path, n: int) -> list[dict[str, Any]]:
-    """Return the last ``n`` JSONL rows without scanning the whole file."""
+def _read_jsonl_tail(
+    path: Path,
+    n: int,
+    *,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Return the last ``n`` matching JSONL rows without a full-file scan."""
     if n <= 0 or not path.exists():
         return []
 
     rows_rev: list[dict[str, Any]] = []
-    chunk_size = 32 * 1024
+    # Sparse filtered tails (EventJournal) may need to walk far back through a
+    # busy event log. Larger sequential chunks avoid thousands of tiny reverse
+    # seeks while the ordinary unfiltered tail stays lightweight.
+    chunk_size = (1024 * 1024) if predicate is not None else (32 * 1024)
     try:
         with path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
@@ -119,16 +127,21 @@ def _read_jsonl_tail(path: Path, n: int) -> list[dict[str, Any]]:
                     if not raw:
                         continue
                     try:
-                        rows_rev.append(json.loads(raw.decode("utf-8")))
+                        row = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         continue
+                    if predicate is not None and not predicate(row):
+                        continue
+                    rows_rev.append(row)
                     if len(rows_rev) >= n:
                         break
             if len(rows_rev) < n:
                 raw = buffer.strip()
                 if raw:
                     try:
-                        rows_rev.append(json.loads(raw.decode("utf-8")))
+                        row = json.loads(raw.decode("utf-8"))
+                        if predicate is None or predicate(row):
+                            rows_rev.append(row)
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         pass
     except OSError:
@@ -152,18 +165,23 @@ def _read_jsonl_history(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _read_jsonl_tail_history(path: Path, n: int) -> list[dict[str, Any]]:
+def _read_jsonl_tail_history(
+    path: Path,
+    n: int,
+    *,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
     """Return the tail of the live journal plus its most recent rollover."""
     if n <= 0:
         return []
-    rows = _read_jsonl_tail(path, n)
+    rows = _read_jsonl_tail(path, n, predicate=predicate)
     if len(rows) >= n:
         return rows
     backup = _journal_rollover_path(path)
     if not backup.exists():
         return rows
     needed = n - len(rows)
-    return _read_jsonl_tail(backup, needed) + rows
+    return _read_jsonl_tail(backup, needed, predicate=predicate) + rows
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -347,10 +365,25 @@ class EventJournal(Journal):
     """
 
     LEGACY_EVENT_TYPE = "journal.entry"
+    JOURNAL_EVENT_TYPES = {
+        "journal.entry",
+        "life.mission.started",
+        "life.mission.completed",
+        "life.planner.verdict",
+        "life.planner.error",
+        "life.planner.waiting",
+        "life.budget.pause",
+        "life.lifecycle.block",
+        "user.note",
+    }
 
     def append(self, entry: JournalEntry) -> None:  # noqa: ARG002
         """Retired write API: project journals are derived from events only."""
         return None
+
+    @classmethod
+    def _is_journal_event(cls, row: dict[str, Any]) -> bool:
+        return bool(row.get("journal_kind")) or str(row.get("type") or "") in cls.JOURNAL_EVENT_TYPES
 
     @staticmethod
     def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
@@ -403,7 +436,15 @@ class EventJournal(Journal):
     def tail(self, n: int = 20) -> list[JournalEntry]:
         if n <= 0:
             return []
-        return [JournalEntry.from_jsonable(r) for r in self._rows()[-n:]]
+        events = _read_jsonl_tail_history(
+            self.path,
+            n,
+            predicate=self._is_journal_event,
+        )
+        return [
+            entry for row in events
+            if (entry := self._entry_from_event(row)) is not None
+        ]
 
     def total_cost_since(self, ts: float) -> float:
         signature = (
