@@ -47,6 +47,7 @@ import { ActivityPane } from './components/ActivityPane.js';
 import { consumePasteChunk } from './input/paste.js';
 
 const MAX_EVENTS = 400;
+const STREAM_RENDER_INTERVAL_MS = 50;
 
 interface ActiveManagerRequest {
   id: number;
@@ -154,6 +155,25 @@ export function App({ host, port, token, project: initialProject, initialNotice 
     aliveRef.current = true;
     let active = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let renderTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingEvents: EventMsg[] = [];
+    const flushEvents = () => {
+      renderTimer = undefined;
+      if (!active || pendingEvents.length === 0) return;
+      const batch = pendingEvents;
+      pendingEvents = [];
+      setEvents((prev) =>
+        batch.reduce(
+          (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
+          prev,
+        ),
+      );
+    };
+    const queueEvent = (event: EventMsg) => {
+      if (!active) return;
+      pendingEvents.push(event);
+      if (!renderTimer) renderTimer = setTimeout(flushEvents, STREAM_RENDER_INTERVAL_MS);
+    };
     const connect = () => {
       if (!active || !aliveRef.current) return;
       wsRef.current = api.connectStream({
@@ -163,10 +183,10 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           setConnected(true);
           setStreamError('');
         },
-        onEvent: (ev) =>
-          setEvents((prev) => active ? reduceOperatorEvent(prev, ev, MAX_EVENTS) : prev),
+        onEvent: queueEvent,
         onClose: () => {
           if (!active) return;
+          flushEvents();
           setConnected(false);
           if (aliveRef.current) retry = setTimeout(connect, 1000);
         },
@@ -179,6 +199,8 @@ export function App({ host, port, token, project: initialProject, initialNotice 
     return () => {
       active = false;
       if (retry) clearTimeout(retry);
+      if (renderTimer) clearTimeout(renderTimer);
+      pendingEvents = [];
       wsRef.current?.close();
     };
   }, [api]);
