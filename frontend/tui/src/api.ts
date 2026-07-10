@@ -173,6 +173,16 @@ export class ApiClient {
     return (await r.json()) as CreatedDaemon;
   }
 
+  async setProjectLaunchCwd(project: string, launchCwd: string): Promise<void> {
+    const path = `/api/projects/${encodeURIComponent(project)}/launch-cwd`;
+    const r = await fetch(`${this.httpBase}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ launch_cwd: launchCwd }),
+    });
+    await ensureResponseOk(r, 'POST', path);
+  }
+
   async snapshot(eventsLimit = 1): Promise<Snapshot> {
     const r = await fetch(this.p(`/snapshot?compact=true&events_limit=${eventsLimit}`));
     await ensureResponseOk(r, 'GET', '/snapshot');

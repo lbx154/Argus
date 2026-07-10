@@ -66,7 +66,7 @@ function normalizedPath(value: string): string {
   return value.replace(/\/+$/, '') || '/';
 }
 
-/** Scope resume results to the launch directory while retaining unscoped legacy Web sessions. */
+/** Scope resume results strictly to the directory where the session was launched. */
 export function projectsForLaunchCwd(
   projects: ProjectRow[],
   cwd: string,
@@ -81,7 +81,7 @@ export function projectsForLaunchCwd(
       return candidate === root || candidate.startsWith(`${root}/`);
     }
     const legacyCwd = (project.cwd || '').trim();
-    if (!legacyCwd || legacyCwd.includes('/.argus-skill/projects/')) return true;
+    if (!legacyCwd || legacyCwd.includes('/.argus-skill/projects/')) return false;
     const candidate = normalizedPath(legacyCwd);
     return candidate === root || candidate.startsWith(`${root}/`);
   });

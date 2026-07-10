@@ -543,6 +543,26 @@ def create_daemon(
     }
 
 
+def set_project_launch_cwd(
+    sid: str, launch_cwd: str, *, global_root: Path | str | None = None,
+) -> bool | None:
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    from ..core.session import write_session_meta
+
+    root = _global_root(global_root)
+    meta = read_session_meta(root, sid)
+    if meta is None:
+        now = time.time()
+        meta = SessionMeta(
+            id=sid, created=now, last_active=now, cwd=str(life_dir),
+        )
+    meta.launch_cwd = str(Path(launch_cwd).expanduser().resolve())
+    write_session_meta(root, meta)
+    return True
+
+
 def stop_project_daemon(
     sid: str, *, drain: bool = False, force: bool = False,
     global_root: Path | str | None = None,
@@ -1089,6 +1109,9 @@ def create_app(
         name: str = ""
         launch_cwd: str = ""
 
+    class _LaunchCwdIn(BaseModel):
+        launch_cwd: str
+
     class _StopIn(BaseModel):
         drain: bool = False
         force: bool = False
@@ -1125,6 +1148,15 @@ def create_app(
             create_daemon, body.objective, name=body.name,
             launch_cwd=body.launch_cwd, global_root=global_root,
         )
+
+    @app.post("/api/projects/{sid}/launch-cwd", dependencies=[Depends(_require_auth)])
+    async def _set_launch_cwd(sid: str, body: _LaunchCwdIn) -> dict[str, bool]:
+        updated = await run_in_threadpool(
+            set_project_launch_cwd, sid, body.launch_cwd, global_root=global_root,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
+        return {"ok": True}
 
     @app.get("/api/projects/{sid}/snapshot")
     def _snapshot(

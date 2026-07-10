@@ -59,6 +59,17 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     assert meta.launch_cwd == str(launch.resolve())
 
 
+def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:
+    life = _make_project(tmp_path, sid="s-legacy1")
+    assert server.set_project_launch_cwd(
+        "s-legacy1", str(tmp_path / "workspace"), global_root=tmp_path,
+    )
+    meta = read_session_meta(tmp_path, "s-legacy1")
+    assert meta is not None
+    assert meta.cwd == str(life)
+    assert meta.launch_cwd == str((tmp_path / "workspace").resolve())
+
+
 # ── read/inspect ────────────────────────────────────────────────────────────
 
 def test_status_composite(ctx) -> None:

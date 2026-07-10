@@ -168,7 +168,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
         } else if (selection?.recovered && sid) {
           setInitialNotice(`requested ${selection.requested} not found · attached to ${sid}`);
         }
-        destination.current = sid ? 'live' : resumable.length ? 'picker' : 'empty';
+        destination.current = sid ? 'live' : startup.kind === 'pick' ? 'picker' : 'empty';
         if (splashDone.current) setPhase(destination.current);
       } catch (e) {
         if (!cancelled) {
@@ -198,7 +198,14 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     setPhase('live');
   };
 
-  const onResume = (selected: ProjectRow) => {
+  const onResume = async (selected: ProjectRow) => {
+    try {
+      await base.setProjectLaunchCwd(selected.id, launchCwd);
+    } catch (error) {
+      setErr(`could not bind ${selected.id} to ${launchCwd}: ${(error as Error).message}`);
+      setPhase('error');
+      return;
+    }
     destination.current = 'live';
     setProject(selected.id);
     setInitialNotice(`resumed ${selected.label || selected.id}`);
@@ -219,7 +226,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
       <ResumePicker
         projects={projects}
         scopeLabel={args.resumeAll ? 'all account sessions' : launchCwd}
-        onSelect={onResume}
+        onSelect={(selected) => { void onResume(selected); }}
       />
     );
   }

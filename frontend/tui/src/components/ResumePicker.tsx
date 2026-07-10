@@ -55,7 +55,9 @@ export function ResumePicker({
         <Text bold>Resume a conversation</Text>
         <Text dimColor>{`  ${scopeLabel} · ${rows.length} project${rows.length === 1 ? '' : 's'}`}</Text>
       </Box>
-      {shown.map((project, index) => {
+      {rows.length === 0 ? (
+        <Text dimColor>No conversations in this directory. Run argus resume --all to find legacy or other-directory sessions.</Text>
+      ) : shown.map((project, index) => {
         const absolute = page * pageSize + index;
         const focused = absolute === selected;
         const label = project.label || project.display_name || project.id;

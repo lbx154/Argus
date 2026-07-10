@@ -104,13 +104,13 @@ test('interactive launch is fresh by default and resumes only when explicit', ()
   });
 });
 
-test('resume scope keeps local and legacy Web sessions unless --all is used', () => {
+test('resume scope excludes unassigned legacy Web sessions unless --all is used', () => {
   const rows = [
     { id: 'local', label: 'local', objective: '', launch_cwd: '/work/repo', last_active: 3, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
     { id: 'other', label: 'other', objective: '', launch_cwd: '/other', last_active: 2, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
     { id: 'legacy', label: 'legacy', objective: '', cwd: '/home/me/.argus-skill/projects/legacy', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
   ];
-  assert.deepEqual(projectsForLaunchCwd(rows, '/work', false).map((row) => row.id), ['local', 'legacy']);
+  assert.deepEqual(projectsForLaunchCwd(rows, '/work', false).map((row) => row.id), ['local']);
   assert.equal(projectsForLaunchCwd(rows, '/work', true).length, 3);
 });
 
