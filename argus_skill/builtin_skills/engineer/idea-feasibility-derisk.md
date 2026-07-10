@@ -1,6 +1,6 @@
 ---
-name: Idea Feasibility De-Risk (Signal Health Hard Gate)
-description: At the END of the research stage, BEFORE entering plan, run ONE judgemental minimal experiment (<=10 min, <=$1) on a model/data this box can actually run, proving the locked idea's core metric MOVES and that baseline vs proposed differ measurably in the success direction. Emits research/SIGNAL_DERISK_LOG.txt (raw commands + outputs) + research/SIGNAL_DERISK.json (machine-judgeable verdict). Fail -> pivot in place, do NOT enter plan. Mechanically gated by `python -m argus_skill.skills.signal_derisk validate`. Use for any research idea before committing plan+run budget.
+name: Idea Feasibility De-Risk (Measured Signal Evidence)
+description: For a research checklist that calls for a measured signal screen, run one <=10 min/<=$1 minimal experiment on a model/data this box can actually run. Emit research/SIGNAL_DERISK_LOG.txt plus research/SIGNAL_DERISK.json, pivot on a dead signal, and give the Reviewer reproducible evidence. The Planner may replace this checklist item for research shapes where performance metrics are inapplicable.
 category: paper-ideation
 version: 1
 created_at: 2026-06-27T00:00:00+00:00
@@ -30,10 +30,10 @@ reviewer still judges whether the idea is worth pursuing.
 ## When to use
 
 Run this at the **END of the research stage**, after `research/RESEARCH_BRIEF.md`
-and `research/GO_NO_GO.md` exist, and BEFORE asking the reviewer to pass
-research. The research stage will NOT advance to plan without a passing
-`research/SIGNAL_DERISK.json` (it is a hard `stage_check`). Re-run after every
-pivot.
+and `research/GO_NO_GO.md` exist, when the active `research.signal_derisk`
+checklist item asks for the default measured-signal evidence. Re-run after every
+pivot. If the Planner authored a different evidence contract, follow that
+contract instead of inventing inapplicable metrics.
 
 ## Step 1 — Lock exactly ONE candidate idea + its core measurable signal
 
@@ -135,7 +135,7 @@ by at least `min_meaningful_delta` in the declared `success_direction`;
 **FAIL → PIVOT.** Set `verdict="fail"`, write the reason in `notes`, update
 `research/RESEARCH_BRIEF.md` + `research/IDEA_REJECTION_LOG.md` with what died and
 why, pick a new idea, and **re-run this skill**. Do NOT ask the reviewer to
-advance research on a fail — the stage gate will HOLD you anyway.
+advance research on evidence that contradicts the active checklist.
 
 A legitimate exemption exists for pure infra/wiring screens with no single metric
 (e.g. you only proved the eval harness runs end-to-end): set `smoke_only=true`
@@ -149,21 +149,21 @@ should work".** Every number must trace to a real command + output in
 `research/SIGNAL_DERISK_LOG.txt`. A `verdict="pass"` without a matching real run
 is fabrication, and it gets caught two independent ways:
 
-1. **Mechanical** — `python -m argus_skill.skills.signal_derisk validate
-   --project-root . --derisk research/SIGNAL_DERISK.json` is a research-stage
-   `stage_check`. A missing/empty log, a degenerate `baseline==proposed`, an
-   unmoved or wrong-direction signal, an inconsistent `delta`, an over-budget
-   cost/time, or a `smoke_only="false"` soft-exempt all exit non-zero and HOLD
-   the stage. It RECOMPUTES pass/fail from the raw numbers — it does not trust
-   your `verdict` string.
+1. **Consistency/provenance diagnostic** — run `python -m
+   argus_skill.skills.signal_derisk validate --project-root . --derisk
+   research/SIGNAL_DERISK.json`. A missing/empty log, a degenerate
+   `baseline==proposed`, an unmoved or wrong-direction signal, an inconsistent
+   `delta`, an over-budget cost/time, or a `smoke_only="false"` soft-exempt exits
+   non-zero. Fix the evidence; do not treat the command as a substitute for the
+   Reviewer's task-aware judgment.
 2. **Human-level** — the reviewer's HARD "Signal de-risk audit" dimension greps
    `SIGNAL_DERISK_LOG.txt` for the listed `commands` and BLOCKs if the numbers
    have no real run behind them.
 
 ## Reviewer hook
 
-The reviewer must not pass the research stage without `verdict="pass"` AND a log
-whose contents actually back the numbers in the JSON.
+When this measured-signal contract is active, the reviewer must not certify it
+without `verdict="pass"` and a log whose contents actually back the numbers.
 
 ## What this skill is NOT
 
@@ -171,5 +171,5 @@ whose contents actually back the numbers in the JSON.
   decisive screen.
 - NOT a scientific-quality verdict — passing here means "the signal is real and
   moves", not "the paper is good". The reviewer still judges worth.
-- NOT skippable because "the brief looks complete". A complete brief around a
-  dead idea is exactly the failure mode this gate exists to stop.
+- NOT universally applicable. A theorem or other non-performance research task
+  should use a Planner-authored evidence contract suited to that work.

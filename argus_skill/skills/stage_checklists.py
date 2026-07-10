@@ -97,8 +97,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "(baseline==proposed, no movement, wrong direction, or the model "
                 "cannot even exhibit the behaviour the idea needs) means PIVOT the "
                 "idea and re-run the de-risk — it is NOT allowed to enter the plan "
-                "stage. Mechanically re-checkable with `python -m "
-                "argus_skill.skills.signal_derisk validate`."
+                "stage. The reviewer may run `python -m "
+                "argus_skill.skills.signal_derisk validate` as a consistency "
+                "and provenance diagnostic; the reviewer, not that command's "
+                "exit code, decides whether the active checklist is satisfied."
             ),
             evidence_hint=(
                 "research/SIGNAL_DERISK.json (verdict=pass, non-degenerate delta in "

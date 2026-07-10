@@ -38,11 +38,10 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
         ("Trend insights exists", "test -f research/TREND_INSIGHTS.md"),
         ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
-        # Dispatch from the active Planner-authored checklist. The default remains
-        # the measured model/data signal gate; a task-specific checklist may select
-        # another fail-closed validator such as the finite-theorem audit gate.
-        ("Planner-selected research de-risk passes mechanical validation",
-         "{python} -m argus_skill.skills.research_derisk validate --project-root ."),
+        # Research quality and task-specific de-risk evidence are certified by
+        # the L2 reviewer against the active Planner-authored checklist below.
+        # Shell checks stay structural; they must not infer a domain validator
+        # from checklist prose or embed benchmark-specific answers.
     ],
     "plan": [
         _PIPELINE_CHECK,
@@ -133,21 +132,22 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "per the engineer/deep-research-timeline + deep-research-via-api skills (real curl search, organized as a CONNECTED timeline, not a count).\n"
         "8. **Research de-risk audit (HARD)** — read the active "
         "`research.signal_derisk` project checklist item and audit exactly the "
-        "evidence contract authored there. The default model/data contract requires "
-        "a real non-degenerate SIGNAL_DERISK run. A theorem-specific override instead "
-        "requires THEOREM_DERISK proof-lemma coverage, an independent audit, bounded "
-        "enumeration, and source provenance, and forbids fabricated performance "
-        "metrics. Run `python -m argus_skill.skills.research_derisk validate "
-        "--project-root .`; BLOCK on any non-zero result or mismatch between the "
-        "active checklist and selected validator.\n"
+        "task-specific evidence contract the Planner authored there. For the "
+        "default measured-signal workflow, inspect SIGNAL_DERISK.json plus its raw "
+        "log and optionally run `python -m argus_skill.skills.signal_derisk "
+        "validate` as a consistency/provenance diagnostic. If the Planner replaced "
+        "that item for a theorem, systems result, survey, or another research shape, "
+        "follow the replacement evidence paths and reasoning directly. BLOCK when "
+        "the evidence is missing, fabricated, internally inconsistent, or does not "
+        "satisfy the active checklist; do not require inapplicable performance "
+        "metrics and do not let a task-specific Python validator decide quality.\n"
         "Pass threshold: clear gap identified with literature backing earned from "
         "real curl arxiv/Crossref searches, not just agent brainstorming or recalled papers.",
         ["research/RESEARCH_TIMELINE.md", "research/RESEARCH_BRIEF.md",
          "research/LITERATURE_GROUNDING.json",
          "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md",
          "research/CHECKLISTS.json", "research/SIGNAL_DERISK.json",
-         "research/SIGNAL_DERISK_LOG.txt", "research/THEOREM_DERISK.json",
-         "research/THEOREM_DERISK_LOG.txt"],
+         "research/SIGNAL_DERISK_LOG.txt"],
     ),
     "plan": (
         "reviewer/experiment-plan-review.md",
@@ -287,4 +287,3 @@ __all__ = [
     "role_banner",
     "completion_gate",
 ]
-

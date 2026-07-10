@@ -1,8 +1,8 @@
-"""Tests for argus_skill.skills.signal_derisk (research-stage signal de-risk gate).
+"""Tests for the default measured-signal evidence validator.
 
-Mirrors tests/skills/test_run_contract.py: the validator is fail-closed against a
-missing / degenerate / over-budget / wrong-direction / fabricated verdict, so a
-dead or fabricated idea cannot leave the research stage.
+The validator is fail-closed against missing, degenerate, over-budget,
+wrong-direction, or fabricated evidence. The Reviewer decides whether that
+diagnostic satisfies the active Planner-authored checklist.
 """
 from __future__ import annotations
 
@@ -171,7 +171,7 @@ def test_verdict_fail_blocks_for_pivot(tmp_path):
         verdict="fail", signal_moved=False,
         proposed_metric=0.61, delta=-0.01, notes="signal flat"))
     assert reject is True
-    # signal_unmoved or verdict_fail — both legitimately HOLD the stage.
+    # signal_unmoved or verdict_fail — both diagnose evidence that needs a pivot.
     assert "PIVOT" in concern or "pivot" in concern or "signal_unmoved" in concern
 
 
@@ -223,13 +223,14 @@ def test_cli_validate_degenerate(tmp_path, capsys):
     assert rc == 1
 
 
-# --- the stage is actually wired to the gate --------------------------------
+# --- the stage keeps quality judgment with the Reviewer ---------------------
 
-def test_research_stage_checks_dispatch_planner_selected_derisk():
+def test_research_stage_checks_do_not_dispatch_task_specific_derisk():
     from argus_skill.verticals.research.stages import STAGE_CHECKS
 
     cmds = [cmd for _, cmd in STAGE_CHECKS["research"]]
-    assert any("research_derisk validate" in command for command in cmds)
+    assert not any("research_derisk" in command for command in cmds)
+    assert not any("theorem_derisk" in command for command in cmds)
 
 
 def test_research_reviewer_checklist_has_selected_derisk_dimension():
@@ -237,8 +238,10 @@ def test_research_reviewer_checklist_has_selected_derisk_dimension():
 
     _, instructions, files = REVIEWER_CHECKLISTS["research"]
     assert "Research de-risk audit" in instructions
+    assert "active `research.signal_derisk`" in instructions
+    assert "task-specific Python validator" in instructions
     assert "research/SIGNAL_DERISK.json" in files
-    assert "research/THEOREM_DERISK.json" in files
+    assert not any("THEOREM_DERISK" in path for path in files)
 
 
 def test_research_checklist_item_present():
@@ -246,3 +249,29 @@ def test_research_checklist_item_present():
 
     ids = [it.id for it in STAGE_CHECKLISTS["research"]]
     assert "research.signal_derisk" in ids
+
+
+def test_planner_can_replace_signal_screen_with_generic_theorem_evidence(tmp_path):
+    from argus_skill.skills.checklist_store import apply_checklist_ops
+    from argus_skill.skills.stage_checklists import format_stage_checklist
+
+    result = apply_checklist_ops(tmp_path, [
+        {"op": "seed", "stage": "research", "id": ""},
+        {
+            "op": "modify",
+            "stage": "research",
+            "id": "research.signal_derisk",
+            "statement": (
+                "The natural-language proof states every lemma and an independent "
+                "reviewer checks the argument without performance metrics."
+            ),
+            "evidence_hint": "research/PROOF.md, research/PROOF_AUDIT.md",
+        },
+    ])
+
+    rendered = format_stage_checklist(
+        "research", role="reviewer", project_root=tmp_path
+    )
+    assert result["applied"] == 2
+    assert "research/PROOF.md" in rendered
+    assert "without performance metrics" in rendered

@@ -1,4 +1,4 @@
-"""Signal de-risk gate — a research-stage reality screen before the plan stage.
+"""Signal de-risk evidence validator for the default measured-signal workflow.
 
 The research stage today passes on *form* (a reviewer checklist of problem
 clarity / timeline / source diversity / real-search audit, plus shell checks
@@ -24,9 +24,10 @@ Artifact:
   ``engineer/idea-feasibility-derisk`` skill, with the raw commands + outputs of
   the experiment captured in ``research/SIGNAL_DERISK_LOG.txt``.
 
-A research-stage ``stage_check`` cites this validator; a missing / degenerate /
-over-budget / wrong-direction / fabricated verdict exits non-zero and HOLDs the
-stage (fail-closed), so a dead or fabricated idea cannot enter the plan stage.
+The L2 reviewer may run this tool to check arithmetic, provenance, and the
+default signal artifact's internal contract. Its exit code does not advance or
+hold a stage by itself; the reviewer decides against the active Planner-authored
+checklist, which may replace this workflow entirely for another research shape.
 
 CLI::
 
@@ -372,11 +373,11 @@ def main(argv: list[str] | None = None) -> int:
 
     v = sub.add_parser(
         "validate",
-        help="research-stage gate: reject a missing/degenerate/over-budget/"
+        help="diagnose a missing/degenerate/over-budget/"
         "fabricated signal de-risk")
-    # --project-root lives on the subparser (not the top parser) so the stage
-    # check's `validate --project-root . --derisk ...` form parses; argparse
-    # global options must otherwise precede the subcommand.
+    # --project-root lives on the subparser so the documented
+    # `validate --project-root . --derisk ...` form parses; argparse global
+    # options must otherwise precede the subcommand.
     v.add_argument("--project-root", type=Path, default=Path("."))
     v.add_argument("--derisk", default=DEFAULT_DERISK_PATH)
     v.set_defaults(func=_cmd_validate)
