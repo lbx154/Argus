@@ -96,6 +96,7 @@ test('fresh Ink install selects the deliberate first-run state', () => {
 test('interactive launch is fresh by default and resumes only when explicit', () => {
   assert.deepEqual(interactiveStartup(), { kind: 'fresh' });
   assert.deepEqual(interactiveStartup('   '), { kind: 'fresh' });
+  assert.deepEqual(interactiveStartup(undefined, true), { kind: 'pick' });
   assert.deepEqual(interactiveStartup(' s-paper '), {
     kind: 'resume',
     project: 's-paper',

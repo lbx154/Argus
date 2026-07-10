@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, render, Text } from 'ink';
-import { ApiClient, type CreatedDaemon } from './api.js';
+import { ApiClient, type CreatedDaemon, type ProjectRow } from './api.js';
 import { App } from './App.js';
 import { FirstRun } from './components/FirstRun.js';
+import { ResumePicker } from './components/ResumePicker.js';
 import { Splash } from './components/Splash.js';
 import { Wordmark } from './components/Wordmark.js';
 import { ensureApi } from './ensureApi.js';
@@ -15,6 +16,7 @@ interface Args {
   host: string;
   port: number;
   project?: string;
+  resume: boolean;
   token?: string;
   once: boolean;
   json: boolean;
@@ -29,6 +31,7 @@ function parseArgs(argv: string[]): Args {
     host: process.env.ARGUS_TUI_HOST ?? '127.0.0.1',
     port: Number(process.env.ARGUS_TUI_PORT ?? 8799),
     project: process.env.ARGUS_TUI_PROJECT,
+    resume: false,
     token: process.env.ARGUS_SKILL_WEB_TOKEN,
     once: false,
     json: false,
@@ -43,6 +46,7 @@ function parseArgs(argv: string[]): Args {
     if (arg === '--host') a.host = eat();
     else if (arg === '--port') a.port = Number(eat());
     else if (arg === '--project') a.project = eat();
+    else if (arg === '--resume' || arg === '-r') a.resume = true;
     else if (arg === '--token') a.token = eat();
     else if (arg === '--count') a.count = Number(eat());
     else if (arg === '--once') a.once = true;
@@ -56,18 +60,19 @@ function parseArgs(argv: string[]): Args {
 
 const HELP = `argus — the terminal cockpit for the argus-skill autonomous-research daemon
 
-Usage: argus [--host H] [--port P] [--project SID] [--token T]
+Usage: argus [--resume] [--host H] [--port P] [--project SID] [--token T]
        argus --web [--no-open]  # start Web UI and open/print its URL
        argus --once --json   # headless smoke: fetch snapshot + N events, print JSON, exit
 
 On launch it auto-starts the backend API (argus-skill --web) if it isn't already
-running. A plain interactive launch creates a fresh idle session; use --project
-or /resume inside the cockpit to reconnect to an existing session.
+running. A plain interactive launch creates a fresh idle session; use --resume
+to choose a previous conversation before entering the cockpit.
 
 Options:
   --host H       API host (default 127.0.0.1, env ARGUS_TUI_HOST)
   --port P       API port (default 8799, env ARGUS_TUI_PORT)
   --project SID  project/session id (interactive recovers; --once is strict)
+  -r, --resume   choose a previous project/session before entering the cockpit
   --token T      bearer token if the API requires one (env ARGUS_SKILL_WEB_TOKEN)
   --web          ensure the Web UI backend is running, then open it in a browser
   --no-open      with --web, print the URL without launching a local browser
@@ -105,15 +110,16 @@ function Connecting({ note }: { note: string }) {
  * animation, a "connecting…" spinner bridges the gap.
  */
 function Boot({ args, animate }: { args: Args; animate: boolean }) {
-  const [phase, setPhase] = useState<'splash' | 'connecting' | 'empty' | 'live' | 'error'>(
+  const [phase, setPhase] = useState<'splash' | 'connecting' | 'picker' | 'empty' | 'live' | 'error'>(
     animate ? 'splash' : 'connecting',
   );
   const [project, setProject] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [initialNotice, setInitialNotice] = useState('');
   const [note, setNote] = useState('starting backend…');
   const [err, setErr] = useState('');
   const splashDone = useRef(!animate);
-  const destination = useRef<'connecting' | 'empty' | 'live'>('connecting');
+  const destination = useRef<'connecting' | 'picker' | 'empty' | 'live'>('connecting');
   const base = useMemo(
     () => new ApiClient({ host: args.host, port: args.port, project: '_', token: args.token }),
     [args.host, args.port, args.token],
@@ -136,22 +142,26 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
       }
       setNote('connecting…');
       try {
-        const startup = interactiveStartup(args.project);
+        const startup = interactiveStartup(args.project, args.resume);
         const selection = startup.kind === 'resume'
           ? await resolveProject(base, startup.project)
           : null;
         const created = startup.kind === 'fresh'
           ? await base.createDaemon()
           : null;
+        const resumable = startup.kind === 'pick'
+          ? await base.listProjects()
+          : [];
         const sid = created?.sid ?? selection?.id ?? null;
         if (cancelled) return;
+        setProjects(resumable);
         if (sid) setProject(sid);
         if (created) {
           setInitialNotice(`created ${created.sid} · message Argus when ready`);
         } else if (selection?.recovered && sid) {
           setInitialNotice(`requested ${selection.requested} not found · attached to ${sid}`);
         }
-        destination.current = sid ? 'live' : 'empty';
+        destination.current = sid ? 'live' : resumable.length ? 'picker' : 'empty';
         if (splashDone.current) setPhase(destination.current);
       } catch (e) {
         if (!cancelled) {
@@ -163,7 +173,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [args.host, args.port, args.project, args.token, base]);
+  }, [args.host, args.port, args.project, args.resume, args.token, base]);
 
   const onSplashDone = () => {
     splashDone.current = true;
@@ -181,6 +191,13 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     setPhase('live');
   };
 
+  const onResume = (selected: ProjectRow) => {
+    destination.current = 'live';
+    setProject(selected.id);
+    setInitialNotice(`resumed ${selected.label || selected.id}`);
+    setPhase('live');
+  };
+
   if (phase === 'error') {
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -190,6 +207,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     );
   }
   if (phase === 'splash') return <Splash onDone={onSplashDone} />;
+  if (phase === 'picker') return <ResumePicker projects={projects} onSelect={onResume} />;
   if (phase === 'empty') return <FirstRun createDaemon={(objective, name) => base.createDaemon(objective, name)} onCreated={onFirstDaemon} />;
   if (phase === 'live' && project) {
     return <App host={args.host} port={args.port} token={args.token} project={project} initialNotice={initialNotice} />;

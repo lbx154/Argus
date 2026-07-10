@@ -13,6 +13,7 @@ export function initialProjectSelection(
 
 export type InteractiveStartup =
   | { kind: 'fresh' }
+  | { kind: 'pick' }
   | { kind: 'resume'; project: string };
 
 /**
@@ -20,9 +21,10 @@ export type InteractiveStartup =
  * implicit resume of whichever daemon happened to be active most recently.
  * Resuming is explicit via ``--project`` at launch or ``/resume`` in-app.
  */
-export function interactiveStartup(requested?: string): InteractiveStartup {
+export function interactiveStartup(requested?: string, pick = false): InteractiveStartup {
   const project = requested?.trim() || '';
-  return project ? { kind: 'resume', project } : { kind: 'fresh' };
+  if (project) return { kind: 'resume', project };
+  return pick ? { kind: 'pick' } : { kind: 'fresh' };
 }
 
 /** Backward-compatible convenience for callers that only need the ID. */
