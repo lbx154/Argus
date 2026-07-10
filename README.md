@@ -353,8 +353,7 @@ argus_skill/
 │   ├── stage_checklists.py    # reviewer 对照的 stage checklist（裁决在 reviewer）
 │   └── store.py               # skill 匹配器
 ├── engineer/
-│   ├── runner.py          # L1 engineer 轮次循环
-│   └── checks.py          # check_commands 执行器
+│   └── runner.py          # L1 engineer 轮次循环
 ├── reviewer/
 │   └── _core.py           # L2 reviewer（唯一完成事实来源）
 ├── life/

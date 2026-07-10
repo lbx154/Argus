@@ -49,7 +49,6 @@ def _build(path: str, *, monkeypatch=None, measured: bool = False) -> str:
         session_id=None,
         main_summary="HANDOFF: did X. artifact at out.json",
         main_error=None,
-        checks=[],
         prior_checkpoint={},
         engineer_log_path=path,
     )
@@ -88,7 +87,6 @@ def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
         session_id=None,
         main_summary="HANDOFF: did X. artifact at out.json",
         main_error=None,
-        checks=[],
         prior_checkpoint={},
     )
     assert r._build_prompt(engineer_log_path="", **common) == r._build_prompt(**common)

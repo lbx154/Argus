@@ -62,8 +62,6 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", str(max_rounds)))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
-    ns.check = []
-    ns.check_commands = []
     ns.color = None
     ns.verbose = False
     ns.quiet = True

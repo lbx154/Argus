@@ -9,7 +9,6 @@ Public API:
 from __future__ import annotations
 
 from .core.models import (
-    CheckResult,
     LoopOutcome,
     ReviewDecision,
     RunnerOptions,
@@ -20,7 +19,6 @@ from .loop import SkillLoop, SkillLoopConfig
 from .skills.store import Skill, SkillStore
 
 __all__ = [
-    "CheckResult",
     "LoopOutcome",
     "ReviewDecision",
     "RunnerBackend",

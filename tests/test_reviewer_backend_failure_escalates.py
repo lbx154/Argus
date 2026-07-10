@@ -57,7 +57,6 @@ def _evaluate(reviewer: Reviewer) -> ReviewDecision:
         session_id=None,
         main_summary="(engineer handoff)",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="gpt-5.5"),
     )
 

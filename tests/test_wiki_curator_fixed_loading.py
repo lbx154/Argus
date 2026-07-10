@@ -55,7 +55,6 @@ def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
         session_id=None,
         main_summary="summary",
         main_error=None,
-        checks=[],
     )
 
     assert "Wiki curator (fixed when a wiki exists" in prompt

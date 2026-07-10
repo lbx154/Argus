@@ -32,7 +32,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable, MutableMapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -123,9 +123,6 @@ class LifeWorkerConfig:
     # mission alive after the planner certifies ``project_done`` instead of
     # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
     continuous_open_ended: bool = True
-    # Retained for config compatibility; post-engineer acceptance checks are no
-    # longer executed by the round loop.
-    check_commands: list[str] = field(default_factory=list)
 
 
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
@@ -991,10 +988,9 @@ class LifeWorker:
         self._started_at = time.time()
 
         # Ensure ARGUS_SKILL_PYTHON is set in the process environment so
-        # all child processes (engineer codex, reviewer codex, check_commands)
-        # can find the argus_skill package.  Without this, shells spawned by
-        # codex exec fall back to /usr/bin/python which cannot import
-        # argus_skill.
+        # all child processes can find the argus_skill package. Without this,
+        # shells spawned by codex exec fall back to /usr/bin/python which cannot
+        # import argus_skill.
         _argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
         os.environ.setdefault("ARGUS_SKILL_PYTHON", _argus_python)
         # Also prepend the venv bin dir to PATH so bare `python` resolves
@@ -1669,8 +1665,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
-    ns.check = []
-    ns.check_commands = []
     ns.color = None
     ns.verbose = False
     ns.quiet = True

@@ -5,7 +5,6 @@ This is the heart of the argus-skill v0.1 integration:
   * Each round, run the engineer with the current task prompt
     (initial task + optional skill block + optional reviewer next_action
     from prior round).
-  * Run the user-provided acceptance checks (shell commands).
   * Call the reviewer to render a structured verdict.
   * If ``done``, stop. If ``continue``, capture ``next_action`` and loop.
     If ``blocked``, stop and surface the reason.
@@ -31,7 +30,6 @@ if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
 
 from ..core.models import (
-    CheckResult,
     LoopOutcome,
     LoopStatus,
     ReviewDecision,
@@ -412,8 +410,6 @@ def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
 class SupervisedConfig:
     """Knobs for the round-loop control."""
     max_rounds: int = 500
-    check_commands: list[str] = field(default_factory=list)
-    check_timeout_seconds: int = 600
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
     # Consecutive ``continue`` rounds where the reviewer EXPLICITLY reports
     # ``forward_progress == false`` (engineer is active but the reviewer judges
@@ -1212,7 +1208,6 @@ class SupervisedEngineer:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    checks=[],
                     review=review,
                     fatal_error=engineer_result.fatal_error,
                 ))
@@ -1241,7 +1236,6 @@ class SupervisedEngineer:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    checks=[],
                     review=review,
                     fatal_error=engineer_result.fatal_error,
                 ))
@@ -1280,7 +1274,6 @@ class SupervisedEngineer:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    checks=[],
                     review=review,
                     fatal_error=engineer_result.fatal_error,
                 ))
@@ -1316,7 +1309,6 @@ class SupervisedEngineer:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    checks=[],
                     review=review,
                     fatal_error=engineer_result.fatal_error,
                 ))
@@ -1398,7 +1390,6 @@ class SupervisedEngineer:
             else:
                 no_progress_streak = 0
 
-            checks_results: list[CheckResult] = []
             prev_round = rounds[-1] if rounds else None
             prev_review = getattr(prev_round, "review", None) if prev_round else None
             prev_review_summary = ""
@@ -1509,7 +1500,6 @@ class SupervisedEngineer:
                         session_id=supervised_config.session_id,
                         main_summary=engineer_message or "(no message)",
                         main_error=engineer_result.fatal_error,
-                        checks=checks_results,
                         config=replace(
                             self.reviewer_config,
                             working_dir=str(workdir),
@@ -1613,7 +1603,6 @@ class SupervisedEngineer:
                         round_index=round_index,
                         engineer_message=engineer_message,
                         engineer_exit_code=engineer_result.exit_code,
-                        checks=checks_results,
                         review=review,
                         fatal_error=engineer_result.fatal_error,
                     ))
@@ -1701,7 +1690,6 @@ class SupervisedEngineer:
                 round_index=round_index,
                 engineer_message=engineer_message,
                 engineer_exit_code=engineer_result.exit_code,
-                checks=checks_results,
                 review=review,
                 fatal_error=engineer_result.fatal_error,
             ))

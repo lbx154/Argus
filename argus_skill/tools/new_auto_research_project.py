@@ -56,7 +56,7 @@ Ownership map:
 | --- | --- |
 | CLI flags, REPL, daemon start/stop, status/follow/watch | `argus_skill/apps/cli.py`, `argus_skill/manager/repl.py`, `argus_skill/apps/_runtime.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` |
 | One mission's skill matcher -> distiller -> engineer -> reviewer flow | `argus_skill/loop.py` |
-| L1 engineer retries, checks, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py`, `argus_skill/engineer/checks.py` |
+| L1 engineer retries, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py` |
 | L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | L4 planner continuous-mode task creation and mission supervision | `argus_skill/life/supervisor.py`, `argus_skill/planner/planner.py` |
 | Reviewer-proposed skill memory (selection + validated CRUD, no Manager approval gate), compaction, storage, builtin seeding | `argus_skill/skills/skill_router.py` (SkillRouter: mechanical + independence checks), `argus_skill/manager/skill_review.py` (Manager's post-hoc library PLACEMENT tidy-up only, not a creation gate), `argus_skill/skills/compaction.py`, `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |

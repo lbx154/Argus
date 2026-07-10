@@ -33,7 +33,6 @@ def _prompt(*, measured: bool, monkeypatch) -> str:
         session_id=None,
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
-        checks=[],
         prior_checkpoint={},
     )
 
@@ -90,4 +89,3 @@ def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
     assert "FINAL handoff JSON object" in p
     # the old "every message is JSON" framing is gone
     assert "Return valid JSON matching the provided schema" not in p
-

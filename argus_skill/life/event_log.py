@@ -49,8 +49,8 @@ DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
 
 
 # High-value event types ALWAYS persisted, even in "signal" verbosity: mission
-# / round lifecycle, verdicts, skill-memory mutations, planner decisions,
-# acceptance checks, escalations. The noise we drop in "signal" mode is the
+# / round lifecycle, verdicts, skill-memory mutations, planner decisions, and
+# escalations. The noise we drop in "signal" mode is the
 # per-command / intermediate-message / idle-poll churn (engineer.progress
 # command_execution, session.roll, watchdog waits, telemetry deltas, match
 # diagnostics) that bloats events.jsonl to multi-MB without telling an operator

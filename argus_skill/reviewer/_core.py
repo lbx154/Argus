@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..core.models import CheckResult, ReviewDecision, RunnerOptions
+from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
@@ -37,7 +37,7 @@ _REEVALUATE_HEADER = (
     "rules from earlier in this thread still bind, but THIS round's artifacts "
     "below are the ONLY evidence: re-verify against them from scratch. Your prior "
     "verdict is not a prior and must never be rubber-stamped; judge this round on "
-    "its own checks, summary, and log audit.\n\n"
+    "its own artifacts, summary, and log audit.\n\n"
 )
 
 
@@ -60,7 +60,7 @@ _WIKI_CURATOR_SKILL = "wiki-curator.md"
 _REVIEWER_ROLE_FALLBACK = """# Argus Reviewer Role
 
 The Reviewer is argus-skill's evidence gate. Decide done/continue/blocked from
-concrete artifacts and checks, and turn failures into concise engineer
+concrete artifacts and verification evidence, and turn failures into concise engineer
 next_action instructions.
 """
 _REVIEWER_ENGINEER_HANDOFF_FALLBACK = """# Reviewer-to-engineer handoff
@@ -179,8 +179,8 @@ def _engineer_log_audit_block(
 ) -> str:
     """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
 
-    The reviewer normally sees ONLY the engineer's 4000-char final summary plus
-    the acceptance checks — it cannot tell HOW the result was reached. This block
+    The reviewer normally sees ONLY the engineer's 4000-char final summary, so it
+    cannot tell HOW the result was reached. This block
     points the reviewer at the mission's execution log (the per-project
     ``<life_dir>/events.jsonl``) and gives concrete grep recipes so it can audit
     PROCESS correctness: did the engineer hardcode the expected answer, skip a
@@ -294,7 +294,6 @@ class Reviewer:
         session_id: str | None,
         main_summary: str,
         main_error: str | None,
-        checks: list[CheckResult],
         config: ReviewerConfig,
         planner_review_instruction: str = "",
         active_skill_id: str | None = None,
@@ -337,7 +336,7 @@ class Reviewer:
             )
         # F7: split the prompt into a byte-stable STATIC preamble (the ~50KB
         # role/rubric/decision-rules + mission anchors) and a per-round DELTA
-        # (this round's checks/summary/log-audit/altitude). When the reviewer can
+        # (this round's summary/log-audit/altitude). When the reviewer can
         # resume its OWN codex thread from last round AND the static preamble has
         # not changed (same fingerprint), send ONLY the delta — the rubric is
         # already in the thread. Any static drift (stage/objective/vertical change)
@@ -351,7 +350,6 @@ class Reviewer:
             session_id=session_id,
             main_summary=main_summary,
             main_error=main_error,
-            checks=checks,
             active_skill_id=active_skill_id,
             prev_review_summary=prev_review_summary,
             raw_evidence=raw_evidence,
@@ -510,7 +508,6 @@ class Reviewer:
         session_id: str | None,
         main_summary: str,
         main_error: str | None,
-        checks: list[CheckResult],  # noqa: ARG002 — parity with evaluate(); the prompt renderer takes the same shape
         active_skill_id: str | None = None,
         prev_review_summary: str = "",
         raw_evidence: str = "",
@@ -526,7 +523,7 @@ class Reviewer:
         immutable mission anchors) suitable for prefix-cache reuse AND for codex
         thread resume — it is identical across rounds of a mission unless the
         stage/objective/vertical drift. ``round_delta`` is this round's evidence
-        (altitude, checkpoint, escalation, log-audit, summary, checks). When
+        (altitude, checkpoint, escalation, log-audit, summary). When
         ``resumed`` the delta is prefixed with the anti-rubber-stamp RE-EVALUATE
         header. Callers concatenate ``static + delta`` for a full send, or send
         ``delta`` alone when resuming a thread that already holds the static.
@@ -725,10 +722,9 @@ class Reviewer:
         # v12 phase-4: when callers (e.g. harbor_adapter) collect richer
         # post-round evidence (engineer self-report verbatim, runtime probe,
         # official verifier output with "ground truth, trust this" framing),
-        # they pass it as ``raw_evidence``. We append it after the
-        # acceptance-check section so the reviewer always has the strongest
-        # signal grounded in actual container state, not just the
-        # engineer's prose. Empty string → legacy v3 behaviour.
+        # they pass it as ``raw_evidence`` so the reviewer has the strongest
+        # signal grounded in actual container state, not just the engineer's
+        # prose. Empty string → legacy v3 behaviour.
         evidence_block = (
             f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n"
             if raw_evidence.strip()
@@ -1048,14 +1044,14 @@ class Reviewer:
             "dropped, so a fresh engineer sees ONLY this):\n"
             "- Author it from the PRIOR checkpoint above + the engineer's `HANDOFF:`\n"
             "  block. The engineer PROPOSES; you VALIDATE — never copy a claim you\n"
-            "  cannot back with checks/artifacts.\n"
+            "  cannot back with evidence/artifacts.\n"
             "- Curated memory, NOT a log; hard-capped (done ≤ 8, tried_and_failed ≤\n"
             "  6, maturing ≤ 5, short strings). The cap forces you to FORGET: keep\n"
             "  only what changes the next session; deletion is correct (ground truth\n"
             "  stays on disk and is re-summonable).\n"
             "- `goal`: the mission's end goal in one line (carry it forward).\n"
             "- `done`: only VERIFIED accomplishments, each with its proof\n"
-            "  (command/file). A `[FAIL]` check means that objective is NOT done.\n"
+            "  (command/file). Failed verification means that objective is NOT done.\n"
             "- `tried_and_failed`: GENUINE dead ends + the reason (prevents a\n"
             "  Sisyphus loop); keep the ones tied to the current blocker. Do NOT dump\n"
             "  a promising approach here on its FIRST failure — that belongs in\n"
@@ -1106,11 +1102,6 @@ class Reviewer:
             "   concrete artifacts in the summary — the agent has no ground-truth\n"
             "   signal, so your job is to demand evidence. But once the evidence is\n"
             "   in front of you (rule 1a), stop.\n"
-            "2a) Acceptance-check failures override all self-report: any `[FAIL]` →\n"
-            "   `continue` even if the agent claims success. `next_action` is the\n"
-            "   engineer's ONLY repair prompt, so include the failed command, exit\n"
-            "   code, every issue's code/path/message, likely root cause, ordered\n"
-            "   repair steps, and the exact rerun command.\n"
             "3) On `continue`, `next_action` is a concrete instruction. If the round\n"
             "   genuinely LACKS the evidence to judge, ask for the SPECIFIC\n"
             "   verification command; but when honest evidence is already in hand, do\n"

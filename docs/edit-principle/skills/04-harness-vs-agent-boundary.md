@@ -59,8 +59,8 @@ Before adding any code to argus_skill/, ask:
 2. **Compute and surface the fact** as a structured finding, never a pass/fail verdict.
    - The harness prints: `"baseline best aggregate reward = 0.62, proposed = 0.66, delta = +0.04, families covered = [harbor-bench@1.0, swebpro@1.0]"`
    - The harness does NOT print: `"FAIL: improvement below 0.02 threshold"`.
-3. **Route the finding to the reviewer's prompt** via the existing CheckResult.output_tail / stage_check stdout path.
-4. **Never let the finding affect the exit code** of stage_check, unless it's a structural / anti-fraud check (see the table above).
+3. **Expose the finding through an agent-callable tool or durable artifact** so the reviewer can inspect it directly.
+4. **Never let the finding's command exit code decide research quality**; reserve hard failures for structural / anti-fraud violations (see the table above).
 5. **Let the reviewer rule.** ReviewDecision.status is the only source of truth.
 
 ## Decision flowchart

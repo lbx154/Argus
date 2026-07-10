@@ -41,7 +41,6 @@ def _evaluate(reviewer: Reviewer, **over):
         session_id=None,
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="m", reasoning_effort="high"),
     )
     kw.update(over)
@@ -56,7 +55,7 @@ def test_build_prompt_equals_static_plus_delta() -> None:
     kw = dict(
         objective="o", operator_messages=["m"], planner_review_instruction="",
         round_index=1, session_id=None, main_summary="S",
-        main_error=None, checks=[], prior_checkpoint={},
+        main_error=None, prior_checkpoint={},
     )
     assert r._build_prompt(**kw) == (
         r._build_static_preamble(**kw) + r._build_round_delta(resumed=False, **kw)
@@ -67,7 +66,7 @@ def test_static_preamble_byte_stable_across_main_summary() -> None:
     r = Reviewer(runner=None, skill_store=None)
     base = dict(
         objective="o", operator_messages=["m"], planner_review_instruction="",
-        round_index=1, session_id=None, main_error=None, checks=[],
+        round_index=1, session_id=None, main_error=None,
         prior_checkpoint={},
     )
     s1 = r._build_static_preamble(main_summary="ROUND ONE SUMMARY", **base)
@@ -191,7 +190,7 @@ def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
         reviewer_runner=backend,
         config=SkillLoopConfig(
             engineer_model="m", reviewer_model="m", max_rounds=5,
-            check_commands=[], backend_failure_backoff_seconds=0,
+            backend_failure_backoff_seconds=0,
         ),
     )
 

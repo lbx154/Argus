@@ -1277,7 +1277,6 @@ class _SkillLoopRunner:
                 "xhigh",
             ),
             "max_rounds": args.max_rounds,
-            "check_commands": list(getattr(args, "check_commands", []) or []),
             "skill_ops_enabled": _env_flag(
                 "ARGUS_SKILL_SKILL_OPS",
                 default=True,
@@ -2486,7 +2485,6 @@ def _invoke_supervisor(
     # too small for "implement + test + polish" tasks that need many
     # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
-    ns.check_commands = []
 
     # Runtime context injected into every mission prelude so the agent
     # knows its own backend, models, and budget constraints at runtime.

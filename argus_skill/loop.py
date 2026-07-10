@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -61,8 +61,6 @@ class SkillLoopConfig:
     reviewer_reasoning_effort: str = "xhigh"
     matcher_reasoning_effort: str | None = "high"
     max_rounds: int = 500
-    check_commands: list[str] = field(default_factory=list)
-    check_timeout_seconds: int = 600
     no_progress_threshold: int = 2
     # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
     # ``soft_round_limit`` the reviewer is told to escalate an unresolvable
@@ -383,8 +381,6 @@ class SkillLoop:
             engineer_prompt_builder=build_prompt,
             supervised_config=SupervisedConfig(
                 max_rounds=self.config.max_rounds,
-                check_commands=list(self.config.check_commands),
-                check_timeout_seconds=self.config.check_timeout_seconds,
                 no_progress_threshold=self.config.no_progress_threshold,
                 soft_round_limit=self.config.soft_round_limit,
                 hard_escalate_rounds=self.config.hard_escalate_rounds,

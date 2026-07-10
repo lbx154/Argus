@@ -195,7 +195,7 @@ def test_wiki_ops_are_a_noop_when_no_wiki_initialized(tmp_path: Path) -> None:
 
 def _round(review_wiki_ops: list[dict]) -> RoundRecord:
     return RoundRecord(
-        round_index=1, engineer_message="", engineer_exit_code=0, checks=[],
+        round_index=1, engineer_message="", engineer_exit_code=0,
         review=ReviewDecision(
             status="continue", reason="r", next_action="n", wiki_ops=review_wiki_ops,
         ),

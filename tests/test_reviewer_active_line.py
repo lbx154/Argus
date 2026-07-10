@@ -18,7 +18,6 @@ def _prompt(prior_checkpoint=None) -> str:
         session_id=None,
         main_summary="(handoff)",
         main_error=None,
-        checks=[],
         prior_checkpoint=prior_checkpoint or {},
     )
 

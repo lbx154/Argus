@@ -278,7 +278,6 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
         engineer_model: str = ""
         reviewer_model: str | None = None
         max_rounds: int = 1
-        check_commands: list = field(default_factory=list)
         skill_writeback: bool = True
         dangerous_yolo: bool = True
         full_auto: bool = False

@@ -94,7 +94,7 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
     se.run(
         objective="demo",
         engineer_prompt_builder=lambda na, _include_static=True: "PROMPT",
-        supervised_config=SupervisedConfig(max_rounds=1, check_commands=[]),
+        supervised_config=SupervisedConfig(max_rounds=1),
         workdir=tmp_path,
         on_event=events.append,
     )
@@ -170,7 +170,6 @@ def test_reviewer_propagates_tokens_on_empty_messages() -> None:
         session_id=None,
         main_summary="ran pytest -q",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 42
@@ -202,7 +201,6 @@ def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
         session_id=None,
         main_summary="engineer backend recovered",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="stub"),
     )
 
@@ -228,7 +226,6 @@ def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
         session_id=None,
         main_summary="ran pytest -q",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 33
@@ -252,7 +249,6 @@ def test_reviewer_propagates_tokens_on_valid_json() -> None:
         session_id=None,
         main_summary="ran pytest -q and added concrete code in src/foo.py",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 77
@@ -269,7 +265,6 @@ def test_reviewer_runner_exception_returns_blocked_decision() -> None:
         session_id=None,
         main_summary="engineer summary",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="stub"),
     )
 

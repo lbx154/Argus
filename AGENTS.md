@@ -61,7 +61,7 @@ argus-skill / python -m argus_skill
 
 关键对象：
 
-- `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、check commands、writeback、distill-on-miss、runner flags、`paper_mission`。
+- `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、writeback、distill-on-miss、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
 - 论文任务的识别**不再用关键词猜 objective 文本**，改由已解析 vertical 的结构化 completion gate 决定：只有 `completion_gate == "full_emnlp"` 才会把 `SkillLoopConfig.paper_mission` 置 True；缺失/损坏/未决状态一律按 False 处理。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
@@ -112,7 +112,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   artifact 里，可重新召回）。
 - **作者 = reviewer（记忆审计员）**：reviewer schema 增加 `checkpoint` 对象。
   engineer 在 turn 末尾按 prompt 输出一段 `HANDOFF:` 提案；reviewer 校验它
-  （对照 checks/artifacts）并 CRUD 出下一份 canonical checkpoint。engineer 提议、
+  （对照 evidence/artifacts）并 CRUD 出下一份 canonical checkpoint。engineer 提议、
   reviewer 验证落定。
 - **消费**：runner 每轮把 checkpoint 渲染成「Curated working memory」块 prepend 到
   engineer prompt（同 failed-tool advisory 的拼接方式，`loop.py` 不动）。
@@ -146,7 +146,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   concern / supervisor 心跳过期 / worker pid 已死）。
 - **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：若 engineer 显式回复
   `WAIT_FOR_SUBAGENT: <task_id>`，runner 检测到该 sentinel 且命中一个
-  self-watched in-flight job 时，**跳过昂贵的 checks+reviewer 轮**，按该 job 的
+  self-watched in-flight job 时，**跳过昂贵的 reviewer 轮**，按该 job 的
   supervisor 节奏（`monitor_interval`，clamp 到 30–900s）休眠，job 到终态会提前唤醒。
   是 **agent 显式选择**等待，不是 harness 替它决定。sentinel 命中不到自看护 job 时被
   忽略（退回正常 reviewed 轮），stale/误发不会挂住循环。

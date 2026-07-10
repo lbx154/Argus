@@ -58,7 +58,6 @@ def _build_loop(backend: MemoryBackend, skills_dir: Path, events: list) -> Skill
         engineer_model="m",
         reviewer_model="m",
         max_rounds=5,
-        check_commands=[],
         backend_failure_backoff_seconds=0,
     )
     return SkillLoop(

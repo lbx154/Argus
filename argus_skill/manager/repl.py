@@ -2537,7 +2537,6 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             plan_mode="auto",
             plan_model=None,
             max_rounds=500,
-            check=[],
             # A web-created session has no operator-selected repository.  Keep
             # every Manager artifact (vertical, pipeline state, authored domain)
             # in the same isolated project root the daemon will execute in.

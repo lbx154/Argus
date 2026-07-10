@@ -36,7 +36,6 @@ def _build(measured: bool, monkeypatch) -> str:
         session_id=None,
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
-        checks=[],
         prior_checkpoint={},
     )
 

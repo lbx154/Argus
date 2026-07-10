@@ -106,21 +106,6 @@ class RunnerResult:
 
 
 @dataclass
-class CheckResult:
-    """An acceptance-check command's result. Vendored from ArgusBot."""
-    command: str
-    exit_code: int
-    passed: bool
-    output_tail: str
-    # Absolute path to the failing check's FULL output on disk (written under
-    # ``<workdir>/.argus/checks/round-<n>/``). When set, prompts carry only this
-    # path — codex greps/seds the file — instead of inlining the (potentially
-    # MB-scale) log. Empty when the check passed or no workdir was available to
-    # persist a log, in which case a bounded head+tail window is inlined.
-    output_path: str = ""
-
-
-@dataclass
 class ReviewDecision:
     """Reviewer verdict on one engineer round. Vendored from ArgusBot."""
     status: ReviewStatus
@@ -324,7 +309,6 @@ class RoundRecord:
     round_index: int
     engineer_message: str
     engineer_exit_code: int
-    checks: list[CheckResult]
     review: ReviewDecision
     fatal_error: str | None = None
 

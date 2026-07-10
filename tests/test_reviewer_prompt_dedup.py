@@ -48,7 +48,6 @@ def _capture_prompt() -> str:
         session_id=None,
         main_summary=f"engineer done: {_MARKER}",
         main_error=None,
-        checks=[],
         config=ReviewerConfig(model="gpt-5.5"),
         active_skill_id="some_skill",
         prev_review_summary="prior review notes",

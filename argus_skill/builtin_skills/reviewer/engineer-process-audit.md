@@ -8,11 +8,11 @@ created_at: 2026-06-26T00:00:00+00:00
 
 # Engineer Process Audit
 
-You normally judge a round from two things: the engineer's final summary and the
-acceptance checks. Both describe the OUTCOME. Neither tells you HOW the outcome
-was produced — whether the engineer reached it honestly or faked its way past
-the checklist. This skill closes that gap by reading the engineer's **execution
-log** directly.
+You normally judge a round from the engineer's final summary and produced
+artifacts. Both describe the OUTCOME. Neither tells you HOW the outcome was
+produced — whether the engineer reached it honestly or faked its way past the
+checklist. This skill closes that gap by reading the engineer's **execution log**
+directly.
 
 ## Why this exists
 

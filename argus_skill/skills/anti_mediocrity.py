@@ -24,9 +24,8 @@ It does **not**:
 - emit pass / fail / verdict
 - affect any exit code beyond reporting structural I/O errors
 
-The output is meant to be read by the reviewer agent (via the standard
-``CheckResult.output_tail`` path through ``stage_check``) so the reviewer
-can make the call. The CLI exits 0 unconditionally on a successful read;
+The output is meant to be read directly by an agent so the reviewer can make
+the call from surfaced facts. The CLI exits 0 unconditionally on a successful read;
 the only non-zero exit is for an I/O / parse error, which is structural
 (the user gave us a bad ``--evidence-root`` etc.).
 
