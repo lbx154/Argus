@@ -15,7 +15,6 @@ from argus_skill.skills.signal_derisk import (
     load_signal_derisk,
     main,
     validate_for_gate,
-    validate_signal_derisk,
 )
 
 
@@ -226,21 +225,20 @@ def test_cli_validate_degenerate(tmp_path, capsys):
 
 # --- the stage is actually wired to the gate --------------------------------
 
-def test_research_stage_checks_include_signal_derisk():
+def test_research_stage_checks_dispatch_planner_selected_derisk():
     from argus_skill.verticals.research.stages import STAGE_CHECKS
 
     cmds = [cmd for _, cmd in STAGE_CHECKS["research"]]
-    assert any("SIGNAL_DERISK.json" in c for c in cmds)
-    assert any("SIGNAL_DERISK_LOG.txt" in c for c in cmds)
-    assert any("signal_derisk validate" in c for c in cmds)
+    assert any("research_derisk validate" in command for command in cmds)
 
 
-def test_research_reviewer_checklist_has_signal_derisk_dimension():
+def test_research_reviewer_checklist_has_selected_derisk_dimension():
     from argus_skill.verticals.research.stages import REVIEWER_CHECKLISTS
 
     _, instructions, files = REVIEWER_CHECKLISTS["research"]
-    assert "Signal de-risk audit" in instructions
+    assert "Research de-risk audit" in instructions
     assert "research/SIGNAL_DERISK.json" in files
+    assert "research/THEOREM_DERISK.json" in files
 
 
 def test_research_checklist_item_present():

@@ -38,21 +38,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
         ("Trend insights exists", "test -f research/TREND_INSIGHTS.md"),
         ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
-        # Signal de-risk HARD gate (research -> plan): the locked idea must have
-        # survived a real <=10-min/<=$1 minimal experiment proving its core
-        # signal moves on a model/data this box can actually run. Fail-closed: a
-        # missing / degenerate / over-budget / wrong-direction / fabricated
-        # verdict exits non-zero and HOLDs the stage. {python} -> the importable
-        # argus interpreter (stage_check.py:259), so the validator RECOMPUTES
-        # pass/fail from the raw numbers + log (a plain jq could only read the
-        # self-reported `verdict` an engineer sets to "pass").
-        ("Signal de-risk verdict exists",
-         "test -f research/SIGNAL_DERISK.json"),
-        ("Signal de-risk log is non-empty",
-         "test -s research/SIGNAL_DERISK_LOG.txt"),
-        ("Signal de-risk passes mechanical validation",
-         "{python} -m argus_skill.skills.signal_derisk validate "
-         "--project-root . --derisk research/SIGNAL_DERISK.json"),
+        # Dispatch from the active Planner-authored checklist. The default remains
+        # the measured model/data signal gate; a task-specific checklist may select
+        # another fail-closed validator such as the finite-theorem audit gate.
+        ("Planner-selected research de-risk passes mechanical validation",
+         "{python} -m argus_skill.skills.research_derisk validate --project-root ."),
     ],
     "plan": [
         _PIPELINE_CHECK,
@@ -141,32 +131,23 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "official scholarly sources' with no matching real curl in the log "
         "(fabricated provenance). On block, require a redo with real `curl` evidence "
         "per the engineer/deep-research-timeline + deep-research-via-api skills (real curl search, organized as a CONNECTED timeline, not a count).\n"
-        "8. **Signal de-risk audit (HARD)** — the chosen idea must have survived a "
-        "REAL judgemental minimal experiment, not a self-asserted one. Open "
-        "research/SIGNAL_DERISK.json and confirm verdict=='pass', signal_moved==true, "
-        "pivoted==false, cost_usd<=1.0 and duration_s<=600. Then OPEN "
-        "research/SIGNAL_DERISK_LOG.txt and grep it for the actual commands listed in "
-        "the JSON's `commands` field: confirm there is a REAL invocation that hit the "
-        "declared model/API/data (a real client/curl call AND a real eval over "
-        "n_examples rows) — not an empty log, not a transcript of intentions. "
-        "Independently sanity-check that baseline_metric and proposed_metric are two "
-        "DIFFERENT measured numbers consistent with `delta`, that "
-        "abs(delta)>=min_meaningful_delta, and that the SIGN of delta matches "
-        "success_direction (a metric that moved the WRONG way is not a pass). BLOCK "
-        "the stage if ANY of: SIGNAL_DERISK.json or SIGNAL_DERISK_LOG.txt is "
-        "missing/empty; the log shows no real run of the listed commands (fabricated "
-        "verdict); baseline_metric==proposed_metric or the signal did not move past "
-        "min_meaningful_delta (dead idea); the delta points the wrong way; or "
-        "cost/time exceeds the <=$1 / <=10-min budget. On block, require the engineer "
-        "to PIVOT the idea (update RESEARCH_BRIEF.md + IDEA_REJECTION_LOG.md) and "
-        "re-run the engineer/idea-feasibility-derisk skill for real — do NOT advance "
-        "to plan on a dead or fabricated signal.\n"
+        "8. **Research de-risk audit (HARD)** — read the active "
+        "`research.signal_derisk` project checklist item and audit exactly the "
+        "evidence contract authored there. The default model/data contract requires "
+        "a real non-degenerate SIGNAL_DERISK run. A theorem-specific override instead "
+        "requires THEOREM_DERISK proof-lemma coverage, an independent audit, bounded "
+        "enumeration, and source provenance, and forbids fabricated performance "
+        "metrics. Run `python -m argus_skill.skills.research_derisk validate "
+        "--project-root .`; BLOCK on any non-zero result or mismatch between the "
+        "active checklist and selected validator.\n"
         "Pass threshold: clear gap identified with literature backing earned from "
         "real curl arxiv/Crossref searches, not just agent brainstorming or recalled papers.",
         ["research/RESEARCH_TIMELINE.md", "research/RESEARCH_BRIEF.md",
          "research/LITERATURE_GROUNDING.json",
          "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md",
-         "research/SIGNAL_DERISK.json", "research/SIGNAL_DERISK_LOG.txt"],
+         "research/CHECKLISTS.json", "research/SIGNAL_DERISK.json",
+         "research/SIGNAL_DERISK_LOG.txt", "research/THEOREM_DERISK.json",
+         "research/THEOREM_DERISK_LOG.txt"],
     ),
     "plan": (
         "reviewer/experiment-plan-review.md",
@@ -306,5 +287,4 @@ __all__ = [
     "role_banner",
     "completion_gate",
 ]
-
 
