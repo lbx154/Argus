@@ -12,6 +12,7 @@ the authoritative default still lives at each read-site; keep them in sync.
 """
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Mapping
@@ -28,6 +29,30 @@ class Knob:
     # view. Single source of truth for the cockpit-editable surface — see
     # cockpit_editable_names().
     cockpit: bool = False
+
+
+@dataclass(frozen=True)
+class ResolvedKnob:
+    """One knob after applying env -> persisted -> default precedence."""
+
+    value: str
+    source: str
+
+
+@dataclass(frozen=True)
+class BudgetCaps:
+    """The three runtime budget caps shared by every launch surface."""
+
+    per_mission_cap_usd: float
+    daily_cap_usd: float
+    global_daily_cap_usd: float
+
+
+BUDGET_KNOB_DEFAULTS: dict[str, str] = {
+    "ARGUS_SKILL_PER_MISSION_CAP_USD": "30.0",
+    "ARGUS_SKILL_DAILY_CAP_USD": "180.0",
+    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "30.0",
+}
 
 
 #: The operator control surface. Defaults verified against read-sites 2026-06-26.
@@ -73,8 +98,15 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh", "reviewer reasoning effort", "reasoning", cockpit=True),
     # --- budget ---
-    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0", "USD cap per mission", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_DAILY_CAP_USD", "180.0", "USD cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "USD cap per mission", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "USD cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-wide USD cap across all projects per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100", "host-wide Copilot premium-request cap per local day", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "60", "host-wide Copilot provider-call cap per rolling hour", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "2", "maximum concurrent Copilot calls across all Argus projects", "budget"),
+    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "2", "host-wide active daemon cap", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
@@ -101,6 +133,137 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SHOW_REASONING", "0", "stream the agent's reasoning to the cockpit", "telemetry", cockpit=True),
 )
 
+_BACKEND_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_RUNNER_BACKEND",
+        "ARGUS_SKILL_ENGINEER_BACKEND",
+        "ARGUS_SKILL_REVIEWER_BACKEND",
+        "ARGUS_SKILL_PLANNER_BACKEND",
+        "ARGUS_SKILL_MANAGER_BACKEND",
+    }
+)
+_EFFORT_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+        "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+        "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    }
+)
+_TOGGLE_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_SAFE_MODE",
+        "ARGUS_SKILL_SHOW_REASONING",
+        "ARGUS_SKILL_ENABLE_TELEGRAM",
+    }
+)
+_SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
+_TRUE_VALUES = frozenset(
+    {"1", "true", "yes", "on", "enable", "enabled", "开", "开启", "打开", "启用"}
+)
+_FALSE_VALUES = frozenset(
+    {"0", "false", "no", "off", "disable", "disabled", "关", "关闭", "关掉", "停用", "禁用"}
+)
+
+
+def resolve_knob(
+    name: str,
+    default: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    persisted: Mapping[str, str] | None = None,
+) -> ResolvedKnob:
+    """Resolve one operator knob with the canonical precedence.
+
+    Explicit process environment wins, then the persisted cockpit setting,
+    then the caller-provided default. Passing a persisted map lets callers
+    resolve many knobs with one disk read.
+    """
+    env_map = env if env is not None else os.environ
+    explicit = str(env_map.get(name, "") or "").strip()
+    if explicit:
+        return ResolvedKnob(explicit, "env")
+    if persisted is None:
+        from .knob_store import read_persisted_knobs
+
+        persisted = read_persisted_knobs()
+    saved = str(persisted.get(name, "") or "").strip()
+    if saved:
+        return ResolvedKnob(saved, "persisted")
+    return ResolvedKnob(default, "default")
+
+
+def _parse_budget_value(name: str, raw: str) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite non-negative number; got {raw!r}") from exc
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite non-negative number; got {raw!r}")
+    return value
+
+
+def resolve_budget_caps(
+    *,
+    env: Mapping[str, str] | None = None,
+    persisted: Mapping[str, str] | None = None,
+) -> BudgetCaps:
+    """Resolve budget caps once for CLI, daemon, and Web launch paths."""
+    if persisted is None:
+        from .knob_store import read_persisted_knobs
+
+        persisted = read_persisted_knobs()
+
+    def _value(name: str) -> float:
+        resolved = resolve_knob(
+            name,
+            BUDGET_KNOB_DEFAULTS[name],
+            env=env,
+            persisted=persisted,
+        )
+        return _parse_budget_value(name, resolved.value)
+
+    return BudgetCaps(
+        per_mission_cap_usd=_value("ARGUS_SKILL_PER_MISSION_CAP_USD"),
+        daily_cap_usd=_value("ARGUS_SKILL_DAILY_CAP_USD"),
+        global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
+    )
+
+
+def normalize_cockpit_knob_value(name: str, value: str) -> str:
+    """Validate and canonicalize a value before persisting it from the cockpit."""
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("config value cannot be empty")
+    if name in BUDGET_KNOB_DEFAULTS:
+        number = _parse_budget_value(name, raw.removeprefix("$"))
+        return f"{number:g}"
+    if name in _BACKEND_KNOBS:
+        backend = raw.lower()
+        if backend not in {"codex", "claude", "copilot"}:
+            raise ValueError(f"{name} must be codex, claude, or copilot")
+        return backend
+    if name in _EFFORT_KNOBS:
+        effort = raw.lower()
+        if effort not in {"low", "medium", "high", "xhigh", "max"}:
+            raise ValueError(f"{name} must be low, medium, high, xhigh, or max")
+        return effort
+    if name in _TOGGLE_KNOBS:
+        toggle = raw.lower()
+        if toggle in _TRUE_VALUES:
+            return "1"
+        if toggle in _FALSE_VALUES:
+            return "0"
+        raise ValueError(f"{name} must be an on/off value")
+    return raw
+
+
+def redact_knob_value(name: str, value: str, *, source: str) -> str:
+    """Hide configured secrets on operator-facing config surfaces."""
+    if source != "default" and any(marker in name.upper() for marker in _SENSITIVE_MARKERS):
+        return "<redacted>" if value else ""
+    return value
+
 
 def cockpit_editable_names() -> frozenset[str]:
     """The env-var names an operator can change FROM THE COCKPIT — the single
@@ -113,10 +276,13 @@ def cockpit_editable_names() -> frozenset[str]:
 
 def format_config_help(env: Mapping[str, str] | None = None) -> str:
     """Render the knob registry grouped, with each knob's CURRENT effective value."""
-    env = env if env is not None else os.environ
+    env_map = env if env is not None else os.environ
+    from .knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
     out: list[str] = [
         "Argus operator control knobs (ARGUS_*). Default shown in (), current value "
-        "is what's set in this environment.",
+        "uses env -> persisted cockpit setting -> default precedence.",
         "This is the operator control surface — internal/test knobs are not listed.",
         "",
     ]
@@ -125,8 +291,13 @@ def format_config_help(env: Mapping[str, str] | None = None) -> str:
         if k.group != last_group:
             out.append(f"[{k.group}]")
             last_group = k.group
-        cur = env.get(k.name)
-        cur_str = f"= {cur}" if cur not in (None, "") else "(default)"
+        resolved = resolve_knob(k.name, k.default, env=env_map, persisted=persisted)
+        display_value = redact_knob_value(k.name, resolved.value, source=resolved.source)
+        cur_str = (
+            "(default)"
+            if resolved.source == "default"
+            else f"= {display_value} ({resolved.source})"
+        )
         out.append(f"  {k.name}  (default: {k.default})  {cur_str}")
         out.append(f"      {k.doc}")
     return "\n".join(out) + "\n"

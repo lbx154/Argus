@@ -319,7 +319,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
     assert rc == 0
     assert (
         "budget   : per-mission $2.50 · daily $5.00 · "
-        "global daily $0.00 (spent $5.00) · remaining $0.00 (paused)"
+        "global daily $30.00 (spent $5.00) · remaining $0.00 (paused)"
     ) in out
 
 

@@ -28,11 +28,13 @@ class SkillScientist:
         self.runner = runner
         self.model = model
         self.reasoning_effort = reasoning_effort
+        self.last_result: Any = None
 
     def distill(self, task: str) -> str:
         """Return skill markdown, or ``""`` on failure/no useful skill."""
         if self.runner is None:
             return ""
+        self.last_result = None
         prompt = _build_scientist_prompt(task)
         try:
             result = self.runner.run_exec(
@@ -50,6 +52,7 @@ class SkillScientist:
         except Exception as exc:  # noqa: BLE001
             log.debug("scientist skill distill failed: %s", exc)
             return ""
+        self.last_result = result
         text = (
             getattr(result, "last_agent_message", "")
             or (getattr(result, "agent_messages", None) or [""])[-1]

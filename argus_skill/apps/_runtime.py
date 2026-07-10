@@ -1231,6 +1231,18 @@ class _SkillLoopRunner:
                 pass
         return backends
 
+    def _consume_auth_failure(self) -> bool:
+        """Read and clear auth/policy failure flags across every role backend."""
+        failed = False
+        for backend in self._distinct_backends():
+            if bool(getattr(backend, "_auth_failure_detected", False)):
+                failed = True
+                try:
+                    backend._auth_failure_detected = False
+                except Exception:  # noqa: BLE001
+                    pass
+        return failed
+
     def execute(
         self,
         *,
@@ -1485,9 +1497,7 @@ class _SkillLoopRunner:
         elif new_tid:
             self.last_thread_id = new_tid
             self._next_seed_thread_id = new_tid
-        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
-        if auth_fail:
-            self._backend._auth_failure_detected = False
+        auth_fail = self._consume_auth_failure()
         # Reviewer completion contract: certify whole-project completion only
         # from the final reviewer verdict (never raw success). Fail-closed:
         # absent rounds / review / non-final scope ⇒ not certified.
@@ -1695,9 +1705,7 @@ class _SkillLoopRunner:
         status = "done" if success else "error"
         stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
 
-        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
-        if auth_fail:
-            self._backend._auth_failure_detected = False
+        auth_fail = self._consume_auth_failure()
 
         sink.handle_event({
             "type": "loop.done",
@@ -1978,9 +1986,7 @@ class _SkillLoopRunner:
         success = (result.exit_code == 0) and not fatal
         status = "done" if success else "error"
         stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
-        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
-        if auth_fail:
-            self._backend._auth_failure_detected = False
+        auth_fail = self._consume_auth_failure()
 
         sink.handle_event({
             "type": "loop.done",

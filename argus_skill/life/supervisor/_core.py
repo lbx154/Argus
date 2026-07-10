@@ -62,8 +62,9 @@ from ._config import (
     LifeSupervisorConfig,
     _MemoryView,
     _MissionRunner,
+    reserve_global_daily_budget,
 )
-from ._cost import _CostTrackingSink
+from ._cost import _CostTrackingSink, copilot_usd_for_premium_requests
 from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
@@ -878,8 +879,14 @@ class LifeSupervisor:
         if obsolete_final_submission is not None:
             return obsolete_final_submission
 
+        memory_global_root = getattr(self.memory, "global_root", None)
+        budget_global_root = (
+            Path(memory_global_root) if memory_global_root is not None else None
+        )
         ok, reason = self.config.budget.can_start(
-            item=item, journal=self.memory.journal
+            item=item,
+            journal=self.memory.journal,
+            global_root=budget_global_root,
         )
         if not ok:
             # Don't fail the item — it'll be retried next supervisor
@@ -921,8 +928,30 @@ class LifeSupervisor:
         if lifecycle_block is not None:
             return lifecycle_block
 
-        result = self._run_one(item)
-        return result
+        reservation, reserve_reason = reserve_global_daily_budget(
+            cap_usd=self.config.budget.global_daily_cap_usd,
+            amount_usd=self._effective_per_mission_cap(item),
+            global_root=budget_global_root,
+            owner=item.id,
+        )
+        if reservation is None:
+            self._emit_status(f"budget block: {reserve_reason}")
+            self._emit({
+                "type": "life.budget.pause",
+                "item_id": item.id,
+                "title": item.title,
+                "reason": reserve_reason,
+                "agent_layer": "supervisor",
+            })
+            return {
+                "status": "budget_pause",
+                "item_id": item.id,
+                "reason": reserve_reason,
+            }
+        try:
+            return self._run_one(item)
+        finally:
+            reservation.release()
 
     def _maybe_skip_inapplicable_final_submission_item(
         self,
@@ -2561,7 +2590,7 @@ class LifeSupervisor:
             verdict.output_tokens,
             reasoning_output_tokens=verdict.reasoning_output_tokens,
             price_lookup=price_for,
-        )
+        ) + copilot_usd_for_premium_requests(verdict.premium_requests)
 
         if verdict.error:
             self._emit({

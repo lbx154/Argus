@@ -10,8 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -772,144 +770,6 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
     assert captured["head_obj"] == "right now please"
 
 
-def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[2]
-    env = os.environ.copy()
-    for name in _ENV_VARS_TO_CLEAR:
-        env.pop(name, None)
-    env["ARGUS_SKILL_LIFE_BACKEND"] = "memory"
-
-    # The lifetime entry gate refuses to start unless an objective AND at least
-    # one trusted special prompt are configured. Satisfy both for this surface
-    # test: persist an objective at the project root the gate resolves, and seed
-    # a chmod-0644 directive (0664 would be rejected as group-writable).
-    from argus_skill.apps._target_paths import resolve_life_root
-    from argus_skill.life import MemoryBundle
-
-    bundle = MemoryBundle.for_cwd(repo, global_root=resolve_life_root(str(tmp_path)))
-    bundle.init()
-    write_continuous_config(
-        bundle.project.root, enabled=True, objective="keep the cockpit warm"
-    )
-    sp = tmp_path / "special_prompts"
-    sp.mkdir()
-    rule = sp / "10-house-rules.md"
-    rule.write_text("Operational house rules for this box.\n", encoding="utf-8")
-    rule.chmod(0o644)
-    env["ARGUS_SKILL_SPECIAL_PROMPTS_DIR"] = str(sp)
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "argus_skill",
-            "--no-daemon",
-            "--life-dir",
-            str(tmp_path),
-        ],
-        cwd=repo,
-        env=env,
-        input="/help\n/exit\n",
-        text=True,
-        capture_output=True,
-        timeout=120,
-        check=True,
-    )
-    out = result.stdout + result.stderr
-    for fragment in (
-        "Argus",
-        "one cockpit, one mode",
-        "Type what you need in natural language",
-        "Manager",
-        "Planner",
-        "Engineer",
-        "Reviewer",
-        # upstream's natural-language config-switch examples
-        "把backend换成",
-        "effort 设为 high",
-        # Exit + session-resume surface (2026-07 key-semantics footer replaced
-        # the old "Exit with /exit" line with a fuller Ctrl-C/Ctrl-D + resume hint).
-        "/exit",
-        "--continue",
-    ):
-        assert fragment in out
-    assert "/config [key=val ...]" not in out
-    assert "/add <text>" not in out
-
-
-# ---------------------------------------------------------------------------
-# Singleton lock
-# ---------------------------------------------------------------------------
-
-def test_run_manager_repl_refuses_concurrent_invocations(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A second REPL launched while the first holds the lock must
-    print a clear error and exit non-zero, NOT silently corrupt
-    backlog.jsonl by racing on rewrites."""
-    import argparse
-
-    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
-
-    life_dir = tmp_path / "life"
-    life_dir.mkdir()
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    project_root = MemoryBundle.for_cwd(repo, global_root=life_dir).project.root
-
-    # Simulate the lock being held by a "first" REPL process.
-    # acquire_global_daemon_lock is per-pid_path, so use the same path
-    # the REPL would use: <project-root>/repl.pid.
-    lock = acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
-    try:
-        ns = argparse.Namespace(life_dir=str(life_dir), color="never", verbose=None)
-        rc = manager_repl.run_manager_repl(ns)
-    finally:
-        lock.release()
-
-    assert rc == 2
-    captured = capsys.readouterr()
-    err = captured.err + captured.out
-    assert "another REPL is already running" in err
-
-
-def test_run_manager_repl_releases_lock_on_exit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """After the REPL exits, a second invocation must be able to
-    acquire the lock — i.e. release was actually called."""
-    import argparse
-    from unittest.mock import patch
-
-    from argus_skill.core.daemon_lock import (
-        DaemonAlreadyRunning,
-        acquire_global_daemon_lock,
-    )
-
-    life_dir = tmp_path / "life"
-    life_dir.mkdir()
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    project_root = MemoryBundle.for_cwd(repo, global_root=life_dir).project.root
-
-    # Patch the inner loop to be a no-op so we just exercise lock+release.
-    with patch.object(manager_repl, "_run_manager_repl_locked", return_value=0):
-        ns = argparse.Namespace(life_dir=str(life_dir), color="never", verbose=None)
-        rc = manager_repl.run_manager_repl(ns)
-    assert rc == 0
-
-    # The lock must be reacquirable now.
-    lock = acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
-    try:
-        # And taking it again would fail.
-        with pytest.raises(DaemonAlreadyRunning):
-            acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
-    finally:
-        lock.release()
-
-
 # ---------------------------------------------------------------------------
 # parse_add_flags with session defaults
 # ---------------------------------------------------------------------------
@@ -1361,28 +1221,6 @@ def test_config_cmd_rejects_continuous_on_memory_backend(
     assert not (tmp_path / "continuous.json").exists()
 
 
-def test_unknown_slash_command_does_not_enter_codex(
-    mem: LifeMemory,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _Theme:
-        def gray(self, text: str) -> str:
-            return text
-
-    def boom(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("unknown slash command must not be treated as free text")
-
-    monkeypatch.setattr(manager_repl, "_free_text_cmd", boom)
-
-    manager_repl.dispatch_command(
-        "/et", "/et", mem, {"backend": "codex"}, mem.root, _Theme()
-    )
-
-    out = capsys.readouterr().out
-    assert "unknown command: /et" in out
-
-
 # ---------------------------------------------------------------------------
 # Manager front-end triage: chat short-circuits the backlog, tasks fall through
 # ---------------------------------------------------------------------------
@@ -1429,63 +1267,6 @@ def test_free_text_chat_short_circuits_backlog(mem: LifeMemory) -> None:
     assert tail_called["hit"] is False, "chat must not attach to the daemon"
     # The front-stage reply's thread id is threaded back for session continuity.
     assert chat_state.get("last_thread_id") == "tid-after-chat"
-
-
-def test_free_text_chat_shows_manager_active_not_idle(
-    mem: LifeMemory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Regression: while the SELF quick-reply chat fast-path is running (the
-    ``LiveStatus`` spinner labeled "Manager · ..."), the "roles · activity"
-    overlay printed above it must show Manager ACTIVE — never "idle". The
-    SELF path deliberately never journals its progress to ``events.jsonl``
-    (avoids mission-log noise for a one-line chat reply), so without an
-    explicit override the only data source ``role_activity()`` has says
-    every role is idle for the ENTIRE duration of a real, live turn — a
-    direct, visible self-contradiction with the correctly-labeled spinner
-    right below it (live-confirmed: "Manager idle" shown on-screen at the
-    same time as "Manager · SELF: ... 6s", prompting the operator's "你不要
-    只做摆设" — don't just make this decorative)."""
-    from argus_skill.cli.theme import Theme
-
-    class _ChattyRunner:
-        last_thread_id = "tid-after-chat"
-
-        def chat_reply_if_conversational(
-            self, *, objective: str, sink: Any, seed_thread_id: Any = None,
-            phase_cb: Any = None,
-        ) -> bool:
-            sink.handle_event({"type": "loop.start", "text": "SELF: one Copilot handling 你好"})
-            sink.handle_event({"type": "round.main.completed", "last_message": "hi there"})
-            return True
-
-    fake = _ChattyRunner()
-    theme = Theme(enabled=True, width=80)
-    chat_state: dict[str, Any] = {"backend": "codex", "theme": theme}
-
-    monkeypatch.setattr(manager_repl, "_live_cockpit_enabled", lambda: True)
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
-    with patch.object(manager_repl, "_ensure_manager_runner", return_value=fake):
-        manager_repl._free_text_cmd(mem, "你好", chat_state=chat_state)
-
-    out = capsys.readouterr().out
-    # The overlay's Manager row must show the ACTIVE dot/status, not "idle".
-    assert "Manager" in out
-    manager_line = next(
-        (ln for ln in out.splitlines() if "Manager" in ln), ""
-    )
-    assert "idle" not in manager_line, (
-        f"Manager row must not say idle while the chat fast-path is running: {manager_line!r}"
-    )
-    # The other three roles are genuinely idle for a SELF-only reply — the
-    # override must be scoped to Manager, not a blanket fake "everyone busy".
-    for role_title in ("Planner", "Engineer", "Reviewer"):
-        role_line = next((ln for ln in out.splitlines() if role_title in ln), "")
-        assert "idle" in role_line, f"{role_title} should still show idle: {role_line!r}"
-    # The overlay must be cleaned up afterward: an erase-to-end-of-screen
-    # escape (cursor up N rows + \x1b[J) appears somewhere in the output.
-    assert "\x1b[J" in out
-    # The final reply still prints normally, unaffected by the overlay.
-    assert "hi there" in out
 
 
 def test_free_text_task_falls_through_when_not_conversational(

@@ -18,6 +18,7 @@ Enabled by default for Copilot-backed Manager labels. Set
 
 from __future__ import annotations
 
+import atexit
 import itertools
 import json
 import os
@@ -160,6 +161,25 @@ class CopilotAcpClient:
         self._front_door_uses = 0
         self._session_premium_totals.clear()
         self._session_premium_multipliers.clear()
+
+    def close(self) -> None:
+        """Terminate the warm ACP subprocess and release all session state."""
+        with self._start_lock:
+            proc = self._proc
+            self._proc = None
+            self._alive = False
+            self._active_turn = None
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2.0)
+                except Exception:  # noqa: BLE001
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1.0)
+                    except Exception:  # noqa: BLE001
+                        pass
+            self._on_dead()
 
     # ── reader / dispatch ────────────────────────────────────────────────────
     def _reader_loop(self, proc: subprocess.Popen[str]) -> None:
@@ -650,4 +670,18 @@ def get_client(
         return client
 
 
-__all__ = ["CopilotAcpClient", "get_client"]
+def close_all_clients() -> None:
+    with _CLIENTS_LOCK:
+        clients = list(_CLIENTS.values())
+        _CLIENTS.clear()
+    for client in clients:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+atexit.register(close_all_clients)
+
+
+__all__ = ["CopilotAcpClient", "close_all_clients", "get_client"]

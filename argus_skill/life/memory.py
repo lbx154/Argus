@@ -155,13 +155,50 @@ def _journal_rollover_path(path: Path) -> Path:
     return path.with_suffix(path.suffix + ".1")
 
 
+def _jsonl_history_paths(path: Path) -> list[Path]:
+    """All retained JSONL generations, oldest first, then the live file.
+
+    ``JsonlEventSink`` keeps ``.2``, ``.3``, ... as older immutable
+    generations while ``.1`` is always the most recent rollover. Budget
+    accounting must include all of them; reading only ``.1`` made daily spend
+    disappear whenever a noisy project rolled more than once in a day.
+    """
+    path = Path(path)
+    older: list[tuple[int, Path]] = []
+    recent: Path | None = None
+    prefix = path.name + "."
+    try:
+        candidates = list(path.parent.glob(prefix + "*"))
+    except OSError:
+        candidates = []
+    for candidate in candidates:
+        suffix = candidate.name[len(prefix) :]
+        if not suffix.isdigit() or not candidate.is_file():
+            continue
+        index = int(suffix)
+        if index == 1:
+            recent = candidate
+        elif index >= 2:
+            older.append((index, candidate))
+    # Higher generation numbers are older: .1 is the newest rollover, .2 the
+    # previous one, and so on.
+    paths = [candidate for _index, candidate in sorted(older, reverse=True)]
+    if recent is not None:
+        paths.append(recent)
+    if path.is_file():
+        paths.append(path)
+    return paths
+
+
+def _history_signature(paths: Iterable[Path]) -> tuple:
+    return tuple((str(path), _path_signature(path)) for path in paths)
+
+
 def _read_jsonl_history(path: Path) -> list[dict[str, Any]]:
-    """Return the journal plus its most recent rollover, in order."""
+    """Return every retained generation plus the live journal, in order."""
     rows: list[dict[str, Any]] = []
-    backup = _journal_rollover_path(path)
-    if backup.exists():
-        rows.extend(_read_jsonl(backup))
-    rows.extend(_read_jsonl(path))
+    for history_path in _jsonl_history_paths(path):
+        rows.extend(_read_jsonl(history_path))
     return rows
 
 
@@ -171,17 +208,20 @@ def _read_jsonl_tail_history(
     *,
     predicate: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the tail of the live journal plus its most recent rollover."""
+    """Return a filtered tail across every retained generation."""
     if n <= 0:
         return []
-    rows = _read_jsonl_tail(path, n, predicate=predicate)
-    if len(rows) >= n:
-        return rows
-    backup = _journal_rollover_path(path)
-    if not backup.exists():
-        return rows
-    needed = n - len(rows)
-    return _read_jsonl_tail(backup, needed, predicate=predicate) + rows
+    rows: list[dict[str, Any]] = []
+    for history_path in reversed(_jsonl_history_paths(path)):
+        needed = n - len(rows)
+        if needed <= 0:
+            break
+        rows = _read_jsonl_tail(
+            history_path,
+            needed,
+            predicate=predicate,
+        ) + rows
+    return rows
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -447,18 +487,39 @@ class EventJournal(Journal):
         ]
 
     def total_cost_since(self, ts: float) -> float:
-        signature = (
-            _path_signature(self.path),
-            _path_signature(_journal_rollover_path(self.path)),
-        )
+        paths = _jsonl_history_paths(self.path)
+        signature = _history_signature(paths)
         cached = self._total_cost_cache.get(ts)
         if cached is not None and cached[0] == signature:
             return cached[1]
-        total = sum(
-            float(r.get("cost_usd", 0.0))
-            for r in self._rows()
-            if float(r.get("ts", 0.0)) >= ts
-        )
+        total = 0.0
+        for path in paths:
+            # Closed rollover files older than the requested window cannot
+            # contain a newer event, so skip them without parsing hundreds of
+            # megabytes of agent I/O.
+            try:
+                if path != self.path and path.stat().st_mtime < ts:
+                    continue
+            except OSError:
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as fh:
+                    for raw in fh:
+                        try:
+                            row = json.loads(raw)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                        if not isinstance(row, dict) or not self._is_journal_event(row):
+                            continue
+                        try:
+                            row_ts = float(row.get("ts", 0.0))
+                            cost = float(row.get("cost_usd", 0.0))
+                        except (TypeError, ValueError):
+                            continue
+                        if row_ts >= ts:
+                            total += cost
+            except OSError:
+                continue
         self._total_cost_cache[ts] = (signature, total)
         return total
 

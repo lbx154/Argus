@@ -52,4 +52,3 @@ description: Continuously audit and improve the Argus agent-native research harn
 每个增量应有现状证据、根因、完整实现、旧代码清理、针对性测试和可复现的
 前后对比。前后数据是 reviewer 的判断证据，不是 harness 的机械分数门槛。
 不得把随机抖动、评测污染、硬编码、作弊、未完成工作或不可复现结果算作成果。
-

@@ -22,6 +22,7 @@ import { rankProjects, resolveProjectSelection } from '../../core/src/projects';
 import { deriveMissionView } from '../../core/src/mission';
 import { ResultSummary } from './components/ResultSummary';
 import { ArtifactModal } from './components/ArtifactModal';
+import { LiveViewPanel } from './components/LiveViewPanel';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { NewDaemonModal } from './components/NewDaemonModal';
@@ -246,7 +247,7 @@ export default function App() {
   const continuous = snap?.continuous;
   const mission = snap ? deriveMissionView(snap, continuous) : null;
   const journalQ = useJournal(activeSid, 5, !kiosk || mission?.state === 'complete');
-  const artifactsQ = useArtifacts(activeSid, mission?.state === 'complete');
+  const artifactsQ = useArtifacts(activeSid, true);
   const { events, connected } = useEventStream(activeSid);
   const spend = useMemo(() => computeSpend(events), [events]);
   const actions = useProjectActions(activeSid);
@@ -530,6 +531,12 @@ export default function App() {
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className={`${compactPane === 'feed' ? 'flex' : 'hidden'} min-h-0 flex-col xl:flex`}>
+                <LiveViewPanel
+                  artifacts={artifactsQ.data}
+                  error={artifactsQ.isError}
+                  onOpenArtifact={setArtifactPath}
+                  className="mb-3 xl:hidden"
+                />
                 {mission?.state === 'complete' && (
                   <ResultSummary
                     entries={journalQ.data ?? []}
@@ -562,6 +569,11 @@ export default function App() {
                 <RolesPanel roles={snap.roles} />
               </div>
               <div className="hidden min-h-0 flex-col gap-3 xl:flex">
+                <LiveViewPanel
+                  artifacts={artifactsQ.data}
+                  error={artifactsQ.isError}
+                  onOpenArtifact={setArtifactPath}
+                />
                 <div className="shrink-0">
                   <RolesPanel roles={snap.roles} />
                 </div>

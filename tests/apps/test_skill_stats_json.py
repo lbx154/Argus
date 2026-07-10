@@ -9,7 +9,7 @@ import pytest
 from argus_skill.apps.cli import main
 
 
-def test_skill_stats_json_main_emits_json_and_skips_repl(
+def test_skill_stats_json_main_emits_json_and_skips_tui(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -19,9 +19,9 @@ def test_skill_stats_json_main_emits_json_and_skips_repl(
     repo.mkdir()
 
     monkeypatch.setattr(
-        "argus_skill.manager.repl.run_manager_repl",
+        "argus_skill.apps.tui_launcher.main",
         lambda *args, **kwargs: pytest.fail(
-            "REPL must not be entered for --skill-stats-json"
+            "TUI must not be entered for --skill-stats-json"
         ),
     )
 

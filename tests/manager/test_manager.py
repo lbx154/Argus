@@ -112,6 +112,26 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     assert state["vertical"] == "research"
 
 
+def test_vertical_decision_persists_manager_live_view(tmp_path):
+    runner = _DecisionRunner({
+        "choice": "existing",
+        "vertical": "research",
+        "live_view": {
+            "title": "Live manuscript",
+            "reason": "The operator should see the paper evolve.",
+            "paths": ["paper/main.tex", "paper/main.pdf"],
+        },
+    })
+
+    Manager(project_root=tmp_path, runner=runner).divide("write the paper")
+
+    payload = json.loads(
+        (tmp_path / ".argus" / "live-view.json").read_text(encoding="utf-8")
+    )
+    assert payload["title"] == "Live manuscript"
+    assert payload["paths"] == ["paper/main.tex", "paper/main.pdf"]
+
+
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):
     """End-to-end regression for the vertical-resolution false-stage-advance
     bug: an OLD custom vertical (``ops_continuity_runbook``) already reached

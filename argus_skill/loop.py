@@ -54,7 +54,7 @@ _INEFFECTIVE_PROVISIONAL_STATUSES: frozenset[str] = frozenset({"no_progress", "m
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
-    engineer_model: str = "gpt-5.5"
+    engineer_model: str | None = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
     engineer_reasoning_effort: str | None = "xhigh"
@@ -260,6 +260,7 @@ class SkillLoop:
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
         matcher_output_tokens = match.output_tokens
+        matcher_premium_requests = match.premium_requests
         # Own-role playbooks drive distill/writeback; cross-role references
         # are read-only context and never written back to.
         primary_skills: list[Skill] = list(match.primary_skills)
@@ -280,11 +281,13 @@ class SkillLoop:
                     "type": "skill.scientist.started",
                     "text": "no high-fit skill; asking Scientist to distill a candidate",
                 })
-                raw_skill = SkillScientist(
+                scientist = SkillScientist(
                     self.engineer_runner,
                     model=self.config.engineer_model,
                     reasoning_effort=self.config.engineer_reasoning_effort,
-                ).distill(skill_task)
+                )
+                raw_skill = scientist.distill(skill_task)
+                distill_result = scientist.last_result
                 if raw_skill:
                     distilled = self.skill_router.create_candidate(
                         raw_skill,
@@ -605,13 +608,11 @@ class SkillLoop:
                     matcher_usage["reasoning_output_tokens"]
                     + distiller_usage["reasoning_output_tokens"]
                 ),
-                # Copilot premium-request delta for the distiller turn (0.0 off
-                # copilot; matcher premium is a documented residual — it rides the
-                # SkillMatch object which does not yet carry premium_requests).
-                # 蒸馏轮的 copilot 高级请求增量(非 copilot 为 0.0；matcher 的暂为已知残留)。
-                "premium_requests": float(
-                    getattr(distill_result, "premium_requests", 0.0) or 0.0
-                ),
+                # Native Copilot spend from BOTH routing calls. These used to
+                # disappear from mission cost entirely: SkillMatch carried only
+                # tokens, while SkillScientist returned only markdown.
+                "premium_requests": float(matcher_premium_requests or 0.0)
+                + float(getattr(distill_result, "premium_requests", 0.0) or 0.0),
                 "usage_scope": "delta",
             })
             self._emit({

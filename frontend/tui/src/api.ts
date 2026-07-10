@@ -95,6 +95,12 @@ export interface CreatedDaemon {
   objective: string;
 }
 
+export interface PlanPreview {
+  steps: Array<{ title: string; detail?: string }>;
+  notes: string[];
+  error: string;
+}
+
 /** One decoded SSE frame from the streaming Manager endpoint. */
 export interface SSEFrame {
   type: string; // phase | delta | done | error
@@ -345,6 +351,26 @@ export class ApiClient {
 
   async postNote(text: string): Promise<void> {
     await this.post('/note', { text });
+  }
+
+  async previewPlan(text: string): Promise<PlanPreview> {
+    return (await this.post('/plan', { text })) as unknown as PlanPreview;
+  }
+
+  async setConfig(name: string, value: string): Promise<Record<string, unknown>> {
+    return this.post('/config/set', { name, value });
+  }
+
+  async setIdentity(text: string): Promise<void> {
+    await this.post('/identity', { text });
+  }
+
+  async resetManager(): Promise<void> {
+    await this.post('/reset');
+  }
+
+  async skills(args = 'ls'): Promise<string> {
+    return String((await this.post('/skills', { args })).text ?? '');
   }
 
   async disposeBacklog(id: string, op: 'done' | 'skip' | 'rm'): Promise<BacklogItem> {

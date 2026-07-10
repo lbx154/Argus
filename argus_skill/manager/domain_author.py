@@ -25,6 +25,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from .live_view import LiveViewDecision, parse_live_view
+
 _NAME_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
 _MIN_STAGES = 2
 _MAX_STAGES = 10
@@ -212,6 +214,12 @@ class VerticalDecision:
     choice: str
     vertical: str
     proposal: DomainProposal | None = None
+    # Optional, independently-grounded choice of which workspace files the Web
+    # cockpit should keep beside the live event stream. ``live_view_decided``
+    # distinguishes an explicit null (clear the panel) from an older backend
+    # that returned the pre-live-view verdict shape (preserve current choice).
+    live_view: LiveViewDecision | None = None
+    live_view_decided: bool = False
 
 
 def build_vertical_decision_prompt(
@@ -256,18 +264,33 @@ def build_vertical_decision_prompt(
         f"{_MIN_STAGES}-{_MAX_STAGES} stages) grounded in what the repo needs to "
         "reach a verifiable deliverable. The per-stage checklist is authored "
         "later by the Planner; you define only the stage SKELETON.\n\n"
+        "## Live Web view (your decision, not a file-type heuristic)\n"
+        "While inspecting the actual project, independently decide whether a "
+        "small set of changing workspace files would materially help the "
+        "operator understand the work in real time. Argus Web will place your "
+        "selection beside the event stream and infer only each file's safe "
+        "transport (text/image/PDF); it will NOT scan the repo or choose content "
+        "for you. Set `live_view` to null when no side view is useful. Otherwise "
+        "give a short title, why these files matter, and 1-6 workspace-relative "
+        "paths. You may name a planned output that does not exist yet if it is "
+        "the stable file the team will produce. Never expose secrets, credentials, "
+        "private configuration, or a file merely because its extension looks "
+        "renderable.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
-        '"rationale": "<why it fits, citing what you found in the repo>"}\n'
+        '"rationale": "<why it fits, citing what you found in the repo>", '
+        '"live_view": null | {"title": "<short title>", "reason": "<why these '
+        'files>", "paths": ["<relative/path>", ...]}}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
-        '"confidence": <0.0-1.0>}\n'
+        '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
+        '"reason": "<why these files>", "paths": ["<relative/path>", ...]}}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
 
@@ -287,13 +310,23 @@ def parse_vertical_decision(
     obj = _loads_first_json(raw_text)
     if not isinstance(obj, dict):
         return None
+    parsed_live_view = parse_live_view(obj.get("live_view"))
+    live_view_decided = "live_view" in obj and (
+        obj.get("live_view") is None or parsed_live_view is not None
+    )
     choice = str(obj.get("choice") or "").strip().lower()
     if choice == "existing":
         name = _sluggify_name(obj.get("vertical") or obj.get("name"))
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
         if name and name in known:
-            return VerticalDecision(choice="existing", vertical=name, proposal=None)
+            return VerticalDecision(
+                choice="existing",
+                vertical=name,
+                proposal=None,
+                live_view=parsed_live_view,
+                live_view_decided=live_view_decided,
+            )
         return None
     if choice == "new":
         proposal = parse_domain_proposal(
@@ -303,5 +336,11 @@ def parse_vertical_decision(
         )
         if proposal is None:
             return None
-        return VerticalDecision(choice="new", vertical=proposal.name, proposal=proposal)
+        return VerticalDecision(
+            choice="new",
+            vertical=proposal.name,
+            proposal=proposal,
+            live_view=parsed_live_view,
+            live_view_decided=live_view_decided,
+        )
     return None

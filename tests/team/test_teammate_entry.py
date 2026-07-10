@@ -135,7 +135,23 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(rt, "_SkillLoopRunner", _Runner)
     te.run_one_engineer_mission("obj", cwd=str(tmp_path), life_dir=tmp_path / "life",
                                 max_rounds=1, timeout_s=10.0)
-    assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "0"
+    assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "1"
+
+
+def test_teammate_restores_checkpoint_env_when_setup_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")
+    monkeypatch.setattr(
+        te,
+        "_forced_web_research",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    assert te.run_one_engineer_mission(
+        "obj", cwd=str(tmp_path), life_dir=tmp_path / "life", timeout_s=0.01
+    ) is False
+    assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "1"
 
 
 def _shard(root: Path, member: str = "t1::w1") -> dict:

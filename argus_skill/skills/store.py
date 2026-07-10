@@ -14,8 +14,8 @@ caller takes the full expensive path rather than silently guessing a match.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 import os
 import re
@@ -303,6 +303,7 @@ class SkillStore:
         self._last_match_input_tokens = 0
         self._last_match_cached_input_tokens = 0
         self._last_match_output_tokens = 0
+        self._last_match_premium_requests = 0.0
         # Non-semantic safety valve for the pure-LLM matcher: the model sees
         # EVERY in-scope candidate (no keyword pre-filtering). For very large
         # pools we split into deterministic batches of this size and union
@@ -725,6 +726,7 @@ class SkillStore:
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0
             self._last_match_output_tokens = 0
+            self._last_match_premium_requests = 0.0
             if on_event:
                 msg = (
                     "skill store empty - will distill a new playbook"
@@ -746,6 +748,7 @@ class SkillStore:
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0
             self._last_match_output_tokens = 0
+            self._last_match_premium_requests = 0.0
             if on_event:
                 label = (
                     ", ".join(Path(p).stem for p in cached) if cached else "no match"
@@ -768,6 +771,7 @@ class SkillStore:
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0
             self._last_match_output_tokens = 0
+            self._last_match_premium_requests = 0.0
             return None, 0
 
         # Pure-LLM matching: the model judges EVERY in-scope candidate (no
@@ -810,6 +814,7 @@ class SkillStore:
 
         matched_by_path: dict[str, Skill] = {}
         in_tok = cached_tok = out_tok = 0
+        premium_requests = 0.0
         for batch in batches:
             prompt = Prompts.skill_match(
                 task_description, batch, requesting_role=role
@@ -841,9 +846,10 @@ class SkillStore:
                             ),
                         }
                     )
-                self._last_match_input_tokens = 0
-                self._last_match_cached_input_tokens = 0
-                self._last_match_output_tokens = 0
+                self._last_match_input_tokens = in_tok
+                self._last_match_cached_input_tokens = cached_tok
+                self._last_match_output_tokens = out_tok
+                self._last_match_premium_requests = premium_requests
                 self._cache_match(cache_key, [])
                 return None, 0
 
@@ -869,14 +875,18 @@ class SkillStore:
                             ),
                         }
                     )
-                self._last_match_input_tokens = 0
-                self._last_match_cached_input_tokens = 0
-                self._last_match_output_tokens = 0
+                self._last_match_input_tokens = in_tok
+                self._last_match_cached_input_tokens = cached_tok
+                self._last_match_output_tokens = out_tok
+                self._last_match_premium_requests = premium_requests
                 self._cache_match(cache_key, [])
                 return None, 0
             in_tok += int(getattr(result, "input_tokens", 0) or 0)
             cached_tok += int(getattr(result, "cached_input_tokens", 0) or 0)
             out_tok += int(getattr(result, "output_tokens", 0) or 0)
+            premium_requests += float(
+                getattr(result, "premium_requests", 0.0) or 0.0
+            )
             for sk in self._parse_match_response(result.message, batch):
                 matched_by_path.setdefault(sk.path, sk)
 
@@ -884,6 +894,7 @@ class SkillStore:
         self._last_match_input_tokens = in_tok
         self._last_match_cached_input_tokens = cached_tok
         self._last_match_output_tokens = out_tok
+        self._last_match_premium_requests = premium_requests
         matched = list(matched_by_path.values())
         if matched:
             if on_event:
@@ -910,6 +921,10 @@ class SkillStore:
     @property
     def last_match_output_tokens(self) -> int:
         return self._last_match_output_tokens
+
+    @property
+    def last_match_premium_requests(self) -> float:
+        return self._last_match_premium_requests
 
     def _cache_match(
         self, key: tuple, matched: list[Skill]

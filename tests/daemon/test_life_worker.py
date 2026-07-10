@@ -626,6 +626,35 @@ def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
     assert restored.continuous_open_ended is False
 
 
+def test_handoff_config_preserves_explicit_zero_budget_caps(tmp_path: Path) -> None:
+    cfg = LifeWorkerConfig(
+        life_dir=tmp_path / "project",
+        per_mission_cap_usd=0.0,
+        daily_cap_usd=0.0,
+        global_daily_cap_usd=0.0,
+        planner_task_iteration_budget_usd=0.0,
+    )
+
+    restored = _config_from_payload(_config_payload(cfg))
+
+    assert restored.per_mission_cap_usd == 0.0
+    assert restored.daily_cap_usd == 0.0
+    assert restored.global_daily_cap_usd == 0.0
+    assert restored.planner_task_iteration_budget_usd == 0.0
+
+
+def test_active_daemon_count_resolves_default_global_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(life_worker_mod.core_paths, "global_root", lambda: tmp_path)
+    (tmp_path / "projects").mkdir()
+
+    assert life_worker_mod._active_daemon_count(
+        LifeWorkerConfig(life_dir=tmp_path / "project", global_root=None)
+    ) == 0
+
+
 def test_handoff_lock_wait_retries_until_available(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

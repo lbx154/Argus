@@ -252,6 +252,37 @@ def test_artifact_allowlist_is_replaced_by_newest_result(ctx) -> None:
     ).status_code == 404
 
 
+def test_manager_live_view_is_available_during_active_work(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "workspace-live"
+    (workspace / "research").mkdir(parents=True)
+    (workspace / "research" / "PROGRESS.md").write_text(
+        "# Live progress\n", encoding="utf-8"
+    )
+    (workspace / ".argus").mkdir()
+    (workspace / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Current research",
+            "reason": "The Manager selected the changing research log.",
+            "paths": ["research/PROGRESS.md", ".env", "../outside.txt"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(workspace)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert [row["path"] for row in rows] == ["research/PROGRESS.md"]
+    assert rows[0]["source"] == "manager_live"
+    assert rows[0]["group_title"] == "Current research"
+    preview = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "research/PROGRESS.md"},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["preview"].startswith("# Live progress")
+
+
 def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> None:
     root, sid, life, client = ctx
     workspace = _seed_result_artifacts(root, sid, life)

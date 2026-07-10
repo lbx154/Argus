@@ -83,6 +83,7 @@ class PlannerVerdict:
     cached_input_tokens: int = 0
     output_tokens: int = 0
     reasoning_output_tokens: int = 0
+    premium_requests: float = 0.0
     error: str = ""
     # ``waiting`` is a first-class, intentional idle outcome: the project is
     # correctly blocked on a live, nonterminal external long-running job (e.g.
@@ -229,6 +230,9 @@ class Planner:
         reasoning_output_tokens = int(
             getattr(result, "reasoning_output_tokens", 0) or 0
         )
+        premium_requests = float(
+            getattr(result, "premium_requests", 0.0) or 0.0
+        )
         text = "\n".join(getattr(result, "agent_messages", None) or [])
         if not text and int(getattr(result, "exit_code", 0) or 0) != 0:
             stderr_tail = "\n".join(
@@ -246,6 +250,7 @@ class Planner:
                 cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
                 reasoning_output_tokens=reasoning_output_tokens,
+                premium_requests=premium_requests,
             )
         parsed = parse_planner_text(text)
         # The Planner OWNS the per-stage checklist: apply any authored ops to the
@@ -290,6 +295,7 @@ class Planner:
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
+            premium_requests=premium_requests,
         )
 
     @staticmethod

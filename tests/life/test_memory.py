@@ -12,6 +12,7 @@ import pytest
 from argus_skill.life.memory import (
     Backlog,
     BacklogItem,
+    EventJournal,
     IdentityCard,
     Journal,
     JournalEntry,
@@ -69,6 +70,56 @@ def test_journal_tail_preserves_rotated_history_in_order(
 
     assert (tmp_path / "journal.jsonl.1").exists()
     assert [e.title for e in j.tail(3)] == ["old", "mid", "new"]
+
+
+def test_event_journal_cost_includes_every_retained_rollover(tmp_path: Path) -> None:
+    now = time.time()
+    path = tmp_path / "events.jsonl"
+    rows = [
+        (path.with_suffix(".jsonl.2"), 1.0),
+        (path.with_suffix(".jsonl.3"), 2.0),
+        (path.with_suffix(".jsonl.1"), 3.0),
+        (path, 4.0),
+    ]
+    for index, (target, cost) in enumerate(rows):
+        target.write_text(
+            json.dumps({
+                "type": "life.mission.completed",
+                "ts": now + index,
+                "cost_usd": cost,
+                "success": True,
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+    assert EventJournal(path).total_cost_since(now - 1) == pytest.approx(10.0)
+
+
+def test_event_journal_reads_every_rollover_in_chronological_order(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    for target, title in (
+        (path.with_suffix(".jsonl.3"), "oldest"),
+        (path.with_suffix(".jsonl.2"), "older"),
+        (path.with_suffix(".jsonl.1"), "recent"),
+        (path, "live"),
+    ):
+        target.write_text(
+            json.dumps({
+                "type": "user.note",
+                "ts": time.time(),
+                "title": title,
+                "text": title,
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.all()] == [
+        "oldest", "older", "recent", "live",
+    ]
+    assert [entry.title for entry in journal.tail(3)] == [
+        "older", "recent", "live",
+    ]
 
 
 def test_journal_tail_does_not_call_read_jsonl(

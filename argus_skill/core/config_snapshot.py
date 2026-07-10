@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from ..cli.roles_status import ROLES, resolve_all_roles
-from .knobs import KNOBS
-
+from .knobs import KNOBS, redact_knob_value, resolve_knob
 
 _ROLE_MODEL_ENV: dict[str, str] = {
     "manager": "ARGUS_SKILL_ENGINEER_MODEL",
@@ -32,7 +31,6 @@ _ROLE_EFFORT_ENV: dict[str, str] = {
     "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "curator": "ARGUS_SKILL_CURATOR_REASONING_EFFORT",
 }
-_SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
 
 
 def _now_utc() -> str:
@@ -45,8 +43,9 @@ def _is_set(env: Mapping[str, str], name: str) -> bool:
     return bool(str(env.get(name, "") or "").strip())
 
 
-def _source_from_env(
+def _source_from_layers(
     env: Mapping[str, str],
+    persisted: Mapping[str, str],
     candidates: Sequence[str],
     *,
     default: str,
@@ -54,12 +53,20 @@ def _source_from_env(
     for name in candidates:
         if _is_set(env, name):
             return name
+    for name in candidates:
+        if _is_set(persisted, name):
+            return f"persisted:{name}"
     return default
 
 
-def _backend_source(role: str, env: Mapping[str, str]) -> str:
-    return _source_from_env(
+def _backend_source(
+    role: str,
+    env: Mapping[str, str],
+    persisted: Mapping[str, str],
+) -> str:
+    return _source_from_layers(
         env,
+        persisted,
         (
             f"ARGUS_SKILL_{role.upper()}_BACKEND",
             "ARGUS_SKILL_RUNNER_BACKEND",
@@ -69,31 +76,41 @@ def _backend_source(role: str, env: Mapping[str, str]) -> str:
     )
 
 
-def _model_source(role: str, env: Mapping[str, str]) -> str:
+def _model_source(
+    role: str,
+    env: Mapping[str, str],
+    persisted: Mapping[str, str],
+) -> str:
     role_env = _ROLE_MODEL_ENV.get(role, "")
     candidates = tuple(v for v in (role_env, "ARGUS_SKILL_MODEL") if v)
-    return _source_from_env(
+    return _source_from_layers(
         env,
+        persisted,
         candidates,
         default="capability vault / default: gpt-5.5",
     )
 
 
-def _effort_source(role: str, effort: str | None, env: Mapping[str, str]) -> str:
+def _effort_source(
+    role: str,
+    effort: str | None,
+    env: Mapping[str, str],
+    persisted: Mapping[str, str],
+) -> str:
     if effort is None:
         return "not applicable for this model"
     role_env = _ROLE_EFFORT_ENV.get(role, "")
     if role_env and _is_set(env, role_env):
         return role_env
+    if role_env and _is_set(persisted, role_env):
+        return f"persisted:{role_env}"
     if role == "manager" and _is_set(env, "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"):
         return "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
+    if role == "manager" and _is_set(
+        persisted, "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
+    ):
+        return "persisted:ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
     return "default: xhigh"
-
-
-def _redacted_value(name: str, value: str, *, set_in_env: bool) -> str:
-    if set_in_env and any(marker in name.upper() for marker in _SENSITIVE_MARKERS):
-        return "<redacted>" if value else ""
-    return value
 
 
 def build_config_snapshot(
@@ -104,6 +121,9 @@ def build_config_snapshot(
 ) -> dict[str, Any]:
     """Return a JSON-serializable snapshot of current Argus runtime settings."""
     env_map = env if env is not None else os.environ
+    from .knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
     role_rows = []
     for cfg in resolve_all_roles(roles, env=env_map):
         role_rows.append(
@@ -111,26 +131,38 @@ def build_config_snapshot(
                 "role": cfg.role,
                 "backend": cfg.backend,
                 "backend_label": cfg.backend_label,
-                "backend_source": _backend_source(cfg.role, env_map),
+                "backend_source": _backend_source(cfg.role, env_map, persisted),
                 "model": cfg.model,
-                "model_source": _model_source(cfg.role, env_map),
+                "model_source": _model_source(cfg.role, env_map, persisted),
                 "reasoning_effort": cfg.effort,
-                "reasoning_effort_source": _effort_source(cfg.role, cfg.effort, env_map),
+                "reasoning_effort_source": _effort_source(
+                    cfg.role,
+                    cfg.effort,
+                    env_map,
+                    persisted,
+                ),
                 "description": cfg.desc,
             }
         )
 
     knob_rows = []
     for knob in KNOBS:
-        raw = str(env_map.get(knob.name, "") or "").strip()
-        set_in_env = bool(raw)
-        value = raw if set_in_env else knob.default
+        resolved = resolve_knob(
+            knob.name,
+            knob.default,
+            env=env_map,
+            persisted=persisted,
+        )
         knob_rows.append(
             {
                 "name": knob.name,
                 "group": knob.group,
-                "value": _redacted_value(knob.name, value, set_in_env=set_in_env),
-                "source": "env" if set_in_env else "default",
+                "value": redact_knob_value(
+                    knob.name,
+                    resolved.value,
+                    source=resolved.source,
+                ),
+                "source": resolved.source,
                 "default": knob.default,
                 "doc": knob.doc,
             }

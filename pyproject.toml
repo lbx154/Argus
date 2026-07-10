@@ -29,7 +29,9 @@ classifiers = [
 dependencies = [
   "rich>=13.7",
   "PyYAML>=6",
-  "prompt_toolkit>=3",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "websockets>=12",
 ]
 
 [project.optional-dependencies]
@@ -79,7 +81,7 @@ dev = [
 ]
 
 [project.scripts]
-argus = "argus_skill.__main__:main"
+argus = "argus_skill.apps.tui_launcher:main"
 argus-skill = "argus_skill.__main__:main"
 
 [project.urls]
@@ -93,11 +95,17 @@ packages = ["argus_skill"]
 # no force-include is needed. Force-including those package dirs would re-add
 # their __init__.py and fail the build with a duplicate-path error.
 
+[tool.hatch.build.targets.wheel.force-include]
+"frontend/tui/bundle/argus.mjs" = "argus_skill/_frontend/tui/bundle/argus.mjs"
+"frontend/web/dist" = "argus_skill/_frontend/web/dist"
+
 [tool.hatch.build.targets.sdist]
 include = [
   "argus_skill/**",
   "tests/**",
   "docs/**",
+  "frontend/tui/bundle/**",
+  "frontend/web/dist/**",
   "README.md",
   "LICENSE",
 ]

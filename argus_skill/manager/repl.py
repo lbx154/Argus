@@ -782,20 +782,21 @@ def follow_mission_live_roles(
     keeps running). TTY-only — the caller falls back to the scrolling tail for
     non-interactive / piped output.
     """
-    from ..cli.roles_status import (
-        _clip_ansi_line,
-        _disp_width,
-        role_activity,
-        role_paint,
-        render_roles_snapshot,
-    )
+    import select as _select
+    import shutil
+    from collections import deque as _deque
+
     from ..apps.cli._follow import (
         _follow_layer_from_event,
         _format_follow_event,
     )
-    import select as _select
-    import shutil
-    from collections import deque as _deque
+    from ..cli.roles_status import (
+        _clip_ansi_line,
+        _disp_width,
+        render_roles_snapshot,
+        role_activity,
+        role_paint,
+    )
 
     life_dir = Path(life_dir)
     events_path = life_dir / "events.jsonl"

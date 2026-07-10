@@ -377,58 +377,13 @@ def main(argv: list[str] | None = None) -> int:
             lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
-    # Default path: the unified Manager-conversation REPL. A bare interactive
-    # launch needs NO pre-set objective — the operator states the task in the
-    # conversation, and the REPL auto-spawns a daemon that drains whatever gets
-    # queued. But ``--continuous`` puts the auto-spawned daemon into autonomous
-    # 7×24 mode, which DOES require a mission objective + house rules (same gate
-    # as the explicit ``--daemon``). So hard-gate only the continuous case; a
-    # bare launch always enters the conversation.
-    if getattr(args, "continuous", False):
-        entry_error = _lifetime_entry_error(args)
-        if entry_error:
-            sys.stderr.write(f"argus-skill: {entry_error}\n")
-            return 2
+    # The Python line REPL is retired. All interactive use goes through the Ink
+    # cockpit; ``argus-skill`` remains the daemon/admin CLI for explicit flags.
+    # Keeping one product surface prevents the old REPL and TUI from drifting.
+    from ..tui_launcher import main as run_tui
 
-    from ...core.knobs import resolve_role_model
-    from ...manager.repl import run_manager_repl
-
-    # Session resolution: a bare `argus-skill` opens a FRESH session; --resume /
-    # --continue reuse a previous one. The resolved id keys the project/daemon.
-    _gr = _resolve_global_root(args)
-    _session_id, _session_is_new = _resolve_session_id(args, _gr, default_to_new=True)
-
-    repl_args = argparse.Namespace(
-        life_dir=args.life_dir,
-        color=None,
-        backend=backend_default,
-        engineer_model=resolve_role_model(
-            "engineer",
-            role_env="ARGUS_SKILL_ENGINEER_MODEL",
-        ),
-        reviewer_model=resolve_role_model(
-            "reviewer",
-            role_env="ARGUS_SKILL_REVIEWER_MODEL",
-        ),
-        engineer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
-        ),
-        reviewer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
-        ),
-        plan_mode="auto",
-        plan_model=None,
-        max_rounds=500,
-        check=[],
-        workdir=None,
-        no_daemon=bool(args.no_daemon),
-        continuous=bool(args.continuous),
-        objective=str(getattr(args, "objective", "") or ""),
-        bounded=bool(getattr(args, "bounded", False)),
-        session_id=_session_id,
-        session_is_new=_session_is_new,
-    )
-    return _run_with_path_resolution_errors(lambda: run_manager_repl(repl_args))
+    forwarded = list(sys.argv[1:] if argv is None else argv)
+    return run_tui(forwarded)
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +405,13 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
-    from ...core.knobs import resolve_role_model
+    from ...core.knobs import (
+        resolve_budget_caps,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
+
+    budget = resolve_budget_caps()
 
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
@@ -467,17 +428,15 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
             "reviewer",
             role_env="ARGUS_SKILL_REVIEWER_MODEL",
         ),
-        engineer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
+        engineer_reasoning_effort=resolve_role_reasoning_effort(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
         ),
-        reviewer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
+        reviewer_reasoning_effort=resolve_role_reasoning_effort(
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
-        per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
-        daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
-        global_daily_cap_usd=float(
-            os.environ.get("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.0")
-        ),
+        per_mission_cap_usd=budget.per_mission_cap_usd,
+        daily_cap_usd=budget.daily_cap_usd,
+        global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
         planner_task_iteration_budget_usd=float(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),

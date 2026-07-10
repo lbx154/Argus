@@ -15,6 +15,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisorConfig,
     global_daily_spend,
 )
+from argus_skill.life.supervisor._config import reserve_global_daily_budget
 
 
 class _RecordingSink:
@@ -180,6 +181,112 @@ def test_global_daily_spend_sums_across_projects_and_rollover(tmp_path) -> None:
     )
 
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.75)
+
+
+def test_global_daily_spend_reads_canonical_events_and_all_rollovers(tmp_path) -> None:
+    now = time.time()
+    local = time.localtime(now)
+    day_start = time.mktime(
+        (local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)
+    )
+    root = tmp_path / "root"
+    project = root / "projects" / "p1"
+    project.mkdir(parents=True)
+    for name, cost, offset in (
+        ("events.jsonl.2", 1.25, 10),
+        ("events.jsonl.1", 2.5, 20),
+        ("events.jsonl", 3.75, 30),
+    ):
+        (project / name).write_text(
+            json.dumps({
+                "type": "life.mission.completed",
+                "ts": day_start + offset,
+                "cost_usd": cost,
+                "success": True,
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(7.5)
+
+
+def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) -> None:
+    now = time.time()
+    root = tmp_path / "root"
+    path = root / "projects" / "p1" / "events.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({
+            "type": "life.mission.completed",
+            "ts": now,
+            "cost_usd": 1.0,
+            "success": True,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.0)
+
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "type": "life.planner.verdict",
+            "ts": now + 1,
+            "cost_usd": 2.0,
+        }) + "\n")
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.0)
+
+
+def test_global_budget_reservations_serialize_concurrent_mission_envelopes(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    first, reason = reserve_global_daily_budget(
+        cap_usd=10.0, amount_usd=6.0, global_root=tmp_path, owner="p1",
+    )
+    assert first is not None and reason == ""
+
+    blocked, reason = reserve_global_daily_budget(
+        cap_usd=10.0, amount_usd=6.0, global_root=tmp_path, owner="p2",
+    )
+    assert blocked is None
+    assert "active reservations $6.00" in reason
+
+    first.release()
+    second, reason = reserve_global_daily_budget(
+        cap_usd=10.0, amount_usd=6.0, global_root=tmp_path, owner="p2",
+    )
+    assert second is not None and reason == ""
+    second.release()
+
+
+def test_supervisor_releases_global_reservation_after_runner_failure(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingRunner:
+        def execute(self, **kwargs: Any) -> _Outcome:
+            raise RuntimeError("boom")
+
+    root = tmp_path / "root"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    mem = LifeMemory.open(root / "projects" / "p1")
+    mem.backlog.add(BacklogItem.new(title="task", objective="x", max_cost_usd=3.0))
+    supervisor = LifeSupervisor(
+        memory=mem,
+        runner=_FailingRunner(),
+        sink=_RecordingSink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(
+                per_mission_cap_usd=3.0,
+                daily_cap_usd=20.0,
+                global_daily_cap_usd=10.0,
+            ),
+        ),
+    )
+
+    supervisor.tick()
+
+    payload = json.loads((root / "budget-reservations.json").read_text())
+    assert payload["reservations"] == []
 
 
 def test_can_start_blocks_on_global_daily_cap_even_when_project_daily_allows(
@@ -369,4 +476,3 @@ def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:
     rows = {row.id: row for row in mem.backlog.all()}
     assert rows[item.id].status == "failed"
     assert rows[item.id].pending_question == ""
-

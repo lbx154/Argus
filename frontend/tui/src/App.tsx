@@ -381,6 +381,10 @@ export function App({ host, port, token, project: initialProject, initialNotice 
     const ok = (m: string) => () => setNotice(m);
     const err = (e: unknown) => setNotice(`error: ${(e as Error).message}`);
     const need = (usage: string) => setNotice(`usage: ${usage}`);
+    const showOutput = (text: string) => setEvents((events) => [
+      ...events,
+      { type: 'ui.argus', text, message_id: `local-${Date.now()}`, ts: Date.now() / 1000 } as EventMsg,
+    ]);
     switch (p.cmd.name) {
       case '/help':
         openPanel('help');
@@ -389,14 +393,18 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         openPanel('status');
         break;
       case '/roles':
-      case '/config':
         openPanel('config');
         break;
       case '/doctor':
         openPanel('doctor');
         break;
       case '/identity':
-        openPanel('identity');
+        if (!p.rest) openPanel('identity');
+        else if (p.rest.toLowerCase().startsWith('set ')) {
+          const body = p.rest.slice(4).trim();
+          if (body) void api.setIdentity(body).then(ok('identity updated'), err);
+          else need('/identity set <text>');
+        } else need('/identity [set <text>]');
         break;
       case '/journal':
         openPanel('journal');
@@ -435,6 +443,10 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         setEvents([]);
         setNotice('feed cleared');
         break;
+      case '/run':
+        setPanel(null);
+        setNotice('already following the live daemon feed');
+        break;
       case '/reconnect':
         setNotice('reconnecting…');
         wsRef.current?.close();
@@ -448,6 +460,22 @@ export function App({ host, port, token, project: initialProject, initialNotice 
       case '/task':
         if (p.rest) void api.postTask(p.rest).then((it) => setNotice(`queued ${it.id}`), err);
         else need('/task <text>');
+        break;
+      case '/plan':
+        if (!p.rest) need('/plan <objective>');
+        else void api.previewPlan(p.rest).then((plan) => {
+          if (plan.error) {
+            showOutput(`Planner could not draft a plan: ${plan.error}`);
+            return;
+          }
+          const lines = ['Planner preview (nothing queued):'];
+          plan.steps.forEach((step, index) => {
+            lines.push(`${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`);
+          });
+          if (plan.notes.length) lines.push(`Notes: ${plan.notes.join('; ')}`);
+          lines.push('Use /task <objective> to queue it.');
+          showOutput(lines.join('\n'));
+        }, err);
         break;
       case '/nudge':
         if (p.rest) void api.postNudge(p.rest).then(ok('nudge sent'), err);
@@ -471,6 +499,11 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         break;
       case '/daemon':
         if (p.rest === 'stop') void api.stopDaemon().then(ok('daemon stopping'), err);
+        else if (p.rest === 'restart') {
+          void api.stopDaemon().then(
+            () => api.startDaemon(),
+          ).then(ok('daemon restarted'), err);
+        }
         else if (p.rest === 'status')
           setNotice(snap?.daemon.alive ? `daemon alive (pid ${snap.daemon.pid})` : 'no daemon');
         else void api.startDaemon().then(ok('daemon starting'), err);
@@ -484,11 +517,50 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           const obj = p.rest.slice(5).trim();
           if (obj) void api.setContinuous(true, obj).then(ok('continuous on'), err);
           else need('/continuous start <objective>');
-        } else need('/continuous start|stop [objective]');
+        } else if (p.rest === 'status' || !p.rest) {
+          setNotice(snap?.continuous?.enabled ? `continuous on · ${snap.continuous.objective}` : 'continuous off');
+        } else need('/continuous start|stop|status [objective]');
         break;
       case '/start':
         if (p.rest) void api.setContinuous(true, p.rest).then(ok('continuous on'), err);
         else need('/start <objective>');
+        break;
+      case '/backend':
+        if (!p.rest) openPanel('config');
+        else void api.setConfig('backend', p.rest).then(
+          () => setNotice(`backend set to ${p.rest} · /daemon restart to apply`),
+          err,
+        );
+        break;
+      case '/config': {
+        if (!p.rest) {
+          openPanel('config');
+          break;
+        }
+        const pairs = p.rest.split(/\s+/).filter(Boolean);
+        const invalid = pairs.find((pair) => {
+          const at = pair.indexOf('=');
+          return at <= 0 || at === pair.length - 1;
+        });
+        if (invalid) {
+          setNotice(`expected key=value, got ${invalid}`);
+          break;
+        }
+        const updates = pairs.map((pair) => {
+          const at = pair.indexOf('=');
+          return api.setConfig(pair.slice(0, at), pair.slice(at + 1));
+        });
+        void Promise.all(updates).then(
+          () => setNotice(`updated ${updates.length} setting(s) · /daemon restart to apply`),
+          err,
+        );
+        break;
+      }
+      case '/reset':
+        void api.resetManager().then(ok('Manager context reset'), err);
+        break;
+      case '/skills':
+        void api.skills(p.rest || 'ls').then(showOutput, err);
         break;
       default:
         setNotice(`${p.cmd.name} not yet wired`);

@@ -147,6 +147,19 @@ test('parseCommand resolves aliases + splits the argument + flags unknown', () =
   assert.equal(sl.parseCommand('/new reproduce kernel benchmark')?.rest, 'reproduce kernel benchmark');
   assert.equal(sl.parseCommand('/daemons recursive live')?.rest, 'recursive live');
   assert.equal(sl.parseCommand('/abort')?.name, '/cancel');
+  assert.equal(sl.parseCommand('/add build it')?.name, '/task');
+});
+
+test('Ink contains every retired Python REPL command surface', () => {
+  const required = [
+    '/help', '/status', '/roles', '/journal', '/backlog', '/add', '/plan',
+    '/stop', '/done', '/note', '/nudge', '/run', '/daemon', '/daemons',
+    '/attach', '/resume', '/doctor', '/backend', '/config', '/continuous',
+    '/start', '/identity', '/reset', '/skills', '/exit',
+  ];
+  for (const command of required) {
+    assert.notEqual(sl.parseCommand(command)?.cmd, null, command);
+  }
 });
 
 test('/resume opens the list unless an explicit project is supplied', () => {

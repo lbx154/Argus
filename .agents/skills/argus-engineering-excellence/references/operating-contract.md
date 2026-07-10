@@ -38,4 +38,3 @@ harness 预先算好瓶颈、研究结论或解决方案再喂给 agent。
 
 Reviewer 是任务是否完成的事实来源。评测、检查器和统计只向 reviewer 提供证据，
 不构成替代 reviewer 的隐藏完成门。
-

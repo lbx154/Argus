@@ -174,8 +174,9 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
-> 装好之后 `argus` 和 `argus-skill` 是同一个命令（`argus` 是简写别名），本文档下面
-> 统一用 `argus-skill`，两个可以互换。
+> 装好之后，`argus` 直接启动随 wheel 发布的 **Ink TUI**；`argus-skill`
+> 保留 daemon / status / admin flags。裸运行 `argus-skill` 也会转入同一个 Ink
+> TUI，旧 Python 行式 REPL 已退役。TUI 需要系统中有 Node.js ≥18。
 
 ### 3. 初始配置（交互式向导）
 
@@ -264,7 +265,7 @@ argus-skill --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-daemon 是 **cwd-bound** 的（项目状态绑在当前目录）。启动前须满足下方「Daemon 启动硬门禁」——① 用 `--continuous --objective` 提供 mission objective；② `~/.argus-skill/special_prompts/` 至少放一个机器规则 `*.md`。也可直接跑 bare `argus-skill`（不带 flag）进 REPL 跟 Manager 对话，由它驱动同一套 bootstrap。
+daemon 是 **cwd-bound** 的（项目状态绑在当前目录）。启动前须满足下方「Daemon 启动硬门禁」——① 用 `--continuous --objective` 提供 mission objective；② `~/.argus-skill/special_prompts/` 至少放一个机器规则 `*.md`。日常交互直接运行 `argus` 进入 Ink TUI。
 
 > **会议格式（research vertical）**：论文排版契约由 `PIPELINE_STATE.json` 的 `target_venue` 决定（默认 `emnlp`）。`emnlp` = ACL/EMNLP 8 页正文、References 第 9 页起、强制 Limitations/Ethics、acl.sty；`aaai` = AAAI-2026 两栏 7 页正文、References 后接 Reproducibility Checklist、aaai2026.sty。所有格式 gate、stage checklist 与 reviewer skill 都按 `target_venue` 自动切换。
 
@@ -332,6 +333,8 @@ loginctl enable-linger $USER   # 登出/重启后仍存活 = 真 7×24
 | `ARGUS_SKILL_RUNNER_BIN` | 对应 CLI 可执行文件的路径 | `$PATH` |
 | `ARGUS_SKILL_PER_MISSION_CAP_USD` | 单任务预算上限 | `30` |
 | `ARGUS_SKILL_DAILY_CAP_USD` | 每日预算上限 | `180` |
+| `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` | 同一主机所有项目合计的每日预算上限（`0` 可显式关闭） | `30` |
+| `ARGUS_SKILL_MAX_ACTIVE_DAEMONS` | 同一主机允许同时运行的 daemon 数 | `2` |
 | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | Telegram bot token | — |
 | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | Telegram chat ID | — |
 

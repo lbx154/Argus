@@ -150,6 +150,7 @@ def llm_plan_compaction(
     judge_runner: Any,
     judge_model: str = "",
     judge_reasoning_effort: str = "high",
+    on_event: Any = None,
 ) -> CompactionPlan | None:
     """LLM-judged batched clustering (mirrors
     ``SkillStore.find_relevant``'s one-call-per-batch shape, O(1) calls per
@@ -200,6 +201,15 @@ def llm_plan_compaction(
                     skip_git_repo_check=True,
                     full_auto=True,
                 ),
+                run_label="skill.compaction_batch",
+            )
+            from ..core.cost_events import emit_codex_util_cost
+
+            emit_codex_util_cost(
+                on_event,
+                layer="reviewer",
+                model=judge_model,
+                result=result,
                 run_label="skill.compaction_batch",
             )
         except Exception as exc:  # noqa: BLE001 — judge is best-effort
@@ -297,6 +307,7 @@ def auto_compact_skills(
         plan = llm_plan_compaction(
             skills, judge_runner=judge_runner, judge_model=judge_model,
             judge_reasoning_effort=judge_reasoning_effort,
+            on_event=on_event,
         )
         if plan is None:
             return counts

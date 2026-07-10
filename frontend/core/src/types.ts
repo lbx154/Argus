@@ -103,6 +103,8 @@ export interface ArtifactInfo {
   mime: string;
   size: number;
   mtime: number | null;
+  source?: 'manager_live' | 'reviewer_evidence';
+  group_title?: string;
   /** Included by the single-artifact endpoint for text files only. */
   preview?: string;
   truncated?: boolean;

@@ -50,7 +50,11 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
     "expired token",
     "invalid token",
     "authentication failed",
+    "access denied by policy settings",
+    "subscription does not include this feature",
+    "required policies have not been enabled",
     "401",
+    "403",
     "please run `codex login`",
     "codex login",
     "invalid api key",
@@ -93,6 +97,15 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
             if pat in low:
                 return True
     return False
+
+
+def _interrupt_reason(provider: Any) -> str:
+    if provider is None:
+        return ""
+    try:
+        return str(provider() or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -291,6 +304,8 @@ class AgentCliBackend:
             default_extra_args=default_extra_args,
             before_exec=before_exec,
         )
+        self._backend_name = chosen
+        self._is_copilot = chosen == deps["BACKEND_COPILOT"]
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
         # SOURCE-LEVEL per-mission budget cap. A live provider set per-mission
         # (see ``set_budget_reason_provider``): it returns a non-empty reason once
@@ -341,6 +356,25 @@ class AgentCliBackend:
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
         argus_options = self._translate_options(options)
+        copilot_permit = None
+        if self._is_copilot and not _interrupt_reason(
+            getattr(argus_options, "external_interrupt_reason_provider", None)
+        ):
+            from ..core.copilot_guard import (
+                acquire_copilot_permit,
+                release_denied_permit,
+            )
+
+            copilot_permit = acquire_copilot_permit(run_label)
+            if not copilot_permit.allowed:
+                reason = copilot_permit.reason
+                release_denied_permit(copilot_permit)
+                log.warning("Copilot call blocked before start (%s): %s", run_label, reason)
+                return RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                )
         call_id = f"{int(time.time() * 1000)}-{threading.get_ident()}"
         log_path = self._agent_io_log_path(options)
         self._io_context.current = {
@@ -376,6 +410,8 @@ class AgentCliBackend:
             )
         except FileNotFoundError as exc:
             log.exception("codex CLI binary not found")
+            if copilot_permit is not None:
+                copilot_permit.finish(error_text=str(exc), success=False)
             self._log_agent_io(log_path, {
                 "type": "agent.io.error",
                 "io_kind": "error",
@@ -392,6 +428,11 @@ class AgentCliBackend:
             )
         except Exception as exc:  # noqa: BLE001 — last-line safety net
             log.exception("codex runner raised")
+            if copilot_permit is not None:
+                copilot_permit.finish(
+                    error_text=f"{type(exc).__name__}: {exc}",
+                    success=False,
+                )
             self._log_agent_io(log_path, {
                 "type": "agent.io.error",
                 "io_kind": "error",
@@ -407,21 +448,48 @@ class AgentCliBackend:
                 fatal_error=f"{type(exc).__name__}: {exc}",
             )
 
-        # 7×24 survivability: codex auth tokens expire silently. Detect
-        # the well-known stderr patterns and log a warning so the daemon
-        # surfaces it instead of looping over failing missions all night.
-        # Only flag auth failure when the run actually FAILED — Azure
-        # backends sometimes emit transient 401 warnings in stderr even
-        # when the run succeeds (rate-limit retries, etc.).
-        if (
-            argus_result.exit_code != 0
-            and looks_like_auth_failure(getattr(argus_result, "stderr_lines", None))
-        ):
+        try:
+            translated = self._translate_result(
+                argus_result, resume_thread_id=resume_thread_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            if copilot_permit is not None:
+                copilot_permit.finish(
+                    error_text=f"result translation failed: {exc}",
+                    success=False,
+                )
+            self._io_context.current = None
+            return RunnerResult(
+                exit_code=-1,
+                fatal_error=f"result translation failed: {exc}",
+            )
+
+        failed = bool(
+            getattr(argus_result, "turn_failed", False)
+            or getattr(argus_result, "fatal_error", None)
+            or int(getattr(argus_result, "exit_code", 0) or 0) != 0
+        )
+        stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
+        fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
+        failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+
+        # Detect auth/policy failures even when Copilot exits 0 but reports
+        # turn_failed=true. Policy denial previously looked "successful" at the
+        # process level, so every daemon kept retrying a blocked account.
+        if failed and looks_like_auth_failure([failure_text]):
             self._auth_failure_detected = True
             log.warning(
-                "codex backend reported auth-related stderr "
-                "(run_label=%s, exit_code=%d) — run `codex login` to refresh credentials",
-                run_label, argus_result.exit_code,
+                "agent backend reported auth/policy failure "
+                "(run_label=%s, exit_code=%d)",
+                run_label,
+                int(getattr(argus_result, "exit_code", 0) or 0),
+            )
+
+        if copilot_permit is not None:
+            copilot_permit.finish(
+                premium_requests=translated.premium_requests,
+                error_text=failure_text,
+                success=not failed,
             )
 
         complete_row: dict[str, Any] = {
@@ -436,6 +504,11 @@ class AgentCliBackend:
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
             "fatal_error": getattr(argus_result, "fatal_error", None),
+            "input_tokens": translated.input_tokens,
+            "cached_input_tokens": translated.cached_input_tokens,
+            "output_tokens": translated.output_tokens,
+            "reasoning_output_tokens": translated.reasoning_output_tokens,
+            "premium_requests": translated.premium_requests,
             "ts": time.time(),
         }
         if _compact_agent_io(run_label):
@@ -455,7 +528,7 @@ class AgentCliBackend:
             })
         self._log_agent_io(log_path, complete_row)
         self._io_context.current = None
-        return self._translate_result(argus_result, resume_thread_id=resume_thread_id)
+        return translated
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
         raw = os.environ.get(_AGENT_IO_LOG_ENV, "").strip()

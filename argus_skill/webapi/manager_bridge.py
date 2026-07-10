@@ -291,3 +291,85 @@ def manager_message(
         "daemon_alive": bool(daemon_alive),
         "daemon_pid": daemon_pid,
     }
+
+
+def manager_plan(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Draft one bounded execution plan through the configured Planner role."""
+    from ..life.memory import MemoryBundle
+    from ..manager.plan_mode import draft_plan
+    from ..manager.repl import _ensure_manager_runner
+
+    body = (text or "").strip()
+    if not body:
+        return {"steps": [], "notes": [], "error": "empty objective"}
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid, global_root=Path(global_root) if global_root else None
+    )
+    with _lock_for(sid):
+        state = _chat_state_for(sid)
+        runner = _ensure_manager_runner(state, mem)
+        backend = getattr(runner, "planner_backend", None) if runner is not None else None
+        plan = draft_plan(
+            backend,
+            body,
+            model=None,
+            reasoning_effort="xhigh",
+            run_label="planner-preview",
+        )
+    return {
+        "steps": [{"title": step.title, "detail": step.detail} for step in plan.steps],
+        "notes": list(plan.notes),
+        "error": plan.error,
+    }
+
+
+def reset_manager_context(
+    sid: str, *, global_root: Path | str | None = None,
+) -> bool:
+    """Drop the warm Manager conversation while preserving project state."""
+    from ..manager import reset_manager_session
+
+    root = Path(global_root) if global_root else None
+    life_dir = (root / "projects" / sid) if root is not None else None
+    if life_dir is None:
+        from ..core import paths as core_paths
+        life_dir = core_paths.global_root() / "projects" / sid
+    if not life_dir.is_dir():
+        return False
+    with _lock_for(sid):
+        state = _STATES.get(sid)
+        runner = state.get("manager_runner") if state else None
+        if runner is not None and hasattr(runner, "reset_chat_session"):
+            try:
+                runner.reset_chat_session()
+            except Exception:  # noqa: BLE001
+                pass
+        _STATES.pop(sid, None)
+        reset_manager_session(life_dir)
+    return True
+
+
+def shutdown_manager_bridge() -> None:
+    """Release warm Manager runners and Copilot ACP children on Web shutdown."""
+    with _REGISTRY_LOCK:
+        states = list(_STATES.values())
+        _STATES.clear()
+        _LOCKS.clear()
+    for state in states:
+        runner = state.get("manager_runner")
+        if runner is not None and hasattr(runner, "reset_chat_session"):
+            try:
+                runner.reset_chat_session()
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        from ..agent_cli.copilot_acp import close_all_clients
+
+        close_all_clients()
+    except Exception:  # noqa: BLE001
+        pass

@@ -45,6 +45,7 @@ class RoleSkillMatch:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    premium_requests: float = 0.0
 
     @property
     def primary(self) -> Skill | None:
@@ -166,6 +167,9 @@ def match_role_skills(
             getattr(skill_store, "last_match_cached_input_tokens", 0) or 0
         ),
         output_tokens=int(getattr(skill_store, "last_match_output_tokens", 0) or 0),
+        premium_requests=float(
+            getattr(skill_store, "last_match_premium_requests", 0.0) or 0.0
+        ),
     )
 
 

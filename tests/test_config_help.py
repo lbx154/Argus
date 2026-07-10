@@ -11,7 +11,13 @@ import sys
 
 import pytest
 
-from argus_skill.core.knobs import KNOBS, format_config_help, resolve_role_model
+from argus_skill.core.knobs import (
+    KNOBS,
+    format_config_help,
+    normalize_cockpit_knob_value,
+    resolve_budget_caps,
+    resolve_role_model,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +82,48 @@ def test_format_shows_default_when_unset() -> None:
 def test_format_shows_current_value_when_set() -> None:
     out = format_config_help(env={"ARGUS_SKILL_PER_MISSION_CAP_USD": "50"})
     assert "= 50" in out  # current effective value surfaced
+
+
+def test_format_redacts_sensitive_current_values() -> None:
+    out = format_config_help(env={"ARGUS_SKILL_TELEGRAM_BOT_TOKEN": "super-secret"})
+    assert "super-secret" not in out
+    assert "= <redacted> (env)" in out
+
+
+def test_format_shows_persisted_value_when_env_is_unset() -> None:
+    from argus_skill.core import knob_store
+
+    knob_store.write_persisted_knob("ARGUS_SKILL_DAILY_CAP_USD", "75")
+
+    out = format_config_help(env={})
+
+    assert "ARGUS_SKILL_DAILY_CAP_USD" in out
+    assert "= 75 (persisted)" in out
+
+
+def test_budget_caps_share_env_persisted_default_precedence() -> None:
+    from argus_skill.core import knob_store
+
+    knob_store.write_persisted_knob("ARGUS_SKILL_PER_MISSION_CAP_USD", "12.5")
+    caps = resolve_budget_caps(env={"ARGUS_SKILL_DAILY_CAP_USD": "90"})
+
+    assert caps.per_mission_cap_usd == 12.5
+    assert caps.daily_cap_usd == 90.0
+    assert caps.global_daily_cap_usd == 30.0
+
+
+@pytest.mark.parametrize("value", ["nope", "-1", "nan", "inf"])
+def test_budget_caps_reject_invalid_values(value: str) -> None:
+    with pytest.raises(ValueError, match="finite non-negative"):
+        resolve_budget_caps(env={"ARGUS_SKILL_PER_MISSION_CAP_USD": value})
+
+
+def test_cockpit_value_normalization_is_typed() -> None:
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_DAILY_CAP_USD", "$12.50") == "12.5"
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_SAFE_MODE", "enabled") == "1"
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "COPILOT") == "copilot"
+    with pytest.raises(ValueError, match="codex, claude, or copilot"):
+        normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "magic")
 
 
 def test_shared_model_default_feeds_role_model_resolution() -> None:

@@ -37,6 +37,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - detached daemon is POSIX-only
+    _fcntl = None
+
 from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
@@ -435,6 +440,10 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
     project_workdir = str(data.get("project_workdir") or "")
+    def _number(name: str, default: float) -> float:
+        value = data.get(name)
+        return default if value is None else float(value)
+
     return LifeWorkerConfig(
         life_dir=Path(str(data["life_dir"])).expanduser(),
         global_root=Path(global_root).expanduser() if global_root else None,
@@ -456,14 +465,14 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "xhigh"
         ),
-        per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
-        daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
-        global_daily_cap_usd=float(data.get("global_daily_cap_usd") or 0.0),
+        per_mission_cap_usd=_number("per_mission_cap_usd", 30.0),
+        daily_cap_usd=_number("daily_cap_usd", 180.0),
+        global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
         planner_task_iteration_max_cycles=int(
             data.get("planner_task_iteration_max_cycles") or 6
         ),
-        planner_task_iteration_budget_usd=float(
-            data.get("planner_task_iteration_budget_usd") or 30.0
+        planner_task_iteration_budget_usd=_number(
+            "planner_task_iteration_budget_usd", 30.0
         ),
         subagent_family_failure_streak_limit=int(
             data.get("subagent_family_failure_streak_limit") or 3
@@ -1868,16 +1877,14 @@ class DaemonStatus:
 
 
 def _daemon_budget_from_env() -> LifeBudget:
+    from ..core.knobs import resolve_budget_caps
+
+    budget = resolve_budget_caps()
+
     return LifeBudget(
-        per_mission_cap_usd=float(
-            os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")
-        ),
-        daily_cap_usd=float(
-            os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")
-        ),
-        global_daily_cap_usd=float(
-            os.environ.get("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.0")
-        ),
+        per_mission_cap_usd=budget.per_mission_cap_usd,
+        daily_cap_usd=budget.daily_cap_usd,
+        global_daily_cap_usd=budget.global_daily_cap_usd,
     )
 
 
@@ -2145,6 +2152,75 @@ def stop_daemon(
 # Detach (POSIX double-fork)
 # ---------------------------------------------------------------------------
 
+def _max_active_daemons(config: LifeWorkerConfig) -> int:
+    """Host-wide daemon cap; conservative by default for Copilot accounts."""
+    try:
+        from ..core.knob_store import persisted_knob
+
+        default = 2
+        raw = (
+            os.environ.get("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
+            or persisted_knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
+            or str(default)
+        )
+        return max(0, int(raw))
+    except Exception:  # noqa: BLE001
+        return 2
+
+
+def _daemon_global_root(config: LifeWorkerConfig) -> Path:
+    return (
+        Path(config.global_root).expanduser()
+        if config.global_root is not None
+        else core_paths.global_root()
+    )
+
+
+def _active_daemon_count(config: LifeWorkerConfig) -> int:
+    projects = _daemon_global_root(config) / "projects"
+    try:
+        dirs = [path for path in projects.iterdir() if path.is_dir()]
+    except OSError:
+        return 0
+    count = 0
+    for path in dirs:
+        try:
+            if read_daemon_status(path).alive:
+                count += 1
+        except Exception:  # noqa: BLE001
+            continue
+    return count
+
+
+def _acquire_daemon_spawn_lock(config: LifeWorkerConfig) -> int | None:
+    """Serialize host-wide daemon admission through fork + pid publication."""
+    if _fcntl is None:
+        return None
+    root = _daemon_global_root(config)
+    root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(root / "daemon-spawn.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        _fcntl.flock(fd, _fcntl.LOCK_EX)
+    except OSError:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _release_daemon_spawn_lock(fd: int | None, *, unlock: bool = True) -> None:
+    if fd is None:
+        return
+    if unlock and _fcntl is not None:
+        try:
+            _fcntl.flock(fd, _fcntl.LOCK_UN)
+        except OSError:
+            pass
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
 def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> int:
     """Fork a detached background process running the worker, then exit.
 
@@ -2156,48 +2232,72 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
     log file, acquires the daemon pid lock, writes the status sidecar,
     and finally enters :meth:`LifeWorker.run_forever`.
     """
-    # Pre-flight: refuse to spawn if a live daemon is already there.
-    existing = read_daemon_status(config.life_dir)
-    if existing.alive and existing.pid is not None:
-        if not quiet:
-            sys.stderr.write(
-                f"argus-skill: daemon already running for this life-dir "
-                f"(pid={existing.pid}, lock={existing.pid_path}).\n"
-            )
-        return 2
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    _point_active_daemon_log(config.life_dir, log_path)
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-
-    # First fork.
-    pid = os.fork()
+    spawn_lock_fd = _acquire_daemon_spawn_lock(config)
+    try:
+        # Count and fork while holding one host-wide admission lock. A second
+        # launcher cannot observe the same pre-start count before this child has
+        # published its pid/status sidecars.
+        existing = read_daemon_status(config.life_dir)
+        if existing.alive and existing.pid is not None:
+            if not quiet:
+                sys.stderr.write(
+                    f"argus-skill: daemon already running for this life-dir "
+                    f"(pid={existing.pid}, lock={existing.pid_path}).\n"
+                )
+            _release_daemon_spawn_lock(spawn_lock_fd)
+            return 2
+        daemon_limit = _max_active_daemons(config)
+        active_count = _active_daemon_count(config)
+        if daemon_limit > 0 and active_count >= daemon_limit:
+            if not quiet:
+                sys.stderr.write(
+                    f"argus-skill: refusing to start another daemon: host-wide "
+                    f"active-daemon cap {daemon_limit} reached ({active_count} live). "
+                    "Stop an existing project or raise "
+                    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS explicitly.\n"
+                )
+            _release_daemon_spawn_lock(spawn_lock_fd)
+            return 2
+        config.life_dir.mkdir(parents=True, exist_ok=True)
+        boot_id = _new_boot_id()
+        log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
+        _point_active_daemon_log(config.life_dir, log_path)
+        pid_path = _daemon_pid_path(config.life_dir)
+        status_path = _daemon_status_path(config.life_dir)
+        pid = os.fork()
+    except Exception:
+        _release_daemon_spawn_lock(spawn_lock_fd)
+        raise
     if pid > 0:
-        # Parent waits briefly so we can confirm the daemon really came
-        # up before printing success.
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if pid_path.exists() and status_path.exists():
-                try:
-                    written_pid = int(pid_path.read_text().strip())
-                except (OSError, ValueError):
-                    written_pid = 0
-                if written_pid and _process_alive(written_pid):
-                    if not quiet:
-                        sys.stdout.write(
-                            f"argus-skill: daemon started (pid {written_pid}, "
-                            f"life_dir={config.life_dir}, log={log_path}).\n"
-                        )
-                    return 0
-            time.sleep(0.1)
-        if not quiet:
-            sys.stderr.write(
-                "argus-skill: daemon fork succeeded but child did not write its "
-                f"pid file within 5s. Check {log_path} for errors.\n"
-            )
-        return 2
+        try:
+            # Parent waits briefly so the admission lock covers pid publication.
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if pid_path.exists() and status_path.exists():
+                    try:
+                        written_pid = int(pid_path.read_text().strip())
+                    except (OSError, ValueError):
+                        written_pid = 0
+                    if written_pid and _process_alive(written_pid):
+                        if not quiet:
+                            sys.stdout.write(
+                                f"argus-skill: daemon started (pid {written_pid}, "
+                                f"life_dir={config.life_dir}, log={log_path}).\n"
+                            )
+                        return 0
+                time.sleep(0.1)
+            if not quiet:
+                sys.stderr.write(
+                    "argus-skill: daemon fork succeeded but child did not write its "
+                    f"pid file within 5s. Check {log_path} for errors.\n"
+                )
+            return 2
+        finally:
+            _release_daemon_spawn_lock(spawn_lock_fd)
+
+    # The parent owns admission. Close only this inherited descriptor copy;
+    # unlocking here would release the parent's lock before pid publication.
+    _release_daemon_spawn_lock(spawn_lock_fd, unlock=False)
 
     # First child — become session leader.
     try:

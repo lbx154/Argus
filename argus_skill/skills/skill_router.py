@@ -234,6 +234,7 @@ class SkillRouter:
                 verdict = self._llm_duplicate_check(
                     name=name, description=description, category=category,
                     exclude_name=exclude,
+                    on_event=on_event,
                 )
             except RuntimeError as exc:
                 self._reject(on_event, kind, str(exc))
@@ -331,6 +332,7 @@ class SkillRouter:
     def _llm_duplicate_check(
         self, *, name: str, description: str, category: str,
         exclude_name: str | None = None,
+        on_event: EventSink | None = None,
     ) -> tuple[bool, str, str] | None:
         """Ask the judge runner whether the proposal duplicates an existing
         skill, over COMPACT SUMMARIES only (progressive disclosure — cheap
@@ -363,6 +365,15 @@ class SkillRouter:
                     skip_git_repo_check=True,
                     full_auto=True,
                 ),
+                run_label="skill.duplicate_check",
+            )
+            from ..core.cost_events import emit_codex_util_cost
+
+            emit_codex_util_cost(
+                on_event,
+                layer="reviewer",
+                model=self.judge_model,
+                result=result,
                 run_label="skill.duplicate_check",
             )
         except Exception as exc:  # noqa: BLE001

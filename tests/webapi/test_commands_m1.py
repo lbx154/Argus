@@ -143,6 +143,73 @@ def test_daemon_stop_delegates(ctx, monkeypatch) -> None:
     assert seen["life_dir"] == life.resolve() and seen["drain"] is True
 
 
+# ── retired Python-REPL parity commands ───────────────────────────────────
+
+def test_plan_preview_delegates_to_manager_planner(ctx, monkeypatch) -> None:
+    root, sid, _ = ctx
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.manager_plan",
+        lambda sid, text, *, global_root=None: {
+            "steps": [{"title": "Check premise", "detail": "first"}],
+            "notes": [], "error": "",
+        },
+    )
+    client = TestClient(server.create_app(global_root=root))
+    body = client.post(f"/api/projects/{sid}/plan", json={"text": "prove it"}).json()
+    assert body["steps"][0]["title"] == "Check premise"
+
+
+def test_config_set_persists_cockpit_knob(ctx, monkeypatch) -> None:
+    root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    client = TestClient(server.create_app(global_root=root))
+    r = client.post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "model", "value": "gpt-5.6-sol"},
+    )
+    assert r.status_code == 200
+    assert json.loads((root / "config.json").read_text())["ARGUS_SKILL_MODEL"] == "gpt-5.6-sol"
+    assert client.post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "not_a_knob", "value": "x"},
+    ).status_code == 400
+
+
+def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> None:
+    root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    client = TestClient(server.create_app(global_root=root))
+
+    ok = client.post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "daily_cap", "value": "$12.50"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["value"] == "12.5"
+    assert json.loads((root / "config.json").read_text())["ARGUS_SKILL_DAILY_CAP_USD"] == "12.5"
+
+    invalid = client.post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "daily_cap", "value": "unlimited-ish"},
+    )
+    assert invalid.status_code == 400
+    assert "finite non-negative" in invalid.json()["detail"]
+
+
+def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(server, "run_skill_command", lambda tokens: "skills:" + " ".join(tokens))
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.reset_manager_context",
+        lambda sid, *, global_root=None: True,
+    )
+    client = TestClient(server.create_app(global_root=root))
+    assert client.post(f"/api/projects/{sid}/identity", json={"text": "Operator A"}).status_code == 200
+    assert "Operator A" in LifeMemory.open(life).identity.read()
+    assert client.post(f"/api/projects/{sid}/skills", json={"args": "promote demo"}).json()["text"] == "skills:promote demo"
+    assert client.post(f"/api/projects/{sid}/reset").json()["ok"] is True
+
+
 # ── unknown project → 404 on every POST ────────────────────────────────────
 
 def test_post_unknown_project_404(ctx, monkeypatch) -> None:
@@ -153,6 +220,9 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     for path, body in [
         ("tasks", {"text": "x"}), ("nudge", {"text": "x"}),
         ("continuous", {"enabled": False}), ("daemon/start", None), ("daemon/stop", None),
+        ("plan", {"text": "x"}), ("identity", {"text": "x"}),
+        ("config/set", {"name": "model", "value": "x"}),
+        ("skills", {"args": "ls"}), ("reset", None),
     ]:
         r = client.post(f"/api/projects/s-nope/{path}", json=body)
         assert r.status_code == 404, path

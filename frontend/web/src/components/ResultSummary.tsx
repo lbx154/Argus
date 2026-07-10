@@ -29,7 +29,8 @@ export function ResultSummary({
   const evidence = Array.isArray(report.evidence_files)
     ? (report.evidence_files as EvidenceFile[]).filter((item) => item?.path).slice(0, 4)
     : [];
-  const files: Array<EvidenceFile & Partial<ArtifactInfo>> = artifacts ?? evidence;
+  const reviewedArtifacts = artifacts?.filter((item) => item.source !== 'manager_live');
+  const files: Array<EvidenceFile & Partial<ArtifactInfo>> = reviewedArtifacts ?? evidence;
   const certified = extra.final_submission_certified === true;
 
   return (
@@ -52,7 +53,7 @@ export function ResultSummary({
       {files.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {files.slice(0, 4).map((item) => {
-            const interactive = Boolean(artifacts && item.exists && item.path && onOpenArtifact);
+            const interactive = Boolean(reviewedArtifacts && item.exists && item.path && onOpenArtifact);
             return (
               <button
                 key={item.path}

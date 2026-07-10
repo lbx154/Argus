@@ -35,6 +35,7 @@ import json
 import mimetypes
 import os
 import queue
+import shlex
 import threading
 import time
 from pathlib import Path, PurePosixPath
@@ -67,6 +68,7 @@ __all__ = [
     "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
     "get_identity", "get_transcript",
     "get_backlog_item",
+    "set_operator_config", "set_identity", "run_skill_command",
     "list_project_artifacts", "get_project_artifact",
 ]
 
@@ -449,7 +451,13 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
     SAME persisted/env/vault precedence used by /config and the CLI; leaving
     these fields at ``LifeWorkerConfig``'s dataclass defaults silently launched
     gpt-5.5 while the cockpit reported a configured Sonnet model."""
-    from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
+    from ..core.knobs import (
+        resolve_budget_caps,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
+
+    budget = resolve_budget_caps()
 
     return LifeWorkerConfig(
         life_dir=life_dir,
@@ -471,9 +479,9 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
-        daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
-        global_daily_cap_usd=float(os.environ.get("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.0")),
+        per_mission_cap_usd=budget.per_mission_cap_usd,
+        daily_cap_usd=budget.daily_cap_usd,
+        global_daily_cap_usd=budget.global_daily_cap_usd,
     )
 
 
@@ -748,6 +756,29 @@ def _latest_evidence_files(
     return out
 
 
+def _manager_live_view_files(workspace: Path) -> list[dict[str, str]]:
+    """Manager-selected files for the active project view.
+
+    The declaration is project-local and already path-normalized by the
+    Manager boundary. Re-parse it here so a hand-edited/corrupt manifest cannot
+    expand the artifact allowlist.
+    """
+    from ..manager.live_view import load_live_view_decision
+
+    view = load_live_view_decision(workspace)
+    if view is None:
+        return []
+    return [
+        {
+            "path": path,
+            "why": view.reason,
+            "source": "manager_live",
+            "group_title": view.title,
+        }
+        for path in view.paths
+    ]
+
+
 def _artifact_metadata(
     workspace: Path,
     relative_path: str,
@@ -801,7 +832,7 @@ def _artifact_metadata(
 def list_project_artifacts(
     sid: str, *, global_root: Path | str | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Latest reviewer-approved evidence files, constrained to the project cwd."""
+    """Manager live-view files plus latest reviewer evidence, workspace-confined."""
     if project_life_dir(sid, global_root=global_root) is None:
         return None
     workspace = _project_workspace(sid, global_root=global_root)
@@ -809,9 +840,22 @@ def list_project_artifacts(
         return []
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for evidence in _latest_evidence_files(sid, global_root=global_root):
+    evidence_rows = [
+        *_manager_live_view_files(workspace),
+        *(
+            {
+                **evidence,
+                "source": "reviewer_evidence",
+                "group_title": "Latest reviewed result",
+            }
+            for evidence in _latest_evidence_files(sid, global_root=global_root)
+        ),
+    ]
+    for evidence in evidence_rows:
         row = _artifact_metadata(workspace, evidence["path"], why=evidence["why"])
         if row is not None and row["path"] not in seen:
+            row["source"] = evidence["source"]
+            row["group_title"] = evidence["group_title"]
             seen.add(row["path"])
             rows.append(row)
     return rows
@@ -824,7 +868,7 @@ def get_project_artifact(
     global_root: Path | str | None = None,
     preview_bytes: int = 128 * 1024,
 ) -> dict[str, Any] | None:
-    """Metadata/preview for an allowlisted latest-result artifact."""
+    """Metadata/preview for a Manager- or Reviewer-allowlisted artifact."""
     artifacts = list_project_artifacts(sid, global_root=global_root)
     if artifacts is None:
         return None
@@ -838,12 +882,17 @@ def get_project_artifact(
     allowed = next((row for row in artifacts if row["path"] == requested), None)
     if allowed is None or not allowed["exists"]:
         return None
-    return _artifact_metadata(
+    row = _artifact_metadata(
         workspace,
         requested,
         why=str(allowed.get("why") or ""),
         preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)),
     )
+    if row is None:
+        return None
+    row["source"] = str(allowed.get("source") or "reviewer_evidence")
+    row["group_title"] = str(allowed.get("group_title") or "")
+    return row
 
 
 def _resolved_project_artifact(
@@ -957,6 +1006,62 @@ def get_identity(sid: str, *, global_root: Path | str | None = None) -> str | No
         return ""
 
 
+_CONFIG_ALIASES = {
+    "backend": "ARGUS_SKILL_RUNNER_BACKEND",
+    "engineer_backend": "ARGUS_SKILL_ENGINEER_BACKEND",
+    "reviewer_backend": "ARGUS_SKILL_REVIEWER_BACKEND",
+    "planner_backend": "ARGUS_SKILL_PLANNER_BACKEND",
+    "manager_backend": "ARGUS_SKILL_MANAGER_BACKEND",
+    "model": "ARGUS_SKILL_MODEL",
+    "engineer_model": "ARGUS_SKILL_ENGINEER_MODEL",
+    "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",
+    "planner_model": "ARGUS_SKILL_PLAN_MODEL",
+    "manager_model": "ARGUS_SKILL_MODEL",
+    "engineer_effort": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+    "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
+    "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+    "safe_mode": "ARGUS_SKILL_SAFE_MODE",
+    "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
+    "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
+}
+
+
+def set_operator_config(name: str, value: str) -> dict[str, Any]:
+    from ..core.knob_store import write_persisted_knob
+    from ..core.knobs import cockpit_editable_names, normalize_cockpit_knob_value
+
+    raw = (name or "").strip()
+    env_name = _CONFIG_ALIASES.get(raw.lower(), raw.upper())
+    allowed = set(cockpit_editable_names()) | {"ARGUS_SKILL_RUNNER_BACKEND"}
+    if env_name not in allowed:
+        raise ValueError(f"config key is not cockpit-editable: {raw}")
+    val = normalize_cockpit_knob_value(env_name, value)
+    write_persisted_knob(env_name, val)
+    os.environ[env_name] = val
+    return {"name": env_name, "value": val, "restart_required": True}
+
+
+def set_identity(
+    sid: str, text: str, *, global_root: Path | str | None = None,
+) -> bool | None:
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    mem = LifeMemory.open(life_dir)
+    mem.identity.path.parent.mkdir(parents=True, exist_ok=True)
+    mem.identity.path.write_text((text or "").rstrip() + "\n", encoding="utf-8")
+    return True
+
+
+def run_skill_command(tokens: list[str]) -> str:
+    from ..apps._life_actions import render_skills_cmd
+    return render_skills_cmd(tokens)
+
+
 def get_transcript(
     sid: str, *, n: int = 20, global_root: Path | str | None = None
 ) -> list[dict[str, Any]] | None:
@@ -1068,6 +1173,18 @@ def create_app(
 
     app = FastAPI(title="argus-skill web API", version="0.1.0")
 
+    @app.on_event("shutdown")
+    def _shutdown_warm_manager_clients() -> None:
+        # Explicitly terminate module-level Copilot ACP clients. Otherwise an
+        # old Web process can remain resident after Uvicorn shuts down, leaving
+        # stale Copilot processes alive across repeated cockpit launches.
+        try:
+            from .manager_bridge import shutdown_manager_bridge
+
+            shutdown_manager_bridge()
+        except Exception:  # noqa: BLE001
+            pass
+
     # Localhost dev only: allow the Vite dev server + same-origin. Not a wildcard.
     app.add_middleware(
         CORSMiddleware,
@@ -1127,6 +1244,19 @@ def create_app(
 
     class _NoteIn(BaseModel):
         text: str
+
+    class _PlanIn(BaseModel):
+        text: str
+
+    class _ConfigSetIn(BaseModel):
+        name: str
+        value: str
+
+    class _IdentitySetIn(BaseModel):
+        text: str
+
+    class _SkillsIn(BaseModel):
+        args: str = "ls"
 
     class _DisposeIn(BaseModel):
         op: str = "done"  # done | skip | rm
@@ -1417,6 +1547,44 @@ def create_app(
             raise HTTPException(status_code=400, detail="empty note text")
         return {"result": _404_if_none(add_project_note(sid, body.text, global_root=global_root), sid)}
 
+    @app.post("/api/projects/{sid}/plan", dependencies=[Depends(_require_auth)])
+    async def _plan_preview(sid: str, body: _PlanIn) -> dict[str, Any]:
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty plan objective")
+        _resolve_or_404(sid)
+        from .manager_bridge import manager_plan
+        return await run_in_threadpool(
+            manager_plan, sid, body.text, global_root=global_root,
+        )
+
+    @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(_require_auth)])
+    def _config_set(sid: str, body: _ConfigSetIn) -> dict[str, Any]:
+        _resolve_or_404(sid)
+        try:
+            return set_operator_config(body.name, body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{sid}/identity", dependencies=[Depends(_require_auth)])
+    def _identity_set(sid: str, body: _IdentitySetIn) -> dict[str, Any]:
+        _404_if_none(set_identity(sid, body.text, global_root=global_root), sid)
+        return {"ok": True}
+
+    @app.post("/api/projects/{sid}/reset", dependencies=[Depends(_require_auth)])
+    def _manager_reset(sid: str) -> dict[str, Any]:
+        _resolve_or_404(sid)
+        from .manager_bridge import reset_manager_context
+        return {"ok": reset_manager_context(sid, global_root=global_root)}
+
+    @app.post("/api/projects/{sid}/skills", dependencies=[Depends(_require_auth)])
+    def _skills(sid: str, body: _SkillsIn) -> dict[str, Any]:
+        _resolve_or_404(sid)
+        try:
+            tokens = shlex.split(body.args)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid skill arguments: {exc}") from exc
+        return {"text": run_skill_command(tokens)}
+
     @app.post("/api/projects/{sid}/backlog/{item_id}/dispose", dependencies=[Depends(_require_auth)])
     def _dispose(sid: str, item_id: str, body: _DisposeIn) -> dict[str, Any]:
         if body.op not in ("done", "skip", "rm"):
@@ -1465,7 +1633,9 @@ def create_app(
     # port. The /api routes above are registered first, so they always win; this
     # catch-all mount only handles the SPA shell + assets. Skipped silently when
     # the bundle is absent (API-only mode, e.g. the Vite dev server proxies here).
-    web_dist = Path(__file__).resolve().parents[2] / "frontend" / "web" / "dist"
+    source_dist = Path(__file__).resolve().parents[2] / "frontend" / "web" / "dist"
+    wheel_dist = Path(__file__).resolve().parents[1] / "_frontend" / "web" / "dist"
+    web_dist = source_dist if source_dist.is_dir() else wheel_dist
     if web_dist.is_dir():
         from fastapi.staticfiles import StaticFiles
 

@@ -1,14 +1,162 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from ...core.ports import EventSink
-from ..memory import BacklogItem, Journal
+from ..memory import BacklogItem, EventJournal, Journal
+
+try:
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - production daemon is POSIX
+    _fcntl = None
+
+_GLOBAL_JOURNAL_CACHE: dict[tuple[str, str], Journal] = {}
+_GLOBAL_JOURNAL_CACHE_LOCK = threading.Lock()
+_GLOBAL_RESERVATION_THREAD_LOCK = threading.Lock()
+_RESERVATION_STATE_FILE = "budget-reservations.json"
+_RESERVATION_LOCK_FILE = "budget-reservations.lock"
+
+
+def _cached_journal(path: Path, *, event_backed: bool) -> Journal:
+    """Reuse signature-aware journal readers without serving stale totals."""
+    kind = "event" if event_backed else "legacy"
+    key = (kind, str(path.resolve()))
+    with _GLOBAL_JOURNAL_CACHE_LOCK:
+        journal = _GLOBAL_JOURNAL_CACHE.get(key)
+        if journal is None:
+            journal = EventJournal(path) if event_backed else Journal(path)
+            _GLOBAL_JOURNAL_CACHE[key] = journal
+        return journal
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def _reservation_state_lock(root: Path):
+    root.mkdir(parents=True, exist_ok=True)
+    with _GLOBAL_RESERVATION_THREAD_LOCK:
+        fd = os.open(str(root / _RESERVATION_LOCK_FILE), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if _fcntl is not None:
+                _fcntl.flock(fd, _fcntl.LOCK_EX)
+            yield
+        finally:
+            if _fcntl is not None:
+                try:
+                    _fcntl.flock(fd, _fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            os.close(fd)
+
+
+def _read_reservations(root: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads((root / _RESERVATION_STATE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    rows = payload.get("reservations") if isinstance(payload, dict) else None
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _write_reservations(root: Path, rows: list[dict[str, Any]]) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / _RESERVATION_STATE_FILE
+    fd, tmp_name = tempfile.mkstemp(prefix=".budget-reservations-", dir=str(root))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"version": 1, "reservations": rows}, handle, indent=2)
+            handle.write("\n")
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, target)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+
+
+@dataclass
+class GlobalBudgetReservation:
+    root: Path | None = None
+    reservation_id: str = ""
+
+    def release(self) -> None:
+        if self.root is None or not self.reservation_id:
+            return
+        with _reservation_state_lock(self.root):
+            rows = _read_reservations(self.root)
+            kept = [row for row in rows if row.get("id") != self.reservation_id]
+            if len(kept) != len(rows):
+                _write_reservations(self.root, kept)
+        self.reservation_id = ""
+
+
+def reserve_global_daily_budget(
+    *,
+    cap_usd: float,
+    amount_usd: float,
+    global_root: Path | None = None,
+    owner: str = "",
+    now: float | None = None,
+) -> tuple[GlobalBudgetReservation | None, str]:
+    """Atomically reserve one mission envelope against the host-wide cap."""
+    cap = max(0.0, float(cap_usd or 0.0))
+    amount = max(0.0, float(amount_usd or 0.0))
+    if cap <= 0 or amount <= 0:
+        return GlobalBudgetReservation(), ""
+    if global_root is None:
+        from ...core.paths import global_root as resolve_global_root
+
+        root = resolve_global_root()
+    else:
+        root = Path(global_root).expanduser()
+    ts = time.time() if now is None else float(now)
+    with _reservation_state_lock(root):
+        rows = [
+            row
+            for row in _read_reservations(root)
+            if _pid_alive(int(row.get("pid") or 0))
+        ]
+        reserved = sum(max(0.0, float(row.get("amount_usd") or 0.0)) for row in rows)
+        spent = global_daily_spend(global_root=root, now=ts)
+        if spent + reserved + amount > cap:
+            _write_reservations(root, rows)
+            return None, (
+                f"global daily spend ${spent:.2f} + active reservations "
+                f"${reserved:.2f} + mission cap ${amount:.2f} would exceed "
+                f"global daily cap ${cap:.2f}"
+            )
+        reservation_id = uuid.uuid4().hex
+        rows.append({
+            "id": reservation_id,
+            "pid": os.getpid(),
+            "owner": owner,
+            "amount_usd": amount,
+            "created_at": ts,
+        })
+        _write_reservations(root, rows)
+    return GlobalBudgetReservation(root=root, reservation_id=reservation_id), ""
 
 
 class _MemoryView(Protocol):
@@ -39,7 +187,12 @@ def _local_day_start(now: float) -> float:
 
 
 def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
-    """Total journaled spend across all projects since local midnight."""
+    """Total canonical event-journal spend across all projects since midnight.
+
+    Modern projects write costs to ``events.jsonl`` and retain every rollover
+    generation. The old implementation scanned only legacy ``journal.jsonl``
+    files, so the global cap observed zero spend in real deployments.
+    """
     now = time.time() if now is None else float(now)
     day_start = _local_day_start(now)
     if global_root is None:
@@ -56,33 +209,22 @@ def global_daily_spend(*, global_root: Path | None = None, now: float | None = N
 
     total = 0.0
     for project_dir in project_dirs:
-        for journal_path in (
-            project_dir / "journal.jsonl",
-            project_dir / "journal.jsonl.1",
-        ):
-            try:
-                if not journal_path.exists():
-                    continue
-                with journal_path.open("r", encoding="utf-8") as fh:
-                    for raw in fh:
-                        raw = raw.strip()
-                        if not raw:
-                            continue
-                        try:
-                            row = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        if not isinstance(row, dict):
-                            continue
-                        try:
-                            ts = float(row.get("ts", 0.0))
-                            cost = float(row.get("cost_usd", 0.0))
-                        except (TypeError, ValueError):
-                            continue
-                        if ts >= day_start:
-                            total += cost
-            except OSError:
-                continue
+        events_path = project_dir / "events.jsonl"
+        try:
+            has_events = events_path.exists() or any(
+                project_dir.glob("events.jsonl.[0-9]*")
+            )
+        except OSError:
+            has_events = False
+        if has_events:
+            total += _cached_journal(
+                events_path, event_backed=True
+            ).total_cost_since(day_start)
+            continue
+        # Backward compatibility for pre-event-journal projects.
+        total += _cached_journal(
+            project_dir / "journal.jsonl", event_backed=False
+        ).total_cost_since(day_start)
     return total
 
 
@@ -142,6 +284,7 @@ class LifeBudget:
         item: BacklogItem,
         journal: Journal,
         now: float | None = None,
+        global_root: Path | None = None,
     ) -> tuple[bool, str]:
         """Return ``(allowed, reason)``. ``reason`` is empty when allowed.
 
@@ -166,7 +309,7 @@ class LifeBudget:
             )
         global_cap = float(self.global_daily_cap_usd or 0.0)
         if global_cap > 0:
-            spent = global_daily_spend(now=now)
+            spent = global_daily_spend(global_root=global_root, now=now)
             if spent + effective_cap > global_cap:
                 return False, (
                     f"global daily spend ${spent:.2f} + effective mission cap "

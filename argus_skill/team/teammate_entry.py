@@ -31,9 +31,23 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import task_board
+
+
+@contextmanager
+def _temporary_env(name: str, value: str):
+    prior = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if prior is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = prior
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -219,48 +233,41 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     # Disable checkpoint persistence: the audit is then omitted, and a single-shot
     # teammate (no cross-mission continuity) won't collide with sibling teammates
     # on a shared checkpoint.json.
-    os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] = "0"
-    try:
-        from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
-        from argus_skill.life.event_log import JsonlEventSink
-    except Exception as exc:  # noqa: BLE001 — import/wiring problem
-        sys.stderr.write(f"teammate_entry: cannot import runner: {exc}\n")
-        return False
-    life_dir = Path(life_dir)
-    life_dir.mkdir(parents=True, exist_ok=True)
-    # Soft time-box: a Timer sets stop_event at timeout_s; the runner polls it
-    # between engineer rounds and exits cleanly, recording the task done/failed.
-    # The HARD wall-clock deadline is NOT enforced here anymore — the daemon-
-    # resident Curator owns this process and is the single reaper, so a wedged
-    # teammate is killpg'd (and its task freed) from the parent. A teammate that
-    # SIGKILLs itself would bypass the Curator's bookkeeping (lost shard).
-    stop_event = threading.Event()
-    watchdog = threading.Timer(timeout_s, stop_event.set)
-    watchdog.daemon = True
-    watchdog.start()
-    # Forced grounding (opt-in): search the real SOTA FIRST and fold it into the
-    # objective, so the engineer can't skip the search by claiming it already
-    # knows. No-op unless ARGUS_TEAMMATE_FORCE_RESEARCH is set.
-    objective = _forced_web_research(objective, cwd=cwd)
-    # Then force ONE profiling pass so the engineer works from measured
-    # bottlenecks, not guesses — the data-driven loop. No-op unless
-    # ARGUS_TEAMMATE_FORCE_PROFILE + ARGUS_TEAMMATE_PROFILE_CMD set.
-    objective = _forced_profile(objective, cwd=cwd)
-    ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
-                          stop_event=stop_event)
-    try:
-        runner = _SkillLoopRunner(ns)
-        sink = JsonlEventSink(LifeStderrSink(quiet=False), life_dir=life_dir)
-        outcome = runner.execute(objective=objective, sink=sink)
-    except SystemExit as exc:  # codex extra missing, etc.
-        sys.stderr.write(f"teammate_entry: runner unavailable: {exc}\n")
-        return False
-    except Exception as exc:  # noqa: BLE001 — never let a mission crash kill bookkeeping
-        sys.stderr.write(f"teammate_entry: mission error: {exc!r}\n")
-        return False
-    finally:
-        watchdog.cancel()
-    return bool(getattr(outcome, "success", False))
+    with _temporary_env("ARGUS_SKILL_CHECKPOINT_PERSIST", "0"):
+        watchdog: threading.Timer | None = None
+        try:
+            from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
+            from argus_skill.life.event_log import JsonlEventSink
+
+            life_dir = Path(life_dir)
+            life_dir.mkdir(parents=True, exist_ok=True)
+            # Soft time-box: a Timer sets stop_event at timeout_s; the runner
+            # polls it between rounds and exits cleanly.
+            stop_event = threading.Event()
+            watchdog = threading.Timer(timeout_s, stop_event.set)
+            watchdog.daemon = True
+            watchdog.start()
+            objective = _forced_web_research(objective, cwd=cwd)
+            objective = _forced_profile(objective, cwd=cwd)
+            ns = _build_runner_ns(
+                cwd,
+                max_rounds=max_rounds,
+                paper_mission=paper_mission,
+                stop_event=stop_event,
+            )
+            runner = _SkillLoopRunner(ns)
+            sink = JsonlEventSink(LifeStderrSink(quiet=False), life_dir=life_dir)
+            outcome = runner.execute(objective=objective, sink=sink)
+        except SystemExit as exc:  # codex extra missing, etc.
+            sys.stderr.write(f"teammate_entry: runner unavailable: {exc}\n")
+            return False
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"teammate_entry: mission error: {exc!r}\n")
+            return False
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+        return bool(getattr(outcome, "success", False))
 
 
 def _owned_task(root: Path, member_id: str, task_id: str | None) -> dict | None:

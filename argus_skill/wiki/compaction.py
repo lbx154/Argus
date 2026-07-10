@@ -186,6 +186,7 @@ def llm_cluster_wiki(
     judge_runner: Any,
     judge_model: str = "",
     judge_reasoning_effort: str = "high",
+    on_event: Any = None,
 ) -> list[list[Any]] | None:
     """LLM-judged batched grouping (mirrors
     ``skills.compaction.llm_plan_compaction``'s shape) used by the periodic
@@ -221,6 +222,15 @@ def llm_cluster_wiki(
                     skip_git_repo_check=True,
                     full_auto=True,
                 ),
+                run_label="wiki.compaction_batch",
+            )
+            from ..core.cost_events import emit_codex_util_cost
+
+            emit_codex_util_cost(
+                on_event,
+                layer="reviewer",
+                model=judge_model,
+                result=result,
                 run_label="wiki.compaction_batch",
             )
         except Exception as exc:  # noqa: BLE001 — judge is best-effort
@@ -284,6 +294,7 @@ def auto_compact_wiki(
         interesting = llm_cluster_wiki(
             pages, judge_runner=judge_runner, judge_model=judge_model,
             judge_reasoning_effort=judge_reasoning_effort,
+            on_event=on_event,
         )
         if not interesting:
             return counts

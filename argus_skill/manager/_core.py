@@ -504,6 +504,19 @@ class Manager:
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
             )
+        # Rendering is advisory and must never block the task. Persist the
+        # Manager's grounded selection only after the read-only decision call
+        # returns; malformed/legacy responses leave the previous view intact.
+        try:
+            from .live_view import apply_live_view_decision
+
+            apply_live_view_decision(
+                self.project_root,
+                decided=decision.live_view_decided,
+                view=decision.live_view,
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("manager live-view persistence failed", exc_info=True)
         return decision
 
     @staticmethod

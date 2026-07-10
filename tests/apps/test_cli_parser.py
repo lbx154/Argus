@@ -7,6 +7,7 @@ subcommand.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -277,7 +278,7 @@ def _seed_trusted_special_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp))
 
 
-def test_main_seeds_repl_continuous_flags(
+def test_main_forwards_continuous_objective_to_ink(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -286,56 +287,65 @@ def test_main_seeds_repl_continuous_flags(
 
     captured: dict[str, object] = {}
 
-    def fake_run_manager_repl(args):
-        captured["backend"] = args.backend
-        captured["continuous"] = args.continuous
-        captured["objective"] = args.objective
+    def fake_run_tui(argv):
+        captured["argv"] = argv
         return 0
 
-    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
+    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
 
     assert rc == 0
-    assert captured == {
-        "backend": "codex",
-        "continuous": True,
-        "objective": "hardening objective",
-    }
+    assert captured["argv"] == ["--continuous", "--objective", "hardening objective"]
 
 
-def test_main_bare_launch_enters_repl_without_objective(
+def test_main_forwards_real_process_argv_to_ink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Console-script calls use ``main()``; argv=None must not erase flags."""
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(sys, "argv", ["argus-skill", "--resume", "s-session01"])
+
+    def fake_run_tui(argv):
+        captured["argv"] = argv
+        return 0
+
+    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
+
+    assert main() == 0
+    assert captured["argv"] == ["--resume", "s-session01"]
+
+
+def test_main_bare_launch_enters_ink_without_objective(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A bare ``argus-skill`` enters the Manager-conversation REPL with no
-    pre-set objective — the operator states the task in the conversation. The
-    objective/house-rules gate stays on the autonomous ``--continuous`` /
-    ``--daemon`` paths, not the bare interactive entry."""
+    """A bare ``argus-skill`` enters the single supported Ink cockpit."""
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     _seed_trusted_special_prompt(tmp_path, monkeypatch)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
 
     called = {"hit": False}
 
-    def fake_run_manager_repl(args):
+    def fake_run_tui(argv):
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
+    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
 
     rc = main([])
     assert rc == 0
     assert called["hit"] is True
 
 
-def test_main_rejects_launch_without_special_prompt(
+def test_main_ink_launch_does_not_require_special_prompt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Default REPL launch is gated: no special prompt -> refuse with guidance."""
+    """An idle conversational TUI is safe before any daemon mission exists."""
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     # Point the special-prompts dir at an empty location so the gate trips.
     monkeypatch.setenv(
@@ -344,16 +354,15 @@ def test_main_rejects_launch_without_special_prompt(
 
     called = {"hit": False}
 
-    def fake_run_manager_repl(args):  # pragma: no cover - must not run
+    def fake_run_tui(argv):
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
+    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
-    assert rc == 2
-    assert called["hit"] is False
-    assert "special prompt" in capsys.readouterr().err.lower()
+    assert rc == 0
+    assert called["hit"] is True
 
 
 def test_wiki_ingest_init_flag_parses_without_abbreviation_collision():

@@ -33,6 +33,14 @@ def _copilot_usd_per_premium_request() -> float:
     return val if val >= 0.0 else 0.04
 
 
+def copilot_usd_for_premium_requests(value: float) -> float:
+    try:
+        count = max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        count = 0.0
+    return count * _copilot_usd_per_premium_request()
+
+
 class _CostTrackingSink:
     """Wraps an ``EventSink`` to accumulate token counts.
 
@@ -178,7 +186,7 @@ class _CostTrackingSink:
         """USD-equivalent of accumulated copilot premium requests (0.0 off
         copilot). Priced so copilot spend flows through the existing breaker.
         累计 copilot 高级请求的美元等值(非 copilot 时为 0.0)。"""
-        return self.copilot_premium_requests * _copilot_usd_per_premium_request()
+        return copilot_usd_for_premium_requests(self.copilot_premium_requests)
 
     def util_usd(self) -> float:
         total = 0.0
