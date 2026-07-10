@@ -1,0 +1,7 @@
+interface:
+  display_name: "Argus Engineering Excellence"
+  short_description: "Evolve Argus with rigorous agent-native engineering"
+  default_prompt: "Use $argus-engineering-excellence to deliver the highest-value verified improvement to the current Argus checkout."
+policy:
+  allow_implicit_invocation: false
+
