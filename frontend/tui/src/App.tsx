@@ -45,6 +45,7 @@ import {
 import { LiveActivity } from './components/LiveActivity.js';
 import { ActivityPane } from './components/ActivityPane.js';
 import { consumePasteChunk } from './input/paste.js';
+import { transcriptEvents } from './transcript.js';
 
 const MAX_EVENTS = 400;
 const STREAM_RENDER_INTERVAL_MS = 50;
@@ -202,6 +203,23 @@ export function App({ host, port, token, project: initialProject, initialNotice 
       if (renderTimer) clearTimeout(renderTimer);
       pendingEvents = [];
       wsRef.current?.close();
+    };
+  }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    api.getTranscript(MAX_EVENTS).then(
+      (turns) => {
+        if (!active) return;
+        const persisted = transcriptEvents(turns);
+        setEvents((live) => [...persisted, ...live].slice(-MAX_EVENTS));
+      },
+      () => {
+        // Event streaming remains usable when an old project has no transcript.
+      },
+    );
+    return () => {
+      active = false;
     };
   }, [api]);
 
