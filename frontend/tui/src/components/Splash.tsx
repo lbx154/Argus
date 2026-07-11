@@ -1,55 +1,60 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
-import { WORDMARK_TAG } from '../theme.js';
-import { Wordmark } from './Wordmark.js';
-import { TAGLINE } from '../soul.js';
+import { Box, Text, useInput, useStdout } from 'ink';
 
-/**
- * "Panoptes Ignition" boot splash. The ◆ ignites (the all-seeing eye opening /
- * locking on — one warm accent pulse), then "argus" materializes left→right out
- * of dim ghost into its mauve→blue→teal gradient, sealed by one white shimmer
- * sweep, then a dim tagline fades in. ~1.6s, then hands off to the cockpit.
- *
- * Every visual is derived from one integer frame index — no stringly-typed
- * frames. The resting frame draws the same <Wordmark/> the Header draws, so the
- * handoff is a visual no-op. Any keypress skips instantly.
- */
+const LOGO_FULL = [
+  ' █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗',
+  '██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝      ██╔════╝██║ ██╔╝██║██║     ██║',
+  '███████║██████╔╝██║  ███╗██║   ██║███████╗█████╗███████╗█████╔╝ ██║██║     ██║',
+  '██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║╚════╝╚════██║██╔═██╗ ██║██║     ██║',
+  '██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║      ███████║██║  ██╗██║███████╗███████╗',
+  '╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝',
+] as const;
 
-interface Fr {
-  d: 'ghost' | 'flick' | 'solid';
-  lit: number;
-  sh: number;
-  tag: number;
+const LOGO_COMPACT = [
+  '                              _   _ _ _',
+  ' __ _ _ _ __ _ _  _ ______ __| |_(_) | |',
+  "/ _` | '_/ _` | || (_-<___(_-< / / | | |",
+  '\\__,_|_| \\__, |\\_,_/__/   /__/_\\_\\_|_|_|',
+  '         |___/',
+] as const;
+
+const COLORS = ['#3b6fd4', '#4d86e0', '#5f9deb', '#72b4f0', '#89dceb', '#cba6f7', '#e6b450'];
+const ACTIVE_FRAMES = 17;
+const FADE_FRAMES = 5;
+const FRAME_MS = 80;
+const HOLD_MS = 120;
+const FULL_WIDTH = Math.max(...LOGO_FULL.map((line) => [...line].length));
+
+export function splashLogoForWidth(width: number): readonly string[] {
+  return width >= FULL_WIDTH ? LOGO_FULL : LOGO_COMPACT;
 }
 
-const FRAMES: Fr[] = [
-  { d: 'ghost', lit: -1, sh: -1, tag: 0 }, // f0  eye closed
-  { d: 'flick', lit: -1, sh: -1, tag: 0 }, // f1  flicker
-  { d: 'solid', lit: -1, sh: -1, tag: 0 }, // f2  ignite (lock-on pulse)
-  { d: 'solid', lit: 0, sh: -1, tag: 0 }, // f3  word ghosts in
-  { d: 'solid', lit: 1, sh: -1, tag: 0 }, // f4  ┐
-  { d: 'solid', lit: 2, sh: -1, tag: 0 }, // f5  │ gradient wipe
-  { d: 'solid', lit: 3, sh: -1, tag: 0 }, // f6  │ left → right
-  { d: 'solid', lit: 4, sh: -1, tag: 0 }, // f7  │
-  { d: 'solid', lit: 5, sh: -1, tag: 0 }, // f8  ┘ fully lit
-  { d: 'solid', lit: 5, sh: 0, tag: 0 }, // f9   ┐
-  { d: 'solid', lit: 5, sh: 1, tag: 0 }, // f10  │ shimmer sweep
-  { d: 'solid', lit: 5, sh: 2, tag: 0 }, // f11  │
-  { d: 'solid', lit: 5, sh: 3, tag: 0 }, // f12  │
-  { d: 'solid', lit: 5, sh: 4, tag: 0 }, // f13  ┘
-  { d: 'solid', lit: 5, sh: -1, tag: 1 }, // f14  tagline fades in
-  { d: 'solid', lit: 5, sh: -1, tag: 2 }, // f15  tagline full
-  { d: 'solid', lit: 5, sh: -1, tag: 2 }, // f16  rest (held, then handoff)
-];
-
-// Same one-line identity soul.ts feeds the web header's Wordmark tag — CLI and
-// web read the same tagline.
-const TAG = `  ${TAGLINE}`;
-const FRAME_MS = 80;
-const HOLD_MS = 240;
+function AnimatedLine({
+  line,
+  row,
+  frame,
+  dim,
+}: {
+  line: string;
+  row: number;
+  frame: number;
+  dim: boolean;
+}) {
+  return (
+    <Text dimColor={dim}>
+      {[...line].map((char, column) => (
+        <Text key={column} color={COLORS[(Math.floor(column / 7) + row + frame) % COLORS.length]}>
+          {char}
+        </Text>
+      ))}
+    </Text>
+  );
+}
 
 export function Splash({ onDone }: { onDone: () => void }) {
-  const [i, setI] = useState(0);
+  const { stdout } = useStdout();
+  const logo = splashLogoForWidth(stdout.columns ?? 80);
+  const [frame, setFrame] = useState(0);
   const finished = useRef(false);
 
   const finish = () => {
@@ -58,32 +63,38 @@ export function Splash({ onDone }: { onDone: () => void }) {
     onDone();
   };
 
-  useInput(() => finish()); // any key skips to the cockpit
+  useInput(finish);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setI((x) => {
-        if (x >= FRAMES.length - 1) {
-          clearInterval(id);
-          setTimeout(finish, HOLD_MS);
-          return x;
-        }
-        return x + 1;
+    const timer = setInterval(() => {
+      setFrame((current) => {
+        if (current < ACTIVE_FRAMES + FADE_FRAMES - 1) return current + 1;
+        clearInterval(timer);
+        setTimeout(finish, HOLD_MS);
+        return current;
       });
     }, FRAME_MS);
-    return () => clearInterval(id);
+    return () => clearInterval(timer);
+    // finish is intentionally stable for the lifetime of this splash.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const f = FRAMES[i];
+  const fadeStep = Math.max(0, frame - ACTIVE_FRAMES + 1);
+  const hiddenRows = fadeStep <= 1 ? 0 : Math.min(logo.length, (fadeStep - 1) * 2);
+  const firstVisible = Math.floor(hiddenRows / 2);
+  const lastVisible = logo.length - Math.ceil(hiddenRows / 2);
+
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Wordmark d={f.d} lit={f.lit} sh={f.sh} />
-      {f.tag > 0 ? (
-        <Text color={WORDMARK_TAG} dimColor={f.tag < 2}>
-          {TAG}
-        </Text>
-      ) : null}
+      {logo.map((line, row) => (
+        <AnimatedLine
+          key={row}
+          line={row >= firstVisible && row < lastVisible ? line : ' '.repeat([...line].length)}
+          row={row}
+          frame={frame}
+          dim={fadeStep > 0}
+        />
+      ))}
     </Box>
   );
 }
