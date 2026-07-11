@@ -5,8 +5,8 @@ codex call.
 
 Two surfaces are exercised here:
 
-1. ``_SkillLoopRunner._chat_quick_reply`` — direct unit test with
-   a fake codex backend. Verifies prompt shape, event emission, token
+1. ``_SkillLoopRunner._simple_quick_reply`` — direct unit test with
+   a fake backend. Verifies prompt shape, event emission, token
    accounting, and ``chat_mode=True``.
 
 2. ``LifeSupervisor._run_one`` with a fake runner that returns
@@ -284,7 +284,7 @@ def test_execute_uses_full_pipeline_on_real_task(
 ) -> None:
     """A clear engineering task must NOT short-circuit. The model
     classifier answers TEAM, so the runner falls through to the
-    SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
+    SkillLoop path. We assert ``_simple_quick_reply`` is NOT invoked by
     setting a sentinel that would raise if called.
     """
     backend = _FakeBackend(
@@ -311,7 +311,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         raise AssertionError(
             f"chat fast-path was triggered for what should be a task: {objective!r}"
         )
-    runner._chat_quick_reply = _sentinel
+    runner._simple_quick_reply = _sentinel
 
     # Build a minimal SkillLoop / SkillLoopConfig stub so the fall-through
     # path doesn't try to construct a real one. We replace ``_SkillLoop``

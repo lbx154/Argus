@@ -1669,9 +1669,9 @@ def test_maybe_chat_outcome_false_returns_none(
     runner.manager = _FakeManager()
 
     def boom(**kwargs: Any) -> Any:  # must NOT be called on the task path
-        raise AssertionError("_chat_quick_reply called for a task")
+        raise AssertionError("_simple_quick_reply called for a task")
 
-    monkeypatch.setattr(runner, "_chat_quick_reply", boom)
+    monkeypatch.setattr(runner, "_simple_quick_reply", boom)
 
     assert runner._maybe_chat_outcome(objective="build the thing", sink=sink) is None
     assert runner.chat_reply_if_conversational(
