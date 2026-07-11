@@ -68,7 +68,7 @@ export const useBacklogItem = (sid: string | null, itemId: string | null) =>
 
 /* --------------------------------------------------------------- mutations */
 
-export function useProjectActions(sid: string | null) {
+export function useProjectActions(sid: string | null, commandRevision?: number) {
   const qc = useQueryClient();
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['snapshot', sid] });
@@ -80,8 +80,8 @@ export function useProjectActions(sid: string | null) {
     addTask: useMutation({ mutationFn: (text: string) => api.addTask(sid!, text), onSuccess: invalidate }),
     nudge: useMutation({ mutationFn: (text: string) => api.nudge(sid!, text) }),
     note: useMutation({ mutationFn: (text: string) => api.note(sid!, text) }),
-    startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!), onSuccess: invalidate }),
-    stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain), onSuccess: invalidate }),
+    startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
+    stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
     disposeBacklog: useMutation({
       mutationFn: (a: { id: string; op: 'done' | 'skip' | 'rm' }) => api.disposeBacklog(sid!, a.id, a.op),
       onSuccess: invalidate,

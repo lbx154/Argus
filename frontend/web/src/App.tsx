@@ -250,7 +250,7 @@ export default function App() {
   const artifactsQ = useArtifacts(activeSid, true);
   const { events, connected } = useEventStream(activeSid);
   const spend = useMemo(() => computeSpend(events), [events]);
-  const actions = useProjectActions(activeSid);
+  const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
   const daemonBusy = actions.startDaemon.isPending || actions.stopDaemon.isPending;
   const actionFeedback = (success: string) => ({
     onSuccess: () => notify('success', success),

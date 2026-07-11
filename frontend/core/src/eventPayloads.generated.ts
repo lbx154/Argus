@@ -246,6 +246,36 @@ export interface LifePlannerTaskSkippedEvent extends EventMsg {
   "reason": string;
 }
 
+export interface DaemonCommandSubmittedEvent extends EventMsg {
+  type: "daemon.command.submitted";
+  payload_schema_version?: 1;
+  "command_id": string;
+  "operation": string;
+  "revision": number;
+  "expected_revision"?: number | null;
+}
+
+export interface DaemonCommandCompletedEvent extends EventMsg {
+  type: "daemon.command.completed";
+  payload_schema_version?: 1;
+  "command_id": string;
+  "operation": string;
+  "status": "applied" | "failed";
+  "revision": number;
+  "error"?: string;
+  "result"?: Record<string, unknown>;
+}
+
+export interface DaemonCommandRejectedEvent extends EventMsg {
+  type: "daemon.command.rejected";
+  payload_schema_version?: 1;
+  "command_id": string;
+  "operation": string;
+  "status": "rejected";
+  "revision": number;
+  "error": string;
+}
+
 export interface EventPayloadByType {
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
@@ -271,6 +301,9 @@ export interface EventPayloadByType {
   "life.planner.error": LifePlannerErrorEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
+  "daemon.command.submitted": DaemonCommandSubmittedEvent;
+  "daemon.command.completed": DaemonCommandCompletedEvent;
+  "daemon.command.rejected": DaemonCommandRejectedEvent;
 }
 
 export type TypedArgusEvent = EventPayloadByType[keyof EventPayloadByType];

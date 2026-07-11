@@ -103,6 +103,25 @@ export interface CostControlSnapshot {
   policy: 'block' | 'allow';
 }
 
+export interface DaemonCommandReceipt {
+  command_id: string;
+  operation: string;
+  status: 'accepted' | 'running' | 'applied' | 'failed' | 'rejected';
+  revision: number;
+  expected_revision: number | null;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  error: string;
+  submitted_at: number;
+  updated_at: number;
+}
+
+export interface DaemonCommandState {
+  schema_version: 1;
+  revision: number;
+  recent: DaemonCommandReceipt[];
+}
+
 export interface DaemonAdmission {
   admission_required: boolean;
   requested_at: number;
@@ -151,6 +170,7 @@ export interface Snapshot {
   usage_summary?: UsageSummary;
   request_usage?: RequestUsage | null;
   cost_control?: CostControlSnapshot | null;
+  daemon_commands?: DaemonCommandState | null;
   daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;

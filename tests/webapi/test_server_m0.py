@@ -95,13 +95,14 @@ def test_build_snapshot_shape_and_failsoft(
     assert set(snap) == {
         "schema_version", "session", "daemon", "roles", "backlog",
         "recent_events", "spend_usd", "spend_status", "usage_summary",
-        "request_usage", "cost_control", "partial", "diagnostics",
+        "request_usage", "cost_control", "daemon_commands", "partial", "diagnostics",
     }
     assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert snap["partial"] is False
     assert snap["diagnostics"] == []
     assert snap["cost_control"]["active_reservations"] == 0
     assert snap["cost_control"]["unresolved_calls"] == 0
+    assert snap["daemon_commands"]["revision"] == 0
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
@@ -312,7 +313,7 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.3"
+    assert r.headers["x-argus-protocol"] == "argus.webapi/1.4"
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
     assert authenticated.json()["runtime"]["source_root"] != "<redacted>"

@@ -209,6 +209,8 @@ test('Ink can park a selected daemon and start the queued target', async () => {
     const result = await api.replaceDaemon('s-old', true);
     assert.equal(result.rc, 0);
     assert.match(seenUrl, /\/api\/projects\/s-new\/daemon\/replace$/);
+    assert.match(String(seenBody.command_id), /^[0-9a-f-]{36}$/);
+    delete seenBody.command_id;
     assert.deepEqual(seenBody, {
       victim_sid: 's-old',
       resume_continuous: true,
@@ -239,6 +241,8 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
     assert.equal(created.spawned, true);
     assert.match(seenUrl, /\/api\/daemons$/);
     assert.equal(seenAuth, 'Bearer secret');
+    assert.match(String(seenBody.command_id), /^[0-9a-f-]{36}$/);
+    delete seenBody.command_id;
     assert.deepEqual(seenBody, {
       objective: 'reproduce benchmark',
       name: 'Kernel run',

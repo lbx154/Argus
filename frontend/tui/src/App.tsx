@@ -234,6 +234,7 @@ export function App({
       const result = await targetApi.replaceDaemon(
         victim.id,
         replacement.resumeContinuous,
+        snap?.daemon_commands?.revision,
       );
       if (result.rc !== 0) {
         const refreshed = replacementState(

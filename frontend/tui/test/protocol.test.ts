@@ -12,8 +12,8 @@ import { ensureApi, probeApi } from '../src/ensureApi.js';
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
-    protocol: { name: 'argus.webapi', major: 1, minor: 3 },
-    snapshot_schema_version: 2,
+    protocol: { name: 'argus.webapi', major: 1, minor: 4 },
+    snapshot_schema_version: 3,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
       package_version: '0.1.0',
@@ -36,10 +36,10 @@ test('protocol contract accepts the current server and rejects missing capabilit
   assert.equal(incompatible.compatible, false);
   assert.match(incompatible.reason, /missing capabilities: daemon\.admission\.v1/);
   const oldMinor = inspectApiMeta(meta({
-    protocol: { name: 'argus.webapi', major: 1, minor: 2 },
+    protocol: { name: 'argus.webapi', major: 1, minor: 3 },
   }));
   assert.equal(oldMinor.compatible, false);
-  assert.match(oldMinor.reason, /older than required 3/);
+  assert.match(oldMinor.reason, /older than required 4/);
   const wrongCheckout = inspectApiMeta(meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -54,7 +54,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
 test('snapshot contract fails closed when budget fields are absent', () => {
   assert.throws(
     () => requireSnapshotContract({
-      schema_version: 2,
+      schema_version: 3,
       daemon: { alive: false },
       spend_usd: null,
       spend_status: 'empty',
@@ -110,7 +110,7 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    return new Response(JSON.stringify({ schema_version: 2, daemon: {} }), {
+    return new Response(JSON.stringify({ schema_version: 3, daemon: {} }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });

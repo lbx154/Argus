@@ -89,6 +89,9 @@ class EventType(StrEnum):
     LIFE_INBOX_QUEUED = "life.inbox.queued"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
+    DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
+    DAEMON_COMMAND_COMPLETED = "daemon.command.completed"
+    DAEMON_COMMAND_REJECTED = "daemon.command.rejected"
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
@@ -145,6 +148,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_INBOX_QUEUED,
     EventType.LIFE_DAEMON_IDLE_TIMEOUT,
     EventType.DAEMON_PARKED,
+    EventType.DAEMON_COMMAND_COMPLETED,
+    EventType.DAEMON_COMMAND_REJECTED,
     EventType.IDEA_SEARCH_STARTED,
     EventType.IDEA_SEARCH_COMPLETED,
     EventType.IDEA_SEARCH_SKIPPED,

@@ -280,6 +280,41 @@ def test_daemon_stop_delegates(ctx, monkeypatch) -> None:
     assert seen["life_dir"] == life.resolve() and seen["drain"] is True
 
 
+def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:
+    root, sid, _life = ctx
+    starts = []
+    stops = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda project_id, **kwargs: starts.append(project_id)
+        or {"rc": 0, "already_alive": False},
+    )
+    monkeypatch.setattr(
+        server,
+        "stop_project_daemon",
+        lambda project_id, **kwargs: stops.append(project_id) or {"rc": 0},
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    body = {"command_id": "cmd-start", "expected_revision": 0}
+    first = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
+    duplicate = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
+
+    assert starts == [sid]
+    assert first["command_status"] == duplicate["command_status"] == "applied"
+    assert first["command_revision"] == duplicate["command_revision"] == 3
+
+    stale = client.post(
+        f"/api/projects/{sid}/daemon/stop",
+        json={"command_id": "cmd-stop", "expected_revision": 0},
+    ).json()
+    assert stale["command_status"] == "rejected"
+    assert stale["rc"] == 3
+    assert "stale command revision" in stale["error"]
+    assert stops == []
+
+
 # ── retired Python-REPL parity commands ───────────────────────────────────
 
 def test_plan_preview_delegates_to_manager_planner(ctx, monkeypatch) -> None:

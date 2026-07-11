@@ -119,6 +119,7 @@ async function getBlob(path: string): Promise<Blob> {
 }
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
+const commandId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 let apiMetaPromise: Promise<ApiMeta> | undefined;
 
 export function compatibleApiMeta(): Promise<ApiMeta> {
@@ -186,8 +187,13 @@ export const api = {
     return getJson<{ projects: ProjectRow[] }>('/api/projects').then((r) => r.projects);
   },
   /** Create a brand-new daemon armed with an objective, and spawn it. */
-  createDaemon: (objective: string, name = '') =>
-    postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', { objective, name }),
+  createDaemon: (objective: string, name = '', expectedRevision?: number) =>
+    postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', {
+      objective,
+      name,
+      command_id: commandId(),
+      expected_revision: expectedRevision,
+    }),
   snapshot: async (sid: string) => {
     await compatibleApiMeta();
     const value = await getJson<unknown>(P(sid, '/snapshot?compact=true&events_limit=1'));
@@ -278,8 +284,15 @@ export const api = {
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
     postJson(P(sid, '/continuous'), { enabled, objective }),
-  startDaemon: (sid: string) => postJson(P(sid, '/daemon/start')),
-  stopDaemon: (sid: string, drain = false) => postJson(P(sid, '/daemon/stop'), { drain }),
+  startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
+    command_id: commandId(),
+    expected_revision: expectedRevision,
+  }),
+  stopDaemon: (sid: string, drain = false, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
+    drain,
+    command_id: commandId(),
+    expected_revision: expectedRevision,
+  }),
 };
 
 /** Open the live event stream for a project. Returns a close() fn. */

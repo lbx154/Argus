@@ -52,6 +52,7 @@ from ..core.event_catalog import EventType
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, read_session_meta
 from ..core.transcript import read_turns
+from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
@@ -97,6 +98,20 @@ _JOURNAL_TAIL_CACHE: dict[
     tuple[tuple[tuple[int, int, int] | None, tuple[int, int, int] | None], list[dict[str, Any]]],
 ] = {}
 _JOURNAL_TAIL_CACHE_LOCK = threading.Lock()
+
+
+def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
+    result = dict(receipt.result)
+    if receipt.status in {"failed", "rejected"}:
+        result.setdefault("rc", 3)
+        result.setdefault("error", receipt.error)
+    result.update({
+        "command_id": receipt.command_id,
+        "command_status": receipt.status,
+        "command_revision": receipt.revision,
+        "command": receipt.to_jsonable(),
+    })
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1256,7 +1271,11 @@ def create_app(
     class _MessageIn(BaseModel):
         text: str
 
-    class _CreateDaemonIn(BaseModel):
+    class _CommandIn(BaseModel):
+        command_id: str = ""
+        expected_revision: int | None = None
+
+    class _CreateDaemonIn(_CommandIn):
         objective: str = ""
         name: str = ""
         launch_cwd: str = ""
@@ -1264,11 +1283,11 @@ def create_app(
     class _LaunchCwdIn(BaseModel):
         launch_cwd: str
 
-    class _StopIn(BaseModel):
+    class _StopIn(_CommandIn):
         drain: bool = False
         force: bool = False
 
-    class _ReplaceDaemonIn(BaseModel):
+    class _ReplaceDaemonIn(_CommandIn):
         victim_sid: str
         resume_continuous: bool = False
 
@@ -1330,10 +1349,27 @@ def create_app(
         """Create a brand-new daemon (session). The objective is OPTIONAL — with
         none, the daemon is idle and the user just talks to the Manager (which
         writes its own objectives). Threadpool: fs writes + optional fork."""
-        return await run_in_threadpool(
-            create_daemon, body.objective, name=body.name,
-            launch_cwd=body.launch_cwd, global_root=global_root,
+        root = _global_root(global_root)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            root,
+            operation="create",
+            args={
+                "objective": body.objective,
+                "name": body.name,
+                "launch_cwd": body.launch_cwd,
+            },
+            command_id=body.command_id or None,
+            expected_revision=body.expected_revision,
+            issuer="webapi",
+            handler=lambda: create_daemon(
+                body.objective,
+                name=body.name,
+                launch_cwd=body.launch_cwd,
+                global_root=global_root,
+            ),
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/launch-cwd", dependencies=[Depends(_require_auth)])
     async def _set_launch_cwd(sid: str, body: _LaunchCwdIn) -> dict[str, bool]:
@@ -1543,38 +1579,81 @@ def create_app(
         )
 
     @app.post("/api/projects/{sid}/daemon/start", dependencies=[Depends(_require_auth)])
-    async def _daemon_start(sid: str) -> dict[str, Any]:
-        return _404_if_none(
-            await run_in_threadpool(
-                start_project_daemon,
+    async def _daemon_start(
+        sid: str,
+        body: _CommandIn | None = None,
+    ) -> dict[str, Any]:
+        command = body or _CommandIn()
+        life_dir = _resolve_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="start",
+            args={"resume_continuous": True},
+            command_id=command.command_id or None,
+            expected_revision=command.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                start_project_daemon(
+                    sid,
+                    global_root=global_root,
+                    resume_continuous=True,
+                ),
                 sid,
-                global_root=global_root,
-                resume_continuous=True,
             ),
-            sid,
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/stop", dependencies=[Depends(_require_auth)])
     async def _daemon_stop(sid: str, body: _StopIn | None = None) -> dict[str, Any]:
         b = body or _StopIn()
-        return _404_if_none(
-            await run_in_threadpool(
-                stop_project_daemon, sid, drain=b.drain, force=b.force, global_root=global_root
-            ), sid,
+        life_dir = _resolve_or_404(sid)
+        operation = "kill" if b.force else "drain" if b.drain else "stop"
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation=operation,
+            args={"drain": b.drain, "force": b.force},
+            command_id=b.command_id or None,
+            expected_revision=b.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                stop_project_daemon(
+                    sid,
+                    drain=b.drain,
+                    force=b.force,
+                    global_root=global_root,
+                ),
+                sid,
+            ),
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/replace", dependencies=[Depends(_require_auth)])
     async def _daemon_replace(sid: str, body: _ReplaceDaemonIn) -> dict[str, Any]:
-        return _404_if_none(
-            await run_in_threadpool(
-                replace_project_daemon,
+        life_dir = _resolve_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="replace",
+            args={
+                "victim_sid": body.victim_sid,
+                "resume_continuous": body.resume_continuous,
+            },
+            command_id=body.command_id or None,
+            expected_revision=body.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                replace_project_daemon(
+                    sid,
+                    body.victim_sid,
+                    global_root=global_root,
+                    resume_continuous=body.resume_continuous,
+                ),
                 sid,
-                body.victim_sid,
-                global_root=global_root,
-                resume_continuous=body.resume_continuous,
             ),
-            sid,
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])
     async def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:

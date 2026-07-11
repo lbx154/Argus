@@ -21,6 +21,7 @@ from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.transcript import first_operator_text
 from ..core.usage import UsageSummary, project_usage_summary
+from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
     read_continuous_state,
@@ -341,6 +342,12 @@ def build_snapshot(
         cost_control = None
         diagnostics.append(diagnostic("cost_control", exc))
 
+    try:
+        daemon_commands = daemon_command_snapshot(life_dir)
+    except Exception as exc:  # noqa: BLE001
+        daemon_commands = None
+        diagnostics.append(diagnostic("daemon_commands", exc))
+
     snapshot: dict[str, Any] = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "session": session,
@@ -353,6 +360,7 @@ def build_snapshot(
         "usage_summary": spend.to_jsonable(),
         "request_usage": request_usage,
         "cost_control": cost_control,
+        "daemon_commands": daemon_commands,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:

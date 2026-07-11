@@ -268,6 +268,39 @@
         "title": {"type": "string"},
         "reason": {"type": "string", "minLength": 1}
       }
+    },
+    "daemon.command.submitted": {
+      "version": 1,
+      "required": ["command_id", "operation", "revision"],
+      "properties": {
+        "command_id": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 0},
+        "expected_revision": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "daemon.command.completed": {
+      "version": 1,
+      "required": ["command_id", "operation", "status", "revision"],
+      "properties": {
+        "command_id": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["applied", "failed"]},
+        "revision": {"type": "integer", "minimum": 0},
+        "error": {"type": "string"},
+        "result": {"type": "object"}
+      }
+    },
+    "daemon.command.rejected": {
+      "version": 1,
+      "required": ["command_id", "operation", "status", "revision", "error"],
+      "properties": {
+        "command_id": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "const": "rejected"},
+        "revision": {"type": "integer", "minimum": 0},
+        "error": {"type": "string", "minLength": 1}
+      }
     }
   }
 }
