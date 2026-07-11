@@ -1,17 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import type { ProjectRow } from '../api';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { ago, uptime } from '../lib/format';
-import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
+import { filterProjects } from '../../../core/src/projects';
+import type { ThemeMode } from './TopBar';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faAnglesLeft, faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 
-/**
- * Left rail: wordmark + the project switcher. Each project shows a live daemon
- * dot, its objective, and uptime/last-active. Bottom holds the utility actions.
- */
+type Scope = 'local' | 'all';
+
 export function Sidebar({
   projects,
   activeId,
+  localCwd,
   onSelect,
   onOpenPanel,
   onNew,
@@ -20,9 +22,15 @@ export function Sidebar({
   error,
   onRetry,
   mobileOpen = false,
+  collapsed = false,
+  onToggleCollapse,
+  themeMode,
+  onCycleTheme,
+  expandedWidth = 256,
 }: {
   projects: ProjectRow[];
   activeId: string | null;
+  localCwd: string;
   onSelect: (id: string) => void;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onNew: () => void;
@@ -31,136 +39,156 @@ export function Sidebar({
   error?: string;
   onRetry?: () => void;
   mobileOpen?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse: () => void;
+  themeMode: ThemeMode;
+  onCycleTheme: () => void;
+  expandedWidth?: number;
 }) {
-  const [showAll, setShowAll] = useState(false);
+  const [scope, setScope] = useState<Scope>('local');
   const [query, setQuery] = useState('');
-  const primary = projects.filter(
-    (project) =>
-      project.daemon_alive ||
-      hasHumanProjectLabel(project) ||
-      Boolean(project.objective?.trim()) ||
-      project.id === activeId,
+  const slim = collapsed && !mobileOpen;
+  const normalizedLocalCwd = localCwd.trim();
+  const localProjects = useMemo(
+    () => normalizedLocalCwd
+      ? projects.filter((project) => project.launch_cwd?.trim() === normalizedLocalCwd)
+      : [],
+    [normalizedLocalCwd, projects],
   );
-  const hiddenCount = Math.max(0, projects.length - primary.length);
-  const searching = Boolean(query.trim());
-  const visible = searching ? filterProjects(projects, query) : showAll ? projects : primary;
+  const scoped = scope === 'local' ? localProjects : projects;
+  const visible = query.trim() ? filterProjects(scoped, query) : scoped;
+  const grouped = useMemo(() => {
+    if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
+    const groups = new Map<string, ProjectRow[]>();
+    visible.forEach((project) => {
+      const path = project.launch_cwd?.trim() || 'Unassigned';
+      const rows = groups.get(path) ?? [];
+      rows.push(project);
+      groups.set(path, rows);
+    });
+    return [...groups.entries()];
+  }, [normalizedLocalCwd, scope, visible]);
+
   return (
-    <aside className={`fixed inset-y-0 left-0 z-40 flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface transition-[transform,visibility] md:visible md:static md:z-auto md:translate-x-0 ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}>
-      <div className="flex items-center gap-2 border-b border-line px-4 py-3.5">
-        <Wordmark size={18} tag="console" />
-      </div>
-
-      <div className="flex items-center justify-between px-3 pt-3 pb-1">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">Sessions</span>
-        <button
-          onClick={onNew}
-          disabled={creating}
-          title="create a new session"
-          className="rounded border border-line px-2 py-0.5 text-[11px] font-medium text-ink-dim transition-colors hover:border-ink-faint hover:bg-panel hover:text-ink disabled:cursor-wait disabled:opacity-50"
-        >
-          {creating ? 'Creating…' : '+ New'}
-        </button>
-      </div>
-      {(projects.length > 4 || searching) && (
-        <div className="px-3 pb-2">
-          <label className="sr-only" htmlFor="daemon-search">Find a daemon</label>
-          <div className="flex items-center rounded border border-line bg-bg/40 px-2 focus-within:border-blue-deep">
-            <span aria-hidden="true" className="mr-1.5 text-[11px] text-ink-faint">/</span>
-            <input
-              id="daemon-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  setQuery('');
-                }
-              }}
-              placeholder="Find name, ID, objective…"
-              className="h-8 min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-faint"
-            />
-            {searching && (
-              <button
-                type="button"
-                aria-label="clear daemon search"
-                onClick={() => setQuery('')}
-                className="rounded px-1 text-sm text-ink-faint hover:bg-panel hover:text-ink"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      <div className="flex-1 overflow-y-auto scroll-thin px-2">
-        {loading && projects.length === 0 && (
-          <div className="px-2 py-3 text-xs text-ink-faint">loading…</div>
-        )}
-        {!loading && !error && projects.length === 0 && (
-          <div className="px-2 py-3 text-xs text-ink-faint">No sessions yet.</div>
-        )}
-        {error && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mb-2 w-full rounded-md border border-err/30 bg-err/5 px-2.5 py-2 text-left text-[11px] text-err"
-          >
-            Project refresh failed · retry
-          </button>
-        )}
-        {!loading && !error && searching && visible.length === 0 && (
-          <div className="px-2 py-3 text-xs text-ink-faint">
-            no daemons match “{query.trim()}”
-          </div>
-        )}
-        {visible.map((p) => {
-          const active = p.id === activeId;
-          return (
-            <button
-              key={p.id}
-              onClick={() => onSelect(p.id)}
-              aria-current={active ? 'page' : undefined}
-              title={`${p.label || p.id}${p.objective ? ` — ${p.objective}` : ''}`}
-              className={`group mb-0.5 w-full border-l-2 px-2.5 py-2 text-left transition-colors ${
-                active ? 'border-blue bg-panel' : 'border-transparent hover:bg-panel/60'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <StatusDot ok={p.daemon_alive} title={p.daemon_alive ? 'daemon alive' : 'stopped'} />
-                <span className={`truncate text-sm font-medium ${active ? 'text-ink' : 'text-ink-dim'}`}>
-                  {p.label || p.id}
-                </span>
-              </div>
-              <div className="mt-0.5 truncate pl-4 text-[11px] text-ink-faint">
-                {p.objective || 'no objective'}
-              </div>
-              <div className="mt-0.5 pl-4 text-[10px] text-ink-faint">
-                {p.daemon_alive ? `up ${uptime(p.uptime_seconds)}` : `active ${ago(p.last_active)}`}
-              </div>
+    <aside
+      data-state={slim ? 'collapsed' : 'expanded'}
+      style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
+      className={`fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r border-line/60 bg-panel transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
+        slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
+      } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
+    >
+      <div className={`flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
+        {slim ? (
+          <Wordmark size={22} compact />
+        ) : (
+          <>
+            <Wordmark size={24} />
+            <button type="button" onClick={onToggleCollapse} aria-label="Collapse sessions" title="Collapse sessions · Ctrl/⌘ B" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink">
+              <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
             </button>
-          );
-        })}
-        {!searching && hiddenCount > 0 && (
-          <button
-            onClick={() => setShowAll((value) => !value)}
-            className="mb-2 w-full rounded-md px-2.5 py-2 text-left text-[11px] text-ink-faint transition-colors hover:bg-panel/60 hover:text-ink-dim"
-          >
-            {showAll ? 'Hide unnamed sessions' : `Show ${hiddenCount} other sessions`}
-          </button>
+          </>
         )}
       </div>
-
-      <div className="flex items-center gap-1.5 border-t border-line px-3 py-2.5">
-        {(['doctor', 'config', 'identity'] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => onOpenPanel(p)}
-            className="rounded-md px-2 py-1 text-[11px] text-ink-faint transition-colors hover:bg-panel hover:text-ink-dim"
-          >
-            {p}
+      {slim ? (
+        <div className="flex h-12 shrink-0 items-center justify-center">
+          <button type="button" onClick={onToggleCollapse} aria-label="Expand sessions" title="Expand sessions · Ctrl/⌘ B" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink">
+            <FontAwesomeIcon icon={faAnglesRight} className="h-3.5 w-3.5" />
           </button>
-        ))}
-      </div>
+        </div>
+      ) : null}
+
+      {!slim ? (
+        <>
+          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line/50 px-3">
+            {(['local', 'all'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setScope(value)}
+                className={`h-8 rounded-md px-3 text-xs font-medium capitalize transition-colors ${
+                  scope === value ? 'bg-bg text-ink' : 'text-ink-faint hover:text-ink-dim'
+                }`}
+              >
+                {value}
+                <span className="ml-1.5 font-mono text-ink-faint">
+                  {value === 'local' ? localProjects.length : projects.length}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={onNew}
+              disabled={creating}
+              aria-label="Create session"
+              title="Create session"
+              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-lg text-blue hover:bg-bg disabled:opacity-40"
+            >
+              {creating ? '…' : '+'}
+            </button>
+          </div>
+
+          <div className="px-3 py-2">
+            <label className="sr-only" htmlFor="daemon-search">Find a session</label>
+            <div className="flex items-center rounded-md border border-line/60 bg-bg/60 px-2 focus-within:border-blue/60">
+              <span aria-hidden="true" className="mr-1.5 text-xs text-ink-faint">/</span>
+              <input
+                id="daemon-search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Find a session"
+                className="h-8 min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-faint"
+              />
+              {query ? (
+                <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="px-1 text-sm text-ink-faint hover:text-ink">×</button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
+            {loading && projects.length === 0 ? <div className="px-1 py-3 text-xs text-ink-faint">Loading…</div> : null}
+            {error ? (
+              <button type="button" onClick={onRetry} className="mb-2 w-full rounded-md bg-err/5 px-3 py-2 text-left text-xs text-err">
+                Refresh failed · retry
+              </button>
+            ) : null}
+            {!loading && !error && visible.length === 0 ? <div className="px-1 py-4 text-xs text-ink-faint">No sessions</div> : null}
+            {grouped.map(([path, rows]) => (
+              <section key={path} className="mb-4 last:mb-0">
+                <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
+                {rows.map((project) => {
+                  const active = project.id === activeId;
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => onSelect(project.id)}
+                      aria-current={active ? 'page' : undefined}
+                      title={`${project.label || project.id}${project.objective ? ` — ${project.objective}` : ''}`}
+                      className={`group relative mb-1 w-full rounded-md px-3 py-2.5 text-left transition-colors duration-150 ease-panel ${
+                        active ? 'bg-blue/10 text-ink' : 'text-ink-dim hover:bg-bg/70 hover:text-ink'
+                      }`}
+                    >
+                      <span aria-hidden="true" className={`absolute left-0 transition-colors ${active ? 'inset-y-1 w-px bg-blue' : 'inset-y-2 w-px bg-transparent group-hover:bg-ink-faint/30'}`} />
+                      <div className="flex min-w-0 items-center gap-2">
+                        <StatusDot ok={project.daemon_alive} title={project.daemon_alive ? 'daemon alive' : 'stopped'} />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.label || project.id}</span>
+                      </div>
+                      <div className="mt-1 truncate pl-4 text-xs text-ink-faint">
+                        {project.daemon_alive ? `running · ${uptime(project.uptime_seconds)}` : ago(project.last_active)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+
+          <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
+            <button type="button" onClick={() => onOpenPanel('config')} className="rounded-md px-2 py-1 text-xs text-ink-faint hover:bg-bg hover:text-ink">Runtime</button>
+            <button type="button" onClick={onCycleTheme} title={`Theme: ${themeMode}`} className="rounded-md px-2 py-1 text-xs text-ink-faint hover:bg-bg hover:text-ink">{themeMode}</button>
+          </div>
+        </>
+      ) : null}
     </aside>
   );
 }

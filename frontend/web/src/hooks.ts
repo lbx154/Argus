@@ -6,7 +6,7 @@ import { eventKey } from './lib/eventRender';
 /* ------------------------------------------------------------------ REST */
 
 export const useProjects = () =>
-  useQuery({ queryKey: ['projects'], queryFn: api.listProjects, refetchInterval: 5_000 });
+  useQuery({ queryKey: ['projects'], queryFn: api.projectIndex, refetchInterval: 5_000 });
 
 export const useSnapshot = (sid: string | null) =>
   useQuery({
@@ -49,7 +49,7 @@ export const useArtifacts = (sid: string | null, enabled = true) =>
     queryKey: ['artifacts', sid],
     queryFn: () => api.artifacts(sid!),
     enabled: !!sid && enabled,
-    refetchInterval: enabled ? 8_000 : false,
+    refetchInterval: enabled ? 3_000 : false,
   });
 
 export const useArtifact = (sid: string | null, path: string | null) =>
@@ -57,6 +57,7 @@ export const useArtifact = (sid: string | null, path: string | null) =>
     queryKey: ['artifact', sid, path],
     queryFn: () => api.artifact(sid!, path!),
     enabled: !!sid && !!path,
+    refetchInterval: sid && path ? 3_000 : false,
   });
 
 export const useBacklogItem = (sid: string | null, itemId: string | null) =>
@@ -82,6 +83,14 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
     note: useMutation({ mutationFn: (text: string) => api.note(sid!, text) }),
     startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
     stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
+    updateProject: useMutation({
+      mutationFn: (name: string) => api.updateProject(sid!, name),
+      onSuccess: invalidate,
+    }),
+    deleteProject: useMutation({
+      mutationFn: () => api.deleteProject(sid!),
+      onSuccess: invalidate,
+    }),
     disposeBacklog: useMutation({
       mutationFn: (a: { id: string; op: 'done' | 'skip' | 'rm' }) => api.disposeBacklog(sid!, a.id, a.op),
       onSuccess: invalidate,

@@ -1,4 +1,5 @@
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
+import type { ConfigKnob } from '../api';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint } from './primitives';
 import { effortColor } from '../lib/theme';
@@ -19,7 +20,7 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
             <div className="mt-1 text-sm text-ink">{data.recommended.name}</div>
             <div className="mt-0.5 text-xs text-ink-dim">{data.recommended.detail}</div>
             {data.recommended.fix && (
-              <pre className="mt-2 overflow-x-auto rounded bg-bg p-2 font-mono text-[11px] text-blue-sky">{data.recommended.fix}</pre>
+              <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-bg p-2 font-mono text-xs text-blue-sky">{data.recommended.fix}</pre>
             )}
           </div>
         )}
@@ -31,7 +32,7 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
                 <div className="text-xs font-medium text-ink">{c.name}</div>
                 {c.detail && <div className="mt-0.5 text-[11px] text-ink-dim">{c.detail}</div>}
                 {!c.ok && c.fix && (
-                  <pre className="mt-1 overflow-x-auto rounded bg-bg p-1.5 font-mono text-[10px] text-ink-dim">{c.fix}</pre>
+                  <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-bg p-1.5 font-mono text-xs text-ink-dim">{c.fix}</pre>
                 )}
               </div>
             </div>
@@ -40,7 +41,7 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
         {data?.log_tail && (
           <div className="mt-4">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">daemon.log</div>
-            <pre className="max-h-48 overflow-auto rounded-lg bg-bg p-3 font-mono text-[11px] leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
+            <pre className="max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
           </div>
         )}
       </div>
@@ -53,37 +54,57 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
  *  honestly as "set via env / restart to apply". */
 export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
   const { data, isLoading } = useConfig(sid, open);
-  const knobs = data ? Object.entries(data).filter(([k]) => k !== 'roles') : [];
+  const knobGroups = (data?.operator_knobs ?? []).reduce<Record<string, ConfigKnob[]>>(
+    (groups, knob) => {
+      (groups[knob.group] ??= []).push(knob);
+      return groups;
+    },
+    {},
+  );
   return (
-    <Modal open={open} onClose={onClose} label="Config" width="max-w-2xl">
-      <ModalHeader title="Config" sub="read-only · set via env vars and restart the daemon to apply" />
+    <Modal open={open} onClose={onClose} label="Runtime settings" width="max-w-4xl">
+      <ModalHeader title="Runtime settings" sub={data ? `resolved ${data.generated_at_utc}` : 'resolved role and operator settings'} />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           {(data?.roles ?? []).map((r) => (
             <div key={r.role} className="rounded-lg border border-line bg-surface p-3">
-              <div className="text-xs font-semibold capitalize text-ink">{r.role}</div>
-              <div className="mt-1 truncate text-[11px] text-ink-dim" title={r.model}>{r.model}</div>
-              <div className="mt-0.5 flex items-center gap-2 text-[10px] text-ink-faint">
-                <span>{r.backend_label}</span>
-                {r.effort && <span style={{ color: effortColor(r.effort) }}>· {r.effort}</span>}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold capitalize text-ink">{r.role}</div>
+                <span className="text-[10px] text-ink-faint">{r.backend_label}</span>
               </div>
+              <div className="mt-2 truncate font-mono text-[11px] text-ink-dim" title={r.model}>{r.model}</div>
+              <div className="mt-1 flex items-center gap-2 text-[10px] text-ink-faint">
+                <span className="truncate" title={r.model_source}>{r.model_source}</span>
+                {r.reasoning_effort && (
+                  <span className="ml-auto shrink-0" style={{ color: effortColor(r.reasoning_effort) }}>
+                    {r.reasoning_effort}
+                  </span>
+                )}
+              </div>
+              {r.description ? <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{r.description}</p> : null}
             </div>
           ))}
         </div>
-        {knobs.length > 0 && (
-          <div className="mt-4">
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">knobs</div>
-            <div className="rounded-lg border border-line">
-              {knobs.map(([k, v], i) => (
-                <div key={k} className={`flex items-center justify-between px-3 py-1.5 text-xs ${i ? 'border-t border-line/60' : ''}`}>
-                  <span className="font-mono text-ink-dim">{k}</span>
-                  <span className="font-mono tabular-nums text-ink">{String(v)}</span>
+        {Object.entries(knobGroups).map(([group, knobs]) => (
+          <section key={group} className="mt-5">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{group}</div>
+            <div className="overflow-hidden rounded-lg border border-line">
+              {knobs.map((knob, index) => (
+                <div key={knob.name} className={`grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${index ? 'border-t border-line/60' : ''}`}>
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-[11px] text-ink-dim" title={knob.name}>{knob.name}</div>
+                    <div className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">{knob.doc}</div>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <div className="font-mono text-[11px] text-ink">{knob.value}</div>
+                    <div className="mt-0.5 text-[9px] text-ink-faint">{knob.source}</div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          </section>
+        ))}
       </div>
     </Modal>
   );

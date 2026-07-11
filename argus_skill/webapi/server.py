@@ -37,6 +37,7 @@ import json
 import os
 import queue
 import shlex
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -50,7 +51,7 @@ from ..core.config_snapshot import build_config_snapshot
 from ..core.event_catalog import EventType
 from ..core.metrics import metrics_snapshot, record_metric, render_prometheus
 from ..core.provider_quota import provider_usage_snapshot
-from ..core.session import SessionMeta, read_session_meta
+from ..core.session import SessionMeta, read_session_meta, write_session_meta
 from ..core.transcript import read_turns
 from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
 from ..daemon.life_worker import (
@@ -92,6 +93,7 @@ __all__ = [
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
     "enqueue_task", "enqueue_nudge", "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
+    "update_project", "delete_project",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
     "get_identity", "get_transcript",
@@ -553,12 +555,17 @@ def create_daemon(
     now = _time.time()
     obj = (objective or "").strip()
     life_dir = root / "projects" / sid
+    effective_launch_cwd = (
+        str(Path(launch_cwd).expanduser().resolve())
+        if launch_cwd
+        else str(Path.cwd().resolve())
+    )
     write_session_meta(
         root,
         SessionMeta(
             id=sid, display_name=(name or "").strip(),
             created=now, last_active=now, cwd=str(life_dir), objective=obj,
-            launch_cwd=str(Path(launch_cwd).expanduser().resolve()) if launch_cwd else "",
+            launch_cwd=effective_launch_cwd,
         ),
     )
     life_dir.mkdir(parents=True, exist_ok=True)
@@ -621,6 +628,63 @@ def stop_project_daemon(
         return None
     rc = stop_daemon(life_dir, drain=drain, force=force)
     return {"rc": rc}
+
+
+def update_project(
+    sid: str, *, name: str, global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Update operator-owned session metadata without changing mission state."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    root = _global_root(global_root)
+    meta = read_session_meta(root, sid)
+    if meta is None:
+        now = time.time()
+        try:
+            objective = read_continuous_state(life_dir).objective
+        except Exception:  # noqa: BLE001 — legacy metadata repair is best-effort
+            objective = ""
+        meta = SessionMeta(
+            id=sid,
+            created=now,
+            last_active=now,
+            cwd=str(life_dir),
+            objective=objective,
+        )
+    meta.display_name = (name or "").strip()[:80]
+    write_session_meta(root, meta)
+    return {"ok": True, "sid": sid, "name": meta.display_name}
+
+
+def delete_project(
+    sid: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Reversibly remove a stopped session by moving it to projects_trash."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    status = read_daemon_status(life_dir)
+    if status.alive:
+        return {
+            "ok": False,
+            "sid": sid,
+            "error": "pause the daemon before deleting this session",
+        }
+
+    root = _global_root(global_root)
+    date = time.strftime("%Y%m%d", time.localtime())
+    dest_parent = root / "projects_trash" / date
+    dest_parent.mkdir(parents=True, exist_ok=True)
+    dest = dest_parent / sid
+    if dest.exists():
+        dest = dest_parent / f"{sid}.{int(time.time())}"
+    shutil.move(str(life_dir), str(dest))
+    return {
+        "ok": True,
+        "sid": sid,
+        "trash_path": str(dest.relative_to(root)),
+    }
 
 
 def set_continuous(
@@ -1110,6 +1174,9 @@ def create_app(
         name: str
         value: str
 
+    class _ProjectUpdateIn(BaseModel):
+        name: str
+
     class _IdentitySetIn(BaseModel):
         text: str
 
@@ -1158,7 +1225,8 @@ def create_app(
         return {
             "projects": list_projects(
                 global_root=global_root, limit=limit, include_empty=include_empty
-            )
+            ),
+            "local_cwd": str(Path.cwd().resolve()),
         }
 
     @app.post("/api/daemons", dependencies=[Depends(_require_auth)])
@@ -1196,6 +1264,32 @@ def create_app(
         if updated is None:
             raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
         return {"ok": True}
+
+    @app.patch("/api/projects/{sid}", dependencies=[Depends(_require_auth)])
+    async def _update_project(sid: str, body: _ProjectUpdateIn) -> dict[str, Any]:
+        return _404_if_none(
+            await run_in_threadpool(
+                update_project,
+                sid,
+                name=body.name,
+                global_root=global_root,
+            ),
+            sid,
+        )
+
+    @app.delete("/api/projects/{sid}", dependencies=[Depends(_require_auth)])
+    async def _delete_project(sid: str) -> dict[str, Any]:
+        result = _404_if_none(
+            await run_in_threadpool(
+                delete_project,
+                sid,
+                global_root=global_root,
+            ),
+            sid,
+        )
+        if not result.get("ok"):
+            raise HTTPException(status_code=409, detail=result.get("error", "project is busy"))
+        return result
 
     @app.get("/api/projects/{sid}/snapshot")
     def _snapshot(

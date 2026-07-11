@@ -50,6 +50,16 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     for _ in range(4):
         r = manager_bridge.manager_message("s-rot00001", "hi", global_root=tmp_path)
         assert r["kind"] == "chat"
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "projects" / "s-rot00001" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert [event["type"] for event in events if event["type"].startswith("ui.")] == [
+        event_type
+        for _ in range(4)
+        for event_type in ("ui.operator", "ui.argus")
+    ]
     assert all("SESSION HANDOFF" not in b for b in seen)
     st = manager_bridge._STATES["s-rot00001"]
     assert st["last_thread_id"] == "thread-xyz"

@@ -28,33 +28,12 @@ export const IDLE_LINES = [
   'Waiting, unhurried.',
 ];
 
-/** Cycled while the Manager turns a message over (before the first reply block). */
-export const THINKING_LINES = [
-  'turning it over',
-  'consulting a hundred eyes',
-  'reading the room',
-  'weighing it',
-  'thinking it through',
-  'cross-checking the evidence',
-  'running the numbers',
-  'sizing up the angles',
-  'following the thread',
-  'letting it settle',
-];
-
-/** A calm braille spinner (Claude-Code cadence) — no extra dependency. */
-export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-/** Pick from ``lines`` by an integer tick — deterministic, caller-driven. */
-export function rotateByTick(lines: string[], tick: number, every = 20): string {
-  if (lines.length === 0) return '';
-  return lines[Math.floor(tick / every) % lines.length];
-}
-
-/** The spinner frame for a given tick. */
-export function spinnerFrame(tick: number): string {
-  return SPINNER[tick % SPINNER.length];
-}
+export {
+  THINKING_LINES,
+  SPINNER,
+  rotateByTick,
+  spinnerFrame,
+} from '../../core/src/thinking.js';
 
 /** Pick from ``lines`` by wall-clock time — the twin of web's ``rotate``, for
  *  components (like the idle empty-state) that have no tick of their own and

@@ -22,6 +22,13 @@ describe('renderEvent', () => {
     expect(r!.tone).toBe('bright');
   });
 
+  it('renders operator and Manager conversation turns in Activity', () => {
+    const operator = renderEvent({ type: 'ui.operator', text: '继续实验' } as EventMsg);
+    const manager = renderEvent({ type: 'ui.argus', text: '已开始运行' } as EventMsg);
+    expect(operator).toMatchObject({ role: 'operator', label: 'You', text: '继续实验' });
+    expect(manager).toMatchObject({ role: 'manager', label: 'Argus', text: '已开始运行' });
+  });
+
   it('colours a review verdict by status', () => {
     expect(renderEvent({ type: 'round.review.completed', status: 'done', reason: 'ok' } as EventMsg)!.tone).toBe('ok');
     expect(renderEvent({ type: 'round.review.completed', status: 'blocked', reason: 'x' } as EventMsg)!.tone).toBe('err');
@@ -41,7 +48,7 @@ describe('renderEvent', () => {
     expect(stall!.tone).toBe('warn');
     const rbf = renderEvent({ type: 'round.reviewer_backend_failure', text: 'backend down' } as EventMsg);
     expect(rbf!.tone).toBe('err');
-    expect(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as EventMsg)!.tone).toBe('err');
+    expect(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as EventMsg)).toBeNull();
   });
 
   it('surfaces ANY operator_alert event loud, even an unknown type', () => {

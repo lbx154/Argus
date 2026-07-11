@@ -91,7 +91,7 @@ export function ArtifactModal({
         </button>
       </div>
 
-      <div className="flex min-h-64 max-h-[72vh] flex-col overflow-auto bg-bg/40 p-3 scroll-thin sm:p-4">
+      <div className="flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4">
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">preview unavailable · {(artifactQ.error as Error).message}</div>
@@ -102,7 +102,7 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'text' ? (
-          <pre className="min-h-52 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
+          <pre className="min-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… preview truncated · download to inspect the complete file' : ''}
           </pre>

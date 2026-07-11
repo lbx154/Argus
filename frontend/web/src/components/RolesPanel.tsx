@@ -34,7 +34,7 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
               <div className="flex items-center gap-1.5">
                 <span
                   className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: r.active ? hue : '#55564f' }}
+                  style={{ background: r.active ? hue : 'rgb(var(--ink-faint))' }}
                 />
                 <span
                   className="text-[11px] font-medium capitalize"

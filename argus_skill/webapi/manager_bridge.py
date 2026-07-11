@@ -27,6 +27,24 @@ _LOCKS: dict[str, threading.Lock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
+def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> None:
+    """Persist one operator/Manager turn onto the shared live Activity stream."""
+    try:
+        from ..life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=life_dir).append(
+            {
+                "type": f"ui.{role}",
+                "agent_layer": "manager" if role == "argus" else "operator",
+                "message_id": message_id,
+                "text": text,
+                "ts": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — Activity mirroring must never break chat
+        pass
+
+
 def _lock_for(sid: str) -> threading.Lock:
     with _REGISTRY_LOCK:
         lk = _LOCKS.get(sid)
@@ -180,6 +198,7 @@ def manager_message(
     lock = _lock_for(sid)
     with lock:
         chat_state = _chat_state_for(sid)
+        turn_id = f"web-{time.time_ns()}"
 
         # A web-process restart necessarily loses the live ACP process. Resume
         # seamlessly by opening one new warm conversation session with a
@@ -202,6 +221,7 @@ def manager_message(
             append_turn(life_dir, "operator", body)
         except Exception:  # noqa: BLE001
             pass
+        _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
         # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
         # protocol events while the model is reasoning, so without this real
@@ -269,6 +289,7 @@ def manager_message(
                     append_turn(life_dir, "argus", reply)
                 except Exception:  # noqa: BLE001
                     pass
+                _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
                 return {"kind": "chat", "reply": reply}
 
         # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
@@ -291,6 +312,7 @@ def manager_message(
                 append_turn(life_dir, "argus", reply)
             except Exception:  # noqa: BLE001
                 pass
+            _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
             return {"kind": "chat", "reply": reply}
 
         # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
@@ -302,9 +324,11 @@ def manager_message(
                 root_task_id=root_task_id,
             )
         except Exception as exc:  # noqa: BLE001
-            return {"kind": "error", "reply": f"could not enqueue: {exc}"}
+            error_reply = f"could not enqueue: {exc}"
+            _emit_ui_turn(life_dir, "argus", error_reply, message_id=f"{turn_id}-argus")
+            return {"kind": "error", "reply": error_reply}
 
-    return {
+    result = {
         "kind": "task",
         "reply": None,
         "item": _item_to_dict(item, body),
@@ -312,6 +336,9 @@ def manager_message(
         "daemon_pid": daemon_pid,
         "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
+    title = str(result["item"].get("title") or result["item"].get("objective") or body)
+    _emit_ui_turn(life_dir, "argus", f"Started · {title}", message_id=f"{turn_id}-argus")
+    return result
 
 
 def manager_plan(

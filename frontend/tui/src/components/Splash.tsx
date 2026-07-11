@@ -1,33 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
+import {
+  ARGUS_SPLASH_ACTIVE_FRAMES as ACTIVE_FRAMES,
+  ARGUS_SPLASH_COLORS as COLORS,
+  ARGUS_SPLASH_FADE_FRAMES as FADE_FRAMES,
+  ARGUS_SPLASH_FRAME_MS as FRAME_MS,
+  ARGUS_SPLASH_HOLD_MS as HOLD_MS,
+  splashLogoForWidth,
+} from '../../../core/src/splash.js';
 
-const LOGO_FULL = [
-  ' █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗',
-  '██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝      ██╔════╝██║ ██╔╝██║██║     ██║',
-  '███████║██████╔╝██║  ███╗██║   ██║███████╗█████╗███████╗█████╔╝ ██║██║     ██║',
-  '██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║╚════╝╚════██║██╔═██╗ ██║██║     ██║',
-  '██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║      ███████║██║  ██╗██║███████╗███████╗',
-  '╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝',
-] as const;
-
-const LOGO_COMPACT = [
-  '                              _   _ _ _',
-  ' __ _ _ _ __ _ _  _ ______ __| |_(_) | |',
-  "/ _` | '_/ _` | || (_-<___(_-< / / | | |",
-  '\\__,_|_| \\__, |\\_,_/__/   /__/_\\_\\_|_|_|',
-  '         |___/',
-] as const;
-
-const COLORS = ['#3b6fd4', '#4d86e0', '#5f9deb', '#72b4f0', '#89dceb', '#cba6f7', '#e6b450'];
-const ACTIVE_FRAMES = 17;
-const FADE_FRAMES = 5;
-const FRAME_MS = 80;
-const HOLD_MS = 120;
-const FULL_WIDTH = Math.max(...LOGO_FULL.map((line) => [...line].length));
-
-export function splashLogoForWidth(width: number): readonly string[] {
-  return width >= FULL_WIDTH ? LOGO_FULL : LOGO_COMPACT;
-}
+export { splashLogoForWidth } from '../../../core/src/splash.js';
 
 function AnimatedLine({
   line,

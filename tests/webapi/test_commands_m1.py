@@ -315,6 +315,83 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
     assert stops == []
 
 
+def test_project_update_renames_session(ctx) -> None:
+    root, sid, life = ctx
+    (life / "session.json").write_text(
+        json.dumps({"id": sid, "display_name": "old", "cwd": str(life)}),
+        encoding="utf-8",
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.patch(f"/api/projects/{sid}", json={"name": "Research console"})
+
+    assert r.status_code == 200
+    assert r.json()["name"] == "Research console"
+    assert json.loads((life / "session.json").read_text())["display_name"] == "Research console"
+
+
+def test_project_update_preserves_legacy_continuous_objective(ctx) -> None:
+    root, sid, life = ctx
+    (life / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "Keep studying"}),
+        encoding="utf-8",
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.patch(f"/api/projects/{sid}", json={"name": "Legacy research"})
+
+    assert r.status_code == 200
+    meta = json.loads((life / "session.json").read_text())
+    assert meta["display_name"] == "Legacy research"
+    assert meta["objective"] == "Keep studying"
+
+
+def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.delete(f"/api/projects/{sid}")
+
+    assert r.status_code == 200
+    assert not life.exists()
+    assert (root / r.json()["trash_path"]).is_dir()
+
+
+def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=True,
+            pid=123,
+            started_at_iso=None,
+            uptime_seconds=5.0,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.delete(f"/api/projects/{sid}")
+
+    assert r.status_code == 409
+    assert life.is_dir()
+    assert "pause" in r.json()["detail"]
+
+
 # ── retired Python-REPL parity commands ───────────────────────────────────
 
 def test_plan_preview_delegates_to_manager_planner(ctx, monkeypatch) -> None:
@@ -399,6 +476,10 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     ]:
         r = client.post(f"/api/projects/s-nope/{path}", json=body)
         assert r.status_code == 404, path
+    assert client.patch(
+        "/api/projects/s-nope", json={"name": "missing"}
+    ).status_code == 404
+    assert client.delete("/api/projects/s-nope").status_code == 404
 
 
 # ── auth (bearer token) ────────────────────────────────────────────────────
@@ -424,6 +505,14 @@ def test_bearer_auth_on_posts(ctx) -> None:
         f"/api/projects/{sid}/artifacts",
         headers={"Authorization": "Bearer secret123"},
     ).status_code == 200
+
+
+def test_project_management_requires_token(ctx) -> None:
+    root, sid, _ = ctx
+    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
+
+    assert client.patch(f"/api/projects/{sid}", json={"name": "x"}).status_code == 401
+    assert client.delete(f"/api/projects/{sid}").status_code == 401
 
 
 def test_ws_requires_token_when_configured(ctx) -> None:

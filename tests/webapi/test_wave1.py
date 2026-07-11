@@ -59,6 +59,23 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     assert meta.launch_cwd == str(launch.resolve())
 
 
+def test_web_context_defaults_launch_cwd_and_reports_it(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    launch = tmp_path / "web-workspace"
+    launch.mkdir()
+    monkeypatch.chdir(launch)
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    created = client.post("/api/daemons", json={}).json()
+    meta = read_session_meta(tmp_path, created["sid"])
+    index = client.get("/api/projects").json()
+
+    assert meta is not None
+    assert meta.launch_cwd == str(launch.resolve())
+    assert index["local_cwd"] == str(launch.resolve())
+
+
 def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:
     life = _make_project(tmp_path, sid="s-legacy1")
     assert server.set_project_launch_cwd(
