@@ -38,6 +38,7 @@ export function CostGauge({
   // request count so a low $ reads as "few requests", not "broken meter".
   const isCopilot = (backendLabel || '').toLowerCase().includes('copilot');
   const reqs = requestUsage?.copilot.premium_requests ?? 0;
+  const breachRetryMinutes = Math.ceil((costControl?.fence_breach_remaining_seconds ?? 0) / 60);
 
   return (
     <div
@@ -63,7 +64,7 @@ export function CostGauge({
         ) : null}
         {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
           <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? 'text-err' : 'text-ink-faint'}`}>
-            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls} · fence breaches {costControl.fence_breach_calls ?? 0}
+            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls} · fence breaches {costControl.fence_breach_calls ?? 0}{breachRetryMinutes > 0 ? ` · retry in ${breachRetryMinutes}m` : ''}
           </span>
         ) : null}
       </div>

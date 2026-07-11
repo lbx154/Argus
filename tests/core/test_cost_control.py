@@ -320,6 +320,8 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["fence_breach_calls"] == 1
     assert snapshot["fence_breaches"][0]["overrun_usd"] == pytest.approx(0.25)
+    assert 0 < snapshot["fence_breach_remaining_seconds"] <= 900
+    assert snapshot["fence_breach_next_recovery_at"] is not None
 
     blocked, reason = _reserve(tmp_path, project, "codex-after-breach")
     assert blocked is None
@@ -357,6 +359,10 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
     )
     assert recovered is not None and reason == ""
     recovered.release(reason="test")
+    assert cost_control_snapshot(
+        global_root=tmp_path,
+        now=time.time() + 901,
+    )["fence_breach_remaining_seconds"] == 0
 
     audit = [
         json.loads(line)

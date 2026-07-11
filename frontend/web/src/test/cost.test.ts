@@ -65,12 +65,14 @@ describe('CostGauge', () => {
           unresolved: [],
           fence_breach_calls: 1,
           fence_breaches: [],
+          fence_breach_remaining_seconds: 600,
           policy: 'block',
           fence_breach_policy: 'block',
         },
       }),
     );
     expect(markup).toContain('fence breaches 1');
+    expect(markup).toContain('retry in 10m');
     expect(markup).toContain('text-err');
   });
 });

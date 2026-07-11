@@ -260,6 +260,7 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
         unresolved: [],
         fence_breach_calls: 1,
         fence_breaches: [],
+        fence_breach_remaining_seconds: 600,
         policy: 'block',
         fence_breach_policy: 'block',
       },
@@ -270,6 +271,7 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
   assert.match(output, /in-flight 2/);
   assert.match(output, /unresolved 1/);
   assert.match(output, /fence breaches 1/);
+  assert.match(output, /retry in 10m/);
 });
 
 test('partial usage never renders as a zero-dollar cumulative cost', async () => {

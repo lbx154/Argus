@@ -735,6 +735,11 @@ def cost_control_snapshot(
         state["unresolved"] = unresolved
         state["breaches"] = breaches
         _write_state(root, state, timestamp)
+    cooldown = _fence_breach_cooldown_seconds()
+    recovery_times = [
+        float(row.get("created_at") or 0.0) + cooldown for row in breaches
+    ]
+    next_recovery = min(recovery_times) if recovery_times else None
     return {
         "day": state["day"],
         "active_reservations": len(reservations),
@@ -760,6 +765,11 @@ def cost_control_snapshot(
             for row in unresolved
         ],
         "fence_breach_calls": len(breaches),
+        "fence_breach_cooldown_seconds": cooldown,
+        "fence_breach_next_recovery_at": next_recovery,
+        "fence_breach_remaining_seconds": (
+            max(0.0, next_recovery - timestamp) if next_recovery is not None else 0.0
+        ),
         "fence_breaches": [
             {
                 key: row.get(key)

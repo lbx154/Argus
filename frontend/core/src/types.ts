@@ -102,6 +102,9 @@ export interface CostControlSnapshot {
   unresolved: Array<Record<string, unknown>>;
   fence_breach_calls?: number;
   fence_breaches?: Array<Record<string, unknown>>;
+  fence_breach_cooldown_seconds?: number;
+  fence_breach_next_recovery_at?: number | null;
+  fence_breach_remaining_seconds?: number;
   policy: 'block' | 'allow';
   fence_breach_policy?: 'block' | 'allow';
 }

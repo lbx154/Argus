@@ -37,7 +37,7 @@ from typing import Any
 from ...core.event_catalog import EventType
 from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
-from ...core.usage import UsageLedger, UsageRecord, project_usage_summary
+from ...core.usage import project_usage_summary
 from ..memory import BacklogItem
 from ._config import (
     LifeSupervisorConfig,
@@ -45,18 +45,24 @@ from ._config import (
     _MissionRunner,
     reserve_global_daily_budget,
 )
-from ._cost import _CostTrackingSink, copilot_usd_for_premium_requests
+from ._constants import (
+    PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,
+)
+from ._constants import (
+    PLANNER_SCOPE_FINAL_SUBMISSION as _PLANNER_SCOPE_FINAL_SUBMISSION,
+)
+from ._cost import copilot_usd_for_premium_requests
 from ._evolution import EvolutionMixin
 from ._helpers import (
     _entry_task_signature,
     _legacy_final_submission_marker,
-    _normalize_planner_text,
     _operator_only_external_blocker_wait_reason_for_project,
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
 from ._lifecycle import LifecycleMixin
+from ._mission_execution import MissionExecutionMixin
 from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
 
@@ -87,9 +93,6 @@ _PLANNER_RECENT_HISTORY_WINDOW = 20
 # Compatibility export retained for callers/tests that classify journal failures.
 _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
-_PLANNER_SCOPE_BOUNDED = "bounded"
-_PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
-
 # Plan-cycle outcome sentinels returned by ``_plan_next_work`` and consumed
 # by ``run()``. Kept as a small named set (not bare string literals scattered
 # across call sites) so the control flow stays auditable.
@@ -170,6 +173,7 @@ _FULL_PAPER_GATE_DESCRIPTION = (
 
 class LifeSupervisor(
     EvolutionMixin,
+    MissionExecutionMixin,
     LifecycleMixin,
     PlannerOrchestrationMixin,
     PlannerRenderingMixin,
@@ -823,396 +827,6 @@ class LifeSupervisor(
         global per-mission cap). Delegates to ``LifeBudget`` so the preflight
         ``can_start`` check and the mid-mission breaker use one number (F3)."""
         return self.config.budget.effective_per_mission_cap(item)
-
-    def _run_one(self, item: BacklogItem) -> dict[str, Any]:
-        prelude = self.memory.render_prelude()
-        item_metadata = self._render_backlog_item_metadata(item)
-        if item_metadata:
-            prelude = item_metadata + "\n---\n\n" + prelude if prelude else item_metadata
-        rt = self.config.runtime_context
-        if rt:
-            prelude = rt + "\n---\n\n" + prelude if prelude else rt
-        # Atomic claim: flip pending → running in one rewrite. If the
-        # head moved between the budget peek and now (concurrent writer
-        # or user `/rm`), bail; the next tick will re-evaluate.
-        claimed = self.memory.backlog.claim_next()
-        if claimed is None or claimed.id != item.id:
-            if claimed is not None:
-                # Roll back so the next tick sees it again. running →
-                # pending is a legal transition (only terminal states
-                # are sealed).
-                try:
-                    self.memory.backlog.update(claimed.id, status="pending")
-                except Exception:  # noqa: BLE001
-                    log.exception("life supervisor: claim rollback failed")
-            return {"status": "claim_lost", "item_id": item.id}
-        item = claimed
-        self._missions_started += 1
-
-        self._emit({
-            "type": EventType.LIFE_MISSION_STARTED,
-            "item_id": item.id,
-            "title": item.title,
-            # Carry the objective on the event itself (not just the journal
-            # entry) so the live follow / REPL mission-context line renders the
-            # real goal instead of "objective=-".
-            "objective": item.objective,
-            "missions_started": self._missions_started,
-        })
-        # Phase-change callback.
-        def _phase_cb(layer: str, info: dict[str, Any]) -> None:
-            try:
-                self._emit({
-                    "type": EventType.LIFE_PHASE_STARTED,
-                    "item_id": item.id,
-                    "agent_layer": layer,
-                    "round_index": info.get("round_index", 0),
-                })
-            except Exception:  # noqa: BLE001
-                log.debug("phase_change event failed; non-critical")
-
-        usage_root = Path(
-            getattr(self.memory, "project_root", None)
-            or getattr(self.memory, "root", None)
-            or self._artifact_root()
-        )
-        usage_ledger = (
-            UsageLedger(usage_root)
-            if hasattr(self.runner, "_set_usage_context")
-            else None
-        )
-        cost_sink = _CostTrackingSink(
-            self.sink,
-            engineer_model=self.engineer_model,
-            reviewer_model=self.reviewer_model,
-            on_phase_change=_phase_cb,
-            usage_ledger=usage_ledger,
-            mission_id=item.id,
-        )
-
-        telemetry_monitor: Any = None
-        if self.config.telemetry_dir is not None:
-            try:
-                from ..telemetry import MissionTelemetryMonitor
-                telemetry_monitor = MissionTelemetryMonitor(
-                    life_dir=self.config.telemetry_dir,
-                    workdir=self._project_workdir(),
-                    item_id=item.id,
-                    title=item.title,
-                    interval_seconds=self.config.telemetry_interval_seconds,
-                    stop_event=self.config.stop_event,
-                )
-                telemetry_monitor.start()
-            except Exception:  # noqa: BLE001
-                log.exception("life supervisor: failed to start telemetry monitor")
-
-        outcome: Any = None
-        exc_str: str | None = None
-        t0 = time.time()
-        # Per-item codex SESSION ISOLATION (anti context-pollution). The runner
-        # chains its codex thread across execute() calls; left unchecked, a brand
-        # new, unrelated backlog item RESUMES the previous mission's session and
-        # inherits all its context (a plain "你上一个任务干了什么" was resuming a
-        # kernel-optimization session and reading its GROUND_TRUTH). A NEW item
-        # must start a FRESH session; only iteration cycles of the SAME item keep
-        # the thread for continuity. Curated cross-mission memory still flows via
-        # the checkpoint/prelude — this only resets the raw thread bleed.
-        if getattr(self, "_last_mission_item_id", None) != item.id:
-            for _attr in ("_next_seed_thread_id", "last_thread_id"):
-                try:
-                    if hasattr(self.runner, _attr):
-                        setattr(self.runner, _attr, None)
-                except Exception:  # noqa: BLE001
-                    pass
-        self._last_mission_item_id = item.id
-        try:
-            execute_kwargs: dict[str, Any] = {
-                "objective": item.objective,
-                "sink": cost_sink,
-                "prelude_context": prelude,
-                "scope": self._planner_scope_from_item(item),
-            }
-            original_objective = (
-                getattr(item, "original_objective", "") or item.objective
-            )
-            # F3: a LIVE per-mission budget probe — the engine reads cost_sink each
-            # round and hard-stops if the effective cap is reached mid-mission.
-            from ._config import MissionBudget
-            mission_budget = MissionBudget(
-                cap_usd=self._effective_per_mission_cap(item),
-                spent=cost_sink.total_usd,
-            )
-            try:
-                from inspect import Parameter, signature
-
-                params = signature(self.runner.execute).parameters
-                _accepts_kw = any(
-                    p.kind == Parameter.VAR_KEYWORD for p in params.values()
-                )
-                if "original_objective" in params or _accepts_kw:
-                    execute_kwargs["original_objective"] = original_objective
-                if "per_mission_budget" in params or _accepts_kw:
-                    execute_kwargs["per_mission_budget"] = mission_budget
-                if "preplanned" in params or _accepts_kw:
-                    execute_kwargs["preplanned"] = any(
-                        str(tag).strip().lower() == "planner"
-                        for tag in getattr(item, "tags", [])
-                    )
-                if "mission_id" in params or _accepts_kw:
-                    execute_kwargs["mission_id"] = item.id
-            except (TypeError, ValueError):
-                execute_kwargs["original_objective"] = original_objective
-                execute_kwargs["per_mission_budget"] = mission_budget
-                execute_kwargs["mission_id"] = item.id
-            outcome = self.runner.execute(**execute_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            exc_str = f"{type(exc).__name__}: {exc}"
-            log.exception("life supervisor: mission raised")
-        finally:
-            if telemetry_monitor is not None:
-                try:
-                    telemetry_monitor.stop()
-                except Exception:  # noqa: BLE001
-                    log.exception("life supervisor: failed to stop telemetry monitor")
-        elapsed = time.time() - t0
-
-        success = bool(getattr(outcome, "success", False)) if outcome else False
-        status = str(getattr(outcome, "status", "error") if outcome else "error")
-        rounds = int(getattr(outcome, "rounds", 0) or 0)
-        stop_reason = str(getattr(outcome, "stop_reason", "") or "")
-        self._evolve_runtime_skills_after_mission(
-            success=success,
-            item_id=item.id,
-            mission_budget=mission_budget,
-        )
-        usage_summary = cost_sink.usage_summary()
-        usd = usage_summary.cost_usd
-        known_usd = usage_summary.known_cost_usd
-        if usage_ledger is None:
-            # Deterministic/memory runners used by tests do not own real
-            # ``run_exec`` calls. Persist their aggregate once so subsequent
-            # budget checks still exercise the same ledger-only read path.
-            UsageLedger(usage_root, migrate_legacy=False).append(
-                UsageRecord(
-                    call_id=f"memory-mission:{item.id}:{int(t0 * 1_000_000)}",
-                    project_id=usage_root.name,
-                    mission_id=item.id,
-                    provider="memory",
-                    model="",
-                    run_label="memory.mission.aggregate",
-                    started_at=t0,
-                    completed_at=time.time(),
-                    status="completed",
-                    input_tokens=usage_summary.input_tokens,
-                    cached_input_tokens=usage_summary.cached_input_tokens,
-                    output_tokens=usage_summary.output_tokens,
-                    reasoning_output_tokens=(
-                        usage_summary.reasoning_output_tokens
-                    ),
-                    premium_requests=usage_summary.premium_requests,
-                    pricing_status="priced",
-                    pricing_tier="memory_aggregate",
-                    cost_usd=known_usd,
-                    cost_basis="legacy_aggregate",
-                    source="legacy.events",
-                )
-            )
-
-        # Auth failure: the codex backend detected an expired/invalid
-        # token. Stop this drain pass so we do not immediately continue
-        # with stale credentials, but do not signal the daemon's global
-        # stop_event. A 7x24 worker should stay alive so it can recover
-        # after credentials are refreshed, and transient provider errors
-        # should not kill the supervising process.
-        auth_failure = bool(getattr(outcome, "auth_failure", False))
-        if auth_failure:
-            self._emit({
-                "type": "life.auth_failure",
-                "item_id": item.id,
-                "text": (
-                    "⚠️  codex authentication failed — run `codex login` "
-                    "to refresh credentials if this persists; the daemon "
-                    "will keep polling."
-                ),
-            })
-
-        # The post-mission critic/polish iteration loop was removed (the L1
-        # engineer works, the L2 reviewer verifies — no separate critic agent).
-        # The ``iteration`` journal/event keys below are kept EMPTY only for
-        # schema back-compat. / 事后 critic/迭代循环已移除；下方 journal/event 的
-        # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
-
-        # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
-        # Roll the item back to PENDING (next tick re-runs from its checkpoint).
-        # Anti-cheat: a budget-stopped mission is NEVER marked done/success —
-        # the reviewer stays the sole done-ness authority.
-        if status == "budget_exhausted":
-            cap = self._effective_per_mission_cap(item)
-            self.memory.backlog.update(item.id, status="pending")
-            self._emit({
-                "type": EventType.LIFE_MISSION_COMPLETED,
-                "item_id": item.id,
-                "success": False,
-                "status": "budget_pause",
-                "cost_usd": usd,
-                "known_cost_usd": known_usd,
-                "pricing_status": usage_summary.pricing_status,
-                "cap_usd": cap,
-                "spent_usd": known_usd,
-            })
-            return {
-                "status": "budget_pause",
-                "item_id": item.id,
-                "cost_usd": usd,
-                "known_cost_usd": known_usd,
-                "pricing_status": usage_summary.pricing_status,
-            }
-
-        # Update backlog row.
-        if success:
-            self.memory.backlog.mark_done(item.id)
-        else:
-            err = exc_str or stop_reason or "unspecified failure"
-            self.memory.backlog.mark_failed(item.id, error=err)
-
-        # A "blocked" verdict means the REVIEWER stopped progress because it
-        # needs the OPERATOR to make a call — not a bug/crash. Persist the
-        # question onto the (now-terminal) item so it outlives this one event:
-        # /status can list every currently-unanswered question across ALL
-        # projects/restarts, not just whatever the REPL happened to be tailing
-        # live when it was asked (see manager/repl.py's old chat_state-only
-        # ``blocked_question``, which was lost the moment that process exited).
-        # Writing a non-status field onto an already-terminal item is legal —
-        # Backlog.update()'s IllegalStateTransition seal only guards STATUS
-        # transitions, not other fields.
-        if status == "blocked":
-            operator_question = str(
-                getattr(outcome, "operator_question", "") or ""
-            ).strip()
-            if operator_question:
-                try:
-                    self.memory.backlog.update(
-                        item.id, pending_question=operator_question,
-                    )
-                except Exception:  # noqa: BLE001
-                    log.exception(
-                        "life supervisor: failed to persist pending_question"
-                    )
-
-        kind = "mission_complete" if success else "mission_failed"
-        final_submission_certified = bool(
-            kind == "mission_complete"
-            and self._planner_scope_from_item(item) == _PLANNER_SCOPE_FINAL_SUBMISSION
-            and getattr(outcome, "final_submission_certified", False)
-        )
-        planner_report = (
-            getattr(outcome, "planner_report", {})
-            if isinstance(getattr(outcome, "planner_report", {}), dict)
-            else {}
-        )
-        checklist_feedback = (
-            getattr(outcome, "checklist_feedback", {})
-            if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
-            else {}
-        )
-        step_back = (
-            getattr(outcome, "step_back", None)
-            if isinstance(getattr(outcome, "step_back", None), dict)
-            else None
-        )
-        completion_summary = self._completion_evidence_from_outcome(outcome)
-        if final_submission_certified:
-            self._persist_final_submission_certification(title=item.title)
-
-        self._update_no_progress_streak(
-            kind=kind, report=getattr(outcome, "planner_report", {})
-        )
-
-        scientist_totals = cost_sink.scientist_totals()
-        scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
-        self._emit({
-            "type": EventType.LIFE_MISSION_COMPLETED,
-            "item_id": item.id,
-            "title": item.title,
-            "objective": item.objective,
-            "success": success,
-            "status": status,
-            "rounds": rounds,
-            "elapsed_seconds": elapsed,
-            "cost_usd": usd,
-            "known_cost_usd": known_usd,
-            "pricing_status": usage_summary.pricing_status,
-            "usage_record_count": usage_summary.call_count,
-            "partial_usage_records": usage_summary.partial_calls,
-            "unpriced_usage_records": usage_summary.unpriced_calls,
-            "planner_task_signature": {
-                "title": _normalize_planner_text(item.title),
-                "objective": _normalize_planner_text(item.objective),
-            }
-            if kind == "mission_failed"
-            else {},
-            "terminal_status": status if kind == "mission_failed" else "",
-            "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
-            "failure_reason": err if kind == "mission_failed" else "",
-            "agent_layer": "engineer",
-            "engineer_model": self.engineer_model,
-            "reviewer_model": self.reviewer_model,
-            "scientist_cost_usd": cost_sink.scientist_usd(),
-            "engineer_cost_usd": cost_sink.engineer_usd(),
-            "reviewer_cost_usd": cost_sink.reviewer_usd(),
-            # util (manager/classify) + copilot premium-request cost were folded
-            # into total_usd() but never surfaced in the breakdown — emit them so
-            # the cost is fully auditable. copilot_premium_requests is the raw
-            # count (GitHub bills per premium request, flat $/req — NOT per token,
-            # so a copilot mission's whole dollar cost is this count * rate).
-            "util_cost_usd": cost_sink.util_usd(),
-            "copilot_cost_usd": cost_sink.copilot_usd(),
-            "copilot_premium_requests": cost_sink.copilot_premium_request_total(),
-            "scientist_input_tokens": scientist_totals[0],
-            "scientist_cached_input_tokens": scientist_totals[1],
-            "scientist_output_tokens": scientist_totals[2],
-            "scientist_reasoning_output_tokens": scientist_totals[3],
-            "scientist_usage_by_model": {
-                model: {
-                    "input_tokens": values[0],
-                    "cached_input_tokens": values[1],
-                    "output_tokens": values[2],
-                    "reasoning_output_tokens": values[3],
-                }
-                for model, values in scientist_usage_by_model.items()
-            },
-            "input_tokens": cost_sink.total_input_tokens(),
-            "cached_input_tokens": cost_sink.total_cached_input_tokens(),
-            "cache_write_tokens": cost_sink.total_cache_write_tokens(),
-            "output_tokens": cost_sink.total_output_tokens(),
-            "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
-            "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
-            "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
-            "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
-            "completion_summary": completion_summary,
-            "planner_report": planner_report,
-            "checklist_feedback": checklist_feedback,
-            "step_back": step_back,
-            "final_submission_certified": final_submission_certified,
-            "iteration": None,
-        })
-
-        return {
-            "item_id": item.id,
-            "title": item.title,
-            "success": success,
-            "status": status,
-            "rounds": rounds,
-            "cost_usd": usd,
-            "known_cost_usd": known_usd,
-            "pricing_status": usage_summary.pricing_status,
-            "iteration": None,
-            "auth_failure": auth_failure,
-        }
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
         """Pull all pending operator nudges from the configured inbox.

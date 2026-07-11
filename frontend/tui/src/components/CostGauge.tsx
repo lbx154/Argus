@@ -41,6 +41,7 @@ export function CostGauge({
   const color = frac < 0.6 ? theme.success : frac < 0.85 ? theme.warning : theme.error;
   const codex = requestUsage?.codex;
   const copilot = requestUsage?.copilot;
+  const breachRetryMinutes = Math.ceil((costControl?.fence_breach_remaining_seconds ?? 0) / 60);
   return (
     <Box flexDirection="column">
       {(total > 0 || incomplete || dailyCap) ? (
@@ -69,7 +70,7 @@ export function CostGauge({
       ) : null}
       {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
         <Text color={costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0 && (costControl.fence_breach_calls ?? 0) === 0}>
-          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls} · fence breaches ${costControl.fence_breach_calls ?? 0}`}
+          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls} · fence breaches ${costControl.fence_breach_calls ?? 0}${breachRetryMinutes > 0 ? ` · retry in ${breachRetryMinutes}m` : ''}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (
