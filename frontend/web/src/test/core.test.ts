@@ -16,10 +16,23 @@ import {
 } from '../../../core/src';
 import { formatBytes } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
+import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
+
+const typedUsageEvent: UsageRecordedEvent = {
+  type: 'usage.recorded',
+  payload_schema_version: 2,
+  call_id: 'call-1',
+  schema_version: 2,
+  provider: 'codex',
+  status: 'completed',
+  usage: {},
+  pricing: {},
+};
 
 describe('shared frontend core', () => {
   it('uses the canonical event catalog and explicit legacy aliases', () => {
     expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
+    expect(typedUsageEvent.payload_schema_version).toBe(2);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
   });

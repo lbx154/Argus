@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "events": {
+    "agent.io.start": {
+      "version": 1,
+      "required": ["call_id", "run_label"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "backend": {"type": "string"},
+        "model": {"type": ["string", "null"]},
+        "working_dir": {"type": ["string", "null"]},
+        "resume_thread_id": {"type": ["string", "null"]}
+      }
+    },
+    "agent.io.stream": {
+      "version": 1,
+      "required": ["call_id", "stream", "line"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "run_label": {"type": ["string", "null"]},
+        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
+        "line": {"type": "string"}
+      }
+    },
+    "agent.io.complete": {
+      "version": 1,
+      "required": ["call_id", "run_label"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "backend": {"type": "string"},
+        "model": {"type": ["string", "null"]},
+        "exit_code": {"type": ["integer", "null"]},
+        "thread_id": {"type": ["string", "null"]},
+        "fatal_error": {"type": ["string", "null"]},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "cache_write_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "premium_requests": {"type": "number", "minimum": 0},
+        "total_nano_aiu": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "agent.io.error": {
+      "version": 1,
+      "required": ["call_id", "error"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "backend": {"type": "string"},
+        "error": {"type": "string", "minLength": 1}
+      }
+    },
+    "usage.recorded": {
+      "version": 2,
+      "required": ["call_id", "schema_version", "provider", "status", "usage", "pricing"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "schema_version": {"type": "integer", "const": 2},
+        "project_id": {"type": "string"},
+        "mission_id": {"type": ["string", "null"]},
+        "thread_id": {"type": ["string", "null"]},
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string"},
+        "run_label": {"type": "string"},
+        "status": {"type": "string", "enum": ["completed", "error", "denied"]},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "usage": {"type": "object"},
+        "pricing": {"type": "object"}
+      }
+    },
+    "provider.request.started": {
+      "version": 1,
+      "required": ["provider", "run_label"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "call_id": {"type": "string"},
+        "daily_calls": {"type": "integer", "minimum": 0},
+        "daily_cap": {"type": "integer", "minimum": 0}
+      }
+    },
+    "provider.request.completed": {
+      "version": 1,
+      "required": ["provider", "run_label"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "call_id": {"type": "string"},
+        "success": {"type": "boolean"},
+        "error": {"type": "string"},
+        "premium_requests": {"type": "number", "minimum": 0}
+      }
+    },
+    "provider.request.denied": {
+      "version": 1,
+      "required": ["provider", "run_label"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "run_label": {"type": "string"},
+        "call_id": {"type": "string"},
+        "reason": {"type": "string"}
+      }
+    },
+    "budget.reservation.created": {
+      "version": 1,
+      "required": ["reservation_id", "call_id", "amount_usd"],
+      "properties": {
+        "reservation_id": {"type": "string", "minLength": 1},
+        "call_id": {"type": "string", "minLength": 1},
+        "amount_usd": {"type": "number", "minimum": 0},
+        "provider": {"type": "string"},
+        "model": {"type": "string"},
+        "run_label": {"type": "string"}
+      }
+    },
+    "budget.reservation.denied": {
+      "version": 1,
+      "required": ["call_id", "reason"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "provider": {"type": "string"},
+        "model": {"type": "string"},
+        "run_label": {"type": "string"}
+      }
+    },
+    "budget.reservation.settled": {
+      "version": 1,
+      "required": ["reservation_id", "call_id", "pricing_status"],
+      "properties": {
+        "reservation_id": {"type": "string", "minLength": 1},
+        "call_id": {"type": "string", "minLength": 1},
+        "amount_usd": {"type": "number", "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "overrun_usd": {"type": ["number", "null"], "minimum": 0},
+        "pricing_status": {"type": "string"}
+      }
+    },
+    "budget.reservation.released": {
+      "version": 1,
+      "required": ["reservation_id", "call_id"],
+      "properties": {
+        "reservation_id": {"type": "string", "minLength": 1},
+        "call_id": {"type": "string", "minLength": 1},
+        "amount_usd": {"type": "number", "minimum": 0},
+        "reason": {"type": "string"}
+      }
+    },
+    "budget.unpriced.blocked": {
+      "version": 1,
+      "required": ["call_id", "reason"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "provider": {"type": "string"},
+        "model": {"type": "string"},
+        "run_label": {"type": "string"}
+      }
+    },
+    "life.mission.started": {
+      "version": 1,
+      "required": ["item_id"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "objective": {"type": "string"},
+        "missions_started": {"type": "integer", "minimum": 0}
+      }
+    },
+    "life.mission.completed": {
+      "version": 1,
+      "required": ["item_id", "status"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "success": {"type": "boolean"},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "known_cost_usd": {"type": "number", "minimum": 0},
+        "pricing_status": {"type": "string"}
+      }
+    },
+    "round.start": {
+      "version": 1,
+      "required": ["round_index"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "round_max": {"type": "integer", "minimum": 0},
+        "session_id": {"type": ["string", "null"]}
+      }
+    },
+    "round.main.completed": {
+      "version": 1,
+      "required": ["round_index"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "exit_code": {"type": "integer"},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "round.review.started": {
+      "version": 1,
+      "required": ["round_index"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "status": {"type": "string"}
+      }
+    },
+    "round.review.completed": {
+      "version": 1,
+      "required": ["status", "reason"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "enum": ["done", "continue", "blocked"]},
+        "reason": {"type": "string"},
+        "next_action": {"type": "string"},
+        "scope": {"type": "string"},
+        "checklist": {"type": "array", "items": {"type": "object"}},
+        "planner_report": {"type": "object"},
+        "checkpoint": {"type": "object"}
+      }
+    },
+    "life.planner.start": {
+      "version": 1,
+      "required": [],
+      "properties": {
+        "manager_intent": {"type": "object"},
+        "cycle": {"type": "integer", "minimum": 0}
+      }
+    },
+    "life.planner.verdict": {
+      "version": 1,
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "string"},
+        "reason": {"type": "string"},
+        "tasks_added": {"type": "integer", "minimum": 0}
+      }
+    },
+    "life.planner.error": {
+      "version": 1,
+      "required": ["error"],
+      "properties": {
+        "error": {"type": "string", "minLength": 1},
+        "reason": {"type": "string"}
+      }
+    },
+    "life.planner.task_added": {
+      "version": 1,
+      "required": ["item_id"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "objective": {"type": "string"}
+      }
+    },
+    "life.planner.task_skipped": {
+      "version": 1,
+      "required": ["reason"],
+      "properties": {
+        "item_id": {"type": "string"},
+        "title": {"type": "string"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

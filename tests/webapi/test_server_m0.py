@@ -312,7 +312,7 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.2"
+    assert r.headers["x-argus-protocol"] == "argus.webapi/1.3"
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
     assert authenticated.json()["runtime"]["source_root"] != "<redacted>"
