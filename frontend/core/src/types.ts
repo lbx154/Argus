@@ -80,6 +80,17 @@ export interface RequestUsage {
   copilot: ProviderRequestUsage;
 }
 
+export interface DaemonAdmission {
+  admission_required: boolean;
+  requested_at: number;
+  target_sid: string;
+  resume_continuous: boolean;
+  limit: number;
+  active_count: number;
+  error: string;
+  running_daemons: ProjectRow[];
+}
+
 export interface Snapshot {
   session: {
     id: string;
@@ -94,6 +105,7 @@ export interface Snapshot {
   recent_events: EventMsg[];
   spend_usd?: number;
   request_usage?: RequestUsage;
+  daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;
   /** Present on compact UI snapshots. */

@@ -84,7 +84,7 @@ export interface AppProps {
 }
 
 function replacementState(
-  start: DaemonStartResult | undefined,
+  start: Partial<DaemonStartResult> | undefined,
   targetProject: string,
   resumeContinuous: boolean,
 ): DaemonReplacementState | null {
@@ -149,6 +149,7 @@ export function App({
   const wsRef = useRef<WebSocket | null>(null);
   const aliveRef = useRef(true);
   const creatingProjectRef = useRef(false);
+  const dismissedAdmissionRef = useRef(0);
   const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
   const managerEpochRef = useRef(0);
   const pasteActiveRef = useRef(false);
@@ -186,6 +187,7 @@ export function App({
     projectRef.current = id;
     setProject(id);
     setReplacement(null);
+    dismissedAdmissionRef.current = 0;
     return true;
   };
 
@@ -195,8 +197,27 @@ export function App({
     resumeContinuous: boolean,
   ) => {
     const next = replacementState(start, targetProject, resumeContinuous);
-    if (next) setReplacement(next);
+    if (next) {
+      dismissedAdmissionRef.current = 0;
+      setReplacement(next);
+    }
   };
+
+  useEffect(() => {
+    const admission = snap?.daemon_admission;
+    if (
+      replacement ||
+      !admission ||
+      admission.requested_at <= dismissedAdmissionRef.current
+    ) return;
+    setReplacement(
+      replacementState(
+        admission,
+        admission.target_sid || project,
+        admission.resume_continuous,
+      ),
+    );
+  }, [project, replacement, snap?.daemon_admission]);
 
   const replaceRunningDaemon = async () => {
     if (!replacement || replacement.busy) return;
@@ -229,6 +250,7 @@ export function App({
         );
         return;
       }
+      dismissedAdmissionRef.current = Date.now() / 1000;
       setReplacement(null);
       setNotice(`parked ${victim.label || victim.id} · queued work started`);
     } catch (error) {
@@ -791,6 +813,7 @@ export function App({
     }
     if (replacement) {
       if (key.escape) {
+        dismissedAdmissionRef.current = Date.now() / 1000;
         setReplacement(null);
         setNotice('new work remains queued');
       } else if (!replacement.busy && (key.downArrow || input === 'j')) {

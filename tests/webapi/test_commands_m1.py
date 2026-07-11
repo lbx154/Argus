@@ -127,6 +127,11 @@ def test_start_project_daemon_returns_replacement_candidates_at_cap(
     assert result["running_daemons"][0]["label"] == "Existing work"
     assert spawned == []
     assert target.exists()
+    persisted = json.loads((target / "daemon.admission.json").read_text())
+    assert persisted["running_daemons"][0]["id"] == "s-running01"
+    snapshot = server.build_snapshot("s-target001", global_root=tmp_path)
+    assert snapshot is not None
+    assert snapshot["daemon_admission"]["requested_at"] == persisted["requested_at"]
 
 
 def test_replace_project_daemon_parks_state_then_starts_target(
@@ -165,6 +170,16 @@ def test_replace_project_daemon_parks_state_then_starts_target(
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: len(running))
     monkeypatch.setattr(server, "stop_daemon", fake_stop)
     monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+    (target / "daemon.admission.json").write_text(json.dumps({
+        "admission_required": True,
+        "requested_at": 1,
+        "target_sid": "s-target001",
+        "resume_continuous": False,
+        "limit": 1,
+        "active_count": 1,
+        "error": "choose",
+        "running_daemons": [],
+    }))
 
     result = server.replace_project_daemon(
         "s-target001",
@@ -174,6 +189,7 @@ def test_replace_project_daemon_parks_state_then_starts_target(
     assert result is not None and result["rc"] == 0
     assert result["parked_session"] == "s-victim001"
     assert spawned == [target.resolve()]
+    assert not (target / "daemon.admission.json").exists()
     parked = json.loads((victim / "daemon.parked.json").read_text())
     assert parked["state_preserved"] is True
     assert parked["replaced_by"] == "s-target001"

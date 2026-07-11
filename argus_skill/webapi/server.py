@@ -337,6 +337,9 @@ def build_snapshot(
         "spend_usd": spend_usd,
         "request_usage": provider_usage_snapshot(root=root),
     }
+    admission = _read_daemon_admission(life_dir)
+    if admission is not None:
+        snapshot["daemon_admission"] = admission
     if compact:
         try:
             cont = read_continuous_state(life_dir)
@@ -491,6 +494,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
 
 
 _UNFINISHED_BACKLOG_STATUSES = {"pending", "running", "in_progress", "claimed"}
+_DAEMON_ADMISSION_FILE = "daemon.admission.json"
 
 
 def list_running_daemons(
@@ -542,13 +546,21 @@ def list_running_daemons(
 
 
 def _admission_required(
-    *, root: Path, sid: str, limit: int, active_count: int,
+    *,
+    root: Path,
+    sid: str,
+    limit: int,
+    active_count: int,
+    resume_continuous: bool,
 ) -> dict[str, Any]:
     running = list_running_daemons(global_root=root, exclude_sid=sid)
-    return {
+    admission = {
         "rc": 2,
         "already_alive": False,
         "admission_required": True,
+        "requested_at": time.time(),
+        "target_sid": sid,
+        "resume_continuous": bool(resume_continuous),
         "limit": limit,
         "active_count": active_count,
         "error": (
@@ -557,6 +569,34 @@ def _admission_required(
         ),
         "running_daemons": running,
     }
+    try:
+        path = root / "projects" / sid / _DAEMON_ADMISSION_FILE
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(
+            json.dumps(admission, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    return admission
+
+
+def _clear_daemon_admission(life_dir: Path) -> None:
+    try:
+        (life_dir / _DAEMON_ADMISSION_FILE).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _read_daemon_admission(life_dir: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(
+            (life_dir / _DAEMON_ADMISSION_FILE).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) and value.get("admission_required") else None
 
 
 def start_project_daemon(
@@ -571,6 +611,7 @@ def start_project_daemon(
     root = _global_root(global_root)
     st = read_daemon_status(life_dir)
     if st.alive:
+        _clear_daemon_admission(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
     config = _worker_config_from_env(life_dir, root)
     if resume_continuous:
@@ -588,6 +629,7 @@ def start_project_daemon(
                 sid=sid,
                 limit=daemon_limit,
                 active_count=active_count,
+                resume_continuous=resume_continuous,
             ),
             "daemon": _daemon_dict(read_daemon_status(life_dir)),
         }
@@ -614,10 +656,13 @@ def start_project_daemon(
                     sid=sid,
                     limit=daemon_limit,
                     active_count=active_count,
+                    resume_continuous=resume_continuous,
                 ),
                 "daemon": _daemon_dict(read_daemon_status(life_dir)),
             }
         result["error"] = f"background executor failed to start (rc={rc})"
+    else:
+        _clear_daemon_admission(life_dir)
     return result
 
 

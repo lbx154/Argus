@@ -3,6 +3,7 @@ import type {
   ArtifactInfo,
   BacklogItem,
   Daemon,
+  DaemonAdmission,
   EventMsg,
   ProjectRow,
   RequestUsage,
@@ -15,6 +16,7 @@ export type {
   ArtifactInfo,
   BacklogItem,
   Daemon,
+  DaemonAdmission,
   EventMsg,
   ProjectRow,
   RequestUsage,
@@ -105,7 +107,7 @@ export interface PlanPreview {
   error: string;
 }
 
-export interface DaemonStartResult {
+export interface DaemonStartResult extends Partial<DaemonAdmission> {
   rc: number;
   already_alive?: boolean;
   error?: string;
