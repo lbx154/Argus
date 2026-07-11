@@ -131,3 +131,35 @@ def test_protected_floor_reinjected_canonical_when_weakened_directly(tmp_path):
     ]}}))
     after = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
     assert after["run.score_variance"] == canon  # canonical floor text restored
+
+
+def test_clinical_benchmark_override_keeps_domain_neutral_antifraud_floor(tmp_path):
+    persist_vertical(tmp_path, "research")
+    cs.apply_checklist_ops(tmp_path, [
+        {
+            "op": "add",
+            "stage": "benchmark",
+            "id": "benchmark.public_source",
+            "statement": "Verify the real public clinical source and license.",
+            "evidence_hint": "experiments/BENCHMARK_PROVENANCE.json",
+        },
+        {
+            "op": "add",
+            "stage": "benchmark",
+            "id": "benchmark.claim_boundary",
+            "statement": "Preserve uncertainty and separate planned cohorts.",
+            "evidence_hint": "research/CLINICAL_EVIDENCE_GATE.md",
+        },
+    ])
+
+    items = cs.store_items_for_stage(tmp_path, "benchmark")
+    by_id = {item.id: item for item in items}
+    assert set(by_id) == {
+        "benchmark.public_source",
+        "benchmark.claim_boundary",
+        "benchmark.evaluator_authentic",
+    }
+    authenticity = by_id["benchmark.evaluator_authentic"].statement
+    assert "clinical or mechanism projects" in authenticity
+    assert "Never invent an evaluator" in authenticity
+    assert "GenEval" not in authenticity

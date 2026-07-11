@@ -354,8 +354,13 @@ def test_rollback_stage_also_writes_unified_stage_history(tmp_path: Path) -> Non
 
 def test_benchmark_stage_checklist_demands_real_evaluator() -> None:
     items = STAGE_CHECKLISTS["benchmark"]
-    ids = {item.id for item in items}
+    by_id = {item.id: item for item in items}
+    ids = set(by_id)
     assert "benchmark.evaluator_authentic" in ids
+    statement = by_id["benchmark.evaluator_authentic"].statement
+    assert "clinical or mechanism projects" in statement
+    assert "prespecified observation-level outcome" in statement
+    assert "Never invent an evaluator" in statement
 
 
 def test_run_stage_checklist_demands_score_variance() -> None:

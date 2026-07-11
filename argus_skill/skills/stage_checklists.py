@@ -321,19 +321,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="benchmark.evaluator_authentic",
             statement=(
-                "The benchmark evaluator is the *real* scoring backend for "
-                "each family, not a stub. The reviewer must inspect the "
-                "evaluator source code and confirm it (a) actually loads or "
-                "downloads the generator output, (b) calls the official scoring "
-                "model / API / metric backend (e.g. GenEval's CLIP + detector "
-                "stack, TIFA's QA model, T2I-CompBench++'s official backend), "
-                "and (c) does NOT short-circuit by returning a constant "
-                "(`return 1.0`, `gold_oracle_exact_match`, `smoke_oracle`, or "
-                "any other label that means 'we pretended'). If the evaluator "
-                "is currently a stub, this item fails and the next mission "
-                "must wire in the real scorer before any pilot/full run."
+                "The evaluation or analysis implementation is authentic for the "
+                "project's empirical domain, not a stub or success-shaped oracle. "
+                "For computational benchmarks, inspect that it loads actual outputs "
+                "and calls the official scorer/metric rather than returning a "
+                "constant. For clinical or mechanism projects, inspect that the "
+                "pipeline loads the cited public source records, constructs the "
+                "prespecified observation-level outcome, retains exclusions and "
+                "failures, and computes the reported estimate and uncertainty from "
+                "those records. Never invent an evaluator, gold label, participant, "
+                "visit, or task merely to satisfy this item."
             ),
-            evidence_hint="code/**/*.py — read every `evaluate_*` / `_evaluate_*` body",
+            evidence_hint=(
+                "computational: evaluator source + official scorer outputs; "
+                "clinical/mechanism: public-source loader/analysis code + derived "
+                "rows + machine-readable result and uncertainty"
+            ),
         ),
     ),
     "run": _checklist(

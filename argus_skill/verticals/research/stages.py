@@ -62,7 +62,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "benchmark": [
         _PIPELINE_CHECK,
-        ("Benchmark provenance exists", "test -f experiments/BENCHMARK_PROVENANCE.md"),
+        (
+            "Evaluation provenance exists",
+            "test -f experiments/BENCHMARK_PROVENANCE.md || "
+            "test -f experiments/BENCHMARK_PROVENANCE.json",
+        ),
     ],
     "run": [
         _PIPELINE_CHECK,
@@ -182,14 +186,28 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
     ),
     "benchmark": (
         "engineer/agent-research-benchmark-runner.md",
-        "Evaluate benchmark preparation on these dimensions:\n"
-        "1. Benchmark provenance — are all benchmarks from real public sources (not synthetic)?\n"
-        "2. Coverage — ≥3 independent benchmark families with ≥240 tasks per condition?\n"
-        "3. Gold answers — are ground truth labels verified, not assumed?\n"
-        "4. Baseline readiness — are baseline implementations ready to run?\n"
-        "5. Reproducibility — can someone else download and run these benchmarks?\n"
-        "Pass threshold: all benchmarks sourced, verified, and ready for experiment execution.",
-        ["experiments/BENCHMARK_PROVENANCE.md"],
+        "Evaluate empirical-evidence preparation against the active Planner-authored "
+        "benchmark checklist, not an assumed machine-learning benchmark shape:\n"
+        "1. Provenance — are every used public source, planned source/cohort, version, "
+        "license/access condition, analysis unit, and evidence ceiling recorded?\n"
+        "2. Domain fit — computational projects must justify benchmark-family/task "
+        "coverage; clinical or mechanism projects must instead verify public data, "
+        "comparators/controls, planned cohorts, protocol status, and ethical gates. "
+        "Never relabel participants, visits, or nights as benchmark tasks.\n"
+        "3. Authentic implementation — does the real loader/evaluator/statistical "
+        "analysis produce observation-level rows and uncertainty from source data, "
+        "without stubs, fabricated labels, or success-shaped fallbacks?\n"
+        "4. Claim boundary — are executed evidence and planned experiments separated, "
+        "with null/cross-zero results and unsupported claims preserved?\n"
+        "5. Reproducibility — can another researcher retrieve the public source and "
+        "recompute every reported result under the stated access and ethics limits?\n"
+        "Pass threshold: every item in research/CHECKLISTS.json for the benchmark "
+        "stage is supported by authentic local artifacts.",
+        [
+            "research/CHECKLISTS.json",
+            "experiments/BENCHMARK_PROVENANCE.md",
+            "experiments/BENCHMARK_PROVENANCE.json",
+        ],
     ),
     "run": (
         "reviewer/experiment-results-review.md",
