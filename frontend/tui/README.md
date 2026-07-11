@@ -36,6 +36,8 @@ exits non-zero instead of silently changing its target.
 ## Everyday controls
 
 - Type natural language and press Enter to talk to the Manager front door.
+- When the Manager dispatches real work, the background executor starts
+  automatically; there are no manual start/stop campaign commands in the TUI.
 - Multiline clipboard paste is supported. The input automatically wraps up to
   four rows around the cursor and shows a character count only when clipped,
   while retaining the complete text sent on Enter.

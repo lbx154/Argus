@@ -120,17 +120,17 @@ test('history dedupes consecutive + ignores empty', () => {
 // ── slash ─────────────────────────────────────────────────────────────────
 
 test('slash completions match names + aliases, only before a space', () => {
-  assert.deepEqual(sl.slashCompletions('/dae').map((c) => c.name), ['/daemon', '/daemons']);
+  assert.deepEqual(sl.slashCompletions('/dae').map((c) => c.name), ['/daemons']);
   assert.ok(sl.slashCompletions('/q').some((c) => c.name === '/quit')); // via alias /q
-  assert.deepEqual(sl.slashCompletions('/daemon start'), []); // arg being typed → no menu
+  assert.deepEqual(sl.slashCompletions('/daemons live'), []); // arg being typed → no menu
   assert.deepEqual(sl.slashCompletions('hello'), []); // not a slash line
   assert.equal(sl.slashCompletions('/artifact')[0]?.name, '/artifact'); // exact beats /artifacts
 });
 
 test('applyCompletion adds a trailing space only for arg commands', () => {
-  const daemon = sl.SLASH_COMMANDS.find((c) => c.name === '/daemon')!;
+  const task = sl.SLASH_COMMANDS.find((c) => c.name === '/task')!;
   const help = sl.SLASH_COMMANDS.find((c) => c.name === '/help')!;
-  assert.equal(sl.applyCompletion(daemon), '/daemon ');
+  assert.equal(sl.applyCompletion(task), '/task ');
   assert.equal(sl.applyCompletion(help), '/help');
 });
 
@@ -150,15 +150,18 @@ test('parseCommand resolves aliases + splits the argument + flags unknown', () =
   assert.equal(sl.parseCommand('/add build it')?.name, '/task');
 });
 
-test('Ink contains every retired Python REPL command surface', () => {
+test('Ink keeps the supported command surface and removes manual lifecycle controls', () => {
   const required = [
     '/help', '/status', '/roles', '/journal', '/backlog', '/add', '/plan',
-    '/stop', '/done', '/note', '/nudge', '/run', '/daemon', '/daemons',
-    '/attach', '/resume', '/doctor', '/backend', '/config', '/continuous',
-    '/start', '/identity', '/reset', '/skills', '/exit',
+    '/stop', '/done', '/note', '/nudge', '/run', '/daemons', '/attach',
+    '/resume', '/doctor', '/backend', '/config', '/identity', '/reset',
+    '/skills', '/exit',
   ];
   for (const command of required) {
     assert.notEqual(sl.parseCommand(command)?.cmd, null, command);
+  }
+  for (const removed of ['/daemon', '/continuous', '/start']) {
+    assert.equal(sl.parseCommand(removed)?.cmd, null, removed);
   }
 });
 
@@ -201,7 +204,7 @@ test('didYouMean suggests the closest command', () => {
 test('helpGroups folds aliases and orders sections', () => {
   const groups = sl.helpGroups();
   assert.deepEqual(groups.map((g) => g.group), [
-    'Everyday', 'Task management', 'Daemon & diagnostics', 'Configuration', 'Other',
+    'Everyday', 'Task management', 'Sessions & diagnostics', 'Configuration', 'Other',
   ]);
   const skip = groups.flatMap((g) => g.rows).find((r) => r.label.startsWith('/skip'));
   assert.ok(skip && skip.label.includes('(= /rm)'));

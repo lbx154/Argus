@@ -290,6 +290,7 @@ def manager_message(
         "item": _item_to_dict(item, body),
         "daemon_alive": bool(daemon_alive),
         "daemon_pid": daemon_pid,
+        "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
 
 

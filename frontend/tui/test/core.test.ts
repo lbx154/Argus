@@ -67,3 +67,17 @@ test('a fresh session with a lazy daemon is ready, not offline', () => {
   assert.equal(view.state, 'idle');
   assert.equal(view.stateLabel, 'ready');
 });
+
+test('armed or queued work without an executor is not reported as working', () => {
+  const snapshot = {
+    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+    roles: [],
+    recent_events: [],
+    backlog: [],
+    continuous: { enabled: true, objective: 'Run the benchmark', done_reason: '' },
+  } as Snapshot;
+  const view = deriveMissionView(snapshot);
+  assert.equal(view.state, 'waiting');
+  assert.equal(view.stateLabel, 'not running');
+});

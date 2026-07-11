@@ -99,14 +99,30 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
 
 # ── continuous ────────────────────────────────────────────────────────────
 
-def test_post_continuous_writes_config(ctx) -> None:
+def test_post_continuous_writes_config_and_starts_matching_executor(
+    ctx, monkeypatch,
+) -> None:
     root, sid, life = ctx
+    spawned = {}
+
+    def fake_spawn(config, *, quiet=False):
+        spawned["continuous"] = config.continuous
+        spawned["objective"] = config.continuous_objective
+        spawned["resume_continuous"] = config.resume_continuous
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
     client = TestClient(server.create_app(global_root=root))
     r = client.post(f"/api/projects/{sid}/continuous",
                     json={"enabled": True, "objective": "keep improving X"})
     assert r.status_code == 200
     cfg = json.loads((life / "continuous.json").read_text())
     assert cfg["enabled"] is True and cfg["objective"] == "keep improving X"
+    assert spawned == {
+        "continuous": True,
+        "objective": "keep improving X",
+        "resume_continuous": True,
+    }
 
 
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────

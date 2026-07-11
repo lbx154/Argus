@@ -115,6 +115,23 @@ test('connection health remains visible without overflowing a 60-column terminal
   assert.ok(finalFrame.split('\n').every((line) => Array.from(line).length <= 60));
 });
 
+test('header reports configured work honestly without executor jargon', async () => {
+  const snap = {
+    session: { id: 's-armed', display_name: '', objective: '', last_active: 0, cwd: '' },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+    roles: [],
+    recent_events: [],
+    backlog: [],
+    continuous: { enabled: true, objective: 'Run the benchmark', done_reason: '' },
+  } as Snapshot;
+  const output = await renderNode(
+    React.createElement(Header, { snap, connected: true, width: 120 }),
+    120,
+  );
+  assert.match(output, /not running/);
+  assert.doesNotMatch(output, /daemon (?:live|off)/);
+});
+
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
   for (const width of [40, 60]) {
     const output = await renderNode(

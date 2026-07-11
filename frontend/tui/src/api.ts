@@ -278,23 +278,6 @@ export class ApiClient {
     if (!signal?.aborted) parseSSEFrames(buf + '\n\n').frames.forEach(dispatch);
   }
 
-  async startDaemon(): Promise<void> {
-    const r = await fetch(this.p('/daemon/start'), {
-      method: 'POST',
-      headers: this.authHeaders(),
-    });
-    await ensureResponseOk(r, 'POST', '/daemon/start');
-  }
-
-  async stopDaemon(drain = false): Promise<void> {
-    const r = await fetch(this.p('/daemon/stop'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ drain }),
-    });
-    await ensureResponseOk(r, 'POST', '/daemon/stop');
-  }
-
   // ── Wave-1 read/inspect ──
   private async getJson<T>(path: string): Promise<T> {
     const r = await fetch(this.p(path), { headers: this.authHeaders() });
@@ -379,10 +362,6 @@ export class ApiClient {
 
   async stopBacklog(id: string): Promise<BacklogItem> {
     return (await this.post(`/backlog/${encodeURIComponent(id)}/stop`)).item as BacklogItem;
-  }
-
-  async setContinuous(enabled: boolean, objective = ''): Promise<void> {
-    await this.post('/continuous', { enabled, objective });
   }
 
   /**

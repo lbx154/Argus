@@ -10,7 +10,7 @@ import { EVENT_VIEW_FILTERS, type EventViewFilter } from '../../../core/src/even
 export type SlashKind = 'panel' | 'action' | 'local';
 
 export interface SlashCmd {
-  name: string; // canonical, e.g. "/daemon"
+  name: string; // canonical, e.g. "/status"
   arg?: string; // usage hint
   desc: string;
   aliases?: string[];
@@ -20,7 +20,7 @@ export interface SlashCmd {
 
 export const SLASH_COMMANDS: SlashCmd[] = [
   // ── everyday (read/inspect panels) ──
-  { name: '/status', desc: 'daemon, four roles, backlog, journal, continuous', group: 'Everyday', kind: 'panel' },
+  { name: '/status', desc: 'roles, queued work, journal, and health', group: 'Everyday', kind: 'panel' },
   { name: '/roles', desc: 'per-role backend / model / effort + live activity', group: 'Everyday', kind: 'panel' },
   { name: '/journal', arg: '[N]', desc: 'recent journal entries (default 10)', group: 'Everyday', kind: 'panel' },
   { name: '/backlog', arg: '[all]', desc: 'pending tasks (all = incl. done/skipped)', group: 'Everyday', kind: 'panel' },
@@ -30,7 +30,7 @@ export const SLASH_COMMANDS: SlashCmd[] = [
   { name: '/find', arg: '<text>', desc: 'search the current event buffer', group: 'Everyday', kind: 'panel' },
   { name: '/cancel', desc: 'stop waiting for the current Manager reply', aliases: ['/abort'], group: 'Everyday', kind: 'local' },
   // ── task management (actions) ──
-  { name: '/task', arg: '<text>', desc: 'queue a task (lazily starts the daemon)', aliases: ['/add'], group: 'Task management', kind: 'action' },
+  { name: '/task', arg: '<text>', desc: 'queue work directly', aliases: ['/add'], group: 'Task management', kind: 'action' },
   { name: '/plan', arg: '<objective>', desc: 'preview a Planner-authored execution plan', group: 'Task management', kind: 'action' },
   { name: '/nudge', arg: '<text>', desc: 'inject guidance into the running mission', aliases: ['/inject', '/notify'], group: 'Task management', kind: 'action' },
   { name: '/note', arg: '<text>', desc: 'append a manual note to the timeline', group: 'Task management', kind: 'action' },
@@ -39,26 +39,23 @@ export const SLASH_COMMANDS: SlashCmd[] = [
   { name: '/stop', arg: '<id>', desc: "stop a task's auto-iteration", group: 'Task management', kind: 'action' },
   { name: '/item', arg: '<id>', desc: 'inspect a full task contract', group: 'Task management', kind: 'panel' },
   { name: '/run', desc: 'return to the always-live mission feed', group: 'Task management', kind: 'local' },
-  // ── daemon & diagnostics ──
-  { name: '/daemon', arg: 'start|stop|restart|status', desc: "control this project's executor", group: 'Daemon & diagnostics', kind: 'action' },
-  { name: '/new', arg: '[objective]', desc: 'review, create, and switch to a fresh daemon', group: 'Daemon & diagnostics', kind: 'action' },
-  { name: '/daemons', arg: '[query]', desc: 'find every project + switch or create', group: 'Daemon & diagnostics', kind: 'panel' },
-  { name: '/resume', arg: '[list|<id>]', desc: 'switch to another project/session', group: 'Daemon & diagnostics', kind: 'action' },
-  { name: '/attach', arg: '<id|prefix>', desc: 'follow another project (read the stream)', group: 'Daemon & diagnostics', kind: 'action' },
-  { name: '/doctor', desc: "diagnose 'why isn't anything running'", group: 'Daemon & diagnostics', kind: 'panel' },
+  // ── sessions & diagnostics ──
+  { name: '/new', arg: '[objective]', desc: 'review, create, and switch to a fresh conversation', group: 'Sessions & diagnostics', kind: 'action' },
+  { name: '/daemons', arg: '[query]', desc: 'find every session + switch or create', group: 'Sessions & diagnostics', kind: 'panel' },
+  { name: '/resume', arg: '[list|<id>]', desc: 'switch to another project/session', group: 'Sessions & diagnostics', kind: 'action' },
+  { name: '/attach', arg: '<id|prefix>', desc: 'follow another project (read the stream)', group: 'Sessions & diagnostics', kind: 'action' },
+  { name: '/doctor', desc: "diagnose 'why isn't anything running'", group: 'Sessions & diagnostics', kind: 'panel' },
   // ── configuration ──
   { name: '/backend', arg: '[codex|claude|copilot]', desc: 'view or change the shared runner backend', group: 'Configuration', kind: 'action' },
   { name: '/config', arg: '[key=value …]', desc: 'view or change runtime settings', group: 'Configuration', kind: 'panel' },
   { name: '/identity', arg: '[set <text>]', desc: 'view or replace the operator identity card', group: 'Configuration', kind: 'panel' },
-  { name: '/continuous', arg: 'start|stop [obj]', desc: 'manage the 7×24 self-directed campaign', group: 'Configuration', kind: 'action' },
-  { name: '/start', arg: '<objective>', desc: 'shortcut for /continuous start', group: 'Configuration', kind: 'action' },
   { name: '/reset', desc: 'drop the warm Manager conversation context', group: 'Configuration', kind: 'action' },
   { name: '/skills', arg: '[ls|promote <name>]', desc: 'inspect or promote runtime skills', group: 'Configuration', kind: 'action' },
   // ── other (local) ──
   { name: '/clear', desc: 'clear the event feed view', group: 'Other', kind: 'local' },
   { name: '/reconnect', desc: 'reconnect the live event stream', group: 'Other', kind: 'local' },
   { name: '/help', desc: 'keys + full command reference', aliases: ['/?', '/commands'], group: 'Other', kind: 'local' },
-  { name: '/quit', desc: 'leave the cockpit (the daemon keeps running)', aliases: ['/exit', '/q'], group: 'Other', kind: 'local' },
+  { name: '/quit', desc: 'leave the cockpit (background work keeps running)', aliases: ['/exit', '/q'], group: 'Other', kind: 'local' },
 ];
 
 const CANON = new Map<string, SlashCmd>();
@@ -83,8 +80,8 @@ export function slashCompletions(line: string): SlashCmd[] {
       out.push(c);
     }
   }
-  // Prefix siblings such as /artifact + /artifacts (and /daemon + /daemons)
-  // must not steal Enter from an exactly typed command.  Keep registry order
+  // Prefix siblings such as /artifact + /artifacts must not steal Enter from
+  // an exactly typed command. Keep registry order
   // otherwise, but promote a canonical/alias exact match to the first row.
   return out.sort((a, b) => Number(isExact(b, token)) - Number(isExact(a, token)));
 }
@@ -183,7 +180,7 @@ function levenshtein(a: string, b: string): number {
 
 /** Grouped view for /help, with aliases folded ('/skip  (= /rm)'). */
 export function helpGroups(): Array<{ group: string; rows: Array<{ label: string; desc: string }> }> {
-  const order = ['Everyday', 'Task management', 'Daemon & diagnostics', 'Configuration', 'Other'];
+  const order = ['Everyday', 'Task management', 'Sessions & diagnostics', 'Configuration', 'Other'];
   const groups = new Map<string, Array<{ label: string; desc: string }>>();
   for (const c of SLASH_COMMANDS) {
     const aliasNote = c.aliases?.length ? `  (= ${c.aliases.join(', ')})` : '';

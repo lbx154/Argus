@@ -31,12 +31,14 @@ export function deriveMissionView(
     '';
 
   if (pendingQuestion) return { state: 'waiting', stateLabel: 'waiting on you', objective };
-  if (snapshot.roles.some((role) => role.active) || active || continuous?.enabled) {
+  const hasQueuedWork = Boolean(active || continuous?.enabled);
+  if (snapshot.roles.some((role) => role.active) || (snapshot.daemon.alive && hasQueuedWork)) {
     return { state: 'working', stateLabel: 'working', objective };
   }
   if (continuous?.done_reason || continuous?.done_at) {
     return { state: 'complete', stateLabel: 'complete', objective };
   }
+  if (hasQueuedWork) return { state: 'waiting', stateLabel: 'not running', objective };
   if (snapshot.daemon.alive) return { state: 'idle', stateLabel: 'standing by', objective };
   // Reaching this function means the UI already fetched a live snapshot.
   // A fresh session intentionally has no executor until its first real task,

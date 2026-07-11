@@ -486,7 +486,8 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
 
 
 def start_project_daemon(
-    sid: str, *, global_root: Path | str | None = None
+    sid: str, *, global_root: Path | str | None = None,
+    resume_continuous: bool = False,
 ) -> dict[str, Any] | None:
     """Spawn this project's detached daemon (if not already alive). Blocking-ish
     (subprocess spawn) — call from a threadpool in the async endpoint."""
@@ -497,7 +498,14 @@ def start_project_daemon(
     st = read_daemon_status(life_dir)
     if st.alive:
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
-    rc = spawn_detached_daemon(_worker_config_from_env(life_dir, root), quiet=True)
+    config = _worker_config_from_env(life_dir, root)
+    if resume_continuous:
+        continuous = read_continuous_state(life_dir)
+        if continuous.enabled:
+            config.continuous = True
+            config.continuous_objective = continuous.objective
+            config.resume_continuous = True
+    rc = spawn_detached_daemon(config, quiet=True)
     return {"rc": rc, "already_alive": False, "daemon": _daemon_dict(read_daemon_status(life_dir))}
 
 
@@ -542,7 +550,11 @@ def create_daemon(
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
         write_continuous_config(life_dir, enabled=True, objective=obj)
-        rc = spawn_detached_daemon(_worker_config_from_env(life_dir, root), quiet=True)
+        config = _worker_config_from_env(life_dir, root)
+        config.continuous = True
+        config.continuous_objective = obj
+        config.resume_continuous = True
+        rc = spawn_detached_daemon(config, quiet=True)
         spawned = True
     # else: idle session — no continuous, no eager spawn. The Manager (via
     # /message) writes objectives and lazily spawns the executor when needed.
@@ -1417,7 +1429,8 @@ def create_app(
         # A task classification lazily spawns the executor, mirroring /tasks.
         if result.get("kind") == "task" and not result.get("daemon_alive"):
             result["daemon"] = await run_in_threadpool(
-                start_project_daemon, sid, global_root=global_root
+                start_project_daemon, sid, global_root=global_root,
+                resume_continuous=bool(result.get("continuous")),
             )
         return result
 
@@ -1456,7 +1469,11 @@ def create_app(
                 # the executor so streamed dispatch behaves like /message + /tasks.
                 if result.get("kind") == "task" and not result.get("daemon_alive"):
                     try:
-                        result["daemon"] = start_project_daemon(sid, global_root=global_root)
+                        result["daemon"] = start_project_daemon(
+                            sid,
+                            global_root=global_root,
+                            resume_continuous=bool(result.get("continuous")),
+                        )
                     except Exception:  # noqa: BLE001 — surface the reply even if spawn hiccups
                         pass
                 q.put({"type": "done", "result": result})
@@ -1483,7 +1500,13 @@ def create_app(
     @app.post("/api/projects/{sid}/daemon/start", dependencies=[Depends(_require_auth)])
     async def _daemon_start(sid: str) -> dict[str, Any]:
         return _404_if_none(
-            await run_in_threadpool(start_project_daemon, sid, global_root=global_root), sid
+            await run_in_threadpool(
+                start_project_daemon,
+                sid,
+                global_root=global_root,
+                resume_continuous=True,
+            ),
+            sid,
         )
 
     @app.post("/api/projects/{sid}/daemon/stop", dependencies=[Depends(_require_auth)])
@@ -1496,13 +1519,21 @@ def create_app(
         )
 
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])
-    def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:
+    async def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:
         _404_if_none(
             set_continuous(sid, enabled=body.enabled, objective=body.objective,
                            global_root=global_root),
             sid,
         )
-        return {"ok": True}
+        response: dict[str, Any] = {"ok": True}
+        if body.enabled:
+            response["daemon"] = await run_in_threadpool(
+                start_project_daemon,
+                sid,
+                global_root=global_root,
+                resume_continuous=True,
+            )
+        return response
 
     # ── Wave-1 read/inspect endpoints ─────────────────────────────────────
 

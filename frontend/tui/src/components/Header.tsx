@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
-import type { Daemon, Snapshot } from '../api.js';
+import type { Snapshot } from '../api.js';
 import { Wordmark } from './Wordmark.js';
 import { deriveMissionView, type MissionState } from '../../../core/src/mission.js';
 
@@ -28,7 +28,6 @@ export function Header({
   health?: string;
 }) {
   const name = snap?.session?.display_name || snap?.session?.id || '—';
-  const d: Daemon | undefined = snap?.daemon;
   const mission = snap ? deriveMissionView(snap) : null;
   const link = connected
     ? { color: theme.success, text: 'live' }
@@ -47,10 +46,8 @@ export function Header({
         {!compact ? (
           <>
             <Text dimColor>{'  ·  '}</Text>
-            <Text color={d?.alive ? theme.success : 'gray'}>{d?.alive ? 'daemon live' : 'daemon off'}</Text>
-            <Text dimColor>{'  ·  '}</Text>
             <Text color={health ? theme.warning : link.color}>
-              {health ? truncate(health, Math.max(16, width - 58)) : link.text}
+              {health ? truncate(health, Math.max(16, width - 40)) : link.text}
             </Text>
           </>
         ) : null}

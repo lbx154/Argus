@@ -61,7 +61,8 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None: spawned.setdefault("sid", sid) or {"alive": True},
+        lambda sid, *, global_root=None, resume_continuous=False:
+            spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "optimize the matmul kernel fully"})
     assert r.status_code == 200
@@ -69,6 +70,7 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert body["kind"] == "task"
     assert body["item"]["title"] == "optimize kernel"
     assert spawned.get("sid") == "s-msgtest0"  # lazy spawn fired
+    assert spawned.get("resume_continuous") is False
     assert "daemon" in body
 
 
@@ -156,7 +158,8 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None: spawned.setdefault("sid", sid) or {"alive": True},
+        lambda sid, *, global_root=None, resume_continuous=False:
+            spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "optimize the matmul kernel"})
     assert r.status_code == 200
@@ -165,6 +168,35 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
     assert done["result"]["kind"] == "task"
     assert done["result"]["item"]["title"] == "optimize kernel"
     assert spawned.get("sid") == "s-msgtest0"  # lazy spawn fired on the stream path too
+    assert spawned.get("resume_continuous") is False
+
+
+def test_message_stream_standing_task_starts_continuous_executor(
+    client: TestClient, monkeypatch,
+) -> None:
+    def _streaming(sid, text, *, global_root=None, on_fragment=None):
+        return {
+            "kind": "task",
+            "reply": None,
+            "item": None,
+            "daemon_alive": False,
+            "continuous": True,
+        }
+
+    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    spawned: dict[str, object] = {}
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda sid, *, global_root=None, resume_continuous=False:
+            spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
+    )
+    r = client.post(
+        "/api/projects/s-msgtest0/message/stream",
+        json={"text": "keep improving the benchmark until no weakness remains"},
+    )
+    assert r.status_code == 200
+    assert spawned == {"sid": "s-msgtest0", "resume_continuous": True}
 
 
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
@@ -186,7 +218,15 @@ def test_message_stream_empty_400(client: TestClient) -> None:
 
 def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> None:
     # With an objective: mint session + arm continuous + spawn (mock the fork).
-    monkeypatch.setattr(server, "spawn_detached_daemon", lambda cfg, quiet=True: 0)
+    spawned: dict[str, object] = {}
+
+    def fake_spawn(cfg, quiet=True):
+        spawned["continuous"] = cfg.continuous
+        spawned["continuous_objective"] = cfg.continuous_objective
+        spawned["resume_continuous"] = cfg.resume_continuous
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
     client = TestClient(server.create_app(global_root=tmp_path))
     r = client.post("/api/daemons", json={"objective": "reproduce the recursive kernel task", "name": "kbench"})
     assert r.status_code == 200
@@ -200,6 +240,11 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
     cont = json.loads((tmp_path / "projects" / sid / "continuous.json").read_text())
     assert cont.get("enabled") is True
     assert "recursive kernel" in cont.get("objective", "")
+    assert spawned == {
+        "continuous": True,
+        "continuous_objective": "reproduce the recursive kernel task",
+        "resume_continuous": True,
+    }
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:

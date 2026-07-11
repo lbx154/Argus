@@ -502,38 +502,13 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         if (p.rest) void api.stopBacklog(p.rest).then(ok(`stopped ${p.rest}`), err);
         else need('/stop <id>');
         break;
-      case '/daemon':
-        if (p.rest === 'stop') void api.stopDaemon().then(ok('daemon stopping'), err);
-        else if (p.rest === 'restart') {
-          void api.stopDaemon().then(
-            () => api.startDaemon(),
-          ).then(ok('daemon restarted'), err);
-        }
-        else if (p.rest === 'status')
-          setNotice(snap?.daemon.alive ? `daemon alive (pid ${snap.daemon.pid})` : 'no daemon');
-        else void api.startDaemon().then(ok('daemon starting'), err);
-        break;
       case '/new':
         openNewDaemon(p.rest);
-        break;
-      case '/continuous':
-        if (p.rest.startsWith('stop')) void api.setContinuous(false).then(ok('continuous off'), err);
-        else if (p.rest.startsWith('start')) {
-          const obj = p.rest.slice(5).trim();
-          if (obj) void api.setContinuous(true, obj).then(ok('continuous on'), err);
-          else need('/continuous start <objective>');
-        } else if (p.rest === 'status' || !p.rest) {
-          setNotice(snap?.continuous?.enabled ? `continuous on · ${snap.continuous.objective}` : 'continuous off');
-        } else need('/continuous start|stop|status [objective]');
-        break;
-      case '/start':
-        if (p.rest) void api.setContinuous(true, p.rest).then(ok('continuous on'), err);
-        else need('/start <objective>');
         break;
       case '/backend':
         if (!p.rest) openPanel('config');
         else void api.setConfig('backend', p.rest).then(
-          () => setNotice(`backend set to ${p.rest} · /daemon restart to apply`),
+          () => setNotice(`backend set to ${p.rest}`),
           err,
         );
         break;
@@ -556,7 +531,7 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           return api.setConfig(pair.slice(0, at), pair.slice(at + 1));
         });
         void Promise.all(updates).then(
-          () => setNotice(`updated ${updates.length} setting(s) · /daemon restart to apply`),
+          () => setNotice(`updated ${updates.length} setting(s)`),
           err,
         );
         break;
