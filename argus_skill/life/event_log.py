@@ -69,8 +69,11 @@ HIGH_VALUE_EVENT_TYPES: frozenset[str] = frozenset({
     "life.planner.waiting", "life.planner.terminal_idle",
     "life.planner.verification_probe", "life.planner.stall_escalation",
     "life.budget.pause", "life.lifecycle.block", "life.lifecycle.transition",
+    "provider.request.started", "provider.request.completed",
+    "provider.request.denied",
     "life.inbox.queued",
     "life.daemon.idle_timeout",
+    "daemon.parked",
     "idea.search.started", "idea.search.completed", "idea.search.skipped",
     "operator_alert",
 })

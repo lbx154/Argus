@@ -59,6 +59,27 @@ export interface ContinuousState {
   done_at?: string;
 }
 
+export interface ProviderRequestUsage {
+  provider: string;
+  day: string;
+  daily_calls: number;
+  daily_cap: number;
+  remaining: number | null;
+  completed_calls?: number;
+  failed_calls?: number;
+  premium_requests?: number;
+  premium_cap?: number;
+  premium_remaining?: number | null;
+  blocked_until?: number;
+  blocked_reason?: string;
+}
+
+export interface RequestUsage {
+  day: string;
+  codex: ProviderRequestUsage;
+  copilot: ProviderRequestUsage;
+}
+
 export interface Snapshot {
   session: {
     id: string;
@@ -72,6 +93,7 @@ export interface Snapshot {
   backlog: BacklogItem[];
   recent_events: EventMsg[];
   spend_usd?: number;
+  request_usage?: RequestUsage;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;
   /** Present on compact UI snapshots. */
@@ -89,6 +111,12 @@ export interface ProjectRow {
   daemon_alive: boolean;
   daemon_pid: number | null;
   uptime_seconds: number | null;
+  active_role?: string;
+  activity?: string;
+  current_task?: string;
+  unfinished_tasks?: number;
+  continuous_enabled?: boolean;
+  continuous_objective?: string;
 }
 
 export type ArtifactKind = 'text' | 'image' | 'pdf' | 'binary';

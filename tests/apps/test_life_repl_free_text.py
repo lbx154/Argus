@@ -28,6 +28,9 @@ from argus_skill.manager import repl as manager_repl
 
 _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAILY_CAP_USD",
+    "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
+    "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+    "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
     "ARGUS_SKILL_DAEMON_AUTO_RESTART",
     "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
     "ARGUS_SKILL_DAEMON_HANDOFF_GEN",
@@ -47,6 +50,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "ARGUS_SKILL_MODEL",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
     "ARGUS_SKILL_PLANNER_BACKEND",
@@ -1623,6 +1627,33 @@ def test_apply_per_mission_cap(mem: LifeMemory) -> None:
         mem, ConfigIntent("per_mission_cap", (), "50"), {"theme": None}
     )
     assert ok is True and os.environ["ARGUS_SKILL_PER_MISSION_CAP_USD"] == "50"
+
+
+@pytest.mark.parametrize(
+    ("knob", "env_name", "value"),
+    [
+        ("max_daemons", "ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "4"),
+        ("codex_daily_requests", "ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "250"),
+        ("copilot_daily_requests", "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "180"),
+        ("copilot_daily_premium", "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "75.5"),
+    ],
+)
+def test_apply_daemon_and_provider_quota_intents(
+    mem: LifeMemory,
+    knob: str,
+    env_name: str,
+    value: str,
+) -> None:
+    ok = manager_repl._apply_config_intent(
+        mem,
+        ConfigIntent(knob, (), value),
+        {"theme": None},
+    )
+    assert ok is True
+    assert os.environ[env_name] == value
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert read_persisted_knobs()[env_name] == value
 
 
 @pytest.mark.parametrize("knob,env_var", [

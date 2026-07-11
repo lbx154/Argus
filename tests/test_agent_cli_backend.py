@@ -340,6 +340,50 @@ def test_compaction_agent_io_is_bounded_and_drops_token_stream(
     assert rows[1]["stdout_line_count"] == 1
 
 
+def test_codex_quota_events_and_daily_denial(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "1")
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "1")
+    backend = AgentCliBackend(backend="codex")
+    calls = []
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        calls.append(kwargs["run_label"])
+        return _make_argus_result(agent_messages=["ok"], thread_id="codex-thread")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    first = backend.run_exec(
+        prompt="first",
+        options=RunnerOptions(working_dir=str(tmp_path)),
+        run_label="engineer-r1",
+    )
+    second = backend.run_exec(
+        prompt="second",
+        options=RunnerOptions(working_dir=str(tmp_path)),
+        run_label="reviewer",
+    )
+
+    assert first.fatal_error is None
+    assert "daily call cap 1 reached" in str(second.fatal_error)
+    assert calls == ["engineer-r1"]
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [row["type"] for row in rows] == [
+        "provider.request.started",
+        "agent.io.start",
+        "provider.request.completed",
+        "agent.io.complete",
+        "provider.request.denied",
+    ]
+    assert rows[0]["daily_calls"] == 1
+    assert rows[0]["daily_cap"] == 1
+
+
 def test_run_exec_normalizes_recoverable_reconnect_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

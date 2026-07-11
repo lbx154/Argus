@@ -305,6 +305,7 @@ class AgentCliBackend:
             before_exec=before_exec,
         )
         self._backend_name = chosen
+        self._is_codex = chosen == deps["BACKEND_CODEX"]
         self._is_copilot = chosen == deps["BACKEND_COPILOT"]
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
         # SOURCE-LEVEL per-mission budget cap. A live provider set per-mission
@@ -356,25 +357,6 @@ class AgentCliBackend:
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
         argus_options = self._translate_options(options)
-        copilot_permit = None
-        if self._is_copilot and not _interrupt_reason(
-            getattr(argus_options, "external_interrupt_reason_provider", None)
-        ):
-            from ..core.copilot_guard import (
-                acquire_copilot_permit,
-                release_denied_permit,
-            )
-
-            copilot_permit = acquire_copilot_permit(run_label)
-            if not copilot_permit.allowed:
-                reason = copilot_permit.reason
-                release_denied_permit(copilot_permit)
-                log.warning("Copilot call blocked before start (%s): %s", run_label, reason)
-                return RunnerResult(
-                    exit_code=-1,
-                    thread_id=resume_thread_id,
-                    fatal_error=f"refused before start: {reason}",
-                )
         call_id = f"{int(time.time() * 1000)}-{threading.get_ident()}"
         log_path = self._agent_io_log_path(options)
         self._io_context.current = {
@@ -384,6 +366,118 @@ class AgentCliBackend:
             "model": options.model,
             "compact_io": _compact_agent_io(run_label),
         }
+        copilot_permit = None
+        codex_permit = None
+        codex_quota_active = False
+        if self._is_codex:
+            from ..core.provider_quota import codex_quota_enabled
+
+            codex_quota_active = codex_quota_enabled()
+        interrupted = (
+            _interrupt_reason(
+                getattr(argus_options, "external_interrupt_reason_provider", None)
+            )
+            if self._is_copilot or codex_quota_active
+            else None
+        )
+        if self._is_copilot and not interrupted:
+            from ..core.copilot_guard import (
+                acquire_copilot_permit,
+                release_denied_permit,
+            )
+
+            copilot_permit = acquire_copilot_permit(run_label)
+            if not copilot_permit.allowed:
+                reason = copilot_permit.reason
+                release_denied_permit(copilot_permit)
+                self._log_agent_io(log_path, {
+                    "type": "provider.request.denied",
+                    "provider": "copilot",
+                    "call_id": call_id,
+                    "run_label": run_label,
+                    "reason": reason,
+                    "ts": time.time(),
+                })
+                self._io_context.current = None
+                log.warning("Copilot call blocked before start (%s): %s", run_label, reason)
+                return RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                )
+        elif self._is_codex and not interrupted:
+            from ..core.provider_quota import acquire_codex_permit
+
+            codex_permit = acquire_codex_permit(run_label)
+            if not codex_permit.allowed:
+                reason = codex_permit.reason
+                self._log_agent_io(log_path, {
+                    "type": "provider.request.denied",
+                    "provider": "codex",
+                    "call_id": call_id,
+                    "run_label": run_label,
+                    "reason": reason,
+                    "daily_calls": codex_permit.daily_calls,
+                    "daily_cap": codex_permit.daily_cap,
+                    "ts": time.time(),
+                })
+                self._io_context.current = None
+                log.warning("Codex call blocked before start (%s): %s", run_label, reason)
+                return RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                )
+
+        quota_permit = copilot_permit or codex_permit
+        event_permit = (
+            quota_permit
+            if quota_permit is not None and bool(getattr(quota_permit, "guarded", True))
+            else None
+        )
+        if event_permit is not None:
+            self._log_agent_io(log_path, {
+                "type": "provider.request.started",
+                "provider": self._backend_name,
+                "call_id": call_id,
+                "run_label": run_label,
+                "daily_calls": int(getattr(event_permit, "daily_calls", 0) or 0),
+                "daily_cap": int(getattr(event_permit, "daily_cap", 0) or 0),
+                "premium_requests_today": float(
+                    getattr(event_permit, "premium_requests_today", 0.0) or 0.0
+                ),
+                "premium_cap": float(getattr(event_permit, "premium_cap", 0.0) or 0.0),
+                "ts": time.time(),
+            })
+
+        def _finish_quota(
+            *,
+            success: bool,
+            error_text: str = "",
+            premium_requests: float = 0.0,
+        ) -> None:
+            if copilot_permit is not None:
+                copilot_permit.finish(
+                    premium_requests=premium_requests,
+                    error_text=error_text,
+                    success=success,
+                )
+            if codex_permit is not None:
+                codex_permit.finish(success=success, error_text=error_text)
+            if event_permit is not None:
+                self._log_agent_io(log_path, {
+                    "type": "provider.request.completed",
+                    "provider": self._backend_name,
+                    "call_id": call_id,
+                    "run_label": run_label,
+                    "success": bool(success),
+                    "error": (error_text or "")[:500],
+                    "daily_calls": int(getattr(event_permit, "daily_calls", 0) or 0),
+                    "daily_cap": int(getattr(event_permit, "daily_cap", 0) or 0),
+                    "premium_requests": float(premium_requests or 0.0),
+                    "ts": time.time(),
+                })
+
         start_row: dict[str, Any] = {
             "type": "agent.io.start",
             "io_kind": "start",
@@ -410,8 +504,7 @@ class AgentCliBackend:
             )
         except FileNotFoundError as exc:
             log.exception("codex CLI binary not found")
-            if copilot_permit is not None:
-                copilot_permit.finish(error_text=str(exc), success=False)
+            _finish_quota(error_text=str(exc), success=False)
             self._log_agent_io(log_path, {
                 "type": "agent.io.error",
                 "io_kind": "error",
@@ -428,11 +521,10 @@ class AgentCliBackend:
             )
         except Exception as exc:  # noqa: BLE001 — last-line safety net
             log.exception("codex runner raised")
-            if copilot_permit is not None:
-                copilot_permit.finish(
-                    error_text=f"{type(exc).__name__}: {exc}",
-                    success=False,
-                )
+            _finish_quota(
+                error_text=f"{type(exc).__name__}: {exc}",
+                success=False,
+            )
             self._log_agent_io(log_path, {
                 "type": "agent.io.error",
                 "io_kind": "error",
@@ -453,11 +545,10 @@ class AgentCliBackend:
                 argus_result, resume_thread_id=resume_thread_id
             )
         except Exception as exc:  # noqa: BLE001
-            if copilot_permit is not None:
-                copilot_permit.finish(
-                    error_text=f"result translation failed: {exc}",
-                    success=False,
-                )
+            _finish_quota(
+                error_text=f"result translation failed: {exc}",
+                success=False,
+            )
             self._io_context.current = None
             return RunnerResult(
                 exit_code=-1,
@@ -485,12 +576,11 @@ class AgentCliBackend:
                 int(getattr(argus_result, "exit_code", 0) or 0),
             )
 
-        if copilot_permit is not None:
-            copilot_permit.finish(
-                premium_requests=translated.premium_requests,
-                error_text=failure_text,
-                success=not failed,
-            )
+        _finish_quota(
+            premium_requests=translated.premium_requests,
+            error_text=failure_text,
+            success=not failed,
+        )
 
         complete_row: dict[str, Any] = {
             "type": "agent.io.complete",

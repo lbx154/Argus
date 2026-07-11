@@ -265,6 +265,45 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     assert not (tmp_path / "projects" / sid / "continuous.json").exists()  # no campaign armed
 
 
+def test_create_daemon_at_cap_returns_replacement_candidates(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    running = tmp_path / "projects" / "s-running01"
+    running.mkdir(parents=True)
+    (running / "session.json").write_text(json.dumps({
+        "id": "s-running01",
+        "display_name": "Existing campaign",
+        "last_active": 1,
+    }))
+
+    def fake_status(path):
+        path = Path(path)
+        alive = path.name == "s-running01"
+        return server.DaemonStatus(
+            alive=alive,
+            pid=99 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=path,
+            pid_path=path / "daemon.pid",
+        )
+
+    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
+    monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    body = client.post(
+        "/api/daemons",
+        json={"objective": "new campaign"},
+    ).json()
+
+    assert body["spawned"] is False
+    assert body["start"]["admission_required"] is True
+    assert body["start"]["running_daemons"][0]["id"] == "s-running01"
+    assert (tmp_path / "projects" / body["sid"] / "continuous.json").exists()
+
+
 def test_fresh_idle_daemon_survives_concurrent_startup_gc(tmp_path: Path) -> None:
     """Regression: another user's daemon/REPL startup may run project GC in the
     gap between POST /api/daemons and this TUI's first snapshot. A freshly

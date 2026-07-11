@@ -152,6 +152,26 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   if (t === 'final.report.ready' || t === 'pptx.report.ready') return { role: 'system', label: 'Argus', glyph: '📄', text: 'report ready', tone: 'accent' };
   if (t === 'plan.completed') return { role: 'planner', label: 'Planner', glyph: '📋', text: 'plan completed', tone: 'accent' };
   if (t === 'daemon.stopping') return { role: 'system', label: 'Daemon', glyph: '🛑', text: 'stopping', tone: 'err' };
+  if (t === 'daemon.parked') {
+    return {
+      role: 'system',
+      label: 'Argus',
+      glyph: 'Ⅱ',
+      text: `session parked · state saved${S(ev, 'replaced_by') ? ` · replaced by ${S(ev, 'replaced_by')}` : ''}`,
+      tone: 'warn',
+      rule: true,
+    };
+  }
+  if (t === 'provider.request.denied') {
+    return {
+      role: 'system',
+      label: 'Quota',
+      glyph: '⏸',
+      text: `${S(ev, 'provider') || 'provider'} request blocked · ${trunc(S(ev, 'reason'), 160)}`,
+      tone: 'warn',
+      rule: true,
+    };
+  }
 
   // ── Guardian (监视守护) — Argus Panoptes keeping watch: the signals that fire
   // when a mission stalls, blocks, escalates, or a role backend fails. These are

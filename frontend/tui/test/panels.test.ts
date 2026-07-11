@@ -11,6 +11,8 @@ import { ThinkingLine } from '../src/components/ThinkingLine.js';
 import { LiveActivity } from '../src/components/LiveActivity.js';
 import { ActivityPane } from '../src/components/ActivityPane.js';
 import { PromptBox } from '../src/components/PromptBox.js';
+import { DaemonReplacementPicker } from '../src/components/DaemonReplacementPicker.js';
+import { CostGauge } from '../src/components/CostGauge.js';
 import type { EventMsg, Snapshot } from '../src/api.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -130,6 +132,66 @@ test('header reports configured work honestly without executor jargon', async ()
   );
   assert.match(output, /queued/);
   assert.doesNotMatch(output, /daemon (?:live|off)/);
+});
+
+test('daemon replacement picker shows running work and state-preservation promise', async () => {
+  const output = await renderNode(
+    React.createElement(DaemonReplacementPicker, {
+      width: 100,
+      state: {
+        targetProject: 's-new',
+        running: [{
+          id: 's-old',
+          label: 'Long benchmark',
+          objective: '',
+          last_active: 1,
+          daemon_alive: true,
+          daemon_pid: 42,
+          uptime_seconds: 120,
+          active_role: 'engineer',
+          activity: 'running held-out benchmark',
+        }],
+        limit: 1,
+        activeCount: 1,
+        selection: 0,
+        resumeContinuous: false,
+        busy: false,
+        error: '',
+      },
+    }),
+    100,
+  );
+  assert.match(output, /Concurrent work limit reached/);
+  assert.match(output, /Long benchmark/);
+  assert.match(output, /running held-out benchmark/);
+  assert.match(output, /checkpoints, skills, and wiki stay/);
+  assert.match(output, /saved\./);
+});
+
+test('request quotas render alongside monetary spend', async () => {
+  const output = await renderNode(
+    React.createElement(CostGauge, {
+      spend: { total: 0, missions: 0, last: 0 },
+      daemon: undefined,
+      width: 120,
+      requestUsage: {
+        day: '2026-07-11',
+        codex: {
+          provider: 'codex', day: '2026-07-11', daily_calls: 12,
+          daily_cap: 300, remaining: 288,
+        },
+        copilot: {
+          provider: 'copilot', day: '2026-07-11', daily_calls: 8,
+          daily_cap: 100, remaining: 92, premium_requests: 2.5,
+          premium_cap: 20, premium_remaining: 17.5,
+        },
+      },
+    }),
+    120,
+  );
+  assert.match(output, /Codex 12\/300/);
+  assert.match(output, /Copilot 8\/100/);
+  assert.match(output, /premium 2\.5\/20/);
 });
 
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {

@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, render, Text } from 'ink';
-import { ApiClient, type CreatedDaemon, type ProjectRow } from './api.js';
+import {
+  ApiClient,
+  type CreatedDaemon,
+  type DaemonStartResult,
+  type ProjectRow,
+} from './api.js';
 import { App } from './App.js';
 import { HELP, parseArgs, type Args } from './args.js';
 import { FirstRun } from './components/FirstRun.js';
@@ -51,6 +56,8 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const launchCwd = process.cwd();
   const [initialNotice, setInitialNotice] = useState('');
+  const [initialAdmission, setInitialAdmission] = useState<DaemonStartResult | undefined>();
+  const [initialResumeContinuous, setInitialResumeContinuous] = useState(false);
   const [note, setNote] = useState('starting backend…');
   const [err, setErr] = useState('');
   const splashDone = useRef(!animate);
@@ -92,7 +99,13 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
         setProjects(resumable);
         if (sid) setProject(sid);
         if (created) {
-          setInitialNotice(`created ${created.sid} · message Argus when ready`);
+          setInitialAdmission(created.start);
+          setInitialResumeContinuous(Boolean(created.objective));
+          setInitialNotice(
+            created.start?.admission_required
+              ? `created ${created.sid} · choose running work to park`
+              : `created ${created.sid} · message Argus when ready`,
+          );
         } else if (selection?.recovered && sid) {
           setInitialNotice(`requested ${selection.requested} not found · attached to ${sid}`);
         }
@@ -118,6 +131,8 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
   const onFirstDaemon = (created: CreatedDaemon) => {
     destination.current = 'live';
     setProject(created.sid);
+    setInitialAdmission(created.start);
+    setInitialResumeContinuous(Boolean(created.objective));
     setInitialNotice(
       created.spawned
         ? `created ${created.sid} · campaign started`
@@ -160,7 +175,17 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
   }
   if (phase === 'empty') return <FirstRun createDaemon={(objective, name) => base.createDaemon(objective, name)} onCreated={onFirstDaemon} />;
   if (phase === 'live' && project) {
-    return <App host={args.host} port={args.port} token={args.token} project={project} initialNotice={initialNotice} />;
+    return (
+      <App
+        host={args.host}
+        port={args.port}
+        token={args.token}
+        project={project}
+        initialNotice={initialNotice}
+        initialAdmission={initialAdmission}
+        initialResumeContinuous={initialResumeContinuous}
+      />
+    );
   }
   return <Connecting note={note} />;
 }

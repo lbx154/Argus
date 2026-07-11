@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 import {
   ApiClient,
   taskDispatchMessage,
+  type DaemonStartResult,
   type ArtifactInfo,
   type EventMsg,
   type ProjectRow,
@@ -58,6 +59,10 @@ import { LiveActivity } from './components/LiveActivity.js';
 import { ActivityPane } from './components/ActivityPane.js';
 import { consumePasteChunk } from './input/paste.js';
 import { transcriptEvents } from './transcript.js';
+import {
+  DaemonReplacementPicker,
+  type DaemonReplacementState,
+} from './components/DaemonReplacementPicker.js';
 
 const MAX_EVENTS = 400;
 const STREAM_RENDER_INTERVAL_MS = 50;
@@ -74,9 +79,37 @@ export interface AppProps {
   token?: string;
   project: string;
   initialNotice?: string;
+  initialAdmission?: DaemonStartResult;
+  initialResumeContinuous?: boolean;
 }
 
-export function App({ host, port, token, project: initialProject, initialNotice = '' }: AppProps) {
+function replacementState(
+  start: DaemonStartResult | undefined,
+  targetProject: string,
+  resumeContinuous: boolean,
+): DaemonReplacementState | null {
+  if (!start?.admission_required || !start.running_daemons?.length) return null;
+  return {
+    targetProject,
+    running: start.running_daemons,
+    limit: start.limit ?? start.running_daemons.length,
+    activeCount: start.active_count ?? start.running_daemons.length,
+    selection: 0,
+    resumeContinuous,
+    busy: false,
+    error: '',
+  };
+}
+
+export function App({
+  host,
+  port,
+  token,
+  project: initialProject,
+  initialNotice = '',
+  initialAdmission,
+  initialResumeContinuous = false,
+}: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const terminal = useTerminalSize();
@@ -98,6 +131,13 @@ export function App({ host, port, token, project: initialProject, initialNotice 
   const [notice, setNotice] = useState(initialNotice);
   const [panel, setPanel] = useState<PanelState | null>(null);
   const [daemonDraft, setDaemonDraft] = useState<NewDaemonDraft | null>(null);
+  const [replacement, setReplacement] = useState<DaemonReplacementState | null>(
+    () => replacementState(
+      initialAdmission,
+      initialProject,
+      initialResumeContinuous,
+    ),
+  );
   const [pendingExit, setPendingExit] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   // A Manager turn in flight → drive the live "thinking" indicator (spinner +
@@ -145,7 +185,59 @@ export function App({ host, port, token, project: initialProject, initialNotice 
     cancelManagerTurn();
     projectRef.current = id;
     setProject(id);
+    setReplacement(null);
     return true;
+  };
+
+  const captureAdmission = (
+    start: DaemonStartResult | undefined,
+    targetProject: string,
+    resumeContinuous: boolean,
+  ) => {
+    const next = replacementState(start, targetProject, resumeContinuous);
+    if (next) setReplacement(next);
+  };
+
+  const replaceRunningDaemon = async () => {
+    if (!replacement || replacement.busy) return;
+    const victim = replacement.running[replacement.selection];
+    if (!victim) return;
+    setReplacement((current) => current ? { ...current, busy: true, error: '' } : current);
+    try {
+      const targetApi = new ApiClient({
+        host,
+        port,
+        project: replacement.targetProject,
+        token,
+      });
+      const result = await targetApi.replaceDaemon(
+        victim.id,
+        replacement.resumeContinuous,
+      );
+      if (result.rc !== 0) {
+        const refreshed = replacementState(
+          result,
+          replacement.targetProject,
+          replacement.resumeContinuous,
+        );
+        setReplacement(
+          refreshed ?? {
+            ...replacement,
+            busy: false,
+            error: result.error || 'could not replace the selected session',
+          },
+        );
+        return;
+      }
+      setReplacement(null);
+      setNotice(`parked ${victim.label || victim.id} · queued work started`);
+    } catch (error) {
+      setReplacement((current) => current ? {
+        ...current,
+        busy: false,
+        error: (error as Error).message,
+      } : current);
+    }
   };
 
   useEffect(() => () => {
@@ -333,8 +425,11 @@ export function App({ host, port, token, project: initialProject, initialNotice 
       setPanel(null);
       setDaemonDraft(null);
       changeProject(created.sid);
+      captureAdmission(created.start, created.sid, Boolean(objective));
       setNotice(
-        created.spawned
+        created.start?.admission_required
+          ? `created ${created.sid} · choose running work to park`
+          : created.spawned
           ? `created ${created.sid} · campaign started`
           : `created ${created.sid} · message Argus when ready`,
       );
@@ -614,7 +709,14 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            if (result.kind === 'task') say(taskDispatchMessage(result));
+            if (result.kind === 'task') {
+              captureAdmission(
+                result.daemon,
+                requestProject,
+                Boolean(result.continuous),
+              );
+              say(taskDispatchMessage(result));
+            }
             else if (!gotDelta) say(result.reply || '(no reply)');
           },
           onError: (err) => {
@@ -633,7 +735,14 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           const result = await api.message(text, controller.signal);
           if (!isCurrent()) return;
           if (result.kind === 'chat' && result.reply) say(result.reply);
-          else if (result.kind === 'task') say(taskDispatchMessage(result));
+          else if (result.kind === 'task') {
+            captureAdmission(
+              result.daemon,
+              requestProject,
+              Boolean(result.continuous),
+            );
+            say(taskDispatchMessage(result));
+          }
           else say(result.reply || '(no response)');
         } catch (error) {
           if (isCurrent()) say(`(couldn’t reach Argus: ${(error as Error).message})`);
@@ -666,6 +775,7 @@ export function App({ host, port, token, project: initialProject, initialNotice 
     if (paste.handled) {
       pasteActiveRef.current = paste.active;
       if (paste.text && !panel) {
+        if (replacement) return;
         if (daemonDraft) {
           const result = daemonFormInput(daemonDraft, paste.text, {});
           setDaemonDraft(result.draft);
@@ -676,6 +786,25 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         if (paste.pasted && paste.text.length > 20) {
           setNotice(`pasted ${Array.from(paste.text).length} chars · Enter to send`);
         }
+      }
+      return;
+    }
+    if (replacement) {
+      if (key.escape) {
+        setReplacement(null);
+        setNotice('new work remains queued');
+      } else if (!replacement.busy && (key.downArrow || input === 'j')) {
+        setReplacement((current) => current ? {
+          ...current,
+          selection: moveSelection(current.selection, current.running.length, 1),
+        } : current);
+      } else if (!replacement.busy && (key.upArrow || input === 'k')) {
+        setReplacement((current) => current ? {
+          ...current,
+          selection: moveSelection(current.selection, current.running.length, -1),
+        } : current);
+      } else if (!replacement.busy && key.return) {
+        void replaceRunningDaemon();
       }
       return;
     }
@@ -919,9 +1048,12 @@ export function App({ host, port, token, project: initialProject, initialNotice 
         spend={computeSpend(events)}
         settledUsd={snap?.spend_usd}
         daemon={snap?.daemon}
+        requestUsage={snap?.request_usage}
         width={terminal.columns}
       />
-      {daemonDraft ? (
+      {replacement ? (
+        <DaemonReplacementPicker state={replacement} width={terminal.columns} />
+      ) : daemonDraft ? (
         <NewDaemonForm draft={daemonDraft} />
       ) : panel ? (
         <PanelView

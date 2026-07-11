@@ -38,6 +38,14 @@ exits non-zero instead of silently changing its target.
 - Type natural language and press Enter to talk to the Manager front door.
 - When the Manager dispatches real work, the background executor starts
   automatically; there are no manual start/stop campaign commands in the TUI.
+- `ARGUS_SKILL_MAX_ACTIVE_DAEMONS` caps concurrent background sessions. When the
+  cap is full, the TUI lists the running sessions and requires an explicit
+  park-and-replace choice; the parked session's backlog, checkpoints, skills,
+  wiki, and event history remain on disk.
+- Codex and Copilot daily request usage is persisted host-wide, emitted into the
+  event stream, and shown live beside monetary spend. Configure the caps with
+  `ARGUS_SKILL_CODEX_DAILY_CALL_CAP` and
+  `ARGUS_SKILL_COPILOT_DAILY_CALL_CAP`.
 - Multiline clipboard paste is supported. The input automatically wraps up to
   four rows around the cursor and shows a character count only when clipped,
   while retaining the complete text sent on Enter.

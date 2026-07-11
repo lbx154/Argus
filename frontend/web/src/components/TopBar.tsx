@@ -106,7 +106,13 @@ export function TopBar({
       </div>
 
       <div className="hidden sm:block">
-        <CostGauge spend={spend} settledUsd={snap.spend_usd} daemon={d} backendLabel={backend} />
+        <CostGauge
+          spend={spend}
+          settledUsd={snap.spend_usd}
+          daemon={d}
+          backendLabel={backend}
+          requestUsage={snap.request_usage}
+        />
       </div>
 
       <div className="flex items-center gap-1.5">

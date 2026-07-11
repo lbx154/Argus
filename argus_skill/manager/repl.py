@@ -1918,7 +1918,8 @@ def _settings_cmd(chat_state: dict[str, Any]) -> None:
     out.append("  " + _p("bold", "Argus runtime settings"))
     out.append("  " + _p("dim",
         "Editable by natural language: model, effort, backend, per-mission cap, "
-        "daily cap, safe_mode, show_reasoning, telegram"))
+        "daily cap, daemon limit, provider request caps, safe_mode, "
+        "show_reasoning, telegram"))
     out.append("  " + _p("dim",
         "Others: export ARGUS_SKILL_*  (full list: argus-skill --config-help)"))
     out.append("")
@@ -3138,6 +3139,24 @@ def _apply_config_intent(
                    else "ARGUS_SKILL_DAILY_CAP_USD")
         _set(env_var, m.group(0))
         _confirm(f"Set {env_var} = {m.group(0)}.")
+        return True
+
+    quota_knobs = {
+        "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+        "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
+        "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+        "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+    }
+    if knob in quota_knobs:
+        m = re.search(r"\d+(?:\.\d+)?", intent.value)
+        if m is None:
+            return False
+        env_var = quota_knobs[knob]
+        from ..core.knobs import normalize_cockpit_knob_value
+
+        value = normalize_cockpit_knob_value(env_var, m.group(0))
+        _set(env_var, value)
+        _confirm(f"Set {env_var} = {value}.")
         return True
 
     if knob in ("safe_mode", "show_reasoning", "telegram"):

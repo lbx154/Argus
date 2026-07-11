@@ -49,7 +49,10 @@ def test_build_snapshot_shape_and_failsoft(tmp_path: Path) -> None:
     _make_project(tmp_path)
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
-    assert set(snap) == {"session", "daemon", "roles", "backlog", "recent_events", "spend_usd"}
+    assert set(snap) == {
+        "session", "daemon", "roles", "backlog", "recent_events", "spend_usd",
+        "request_usage",
+    }
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2

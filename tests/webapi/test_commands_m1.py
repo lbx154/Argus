@@ -82,19 +82,24 @@ def test_post_task_lazy_spawns_daemon(ctx, monkeypatch) -> None:
     assert spawned.get("life_dir") == life.resolve()  # lazy spawn fired (no daemon was alive)
 
 
-def test_start_project_daemon_reclaims_old_idle_slot(tmp_path, monkeypatch) -> None:
+def test_start_project_daemon_returns_replacement_candidates_at_cap(
+    tmp_path, monkeypatch,
+) -> None:
     target = _make_project(tmp_path, "s-target001")
-    idle = _make_project(tmp_path, "s-idle0001")
-    (idle / "session.json").write_text(
-        json.dumps({"id": "s-idle0001", "last_active": 1}),
+    running = _make_project(tmp_path, "s-running01")
+    (running / "session.json").write_text(
+        json.dumps({
+            "id": "s-running01",
+            "display_name": "Existing work",
+            "last_active": 1,
+        }),
         encoding="utf-8",
     )
-    stopped = []
     spawned = []
 
     def fake_status(path):
         path = Path(path)
-        alive = path == idle and not stopped
+        alive = path == running
         return server.DaemonStatus(
             alive=alive,
             pid=123 if alive else None,
@@ -109,20 +114,75 @@ def test_start_project_daemon_reclaims_old_idle_slot(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
     monkeypatch.setattr(
         server,
-        "stop_daemon",
-        lambda path, timeout=10.0: stopped.append(Path(path).name) or 0,
-    )
-    monkeypatch.setattr(
-        server,
         "spawn_detached_daemon",
         lambda config, quiet=True: spawned.append(config.life_dir) or 0,
     )
 
     result = server.start_project_daemon("s-target001", global_root=tmp_path)
+    assert result is not None and result["rc"] == 2
+    assert result["admission_required"] is True
+    assert result["limit"] == 1
+    assert result["active_count"] == 1
+    assert result["running_daemons"][0]["id"] == "s-running01"
+    assert result["running_daemons"][0]["label"] == "Existing work"
+    assert spawned == []
+    assert target.exists()
+
+
+def test_replace_project_daemon_parks_state_then_starts_target(
+    tmp_path, monkeypatch,
+) -> None:
+    target = _make_project(tmp_path, "s-target001")
+    victim = _make_project(tmp_path, "s-victim001")
+    server.enqueue_task("s-victim001", "unfinished work", global_root=tmp_path)
+    running = {"s-victim001"}
+    spawned = []
+
+    def fake_status(path):
+        path = Path(path)
+        alive = path.name in running
+        return server.DaemonStatus(
+            alive=alive,
+            pid=321 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=path,
+            pid_path=path / "daemon.pid",
+        )
+
+    def fake_stop(path, *, timeout=10.0, drain=False, drain_timeout=1800.0, force=False):
+        assert force is True
+        running.discard(Path(path).name)
+        return 0
+
+    def fake_spawn(config, *, quiet=False):
+        running.add(config.life_dir.name)
+        spawned.append(config.life_dir)
+        return 0
+
+    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
+    monkeypatch.setattr(server, "_active_daemon_count", lambda config: len(running))
+    monkeypatch.setattr(server, "stop_daemon", fake_stop)
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+
+    result = server.replace_project_daemon(
+        "s-target001",
+        "s-victim001",
+        global_root=tmp_path,
+    )
     assert result is not None and result["rc"] == 0
-    assert result["reclaimed_session"] == "s-idle0001"
-    assert stopped == ["s-idle0001"]
+    assert result["parked_session"] == "s-victim001"
     assert spawned == [target.resolve()]
+    parked = json.loads((victim / "daemon.parked.json").read_text())
+    assert parked["state_preserved"] is True
+    assert parked["replaced_by"] == "s-target001"
+    assert parked["unfinished_tasks"][0]["title"] == "unfinished work"
+    events = [
+        json.loads(line)
+        for line in (victim / "events.jsonl").read_text().splitlines()
+    ]
+    assert events[-1]["type"] == "daemon.parked"
 
 
 # ── nudge ─────────────────────────────────────────────────────────────────
@@ -279,6 +339,7 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     for path, body in [
         ("tasks", {"text": "x"}), ("nudge", {"text": "x"}),
         ("continuous", {"enabled": False}), ("daemon/start", None), ("daemon/stop", None),
+        ("daemon/replace", {"victim_sid": "s-other"}),
         ("plan", {"text": "x"}), ("identity", {"text": "x"}),
         ("config/set", {"name": "model", "value": "x"}),
         ("skills", {"args": "ls"}), ("reset", None),

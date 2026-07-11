@@ -47,6 +47,7 @@ from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_e
 from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role_activity
 from ..core import paths as core_paths
 from ..core.config_snapshot import build_config_snapshot
+from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.transcript import first_operator_text, read_turns
 from ..daemon.life_worker import (
@@ -66,6 +67,7 @@ from ..tools.doctor import run_diagnostics
 __all__ = [
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
     "enqueue_task", "enqueue_nudge", "start_project_daemon", "stop_project_daemon",
+    "replace_project_daemon", "list_running_daemons",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
     "get_identity", "get_transcript",
@@ -333,6 +335,7 @@ def build_snapshot(
         "backlog": backlog,
         "recent_events": recent,
         "spend_usd": spend_usd,
+        "request_usage": provider_usage_snapshot(root=root),
     }
     if compact:
         try:
@@ -490,39 +493,70 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
 _UNFINISHED_BACKLOG_STATUSES = {"pending", "running", "in_progress", "claimed"}
 
 
-def _reclaim_idle_daemon_slot(root: Path, *, exclude_sid: str) -> str:
-    """Stop the oldest daemon that has no queued/running work or continuous goal."""
-    candidates: list[tuple[float, str, Path]] = []
-    projects = root / "projects"
-    try:
-        project_dirs = list(projects.iterdir())
-    except OSError:
-        return ""
-
-    for life_dir in project_dirs:
-        if not life_dir.is_dir() or life_dir.name == exclude_sid:
+def list_running_daemons(
+    *, global_root: Path | str | None = None, exclude_sid: str = "",
+) -> list[dict[str, Any]]:
+    """Return live daemon sessions with enough context for replacement choice."""
+    root = _global_root(global_root)
+    rows: list[dict[str, Any]] = []
+    for project in list_projects(global_root=root, limit=2000, include_empty=True):
+        sid = str(project.get("id") or "")
+        if not sid or sid == exclude_sid or not project.get("daemon_alive"):
             continue
+        life_dir = root / "projects" / sid
         try:
-            status = read_daemon_status(life_dir)
-            if not status.alive:
-                continue
-            if read_continuous_state(life_dir).enabled:
-                continue
-            if count_pending_inbox_messages(life_dir) > 0:
-                continue
             items = LifeMemory.open(life_dir).backlog.all()
-            if any(item.status in _UNFINISHED_BACKLOG_STATUSES for item in items):
-                continue
-            meta = read_session_meta(root, life_dir.name)
-            age_key = float(meta.last_active if meta is not None else life_dir.stat().st_mtime)
-            candidates.append((age_key, life_dir.name, life_dir))
-        except Exception:  # noqa: BLE001 — one corrupt project must not block admission
-            continue
+        except Exception:  # noqa: BLE001
+            items = []
+        unfinished = [
+            item for item in items if item.status in _UNFINISHED_BACKLOG_STATUSES
+        ]
+        active_item = next(
+            (item for item in unfinished if item.status != "pending"),
+            unfinished[0] if unfinished else None,
+        )
+        try:
+            roles = _roles_list(
+                resolve_all_roles(env=os.environ),
+                role_activity(life_dir),
+            )
+        except Exception:  # noqa: BLE001
+            roles = []
+        active_role = next((role for role in roles if role.get("active")), None)
+        try:
+            continuous = read_continuous_state(life_dir)
+        except Exception:  # noqa: BLE001
+            continuous = None
+        rows.append({
+            **project,
+            "active_role": (active_role or {}).get("role", ""),
+            "activity": (active_role or {}).get("label", ""),
+            "current_task": getattr(active_item, "title", "") or "",
+            "unfinished_tasks": len(unfinished),
+            "continuous_enabled": bool(continuous and continuous.enabled),
+            "continuous_objective": (
+                str(continuous.objective or "") if continuous is not None else ""
+            ),
+        })
+    return rows
 
-    for _age, sid, life_dir in sorted(candidates):
-        if stop_daemon(life_dir, timeout=10.0) in {0, 1}:
-            return sid
-    return ""
+
+def _admission_required(
+    *, root: Path, sid: str, limit: int, active_count: int,
+) -> dict[str, Any]:
+    running = list_running_daemons(global_root=root, exclude_sid=sid)
+    return {
+        "rc": 2,
+        "already_alive": False,
+        "admission_required": True,
+        "limit": limit,
+        "active_count": active_count,
+        "error": (
+            f"active daemon limit {limit} reached; choose one running session "
+            "to park before starting this work"
+        ),
+        "running_daemons": running,
+    }
 
 
 def start_project_daemon(
@@ -545,21 +579,18 @@ def start_project_daemon(
             config.continuous = True
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
-    reclaimed = ""
     daemon_limit = _max_active_daemons(config)
     active_count = _active_daemon_count(config)
     if daemon_limit > 0 and active_count >= daemon_limit:
-        reclaimed = _reclaim_idle_daemon_slot(root, exclude_sid=sid)
-        if not reclaimed:
-            return {
-                "rc": 2,
-                "already_alive": False,
-                "error": (
-                    f"background executor limit {daemon_limit} reached "
-                    "and no idle session could be reclaimed"
-                ),
-                "daemon": _daemon_dict(read_daemon_status(life_dir)),
-            }
+        return {
+            **_admission_required(
+                root=root,
+                sid=sid,
+                limit=daemon_limit,
+                active_count=active_count,
+            ),
+            "daemon": _daemon_dict(read_daemon_status(life_dir)),
+        }
     try:
         rc = spawn_detached_daemon(config, quiet=True)
     except Exception as exc:  # noqa: BLE001 — return an actionable API result
@@ -567,7 +598,6 @@ def start_project_daemon(
             "rc": 2,
             "already_alive": False,
             "error": f"background executor failed to start: {type(exc).__name__}: {exc}",
-            "reclaimed_session": reclaimed,
             "daemon": _daemon_dict(read_daemon_status(life_dir)),
         }
     result = {
@@ -575,11 +605,130 @@ def start_project_daemon(
         "already_alive": False,
         "daemon": _daemon_dict(read_daemon_status(life_dir)),
     }
-    if reclaimed:
-        result["reclaimed_session"] = reclaimed
     if rc != 0:
+        active_count = _active_daemon_count(config)
+        if daemon_limit > 0 and active_count >= daemon_limit:
+            return {
+                **_admission_required(
+                    root=root,
+                    sid=sid,
+                    limit=daemon_limit,
+                    active_count=active_count,
+                ),
+                "daemon": _daemon_dict(read_daemon_status(life_dir)),
+            }
         result["error"] = f"background executor failed to start (rc={rc})"
     return result
+
+
+def _write_parked_state(
+    victim_dir: Path,
+    *,
+    victim_sid: str,
+    target_sid: str,
+    previous_pid: int | None,
+) -> None:
+    try:
+        items = LifeMemory.open(victim_dir).backlog.all()
+        unfinished = [
+            {
+                "id": item.id,
+                "title": item.title,
+                "status": item.status,
+            }
+            for item in items
+            if item.status in _UNFINISHED_BACKLOG_STATUSES
+        ]
+    except Exception:  # noqa: BLE001
+        unfinished = []
+    payload = {
+        "version": 1,
+        "parked_at": time.time(),
+        "session_id": victim_sid,
+        "replaced_by": target_sid,
+        "previous_pid": previous_pid,
+        "unfinished_tasks": unfinished,
+        "state_preserved": True,
+    }
+    path = victim_dir / "daemon.parked.json"
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+    try:
+        from ..life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=victim_dir).append({
+            "type": "daemon.parked",
+            "replaced_by": target_sid,
+            "previous_pid": previous_pid,
+            "unfinished_tasks": unfinished,
+            "state_preserved": True,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_DAEMON_REPLACEMENT_LOCK = threading.Lock()
+
+
+def replace_project_daemon(
+    sid: str,
+    victim_sid: str,
+    *,
+    global_root: Path | str | None = None,
+    resume_continuous: bool = False,
+) -> dict[str, Any] | None:
+    """Park one live daemon, preserve its state, and start the queued target."""
+    root = _global_root(global_root)
+    target_dir = project_life_dir(sid, global_root=root)
+    victim_dir = project_life_dir(victim_sid, global_root=root)
+    if target_dir is None or victim_dir is None:
+        return None
+    if sid == victim_sid:
+        return {"rc": 2, "error": "target and replacement victim are the same session"}
+
+    with _DAEMON_REPLACEMENT_LOCK:
+        victim_status = read_daemon_status(victim_dir)
+        if not victim_status.alive:
+            return {
+                "rc": 2,
+                "error": f"session {victim_sid} is no longer running; refresh the list",
+            }
+        stop_rc = stop_daemon(victim_dir, timeout=2.0, force=True)
+        if stop_rc not in {0, 1}:
+            return {
+                "rc": 2,
+                "error": f"could not park {victim_sid} (stop rc={stop_rc})",
+            }
+        deadline = time.monotonic() + 5.0
+        while read_daemon_status(victim_dir).alive and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if read_daemon_status(victim_dir).alive:
+            return {
+                "rc": 2,
+                "error": f"session {victim_sid} did not release its daemon slot",
+            }
+        _write_parked_state(
+            victim_dir,
+            victim_sid=victim_sid,
+            target_sid=sid,
+            previous_pid=victim_status.pid,
+        )
+        started = start_project_daemon(
+            sid,
+            global_root=root,
+            resume_continuous=resume_continuous,
+        )
+        if started is None:
+            return None
+        return {
+            **started,
+            "parked_session": victim_sid,
+            "parked_state": str(victim_dir / "daemon.parked.json"),
+        }
 
 
 def create_daemon(
@@ -594,9 +743,11 @@ def create_daemon(
     its OWN objective and dispatch a mission). The daemon spawns lazily on the
     first real task (via POST /message), so an empty daemon leaves no idle
     executor. When an objective IS given, it's armed as a self-directed campaign
-    and the daemon starts immediately (the web equivalent of ``--new
-    --continuous --objective``). Blocking-ish (fs + fork) — call from a
-    threadpool. Returns the new sid + daemon status.
+    and the daemon starts immediately when admission capacity is available (the
+    web equivalent of ``--new --continuous --objective``). At the host-wide
+    daemon cap, the session and objective stay persisted and the response carries
+    replacement candidates for an explicit operator choice. Blocking-ish (fs +
+    fork) — call from a threadpool. Returns the new sid + daemon status.
     """
     import time as _time
 
@@ -617,28 +768,31 @@ def create_daemon(
     )
     life_dir.mkdir(parents=True, exist_ok=True)
 
-    rc = 0
-    spawned = False
+    start_result: dict[str, Any] | None = None
     if obj:
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
         write_continuous_config(life_dir, enabled=True, objective=obj)
-        config = _worker_config_from_env(life_dir, root)
-        config.continuous = True
-        config.continuous_objective = obj
-        config.resume_continuous = True
-        rc = spawn_detached_daemon(config, quiet=True)
-        spawned = True
+        start_result = start_project_daemon(
+            sid,
+            global_root=root,
+            resume_continuous=True,
+        )
     # else: idle session — no continuous, no eager spawn. The Manager (via
     # /message) writes objectives and lazily spawns the executor when needed.
 
-    return {
+    daemon = _daemon_dict(read_daemon_status(life_dir))
+    rc = int((start_result or {}).get("rc") or 0)
+    response = {
         "sid": sid,
         "rc": rc,
-        "spawned": spawned,
-        "daemon": _daemon_dict(read_daemon_status(life_dir)),
+        "spawned": bool(start_result is not None and rc == 0),
+        "daemon": daemon,
         "objective": obj,
     }
+    if start_result is not None:
+        response["start"] = start_result
+    return response
 
 
 def set_project_launch_cwd(
@@ -737,6 +891,7 @@ def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
         "daemon": daemon,
         "roles": roles,
         "active_role": active,
+        "request_usage": provider_usage_snapshot(root=_global_root(global_root)),
     }
 
 
@@ -1109,6 +1264,11 @@ _CONFIG_ALIASES = {
     "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
     "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
     "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+    "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+    "daemon_limit": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+    "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
+    "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+    "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
     "safe_mode": "ARGUS_SKILL_SAFE_MODE",
     "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
     "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
@@ -1322,6 +1482,10 @@ def create_app(
     class _StopIn(BaseModel):
         drain: bool = False
         force: bool = False
+
+    class _ReplaceDaemonIn(BaseModel):
+        victim_sid: str
+        resume_continuous: bool = False
 
     class _ContinuousIn(BaseModel):
         enabled: bool
@@ -1595,6 +1759,19 @@ def create_app(
             await run_in_threadpool(
                 stop_project_daemon, sid, drain=b.drain, force=b.force, global_root=global_root
             ), sid,
+        )
+
+    @app.post("/api/projects/{sid}/daemon/replace", dependencies=[Depends(_require_auth)])
+    async def _daemon_replace(sid: str, body: _ReplaceDaemonIn) -> dict[str, Any]:
+        return _404_if_none(
+            await run_in_threadpool(
+                replace_project_daemon,
+                sid,
+                body.victim_sid,
+                global_root=global_root,
+                resume_continuous=body.resume_continuous,
+            ),
+            sid,
         )
 
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])

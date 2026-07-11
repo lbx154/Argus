@@ -69,6 +69,20 @@ def test_daily_cap_global() -> None:
     assert intent == ConfigIntent(knob="daily_cap", roles=(), value="200")
 
 
+@pytest.mark.parametrize(
+    ("knob", "value"),
+    [
+        ("max_daemons", "4"),
+        ("codex_daily_requests", "250"),
+        ("copilot_daily_requests", "180"),
+        ("copilot_daily_premium", "75"),
+    ],
+)
+def test_daemon_and_provider_quota_globals(knob: str, value: str) -> None:
+    intent = classify_config_intent("x", run_exec=_exec(f"SET {knob} - {value}"))
+    assert intent == ConfigIntent(knob=knob, roles=(), value=value)
+
+
 @pytest.mark.parametrize("knob", ["safe_mode", "show_reasoning", "telegram"])
 def test_toggles_global(knob: str) -> None:
     intent = classify_config_intent("x", run_exec=_exec(f"SET {knob} - on"))
@@ -130,8 +144,11 @@ def test_value_quotes_are_stripped() -> None:
 
 def test_prompt_lists_all_knobs() -> None:
     prompt = build_config_intent_prompt("switch engineer to claude")
-    for knob in ("backend", "model", "effort", "per_mission_cap",
-                 "daily_cap", "safe_mode", "show_reasoning", "telegram"):
+    for knob in (
+        "backend", "model", "effort", "per_mission_cap", "daily_cap",
+        "max_daemons", "codex_daily_requests", "copilot_daily_requests",
+        "copilot_daily_premium", "safe_mode", "show_reasoning", "telegram",
+    ):
         assert knob in prompt
     assert "NONE" in prompt
 

@@ -63,6 +63,28 @@ test('renderEvent surfaces ANY operator_alert event loud, even an unknown type',
   assert.ok(r?.text.includes('look here'));
 });
 
+test('parked daemon events explain that state was preserved', () => {
+  const rendered = renderEvent({
+    type: 'daemon.parked',
+    replaced_by: 's-new',
+    state_preserved: true,
+  });
+  assert.equal(rendered?.tone, 'warn');
+  assert.match(rendered?.text ?? '', /state saved/);
+  assert.match(rendered?.text ?? '', /s-new/);
+});
+
+test('provider quota denial is visible in the default feed', () => {
+  const rendered = renderEvent({
+    type: 'provider.request.denied',
+    provider: 'codex',
+    reason: 'global Codex daily call cap 300 reached',
+  });
+  assert.equal(rendered?.tone, 'warn');
+  assert.match(rendered?.text ?? '', /codex request blocked/);
+  assert.match(rendered?.text ?? '', /daily call cap/);
+});
+
 test('renderEvent accepts round and round_index lifecycle schemas', () => {
   assert.equal(
     renderEvent({ type: 'round.start', round: 1 } as never)?.text,
@@ -150,6 +172,50 @@ test('task dispatch reports executor admission failures instead of claiming work
     }),
     '→ queued but not running: background executor limit 2 reached',
   );
+  assert.equal(
+    taskDispatchMessage({
+      kind: 'task',
+      item: {
+        id: 'y', title: 'new experiment', objective: '', status: 'pending',
+        priority: 1, max_cost_usd: 5,
+      },
+      daemon: {
+        rc: 2,
+        admission_required: true,
+        limit: 2,
+        active_count: 2,
+        running_daemons: [],
+      },
+    }),
+    '→ queued: choose one running session to park before starting new experiment',
+  );
+});
+
+test('Ink can park a selected daemon and start the queued target', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = '';
+  let seenBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(input);
+    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      rc: 0,
+      parked_session: 's-old',
+      daemon: { alive: true, pid: 42 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-new' });
+    const result = await api.replaceDaemon('s-old', true);
+    assert.equal(result.rc, 0);
+    assert.match(seenUrl, /\/api\/projects\/s-new\/daemon\/replace$/);
+    assert.deepEqual(seenBody, {
+      victim_sid: 's-old',
+      resume_continuous: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('Ink can create a global daemon with auth, name, and objective', async () => {

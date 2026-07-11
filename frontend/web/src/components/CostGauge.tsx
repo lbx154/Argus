@@ -1,6 +1,6 @@
 import { fraction, type Spend } from '../lib/cost';
 import { money } from '../lib/format';
-import type { Daemon } from '../api';
+import type { Daemon, RequestUsage } from '../api';
 
 /**
  * Spend gauge. The authoritative total is the daemon's journaled settled spend
@@ -13,11 +13,13 @@ export function CostGauge({
   settledUsd,
   daemon,
   backendLabel,
+  requestUsage,
 }: {
   spend: Spend;
   settledUsd: number | undefined;
   daemon: Daemon | undefined;
   backendLabel?: string;
+  requestUsage?: RequestUsage;
 }) {
   const cap = daemon?.per_mission_cap_usd ?? null;
   const daily = daemon?.daily_cap_usd ?? null;
@@ -46,6 +48,12 @@ export function CostGauge({
           {isCopilot ? `${reqs} premium req${reqs === 1 ? '' : 's'}` : 'spent'}
           {daily ? ` · cap ${money(daily)}/d` : ''}
         </span>
+        {requestUsage ? (
+          <span className="text-[10px] tabular-nums text-ink-faint">
+            C {requestUsage.codex.daily_calls}/{requestUsage.codex.daily_cap || '∞'}
+            {' · '}P {requestUsage.copilot.daily_calls}/{requestUsage.copilot.daily_cap || '∞'}
+          </span>
+        ) : null}
       </div>
       {cap ? (
         <div className="flex flex-col gap-1">

@@ -246,6 +246,10 @@ class CopilotPermit:
     root: Path
     slot: BinaryIO | None = None
     guarded: bool = True
+    daily_calls: int = 0
+    daily_cap: int = 0
+    premium_requests_today: float = 0.0
+    premium_cap: float = 0.0
     _finished: bool = False
 
     def finish(
@@ -304,7 +308,21 @@ class CopilotPermit:
 def acquire_copilot_permit(run_label: str) -> CopilotPermit:
     root = global_root()
     if not copilot_guard_enabled():
-        return CopilotPermit(True, "", run_label, root, guarded=False)
+        return CopilotPermit(
+            True,
+            "",
+            run_label,
+            root,
+            guarded=False,
+            daily_cap=_int_setting(
+                "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+                _DEFAULT_DAILY_CALL_CAP,
+            ),
+            premium_cap=_float_setting(
+                "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+                _DEFAULT_DAILY_PREMIUM_CAP,
+            ),
+        )
 
     slot, slot_error = _acquire_slot(root)
     if slot_error:
@@ -385,7 +403,17 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 "premium_requests_today": state.get("premium_requests", 0.0),
             },
         )
-        return CopilotPermit(True, "", run_label, root, slot=slot)
+        return CopilotPermit(
+            True,
+            "",
+            run_label,
+            root,
+            slot=slot,
+            daily_calls=int(state["daily_calls"]),
+            daily_cap=daily_cap,
+            premium_requests_today=float(state.get("premium_requests") or 0.0),
+            premium_cap=premium_cap,
+        )
     finally:
         _unlock_state(lock)
 
@@ -417,13 +445,36 @@ def trip_copilot_guard(
         _unlock_state(lock)
 
 
-def copilot_guard_snapshot() -> dict[str, Any]:
-    root = global_root()
+def copilot_guard_snapshot(*, root: Path | None = None) -> dict[str, Any]:
+    root = root or global_root()
     lock = _lock_state(root)
     try:
-        return dict(_load_state(root / _STATE_FILE))
+        state = dict(_load_state(root / _STATE_FILE))
     finally:
         _unlock_state(lock)
+    daily_cap = _int_setting(
+        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+        _DEFAULT_DAILY_CALL_CAP,
+    )
+    premium_cap = _float_setting(
+        "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+        _DEFAULT_DAILY_PREMIUM_CAP,
+    )
+    daily_calls = int(state.get("daily_calls") or 0)
+    premium = float(state.get("premium_requests") or 0.0)
+    state.update(
+        {
+            "daily_call_cap": daily_cap,
+            "daily_calls_remaining": (
+                max(0, daily_cap - daily_calls) if daily_cap > 0 else None
+            ),
+            "daily_premium_cap": premium_cap,
+            "premium_requests_remaining": (
+                max(0.0, premium_cap - premium) if premium_cap > 0 else None
+            ),
+        }
+    )
+    return state
 
 
 __all__ = [

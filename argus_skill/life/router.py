@@ -213,7 +213,17 @@ def _first_alpha_token(text: str) -> str:
 
 _CONFIG_ROLE_KNOBS = frozenset({"backend", "model", "effort"})
 _CONFIG_GLOBAL_KNOBS = frozenset(
-    {"per_mission_cap", "daily_cap", "safe_mode", "show_reasoning", "telegram"}
+    {
+        "per_mission_cap",
+        "daily_cap",
+        "max_daemons",
+        "codex_daily_requests",
+        "copilot_daily_requests",
+        "copilot_daily_premium",
+        "safe_mode",
+        "show_reasoning",
+        "telegram",
+    }
 )
 _CONFIG_KNOBS = _CONFIG_ROLE_KNOBS | _CONFIG_GLOBAL_KNOBS
 _CONFIG_ROLES = frozenset({"manager", "planner", "engineer", "reviewer"})
@@ -246,6 +256,10 @@ def build_config_intent_prompt(text: str) -> str:
         'current run ("这轮就给 200", "for this mission only", "this run gets '
         '$50") is a per-mission TASK constraint, NOT a settings write — answer NONE.\n'
         "    daily_cap       — the STANDING default USD cap per local day (a dollar amount)\n"
+        "    max_daemons     — maximum background daemons running at once (non-negative integer)\n"
+        "    codex_daily_requests — host-wide Codex provider-call cap per local day\n"
+        "    copilot_daily_requests — host-wide Copilot provider-call cap per local day\n"
+        "    copilot_daily_premium — host-wide Copilot premium-request cap per local day\n"
         "    safe_mode       — extra-conservative guardrails: on | off\n"
         "    show_reasoning  — stream the agent's reasoning to the cockpit: on | off\n"
         "    telegram        — the Telegram notification bridge: on | off\n\n"
@@ -260,7 +274,8 @@ def build_config_intent_prompt(text: str) -> str:
         "If it IS a settings-change request, reply with EXACTLY one line:\n"
         "SET <knob> <roles> <value>\n"
         "  <knob>  = backend | model | effort | per_mission_cap | daily_cap | "
-        "safe_mode | show_reasoning | telegram\n"
+        "max_daemons | codex_daily_requests | copilot_daily_requests | "
+        "copilot_daily_premium | safe_mode | show_reasoning | telegram\n"
         "  <roles> = for backend/model/effort: a comma-separated list drawn from "
         "manager,planner,engineer,reviewer, or the word ALL when the operator "
         "does not name a specific role. For the GLOBAL knobs ALWAYS use a single "
@@ -374,6 +389,10 @@ def build_front_door_prompt(text: str) -> str:
         '200", "for this mission only") is a TASK constraint, NOT a settings '
         "write — CONFIG is NONE.\n"
         "    daily_cap       — the STANDING default USD cap per local day\n"
+        "    max_daemons     — maximum background daemons running at once\n"
+        "    codex_daily_requests — host-wide Codex provider-call cap per day\n"
+        "    copilot_daily_requests — host-wide Copilot provider-call cap per day\n"
+        "    copilot_daily_premium — host-wide Copilot premium-request cap per day\n"
         "    safe_mode       — extra-conservative guardrails: on | off\n"
         "    show_reasoning  — stream the agent's reasoning to the cockpit: on | off\n"
         "    telegram        — the Telegram notification bridge: on | off\n"
@@ -394,7 +413,9 @@ def build_front_door_prompt(text: str) -> str:
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
-        "daily_cap | safe_mode | show_reasoning | telegram; <roles> = a "
+        "daily_cap | max_daemons | codex_daily_requests | "
+        "copilot_daily_requests | copilot_daily_premium | safe_mode | "
+        "show_reasoning | telegram; <roles> = a "
         "comma-separated list from manager,planner,engineer,reviewer or ALL "
         "(role knobs), or a single dash - (global knobs); <value> = the target "
         "verbatim (backend name / model id / effort / dollar amount / on | off).\n\n"

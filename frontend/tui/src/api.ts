@@ -5,6 +5,7 @@ import type {
   Daemon,
   EventMsg,
   ProjectRow,
+  RequestUsage,
   Role,
   Snapshot,
 } from '../../core/src/types.js';
@@ -16,6 +17,7 @@ export type {
   Daemon,
   EventMsg,
   ProjectRow,
+  RequestUsage,
   Role,
   Snapshot,
 } from '../../core/src/types.js';
@@ -47,6 +49,7 @@ export interface StatusView {
   daemon: Daemon;
   roles: Role[];
   active_role: string | null;
+  request_usage?: RequestUsage;
 }
 
 export interface DoctorCheck {
@@ -93,6 +96,7 @@ export interface CreatedDaemon {
   spawned: boolean;
   daemon: Daemon;
   objective: string;
+  start?: DaemonStartResult;
 }
 
 export interface PlanPreview {
@@ -105,8 +109,13 @@ export interface DaemonStartResult {
   rc: number;
   already_alive?: boolean;
   error?: string;
-  reclaimed_session?: string;
   daemon?: Daemon;
+  admission_required?: boolean;
+  limit?: number;
+  active_count?: number;
+  running_daemons?: ProjectRow[];
+  parked_session?: string;
+  parked_state?: string;
 }
 
 /** One decoded SSE frame from the streaming Manager endpoint. */
@@ -126,6 +135,9 @@ export interface StreamDone {
 
 export function taskDispatchMessage(result: StreamDone): string {
   const title = result.item?.title || 'new mission';
+  if (result.daemon?.admission_required) {
+    return `→ queued: choose one running session to park before starting ${title}`;
+  }
   if (result.daemon && result.daemon.rc !== 0) {
     return `→ queued but not running: ${result.daemon.error || 'background executor failed to start'}`;
   }
@@ -194,6 +206,14 @@ export class ApiClient {
     });
     await ensureResponseOk(r, 'POST', path);
     return (await r.json()) as CreatedDaemon;
+  }
+
+  async replaceDaemon(victimSid: string, resumeContinuous = false): Promise<DaemonStartResult> {
+    const result = await this.post('/daemon/replace', {
+      victim_sid: victimSid,
+      resume_continuous: resumeContinuous,
+    });
+    return result as unknown as DaemonStartResult;
   }
 
   async setProjectLaunchCwd(project: string, launchCwd: string): Promise<void> {

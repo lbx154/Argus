@@ -102,3 +102,19 @@ def test_guard_accounting_failure_is_fail_soft(monkeypatch, tmp_path) -> None:
     )
 
     permit.finish(premium_requests=1.0, success=True)
+
+
+def test_snapshot_exposes_operator_caps(monkeypatch, tmp_path) -> None:
+    _enable(monkeypatch, tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "9")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "12")
+
+    permit = acquire_copilot_permit("engineer")
+    permit.finish(premium_requests=2.5, success=True)
+    snapshot = copilot_guard_snapshot()
+
+    assert snapshot["daily_calls"] == 1
+    assert snapshot["daily_call_cap"] == 9
+    assert snapshot["daily_calls_remaining"] == 8
+    assert snapshot["daily_premium_cap"] == 12
+    assert snapshot["premium_requests_remaining"] == 9.5

@@ -10,6 +10,7 @@ import type {
   Daemon,
   EventMsg,
   ProjectRow,
+  RequestUsage,
   Role,
   Snapshot,
 } from '../../core/src/types';
@@ -21,6 +22,7 @@ export type {
   Daemon,
   EventMsg,
   ProjectRow,
+  RequestUsage,
   Role,
   Snapshot,
 } from '../../core/src/types';
@@ -45,6 +47,7 @@ export interface StatusView {
   daemon: Daemon;
   roles: Role[];
   active_role: string | null;
+  request_usage?: RequestUsage;
 }
 export interface DoctorCheck {
   name: string;

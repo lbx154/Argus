@@ -102,11 +102,13 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "USD cap per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-wide USD cap across all projects per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100", "host-wide Copilot premium-request cap per local day", "budget"),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget"),
+    Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
+    Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "60", "host-wide Copilot provider-call cap per rolling hour", "budget"),
     Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "2", "maximum concurrent Copilot calls across all Argus projects", "budget"),
-    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "2", "host-wide active daemon cap", "budget"),
+    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "2", "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
@@ -155,6 +157,16 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",
     }
+)
+_NON_NEGATIVE_INT_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
+        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+        "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+    }
+)
+_NON_NEGATIVE_FLOAT_KNOBS = frozenset(
+    {"ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP"}
 )
 _SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
 _TRUE_VALUES = frozenset(
@@ -236,6 +248,17 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         raise ValueError("config value cannot be empty")
     if name in BUDGET_KNOB_DEFAULTS:
         number = _parse_budget_value(name, raw.removeprefix("$"))
+        return f"{number:g}"
+    if name in _NON_NEGATIVE_INT_KNOBS:
+        try:
+            number = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a non-negative integer") from exc
+        if number < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+        return str(number)
+    if name in _NON_NEGATIVE_FLOAT_KNOBS:
+        number = _parse_budget_value(name, raw)
         return f"{number:g}"
     if name in _BACKEND_KNOBS:
         backend = raw.lower()
