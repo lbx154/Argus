@@ -91,6 +91,16 @@ class RunnerResult:
     # Copilot 以「高级请求数」计费而非 token（它不报输入 token），故这是 copilot 的
     # 原生成本单位——本次调用的增量（适配层已按线程去累计）。codex/claude 恒为 0.0。
     premium_requests: float = 0.0
+    # Stable call identity and usage-presence metadata.  Zero-valued token fields
+    # alone cannot distinguish a real zero from a provider that omitted usage.
+    call_id: str = ""
+    input_tokens_present: bool = False
+    cached_input_tokens_present: bool = False
+    output_tokens_present: bool = False
+    reasoning_output_tokens_present: bool = False
+    premium_requests_present: bool = False
+    pricing_status: str = ""
+    cost_usd: float | None = None
 
     @property
     def last_agent_message(self) -> str:

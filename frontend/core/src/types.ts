@@ -103,7 +103,23 @@ export interface Snapshot {
   roles: Role[];
   backlog: BacklogItem[];
   recent_events: EventMsg[];
-  spend_usd?: number;
+  spend_usd?: number | null;
+  spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  usage_summary?: {
+    call_count: number;
+    known_cost_usd: number;
+    cost_usd: number | null;
+    pricing_status: string;
+    priced_calls: number;
+    partial_calls: number;
+    unpriced_calls: number;
+    not_billed_calls: number;
+    input_tokens: number;
+    cached_input_tokens: number;
+    output_tokens: number;
+    reasoning_output_tokens: number;
+    premium_requests: number;
+  };
   request_usage?: RequestUsage;
   daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */

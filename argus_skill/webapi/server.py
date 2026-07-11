@@ -50,6 +50,7 @@ from ..core.config_snapshot import build_config_snapshot
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.transcript import first_operator_text, read_turns
+from ..core.usage import UsageSummary, project_usage_summary
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
@@ -77,8 +78,7 @@ __all__ = [
 ]
 
 EVENT_FILE = "events.jsonl"
-_SPEND_CACHE_TTL_SECONDS = 30.0
-_SPEND_CACHE: dict[str, tuple[float, float]] = {}
+_SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
 _JOURNAL_TAIL_CACHE: dict[
     tuple[str, int],
@@ -237,26 +237,36 @@ def _compact_backlog_item(item: Any) -> dict[str, Any]:
     }
 
 
-def _settled_spend(mem: LifeMemory | None, life_dir: Path) -> float:
-    """Bound the cost of deriving all-history spend from a large event log.
-
-    EventJournal is intentionally canonical, but reconstructing years of rows on
-    every 4–5 second UI poll is wasteful. A short process-local TTL preserves the
-    same authority while keeping the live cockpit responsive.
-    """
-    if mem is None:
-        return 0.0
+def _settled_spend(mem: LifeMemory | None, life_dir: Path) -> UsageSummary:  # noqa: ARG001
+    """Read the call ledger; lifecycle events are never summed for spend."""
     key = str(life_dir.resolve())
-    now = time.monotonic()
+    signature = _stat_signature(life_dir / "usage.jsonl")
     with _SPEND_CACHE_LOCK:
         cached = _SPEND_CACHE.get(key)
-        if cached is not None and now - cached[0] < _SPEND_CACHE_TTL_SECONDS:
+        if cached is not None and cached[0] == signature:
             return cached[1]
         try:
-            total = float(mem.journal.total_cost_since(0))
+            total = project_usage_summary(life_dir)
         except Exception:  # noqa: BLE001
-            total = 0.0
-        _SPEND_CACHE[key] = (now, total)
+            total = UsageSummary(
+                call_count=0,
+                known_cost_usd=0.0,
+                cost_usd=None,
+                pricing_status="empty",
+                priced_calls=0,
+                partial_calls=0,
+                unpriced_calls=0,
+                not_billed_calls=0,
+                input_tokens=0,
+                cached_input_tokens=0,
+                output_tokens=0,
+                reasoning_output_tokens=0,
+                premium_requests=0.0,
+            )
+        _SPEND_CACHE[key] = (
+            _stat_signature(life_dir / "usage.jsonl"),
+            total,
+        )
         return total
 
 
@@ -317,11 +327,9 @@ def build_snapshot(
         backlog = []
         mem = None
 
-    # Authoritative settled spend for THIS project — the daemon journals the
-    # per-mission cost_usd (engineer + reviewer + scientist + util + copilot),
-    # so total_cost_since(0) is the real total across the whole history (not the
-    # streamed buffer). Cheap: the journal is distilled, not the raw event log.
-    spend_usd = _settled_spend(mem, life_dir)
+    # Authoritative call-level spend for this project. Legacy event/journal
+    # aggregates are migrated once; live totals come only from usage.jsonl.
+    spend = _settled_spend(mem, life_dir)
 
     try:
         recent = _read_recent_project_events(life_dir, limit=events_limit)
@@ -334,7 +342,9 @@ def build_snapshot(
         "roles": roles,
         "backlog": backlog,
         "recent_events": recent,
-        "spend_usd": spend_usd,
+        "spend_usd": spend.cost_usd,
+        "spend_status": spend.pricing_status,
+        "usage_summary": spend.to_jsonable(),
         "request_usage": provider_usage_snapshot(root=root),
     }
     admission = _read_daemon_admission(life_dir)

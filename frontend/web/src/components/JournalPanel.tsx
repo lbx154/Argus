@@ -21,6 +21,15 @@ export function JournalPanel({ entries }: { entries: JournalEntry[] }) {
         {entries.length === 0 && <EmptyHint>no journal entries yet</EmptyHint>}
         {newestFirst.map((e) => {
           const color = KIND_COLOR[e.kind] ?? '#8a93a6';
+          const pricingStatus = String(e.extra?.pricing_status ?? '');
+          const rawCost = e.extra && Object.prototype.hasOwnProperty.call(e.extra, 'cost_usd')
+            ? e.extra.cost_usd
+            : e.cost_usd;
+          const costLabel = typeof rawCost === 'number' && rawCost > 0
+            ? `${money(rawCost)}${pricingStatus === 'partial' || pricingStatus === 'unpriced' ? '+' : ''}`
+            : pricingStatus === 'partial' || pricingStatus === 'unpriced'
+            ? pricingStatus
+            : '';
           return (
             <div key={e.id} className="border-b border-line/60 px-3 py-2 last:border-0">
               <div className="flex items-center gap-1.5">
@@ -38,9 +47,7 @@ export function JournalPanel({ entries }: { entries: JournalEntry[] }) {
                     {t}
                   </span>
                 ))}
-                {typeof e.cost_usd === 'number' && e.cost_usd > 0 && (
-                  <span className="ml-auto text-[10px] text-ink-faint">{money(e.cost_usd)}</span>
-                )}
+                {costLabel ? <span className="ml-auto text-[10px] text-ink-faint">{costLabel}</span> : null}
               </div>
             </div>
           );

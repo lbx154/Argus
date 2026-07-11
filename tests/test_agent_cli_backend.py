@@ -161,9 +161,11 @@ def _make_argus_result(
 
 
 def test_run_exec_translates_options_and_result(
+    tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=tmp_path / ".argus")
     captured: dict[str, Any] = {}
 
     def fake_run_exec(
@@ -204,7 +206,7 @@ def test_run_exec_translates_options_and_result(
     options = RunnerOptions(
         model="gpt-5.4-mini",
         reasoning_effort="high",
-        working_dir="/tmp/wd",
+        working_dir=str(tmp_path),
         extra_args=["-c", "config_profile=tb"],
         full_auto=True,
         skip_git_repo_check=True,
@@ -222,7 +224,7 @@ def test_run_exec_translates_options_and_result(
     forwarded = captured["options"]
     assert forwarded.model == "gpt-5.4-mini"
     assert forwarded.reasoning_effort == "high"
-    assert forwarded.working_dir == "/tmp/wd"
+    assert forwarded.working_dir == str(tmp_path)
     assert forwarded.extra_args == ["-c", "config_profile=tb"]
     assert forwarded.full_auto is True
     assert forwarded.skip_git_repo_check is True
@@ -242,6 +244,52 @@ def test_run_exec_translates_options_and_result(
     assert result.input_tokens == 250
     assert result.cached_input_tokens == 25
     assert result.output_tokens == 75
+    usage_rows = [
+        json.loads(line)
+        for line in (tmp_path / ".argus" / "usage.jsonl").read_text().splitlines()
+    ]
+    assert len(usage_rows) == 1
+    assert usage_rows[0]["call_id"] == result.call_id
+
+
+def test_completed_run_exec_counts_after_mission_process_is_killed(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(project / "events.jsonl"))
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, mission_id="mission-killed")
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        return _make_argus_result(
+            json_events=[
+                {
+                    "type": "token_count",
+                    "input_tokens": 1000,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 100,
+                }
+            ],
+            thread_id="kill-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    result = backend.run_exec(
+        prompt="complete one call",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="engineer-r1",
+    )
+
+    # No life.mission.completed event is written: this models SIGKILL after the
+    # completed call returned. The daily aggregate still reads the durable call.
+    from argus_skill.life.supervisor import global_daily_spend
+
+    assert result.cost_usd == pytest.approx(0.008)
+    assert global_daily_spend(global_root=root) == pytest.approx(result.cost_usd)
 
 
 def test_run_exec_writes_full_agent_io_log(
@@ -288,8 +336,14 @@ def test_run_exec_writes_full_agent_io_log(
         "agent.io.stream",
         "agent.io.stream",
         "agent.io.complete",
+        "usage.recorded",
     ]
-    assert [row["io_kind"] for row in rows] == ["start", "stream", "stream", "complete"]
+    assert [row["io_kind"] for row in rows[:-1]] == [
+        "start",
+        "stream",
+        "stream",
+        "complete",
+    ]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
     assert rows[1]["stream"] == "stdout"
@@ -297,10 +351,16 @@ def test_run_exec_writes_full_agent_io_log(
     assert rows[1]["line"].startswith('{"type"')
     assert rows[2]["stream"] == "stderr"
     assert rows[2]["model"] == "gpt-5.5"
-    assert rows[-1]["agent_messages"] == ["final answer"]
-    assert rows[-1]["stdout_lines"]
-    assert rows[-1]["stderr_lines"] == ["tool stderr line"]
-    assert rows[-1]["thread_id"] == "thread-1"
+    assert rows[-2]["agent_messages"] == ["final answer"]
+    assert rows[-2]["stdout_lines"]
+    assert rows[-2]["stderr_lines"] == ["tool stderr line"]
+    assert rows[-2]["thread_id"] == "thread-1"
+    usage_rows = [
+        json.loads(line)
+        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
+    ]
+    assert len(usage_rows) == 1
+    assert usage_rows[0]["call_id"] == rows[-2]["call_id"]
 
 
 def test_compaction_agent_io_is_bounded_and_drops_token_stream(
@@ -332,7 +392,11 @@ def test_compaction_agent_io_is_bounded_and_drops_token_stream(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    assert [row["type"] for row in rows] == ["agent.io.start", "agent.io.complete"]
+    assert [row["type"] for row in rows] == [
+        "agent.io.start",
+        "agent.io.complete",
+        "usage.recorded",
+    ]
     assert "prompt" not in rows[0] and rows[0]["prompt_chars"] > 100
     assert "command" not in rows[1]
     assert "stdout_lines" not in rows[1]
@@ -378,10 +442,21 @@ def test_codex_quota_events_and_daily_denial(
         "agent.io.start",
         "provider.request.completed",
         "agent.io.complete",
+        "usage.recorded",
         "provider.request.denied",
+        "usage.recorded",
     ]
     assert rows[0]["daily_calls"] == 1
     assert rows[0]["daily_cap"] == 1
+    usage_rows = [
+        json.loads(line)
+        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
+    ]
+    assert len(usage_rows) == 2
+    assert {row["pricing_status"] for row in usage_rows} == {
+        "unpriced",
+        "not_billed",
+    }
 
 
 def test_run_exec_normalizes_recoverable_reconnect_notice(

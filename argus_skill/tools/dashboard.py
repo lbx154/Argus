@@ -38,6 +38,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from ..core.usage import project_usage_summary
+
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
@@ -133,16 +135,13 @@ def _pid_etime(pid: int) -> str:
         return ""
 
 
-def _missions_cost(events: list[dict]) -> tuple[int, float]:
-    n, cost = 0, 0.0
+def _missions_cost(events: list[dict], life_dir: Path) -> tuple[int, float | None, str]:
+    n = 0
     for e in events:
         if (e.get("type") or e.get("event_type")) == "life.mission.completed":
             n += 1
-            try:
-                cost += float(e.get("cost_usd", 0) or 0)
-            except (TypeError, ValueError):
-                pass
-    return n, round(cost, 2)
+    usage = project_usage_summary(life_dir)
+    return n, usage.cost_usd, usage.pricing_status
 
 
 def _recent_events(events: list[dict], n: int = 12) -> list[dict]:
@@ -499,7 +498,7 @@ def scrape_project(life_dir: Path) -> dict:
     etime = _pid_etime(pid) if pid else ""
     events = _iter_jsonl(life_dir / "events.jsonl")
     backlog = _iter_jsonl(life_dir / "backlog.jsonl")
-    n_missions, cost = _missions_cost(events)
+    n_missions, cost, cost_status = _missions_cost(events, life_dir)
 
     root = _resolve_project_root(life_dir)
     pipe = _read_json(root / "research" / "PIPELINE_STATE.json") if root else {}
@@ -525,6 +524,7 @@ def scrape_project(life_dir: Path) -> dict:
         "stages": stage_rows,
         "missions": n_missions,
         "cost": cost,
+        "cost_status": cost_status,
         "teams": _scrape_teams(root) if root else {},
         "backlog": [{"status": b.get("status", "?"), "title": (b.get("title") or "")[:130]}
                     for b in backlog[-6:]],
@@ -564,11 +564,17 @@ def _mission_timeline(events: list[dict], limit: int = 30) -> list[dict]:
     for e in events:
         t = e.get("type") or e.get("event_type")
         if t in ("life.mission.completed", "life.mission.failed"):
+            raw_cost = e.get("cost_usd")
+            try:
+                mission_cost = round(float(raw_cost), 2) if raw_cost is not None else None
+            except (TypeError, ValueError):
+                mission_cost = None
             out.append({
                 "status": e.get("status") or ("done" if t.endswith("completed") else "failed"),
                 "ok": bool(e.get("success", t.endswith("completed"))),
                 "rounds": e.get("rounds"),
-                "cost": round(float(e.get("cost_usd", 0) or 0), 2),
+                "cost": mission_cost,
+                "cost_status": str(e.get("pricing_status") or ""),
                 "ts": e.get("ts"),
                 "reason": " ".join(str(e.get("reason") or e.get("summary") or "").split())[:200],
             })
@@ -1126,6 +1132,11 @@ const VERT_CN={research:'论文',speedrun:'刷榜',custom:'自定义'};
 const ROLE_CN={planner:'规划员',engineer:'工程师',reviewer:'评审员'};
 const STATUS_CN={done:'完成',running:'进行中',failed:'失败',pending:'待办',ready:'就绪',blocked:'受阻'};
 const CHIP_CN={'PDF pages':'论文页数','TBD left':'待填占位','figures':'插图数','citations':'引用数','best (↓)':'最佳分(越低越好)','attempts':'尝试次数','invention':'原创验证'};
+function costText(d){
+  const st=d.cost_status||'empty';
+  if(d.cost==null)return st==='partial'?'partial':st==='unpriced'?'unpriced':'$0.00';
+  return '$'+Number(d.cost).toFixed(2)+(st==='partial'||st==='unpriced'?'+':'');
+}
 
 function gpuColor(u){return u>70?'var(--red)':u>30?'var(--amber)':'var(--green)'}
 function renderGPU(g){const el=document.getElementById('gpustrip');if(!g||!g.length){el.innerHTML='';return}
@@ -1177,7 +1188,7 @@ function card(d){
   return `<div class="card" onclick="openDrawer('${d.fingerprint}')">
     <div class="chead">
       <div><h2>${d.title}</h2>
-        <div class="meta2">当前阶段「${stg}」· 已完成 ${d.missions||0} 个任务 · 花费 $${d.cost||0}
+        <div class="meta2">当前阶段「${stg}」· 已完成 ${d.missions||0} 个任务 · 累计成本 ${costText(d)}
           · <span class="status ${d.alive?'on':'off'}"><span class="d"></span>${d.alive?'运行中 '+(d.etime||''):'已停止'}</span></div>
         <div class="more">点击查看完整细节 →</div>
       </div>
@@ -1198,12 +1209,15 @@ async function tick(){try{
   const ps=d.projects||[];
   const alive=ps.filter(p=>p.alive).length;
   const ms=ps.reduce((a,x)=>a+(x.missions||0),0);
-  const tot=ps.reduce((a,x)=>a+(x.cost||0),0).toFixed(2);
+  const known=ps.reduce((a,x)=>a+(typeof x.cost==='number'?x.cost:0),0);
+  const incomplete=ps.some(x=>x.cost_status==='partial'||x.cost_status==='unpriced');
+  const incompleteLabel=ps.some(x=>x.cost_status==='partial')?'partial':ps.some(x=>x.cost_status==='unpriced')?'unpriced':'';
+  const tot=known>0?'$'+known.toFixed(2)+(incomplete?'+':''):(incompleteLabel||'$0.00');
   document.getElementById('kpis').innerHTML=`
     <div class="kpi"><div class="v">${ps.length}</div><div class="l">监控项目</div></div>
     <div class="kpi"><div class="v">${alive}</div><div class="l">运行中</div></div>
     <div class="kpi"><div class="v">${ms}</div><div class="l">累计任务</div></div>
-    <div class="kpi"><div class="v">$${tot}</div><div class="l">累计花费</div></div>`;
+    <div class="kpi"><div class="v">${tot}</div><div class="l">累计成本</div></div>`;
   document.getElementById('grid').innerHTML=ps.map(card).join('');
   document.getElementById('foot').textContent='argus-skill --dashboard · 自动发现 '+ps.length+' 个守护进程';
 }catch(e){document.getElementById('foot').textContent='获取数据失败：'+e}}
@@ -1229,7 +1243,7 @@ function renderDetail(d){
   const vt=d.vertical||'custom';
   let h=`<div class="dhdr"><div>
       <h2>${esc(d.title)} <span class="tag ${vt}" style="vertical-align:middle">${VERT_CN[vt]||vt}</span></h2>
-      <div class="dmeta">阶段「${STAGE_CN[d.current_stage]||d.current_stage}」· ${d.missions||0} 任务 · $${d.cost||0}
+      <div class="dmeta">阶段「${STAGE_CN[d.current_stage]||d.current_stage}」· ${d.missions||0} 任务 · 累计成本 ${costText(d)}
         · ${d.alive?'运行中 '+(d.etime||''):'已停止'} · pid ${d.pid||'—'}</div>
       <div class="path">${esc(d.root||d.life_dir)}</div>
     </div><button class="close" onclick="closeDrawer()">×</button></div>`;
@@ -1270,7 +1284,7 @@ function renderDetail(d){
   // 任务历史
   if((d.mission_timeline||[]).length){
     h+=`<div class="dsec"><h3>任务历史 <span class="n">近 ${d.mission_timeline.length} 个</span></h3><div class="tl">`+
-      d.mission_timeline.map(m=>`<div class="ti"><span class="dot ${m.ok?'ok':'bad'}"></span><span class="txt">${m.ok?'✓ 完成':'✗ '+(STATUS_CN[m.status]||m.status)}${m.reason?' · '+esc(m.reason):''}</span><span class="cost">${m.rounds?m.rounds+'轮 ':''}$${m.cost}</span></div>`).join('')+`</div></div>`;
+      d.mission_timeline.map(m=>`<div class="ti"><span class="dot ${m.ok?'ok':'bad'}"></span><span class="txt">${m.ok?'✓ 完成':'✗ '+(STATUS_CN[m.status]||m.status)}${m.reason?' · '+esc(m.reason):''}</span><span class="cost">${m.rounds?m.rounds+'轮 ':''}${m.cost==null?(m.cost_status||'partial'):'$'+m.cost+((m.cost_status==='partial'||m.cost_status==='unpriced')?'+':'')}</span></div>`).join('')+`</div></div>`;
   }
   // 全部待办
   if((d.backlog_full||[]).length){

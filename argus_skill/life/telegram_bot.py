@@ -365,9 +365,12 @@ class _CommandRouter:
         inbox_pending = count_pending_inbox_messages(self.life_dir)
 
         try:
-            total_cost = mem.journal.total_cost_since(0)
+            from ..core.usage import format_usage_cost, project_usage_summary
+
+            usage_summary = project_usage_summary(self.life_dir)
+            total_cost_text = format_usage_cost(usage_summary)
         except Exception:  # noqa: BLE001
-            total_cost = 0.0
+            total_cost_text = "partial"
         cont = describe_continuous_state(cs)
 
         lines = ["📊 <b>argus-skill 状态</b>", ""]
@@ -424,7 +427,7 @@ class _CommandRouter:
         lines.append(f"💵 {format_budget_status(mem.journal, status=ds)}")
 
         # Cost
-        lines.append(f"💵 累计花费: <b>${total_cost:.2f}</b>")
+        lines.append(f"💵 累计成本: <b>{_esc(total_cost_text)}</b>")
 
         self._reply("\n".join(lines))
 

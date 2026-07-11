@@ -32,6 +32,15 @@ export function ResultSummary({
   const reviewedArtifacts = artifacts?.filter((item) => item.source !== 'manager_live');
   const files: Array<EvidenceFile & Partial<ArtifactInfo>> = reviewedArtifacts ?? evidence;
   const certified = extra.final_submission_certified === true;
+  const pricingStatus = String(extra.pricing_status ?? '');
+  const rawCost = Object.prototype.hasOwnProperty.call(extra, 'cost_usd')
+    ? extra.cost_usd
+    : latest.cost_usd;
+  const costLabel = typeof rawCost === 'number' && rawCost >= 0
+    ? `${money(rawCost)}${pricingStatus === 'partial' || pricingStatus === 'unpriced' ? '+' : ''}`
+    : pricingStatus === 'partial' || pricingStatus === 'unpriced'
+    ? pricingStatus
+    : '';
 
   return (
     <section className="card mb-3 shrink-0 border-l-2 border-l-ok px-4 py-3">
@@ -39,7 +48,7 @@ export function ResultSummary({
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
           {certified ? 'Certified result' : 'Latest result'}
         </span>
-        {latest.cost_usd ? <span className="ml-auto text-[10px] text-ink-faint">{money(latest.cost_usd)}</span> : null}
+        {costLabel ? <span className="ml-auto text-[10px] text-ink-faint">{costLabel}</span> : null}
       </div>
       <div className="mt-1 text-sm font-medium text-ink">{latest.title}</div>
       {headline && headline !== latest.title ? (

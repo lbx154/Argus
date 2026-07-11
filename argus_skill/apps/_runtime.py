@@ -840,6 +840,11 @@ class _SkillLoopRunner:
         self.manager_backend = _role_backend("manager")
         self.curator_backend = _role_backend("curator")
         self._args = args
+        raw_usage_root = str(getattr(args, "project_state_dir", "") or "").strip()
+        self._usage_project_root = (
+            Path(raw_usage_root).expanduser() if raw_usage_root else None
+        )
+        self._set_usage_context(None)
         # The ONE Manager instance for this runner. All daemon-side Manager uses
         # (divide / is_conversational / skill placement) go through this single
         # instance on the manager backend — no more scattered ad-hoc
@@ -1231,6 +1236,22 @@ class _SkillLoopRunner:
                 pass
         return backends
 
+    def _set_usage_context(self, mission_id: str | None) -> list:
+        """Point every role backend at this project's call ledger."""
+        backends = self._distinct_backends()
+        for backend in backends:
+            setter = getattr(backend, "set_usage_context", None)
+            if setter is None:
+                continue
+            try:
+                setter(
+                    project_root=self._usage_project_root,
+                    mission_id=mission_id,
+                )
+            except Exception:  # noqa: BLE001 — metering must not break a mission
+                pass
+        return backends
+
     def _consume_auth_failure(self) -> bool:
         """Read and clear auth/policy failure flags across every role backend."""
         failed = False
@@ -1255,6 +1276,7 @@ class _SkillLoopRunner:
         scope: str = "",
         per_mission_budget: Any | None = None,
         preplanned: bool = False,
+        mission_id: str | None = None,
     ) -> _Outcome:
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -1262,11 +1284,15 @@ class _SkillLoopRunner:
         # not classify arbitrary autonomous work — agent-produced backlog work
         # must not be second-guessed.
         if self._allow_chat_fast_path:
-            _chat = self._maybe_chat_outcome(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
-            )
+            self._set_usage_context(mission_id)
+            try:
+                _chat = self._maybe_chat_outcome(
+                    objective=objective,
+                    sink=sink,
+                    seed_thread_id=seed_thread_id,
+                )
+            finally:
+                self._set_usage_context(None)
             if _chat is not None:
                 return _chat
 
@@ -1436,6 +1462,7 @@ class _SkillLoopRunner:
         # live per-mission spend. Set the guard on the role backends for the
         # duration of the mission and clear it in the finally so it can never leak
         # into a later mission. ``None`` budget → no guard (cap unenforced, as before).
+        self._set_usage_context(mission_id)
         _guarded = self._set_budget_guard(_budget_reason_provider(per_mission_budget))
         try:
             # User-authored bounded work now follows the full team chain:
@@ -1501,6 +1528,7 @@ class _SkillLoopRunner:
                     _be.set_budget_reason_provider(None)
                 except Exception:  # noqa: BLE001 — clearing the guard must never fail the mission
                     pass
+            self._set_usage_context(None)
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
             status=str(getattr(outcome, "status", "")),

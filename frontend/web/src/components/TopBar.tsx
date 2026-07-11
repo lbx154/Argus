@@ -109,6 +109,7 @@ export function TopBar({
         <CostGauge
           spend={spend}
           settledUsd={snap.spend_usd}
+          spendStatus={snap.spend_status}
           daemon={d}
           backendLabel={backend}
           requestUsage={snap.request_usage}

@@ -36,13 +36,25 @@ import os
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from ..core.codex_usage import sum_token_counts as _sum_token_counts
+from ..core.codex_usage import (
+    TokenUsage,
+    extract_token_usage,
+    sum_token_counts,
+)
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
+
+
+def _sum_token_counts(
+    events: list[dict[str, Any]] | None,
+) -> tuple[int, int, int, int]:
+    """Backward-compatible adapter export for existing callers/tests."""
+    return sum_token_counts(events)
 
 
 _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
@@ -332,6 +344,9 @@ class AgentCliBackend:
         # last-seen total per thread to charge each call only its delta.
         # copilot 的 premiumRequests 是会话累计值；按线程存上次累计，只计本次增量。
         self._thread_premium_totals: dict[str, float] = {}
+        self._usage_context_lock = threading.Lock()
+        self._usage_project_root: Path | None = None
+        self._usage_mission_id: str | None = None
 
     def set_budget_reason_provider(self, provider) -> None:
         """Install (or clear with ``None``) the per-mission budget guard.
@@ -342,6 +357,24 @@ class AgentCliBackend:
         The mission entry (``_SkillLoopRunner.execute``) sets this for the mission
         and clears it in a ``finally`` so it never leaks to a later mission."""
         self._budget_reason_provider = provider
+
+    def set_usage_context(
+        self,
+        *,
+        project_root: Path | str | None,
+        mission_id: str | None = None,
+    ) -> None:
+        """Set the project ledger and optional mission owning subsequent calls."""
+        with self._usage_context_lock:
+            self._usage_project_root = (
+                Path(project_root).expanduser() if project_root is not None else None
+            )
+            text = str(mission_id or "").strip()
+            self._usage_mission_id = text or None
+
+    def _usage_context_snapshot(self) -> tuple[Path | None, str | None]:
+        with self._usage_context_lock:
+            return self._usage_project_root, self._usage_mission_id
 
     # --- RunnerBackend.run_exec ------------------------------------------
 
@@ -357,7 +390,8 @@ class AgentCliBackend:
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
         argus_options = self._translate_options(options)
-        call_id = f"{int(time.time() * 1000)}-{threading.get_ident()}"
+        call_id = uuid.uuid4().hex
+        started_at = time.time()
         log_path = self._agent_io_log_path(options)
         self._io_context.current = {
             "call_id": call_id,
@@ -366,6 +400,101 @@ class AgentCliBackend:
             "model": options.model,
             "compact_io": _compact_agent_io(run_label),
         }
+
+        def _finalize_result(
+            result: RunnerResult,
+            *,
+            status: str,
+            token_usage: TokenUsage | None = None,
+            premium_requests: float | None = None,
+            error: str = "",
+        ) -> RunnerResult:
+            result.call_id = call_id
+            usage = token_usage or TokenUsage(
+                input_tokens=result.input_tokens,
+                cached_input_tokens=result.cached_input_tokens,
+                output_tokens=result.output_tokens,
+                reasoning_output_tokens=result.reasoning_output_tokens,
+                input_tokens_present=result.input_tokens_present,
+                cached_input_tokens_present=result.cached_input_tokens_present,
+                output_tokens_present=result.output_tokens_present,
+                reasoning_output_tokens_present=(
+                    result.reasoning_output_tokens_present
+                ),
+                source="result",
+            )
+            premium = (
+                premium_requests
+                if premium_requests is not None
+                else (
+                    result.premium_requests
+                    if result.premium_requests_present
+                    else None
+                )
+            )
+            project_root, mission_id = self._usage_context_snapshot()
+            if project_root is None and log_path is not None:
+                project_root = log_path.parent
+            if project_root is not None:
+                try:
+                    from ..core.usage import (
+                        UsageLedger,
+                        build_usage_record,
+                    )
+
+                    record = build_usage_record(
+                        call_id=call_id,
+                        project_root=project_root,
+                        mission_id=mission_id,
+                        provider=self._backend_name,
+                        model=str(options.model or ""),
+                        run_label=run_label,
+                        started_at=started_at,
+                        completed_at=time.time(),
+                        status=(
+                            status
+                            if status in {"completed", "error", "denied"}
+                            else "error"
+                        ),
+                        token_usage=usage,
+                        premium_requests=premium,
+                        error=error or str(result.fatal_error or ""),
+                    )
+                    appended = UsageLedger(
+                        project_root,
+                        migrate_legacy=False,
+                    ).append(record)
+                    result.pricing_status = record.pricing_status
+                    result.cost_usd = record.cost_usd
+                    if appended:
+                        self._log_agent_io(
+                            log_path,
+                            {
+                                "type": "usage.recorded",
+                                "call_id": record.call_id,
+                                "mission_id": record.mission_id,
+                                "provider": record.provider,
+                                "model": record.model,
+                                "run_label": record.run_label,
+                                "status": record.status,
+                                "input_tokens": record.input_tokens,
+                                "cached_input_tokens": record.cached_input_tokens,
+                                "output_tokens": record.output_tokens,
+                                "reasoning_output_tokens": (
+                                    record.reasoning_output_tokens
+                                ),
+                                "premium_requests": record.premium_requests,
+                                "pricing_status": record.pricing_status,
+                                "pricing_tier": record.pricing_tier,
+                                "cost_usd": record.cost_usd,
+                                "ts": record.completed_at,
+                            },
+                        )
+                except Exception:  # noqa: BLE001 — accounting must not break work
+                    log.exception("failed to persist usage record for %s", call_id)
+            self._io_context.current = None
+            return result
+
         copilot_permit = None
         codex_permit = None
         codex_quota_active = False
@@ -398,12 +527,15 @@ class AgentCliBackend:
                     "reason": reason,
                     "ts": time.time(),
                 })
-                self._io_context.current = None
                 log.warning("Copilot call blocked before start (%s): %s", run_label, reason)
-                return RunnerResult(
-                    exit_code=-1,
-                    thread_id=resume_thread_id,
-                    fatal_error=f"refused before start: {reason}",
+                return _finalize_result(
+                    RunnerResult(
+                        exit_code=-1,
+                        thread_id=resume_thread_id,
+                        fatal_error=f"refused before start: {reason}",
+                    ),
+                    status="denied",
+                    error=reason,
                 )
         elif self._is_codex and not interrupted:
             from ..core.provider_quota import acquire_codex_permit
@@ -421,12 +553,15 @@ class AgentCliBackend:
                     "daily_cap": codex_permit.daily_cap,
                     "ts": time.time(),
                 })
-                self._io_context.current = None
                 log.warning("Codex call blocked before start (%s): %s", run_label, reason)
-                return RunnerResult(
-                    exit_code=-1,
-                    thread_id=resume_thread_id,
-                    fatal_error=f"refused before start: {reason}",
+                return _finalize_result(
+                    RunnerResult(
+                        exit_code=-1,
+                        thread_id=resume_thread_id,
+                        fatal_error=f"refused before start: {reason}",
+                    ),
+                    status="denied",
+                    error=reason,
                 )
 
         quota_permit = copilot_permit or codex_permit
@@ -514,10 +649,13 @@ class AgentCliBackend:
                 "error": f"runner binary not found: {exc}",
                 "ts": time.time(),
             })
-            self._io_context.current = None
-            return RunnerResult(
-                exit_code=127,
-                fatal_error=f"runner binary not found: {exc}",
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=127,
+                    fatal_error=f"runner binary not found: {exc}",
+                ),
+                status="denied",
+                error=str(exc),
             )
         except Exception as exc:  # noqa: BLE001 — last-line safety net
             log.exception("codex runner raised")
@@ -534,10 +672,13 @@ class AgentCliBackend:
                 "error": f"{type(exc).__name__}: {exc}",
                 "ts": time.time(),
             })
-            self._io_context.current = None
-            return RunnerResult(
-                exit_code=-1,
-                fatal_error=f"{type(exc).__name__}: {exc}",
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    fatal_error=f"{type(exc).__name__}: {exc}",
+                ),
+                status="error",
+                error=f"{type(exc).__name__}: {exc}",
             )
 
         try:
@@ -549,10 +690,21 @@ class AgentCliBackend:
                 error_text=f"result translation failed: {exc}",
                 success=False,
             )
-            self._io_context.current = None
-            return RunnerResult(
-                exit_code=-1,
-                fatal_error=f"result translation failed: {exc}",
+            raw_usage = extract_token_usage(
+                getattr(argus_result, "json_events", None)
+            )
+            raw_premium, raw_premium_present = _extract_copilot_premium_requests(
+                getattr(argus_result, "json_events", None)
+            )
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    fatal_error=f"result translation failed: {exc}",
+                ),
+                status="error",
+                token_usage=raw_usage,
+                premium_requests=raw_premium if raw_premium_present else None,
+                error=f"result translation failed: {exc}",
             )
 
         failed = bool(
@@ -617,8 +769,11 @@ class AgentCliBackend:
                 "json_events": list(getattr(argus_result, "json_events", []) or []),
             })
         self._log_agent_io(log_path, complete_row)
-        self._io_context.current = None
-        return translated
+        return _finalize_result(
+            translated,
+            status="error" if failed else "completed",
+            error=failure_text,
+        )
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
         raw = os.environ.get(_AGENT_IO_LOG_ENV, "").strip()
@@ -704,14 +859,7 @@ class AgentCliBackend:
         *,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        (
-            raw_input_tokens,
-            raw_cached_input_tokens,
-            raw_output_tokens,
-            raw_reasoning_output_tokens,
-        ) = _sum_token_counts(
-            getattr(argus_result, "json_events", None)
-        )
+        raw_usage = extract_token_usage(getattr(argus_result, "json_events", None))
         (
             input_tokens,
             cached_input_tokens,
@@ -719,18 +867,14 @@ class AgentCliBackend:
             reasoning_output_tokens,
         ) = self._usage_delta_for_thread(
             thread_id=argus_result.thread_id or resume_thread_id,
-            raw_totals=(
-                raw_input_tokens,
-                raw_cached_input_tokens,
-                raw_output_tokens,
-                raw_reasoning_output_tokens,
-            ),
+            raw_totals=raw_usage.as_tuple(),
+        )
+        raw_premium, premium_requests_present = _extract_copilot_premium_requests(
+            getattr(argus_result, "json_events", None)
         )
         premium_requests = self._premium_delta_for_thread(
             thread_id=argus_result.thread_id or resume_thread_id,
-            raw_total=_sum_copilot_premium_requests(
-                getattr(argus_result, "json_events", None)
-            ),
+            raw_total=raw_premium,
         )
         return RunnerResult(
             exit_code=argus_result.exit_code,
@@ -744,6 +888,13 @@ class AgentCliBackend:
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
             premium_requests=premium_requests,
+            input_tokens_present=raw_usage.input_tokens_present,
+            cached_input_tokens_present=raw_usage.cached_input_tokens_present,
+            output_tokens_present=raw_usage.output_tokens_present,
+            reasoning_output_tokens_present=(
+                raw_usage.reasoning_output_tokens_present
+            ),
+            premium_requests_present=premium_requests_present,
         )
 
     def _usage_delta_for_thread(
@@ -821,9 +972,16 @@ def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:
     适配层再按线程把它去累计成本次调用的增量（与 codex token 累计处理一致）。
     codex/claude 无此字段 → 0.0。
     """
+    return _extract_copilot_premium_requests(events)[0]
+
+
+def _extract_copilot_premium_requests(
+    events: list[dict[str, Any]] | None,
+) -> tuple[float, bool]:
     if not events:
-        return 0.0
+        return 0.0, False
     last = 0.0
+    present = False
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -833,7 +991,8 @@ def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:
         raw = usage.get("premiumRequests")
         if isinstance(raw, (int, float)) and not isinstance(raw, bool):
             last = float(raw)
-    return last
+            present = True
+    return last, present
 
 
 def _normalize_fatal_error(fatal_error: str | None) -> str | None:

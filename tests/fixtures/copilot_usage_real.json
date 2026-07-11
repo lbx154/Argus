@@ -1,0 +1,49 @@
+{
+  "matcher": {
+    "type": "agent.io.complete",
+    "call_id": "1783757095688-126372077635136",
+    "run_label": "matcher",
+    "backend": "copilot",
+    "model": "gpt-5.6-sol",
+    "exit_code": 0,
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_output_tokens": 0,
+    "premium_requests": 0.0,
+    "ts": 1783757102.5,
+    "json_events": [
+      {"type": "assistant.message", "data": {"outputTokens": 118}},
+      {"type": "result", "usage": {"premiumRequests": 0}}
+    ]
+  },
+  "scientist": {
+    "type": "agent.io.complete",
+    "call_id": "1783757103679-126372077635136",
+    "run_label": "scientist.skill_distill",
+    "backend": "copilot",
+    "model": "gpt-5.6-sol",
+    "exit_code": 0,
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_output_tokens": 0,
+    "premium_requests": 0.0,
+    "ts": 1783757313.0,
+    "json_events": [
+      {"type": "assistant.message", "data": {"outputTokens": 561}},
+      {"type": "assistant.message", "data": {"outputTokens": 466}},
+      {"type": "assistant.message", "data": {"outputTokens": 374}},
+      {"type": "assistant.message", "data": {"outputTokens": 565}},
+      {"type": "assistant.message", "data": {"outputTokens": 802}},
+      {"type": "assistant.message", "data": {"outputTokens": 345}},
+      {"type": "assistant.message", "data": {"outputTokens": 498}},
+      {"type": "assistant.message", "data": {"outputTokens": 455}},
+      {"type": "assistant.message", "data": {"outputTokens": 514}},
+      {"type": "assistant.message", "data": {"outputTokens": 3019}},
+      {"type": "assistant.message", "data": {"outputTokens": 457}},
+      {"type": "assistant.message", "data": {"outputTokens": 5119}},
+      {"type": "result", "usage": {"premiumRequests": 0}}
+    ]
+  }
+}

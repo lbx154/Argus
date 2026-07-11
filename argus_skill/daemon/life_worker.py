@@ -45,15 +45,18 @@ except ImportError:  # pragma: no cover - detached daemon is POSIX-only
 from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
+from ..core.usage import format_usage_cost
 from ..life.memory import BacklogItem, GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ..life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
     global_daily_spend,
+    global_daily_usage_summary,
 )
 
 log = logging.getLogger(__name__)
+_GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 
 __all__ = [
     "LifeWorkerConfig",
@@ -1935,17 +1938,23 @@ def _status_global_root(status: Any | None) -> Path | None:
 def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
     budget = resolve_effective_budget(status)
     remaining = budget.remaining_today(journal)
-    global_spend = global_daily_spend(
-        global_root=_status_global_root(status),
-        now=time.time(),
-    )
+    global_root = _status_global_root(status)
+    if global_daily_spend is _GLOBAL_DAILY_SPEND_IMPL:
+        global_usage = global_daily_usage_summary(
+            global_root=global_root,
+            now=time.time(),
+        )
+        global_cost_text = format_usage_cost(global_usage)
+    else:
+        global_spend = global_daily_spend(global_root=global_root, now=time.time())
+        global_cost_text = f"${global_spend:.2f}"
     tail = " (paused)" if remaining <= 0 else ""
     return (
         "budget   : "
         f"per-mission ${budget.per_mission_cap_usd:.2f} · "
         f"daily ${budget.daily_cap_usd:.2f} · "
         f"global daily ${budget.global_daily_cap_usd:.2f} "
-        f"(spent ${global_spend:.2f}) · "
+        f"(spent {global_cost_text}) · "
         f"remaining ${remaining:.2f}{tail}"
     )
 

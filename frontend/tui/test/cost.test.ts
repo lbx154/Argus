@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { computeSpend, fraction } from '../src/cost.js';
 
-test('computeSpend sums cost_usd across completed missions', () => {
+test('computeSpend never treats lifecycle events as a cost ledger', () => {
   const events = [
     { type: 'mission.started' },
     { type: 'life.mission.completed', cost_usd: 0.42 },
@@ -12,9 +12,9 @@ test('computeSpend sums cost_usd across completed missions', () => {
     { type: 'life.mission.completed' }, // ignored (no cost)
   ];
   const s = computeSpend(events as never);
-  assert.equal(Number(s.total.toFixed(2)), 1.82);
-  assert.equal(s.missions, 2);
-  assert.equal(s.last, 1.4);
+  assert.equal(s.total, 0);
+  assert.equal(s.missions, 3);
+  assert.equal(s.last, 0);
 });
 
 test('computeSpend is empty for a stream with no costs', () => {

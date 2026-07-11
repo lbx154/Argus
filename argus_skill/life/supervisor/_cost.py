@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from ...core.ports import EventSink
-from ...core.pricing import price_for, usd_for_tokens
+from ...core.pricing import (
+    copilot_usd_per_premium_request,
+    price_for,
+    usd_for_tokens,
+)
+from ...core.usage import UsageLedger, UsageRecord, UsageSummary
 
 log = logging.getLogger(__name__)
 
@@ -23,14 +27,7 @@ def _copilot_usd_per_premium_request() -> float:
     ``ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST`` 覆盖，默认 GitHub 公布的 $0.04；
     非法/负值回退默认。
     """
-    raw = os.environ.get("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "").strip()
-    if not raw:
-        return 0.04
-    try:
-        val = float(raw)
-    except (TypeError, ValueError):
-        return 0.04
-    return val if val >= 0.0 else 0.04
+    return copilot_usd_per_premium_request()
 
 
 def copilot_usd_for_premium_requests(value: float) -> float:
@@ -42,13 +39,10 @@ def copilot_usd_for_premium_requests(value: float) -> float:
 
 
 class _CostTrackingSink:
-    """Wraps an ``EventSink`` to accumulate token counts.
+    """Forward events while exposing mission usage from the call ledger.
 
-    The mission engine emits ``round.main.completed`` and
-    ``round.review.completed`` events that already carry per-call
-    ``input_tokens`` / ``output_tokens`` (Phase-2 instrumentation). We
-    fold them into running totals and forward every event downstream
-    unchanged.
+    Deterministic test runners without a real call ledger retain the historical
+    event-folding fallback.
     """
 
     def __init__(
@@ -58,6 +52,8 @@ class _CostTrackingSink:
         engineer_model: str,
         reviewer_model: str,
         on_phase_change: Any = None,  # Callable[[str, dict], None] | None
+        usage_ledger: UsageLedger | None = None,
+        mission_id: str | None = None,
     ) -> None:
         self.downstream = downstream
         self.engineer_model = engineer_model
@@ -92,6 +88,8 @@ class _CostTrackingSink:
         self._cumulative_usage_baselines: dict[
             tuple[str, str], tuple[int, int, int, int]
         ] = {}
+        self._usage_ledger = usage_ledger
+        self._mission_id = str(mission_id or "") or None
 
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
@@ -174,6 +172,8 @@ class _CostTrackingSink:
             log.exception("downstream close raised; continuing")
 
     def total_usd(self) -> float:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().known_cost_usd
         return (
             self.scientist_usd()
             + self.engineer_usd()
@@ -186,9 +186,13 @@ class _CostTrackingSink:
         """USD-equivalent of accumulated copilot premium requests (0.0 off
         copilot). Priced so copilot spend flows through the existing breaker.
         累计 copilot 高级请求的美元等值(非 copilot 时为 0.0)。"""
+        if self._usage_ledger is not None:
+            return self._role_cost(None, cost_basis="premium_request")
         return copilot_usd_for_premium_requests(self.copilot_premium_requests)
 
     def util_usd(self) -> float:
+        if self._usage_ledger is not None:
+            return self._role_cost("util", cost_basis="token")
         total = 0.0
         for model, values in self.util_usage_by_model.items():
             (
@@ -208,6 +212,8 @@ class _CostTrackingSink:
         return total
 
     def scientist_usd(self) -> float:
+        if self._usage_ledger is not None:
+            return self._role_cost("scientist", cost_basis="token")
         total = 0.0
         for model, values in self.scientist_usage_by_model.items():
             (
@@ -227,6 +233,8 @@ class _CostTrackingSink:
         return total
 
     def engineer_usd(self) -> float:
+        if self._usage_ledger is not None:
+            return self._role_cost("engineer", cost_basis="token")
         return usd_for_tokens(
             self.engineer_model,
             self.engineer_input_tokens,
@@ -237,6 +245,8 @@ class _CostTrackingSink:
         )
 
     def reviewer_usd(self) -> float:
+        if self._usage_ledger is not None:
+            return self._role_cost("reviewer", cost_basis="token")
         return usd_for_tokens(
             self.reviewer_model,
             self.reviewer_input_tokens,
@@ -247,6 +257,8 @@ class _CostTrackingSink:
         )
 
     def total_input_tokens(self) -> int:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().input_tokens
         return (
             self.scientist_input_tokens
             + self.engineer_input_tokens
@@ -255,6 +267,8 @@ class _CostTrackingSink:
         )
 
     def total_output_tokens(self) -> int:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().output_tokens
         return (
             self.scientist_output_tokens
             + self.engineer_output_tokens
@@ -263,12 +277,128 @@ class _CostTrackingSink:
         )
 
     def total_reasoning_output_tokens(self) -> int:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().reasoning_output_tokens
         return (
             self.scientist_reasoning_output_tokens
             + self.engineer_reasoning_output_tokens
             + self.reviewer_reasoning_output_tokens
             + self.util_reasoning_output_tokens
         )
+
+    def total_cached_input_tokens(self) -> int:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().cached_input_tokens
+        return (
+            self.scientist_cached_input_tokens
+            + self.engineer_cached_input_tokens
+            + self.reviewer_cached_input_tokens
+            + self.util_cached_input_tokens
+        )
+
+    def pricing_status(self) -> str:
+        if self._usage_ledger is None:
+            return "priced"
+        return self._ledger_summary().pricing_status
+
+    def usage_record_count(self) -> int:
+        if self._usage_ledger is None:
+            return 0
+        return self._ledger_summary().call_count
+
+    def usage_summary(self) -> UsageSummary:
+        if self._usage_ledger is None:
+            return UsageSummary(
+                call_count=0,
+                known_cost_usd=self.total_usd(),
+                cost_usd=self.total_usd(),
+                pricing_status="priced",
+                priced_calls=0,
+                partial_calls=0,
+                unpriced_calls=0,
+                not_billed_calls=0,
+                input_tokens=self.total_input_tokens(),
+                cached_input_tokens=self.total_cached_input_tokens(),
+                output_tokens=self.total_output_tokens(),
+                reasoning_output_tokens=self.total_reasoning_output_tokens(),
+                premium_requests=self.copilot_premium_requests,
+            )
+        return self._ledger_summary()
+
+    def scientist_totals(self) -> tuple[int, int, int, int]:
+        if self._usage_ledger is None:
+            return (
+                self.scientist_input_tokens,
+                self.scientist_cached_input_tokens,
+                self.scientist_output_tokens,
+                self.scientist_reasoning_output_tokens,
+            )
+        return self._token_totals_for_role("scientist")
+
+    def scientist_usage_by_model_snapshot(self) -> dict[str, list[int]]:
+        if self._usage_ledger is None:
+            return {
+                model: list(values)
+                for model, values in self.scientist_usage_by_model.items()
+            }
+        out: dict[str, list[int]] = {}
+        for record in self._ledger_records():
+            if self._role_for_record(record) != "scientist":
+                continue
+            bucket = out.setdefault(record.model or "unknown", [0, 0, 0, 0])
+            bucket[0] += record.input_tokens or 0
+            bucket[1] += record.cached_input_tokens or 0
+            bucket[2] += record.output_tokens or 0
+            bucket[3] += record.reasoning_output_tokens or 0
+        return out
+
+    def copilot_premium_request_total(self) -> float:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().premium_requests
+        return self.copilot_premium_requests
+
+    def _ledger_summary(self) -> UsageSummary:
+        assert self._usage_ledger is not None
+        return self._usage_ledger.summary(mission_id=self._mission_id)
+
+    def _ledger_records(self) -> list[UsageRecord]:
+        assert self._usage_ledger is not None
+        return self._usage_ledger.records(mission_id=self._mission_id)
+
+    def _role_cost(self, role: str | None, *, cost_basis: str) -> float:
+        total = 0.0
+        for record in self._ledger_records():
+            if record.cost_basis != cost_basis:
+                continue
+            if role is not None and self._role_for_record(record) != role:
+                continue
+            if record.cost_usd is not None:
+                total += record.cost_usd
+        return total
+
+    def _token_totals_for_role(self, role: str) -> tuple[int, int, int, int]:
+        totals = [0, 0, 0, 0]
+        for record in self._ledger_records():
+            if self._role_for_record(record) != role:
+                continue
+            totals[0] += record.input_tokens or 0
+            totals[1] += record.cached_input_tokens or 0
+            totals[2] += record.output_tokens or 0
+            totals[3] += record.reasoning_output_tokens or 0
+        return totals[0], totals[1], totals[2], totals[3]
+
+    @staticmethod
+    def _role_for_record(record: UsageRecord) -> str:
+        label = record.run_label.strip().lower()
+        if label == "matcher" or label.startswith(
+            ("scientist", "skill.compaction", "wiki.compaction")
+        ):
+            return "scientist"
+        if label.startswith("engineer"):
+            return "engineer"
+        if label.startswith("reviewer"):
+            return "reviewer"
+        return "util"
 
     def _record_scientist_usage(self, event: dict[str, Any]) -> None:
         for phase in ("matcher", "distiller"):

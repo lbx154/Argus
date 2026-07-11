@@ -325,7 +325,7 @@ class JournalEntry:
             title=str(row.get("title", "")),
             summary=str(row.get("summary", "")),
             tags=list(row.get("tags", [])),
-            cost_usd=float(row.get("cost_usd", 0.0)),
+            cost_usd=float(row.get("cost_usd", 0.0) or 0.0),
             extra=dict(row.get("extra", {})),
         )
 

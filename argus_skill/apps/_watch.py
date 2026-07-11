@@ -29,10 +29,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Sequence
 
+from ..core.usage import format_usage_cost
 from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
 from ..life.status import describe_continuous_state, select_current_running_item
-from ..life.supervisor import global_daily_spend
+from ..life.supervisor import global_daily_spend, global_daily_usage_summary
 from ._inbox import count_pending_inbox_messages, format_inbox_event
+
+_GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -199,7 +202,7 @@ class _PathTail:
 class _BudgetLineCache:
     """Cache the rendered budget line until its inputs change."""
 
-    signature: tuple[tuple[int, int, int, int] | None, float, float, float, float] | None = None
+    signature: tuple[Any, ...] | None = None
     line: str = ""
 
     def render(self, *, journal_path: Path, journal: Any, status: Any) -> str:
@@ -211,13 +214,25 @@ class _BudgetLineCache:
                 global_root = Path(life_dir).expanduser().parent.parent
         except TypeError:
             global_root = None
-        global_spend = global_daily_spend(global_root=global_root)
+        global_status = "priced"
+        global_calls = 0
+        if global_daily_spend is _GLOBAL_DAILY_SPEND_IMPL:
+            global_usage = global_daily_usage_summary(global_root=global_root)
+            global_spend = global_usage.known_cost_usd
+            global_cost_text = format_usage_cost(global_usage)
+            global_status = global_usage.pricing_status
+            global_calls = global_usage.call_count
+        else:
+            global_spend = global_daily_spend(global_root=global_root)
+            global_cost_text = f"${global_spend:.2f}"
         signature = (
             _path_signature(journal_path),
             budget.per_mission_cap_usd,
             budget.daily_cap_usd,
             budget.global_daily_cap_usd,
             global_spend,
+            global_status,
+            global_calls,
         )
         if signature != self.signature:
             self.signature = signature
@@ -227,7 +242,8 @@ class _BudgetLineCache:
                 "budget   : "
                 f"per-mission ${budget.per_mission_cap_usd:.2f} · "
                 f"daily ${budget.daily_cap_usd:.2f} · "
-                f"global ${global_spend:.2f}/${budget.global_daily_cap_usd:.2f} · "
+                f"global {global_cost_text}/"
+                f"${budget.global_daily_cap_usd:.2f} · "
                 f"remaining ${remaining:.2f}{tail}"
             )
         return self.line
@@ -411,9 +427,29 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
             except (TypeError, ValueError):
                 ts_s = "?"
             kind = str(entry.kind or "?")
-            cost = float(entry.cost_usd or 0.0)
+            raw_cost = (
+                entry.extra.get("cost_usd")
+                if isinstance(entry.extra, dict)
+                else entry.cost_usd
+            )
+            pricing_status = (
+                str(entry.extra.get("pricing_status") or "")
+                if isinstance(entry.extra, dict)
+                else ""
+            )
+            try:
+                cost = float(raw_cost) if raw_cost is not None else None
+            except (TypeError, ValueError):
+                cost = None
             title = str(entry.title or "")[:80]
-            tbl.add_row(ts_s, kind, f"${cost:.4f}", title)
+            if cost is None and pricing_status in {"partial", "unpriced"}:
+                cost_text = pricing_status
+            elif cost is None:
+                cost_text = ""
+            else:
+                suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
+                cost_text = f"${cost:.4f}{suffix}"
+            tbl.add_row(ts_s, kind, cost_text, title)
         return Panel(tbl, title="Journal (latest)", border_style="magenta")
 
     def _backlog_panel() -> Panel:

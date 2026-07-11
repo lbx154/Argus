@@ -7,6 +7,7 @@ from ._config import (
     _MemoryView,
     _MissionRunner,
     global_daily_spend,
+    global_daily_usage_summary,
 )
 from ._core import (
     _FULL_EMNLP_GATE_DESCRIPTION,
@@ -55,6 +56,7 @@ __all__ = [
     "LifeBudget",
     "LifeSupervisorConfig",
     "global_daily_spend",
+    "global_daily_usage_summary",
     "_MissionRunner",
     "_CostTrackingSink",
     "log",

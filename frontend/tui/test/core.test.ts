@@ -33,12 +33,12 @@ test('shared event keys are independent of replay position', () => {
   assert.equal(eventKey(event), eventKey({ ...event }));
 });
 
-test('shared spend includes planner phases and prefers the settled server total', () => {
+test('shared spend ignores lifecycle totals and prefers the server ledger', () => {
   const observed = computeSpend([
     { type: 'life.planner.verdict', cost_usd: 0.2 },
     { type: 'life.mission.completed', cost_usd: 0.3 },
   ]);
-  assert.equal(observed.total, 0.5);
+  assert.equal(observed.total, 0);
   assert.equal(authoritativeSpend(observed, 0.8), 0.8);
 });
 

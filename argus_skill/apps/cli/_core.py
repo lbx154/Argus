@@ -1399,10 +1399,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
     ) if part]
     if history_parts:
         print(f"  history  : {' · '.join(history_parts)}")
-    # Total cost from journal
+    # Total cost from the idempotent call ledger.
     try:
-        total_cost = bundle.journal.total_cost_since(0)
-        print(f"  cost     : ${total_cost:.2f} total")
+        from ...core.usage import format_usage_cost, project_usage_summary
+
+        total_cost = project_usage_summary(bundle.project.root)
+        print(f"  cost     : {format_usage_cost(total_cost)} cumulative")
     except Exception:  # noqa: BLE001
         pass
     if running and not (status.alive and status.pid is not None):

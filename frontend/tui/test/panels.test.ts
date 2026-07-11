@@ -194,6 +194,21 @@ test('request quotas render alongside monetary spend', async () => {
   assert.match(output, /premium 2\.5\/20/);
 });
 
+test('partial usage never renders as a zero-dollar cumulative cost', async () => {
+  const output = await renderNode(
+    React.createElement(CostGauge, {
+      spend: { total: 0, missions: 0, last: 0 },
+      settledUsd: null,
+      spendStatus: 'partial',
+      daemon: undefined,
+      width: 120,
+    }),
+    120,
+  );
+  assert.match(output, /cumulative cost partial/);
+  assert.doesNotMatch(output, /\$0\.00/);
+});
+
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
   for (const width of [40, 60]) {
     const output = await renderNode(

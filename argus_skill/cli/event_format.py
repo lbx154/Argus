@@ -533,8 +533,12 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
     if elapsed is not None:
         parts.append(f"elapsed={float(elapsed):.1f}s")
     cost = event.get("cost_usd")
+    pricing_status = str(event.get("pricing_status") or "")
     if cost is not None:
-        parts.append(f"cost=${float(cost):.4f}")
+        suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
+        parts.append(f"cost=${float(cost):.4f}{suffix}")
+    elif pricing_status in {"partial", "unpriced"}:
+        parts.append(f"cost={pricing_status}")
     if not parts:
         return "mission complete"
     return "mission complete  ·  " + "  ·  ".join(parts)

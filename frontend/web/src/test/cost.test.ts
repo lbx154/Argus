@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { computeSpend, fraction } from '../lib/cost';
 import type { EventMsg } from '../api';
+import { CostGauge } from '../components/CostGauge';
 
 /** Parity with frontend/tui/test/cost.test.ts — web spend math must match the
  *  terminal exactly (both port argus_skill cost accounting). */
 describe('computeSpend', () => {
-  it('sums cost_usd across completed missions', () => {
+  it('does not aggregate lifecycle-event costs', () => {
     const events: EventMsg[] = [
       { type: 'mission.started' },
       { type: 'life.mission.completed', cost_usd: 0.42 },
@@ -15,9 +18,9 @@ describe('computeSpend', () => {
       { type: 'life.mission.completed' }, // ignored (no cost)
     ];
     const s = computeSpend(events);
-    expect(Number(s.total.toFixed(2))).toBe(1.82);
-    expect(s.missions).toBe(2);
-    expect(s.last).toBe(1.4);
+    expect(s.total).toBe(0);
+    expect(s.missions).toBe(3);
+    expect(s.last).toBe(0);
   });
 
   it('is empty for a stream with no costs', () => {
@@ -31,5 +34,20 @@ describe('fraction', () => {
     expect(fraction(200, 180)).toBe(1);
     expect(fraction(5, 0)).toBe(0);
     expect(fraction(5, null)).toBe(0);
+  });
+});
+
+describe('CostGauge', () => {
+  it('renders missing usage as partial instead of $0.00', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(CostGauge, {
+        spend: { total: 0, missions: 0, last: 0 },
+        settledUsd: null,
+        spendStatus: 'partial',
+        daemon: undefined,
+      }),
+    );
+    expect(markup).toContain('partial');
+    expect(markup).not.toContain('$0.00');
   });
 });

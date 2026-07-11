@@ -36,6 +36,7 @@ from typing import Any
 
 from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
+from ...core.usage import UsageLedger, UsageRecord, project_usage_summary
 from ..memory import BacklogItem
 from ..project_lifecycle import (
     LifecycleEvent,
@@ -639,10 +640,21 @@ class LifeSupervisor:
             }:
                 stopped_by = outcome.get("status", "")
                 break
+        project_usage = project_usage_summary(
+            Path(
+                getattr(self.memory, "project_root", None)
+                or getattr(self.memory, "root", None)
+                or self._artifact_root()
+            )
+        )
         return {
             "missions_started": self._missions_started,
+            "missions_run": len(results),
             "planning_cycles": self._planning_cycles,
             "results": results,
+            "total_cost_usd": project_usage.cost_usd,
+            "known_cost_usd": project_usage.known_cost_usd,
+            "pricing_status": project_usage.pricing_status,
             "stopped_by": stopped_by,
             "suggested_sleep": self._suggested_sleep_s,
         }
@@ -676,6 +688,14 @@ class LifeSupervisor:
                 log.exception("life supervisor: failed to mark running item failed: %s", item_id)
                 continue
             recovered.append(item_id)
+            usage = project_usage_summary(
+                Path(
+                    getattr(self.memory, "project_root", None)
+                    or getattr(self.memory, "root", None)
+                    or self._artifact_root()
+                ),
+                mission_id=item_id,
+            )
             self._emit({
                 "type": "life.mission.completed",
                 "item_id": item_id,
@@ -684,7 +704,10 @@ class LifeSupervisor:
                 "success": False,
                 "status": "supervisor_error",
                 "rounds": 0,
-                "cost_usd": 0.0,
+                "cost_usd": usage.cost_usd,
+                "known_cost_usd": usage.known_cost_usd,
+                "pricing_status": usage.pricing_status,
+                "usage_record_count": usage.call_count,
                 "terminal_status": "supervisor_error",
                 "failure_reason": failure_reason,
                 "agent_layer": "supervisor",
@@ -1243,7 +1266,7 @@ class LifeSupervisor:
 
         LifeBudget tracks per-mission and daily caps; we approximate the
         project's total budget as ``daily_cap * 30`` (a month of running)
-        and spent as the event-recorded cumulative cost. If either is
+        and spent as the call-ledger cumulative cost. If either is
         unavailable, returns ``(0.0, 0.0)`` and the F5 budget gate stays
         dormant for that tick.
         """
@@ -1253,16 +1276,13 @@ class LifeSupervisor:
                 return (0.0, 0.0)
             daily = float(getattr(budget, "daily_cap_usd", 0.0) or 0.0)
             total = daily * 30.0
-            spent = 0.0
-            try:
-                spent = float(
-                    sum(
-                        float(getattr(e, "cost_usd", 0.0) or 0.0)
-                        for e in self.memory.journal.all()
-                    )
+            spent = project_usage_summary(
+                Path(
+                    getattr(self.memory, "project_root", None)
+                    or getattr(self.memory, "root", None)
+                    or self._artifact_root()
                 )
-            except Exception:  # noqa: BLE001
-                spent = 0.0
+            ).known_cost_usd
             return (spent, total)
         except Exception:  # noqa: BLE001
             return (0.0, 0.0)
@@ -1324,11 +1344,23 @@ class LifeSupervisor:
             except Exception:  # noqa: BLE001
                 log.debug("phase_change event failed; non-critical")
 
+        usage_root = Path(
+            getattr(self.memory, "project_root", None)
+            or getattr(self.memory, "root", None)
+            or self._artifact_root()
+        )
+        usage_ledger = (
+            UsageLedger(usage_root)
+            if hasattr(self.runner, "_set_usage_context")
+            else None
+        )
         cost_sink = _CostTrackingSink(
             self.sink,
             engineer_model=self.engineer_model,
             reviewer_model=self.reviewer_model,
             on_phase_change=_phase_cb,
+            usage_ledger=usage_ledger,
+            mission_id=item.id,
         )
 
         telemetry_monitor: Any = None
@@ -1399,9 +1431,12 @@ class LifeSupervisor:
                         str(tag).strip().lower() == "planner"
                         for tag in getattr(item, "tags", [])
                     )
+                if "mission_id" in params or _accepts_kw:
+                    execute_kwargs["mission_id"] = item.id
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
                 execute_kwargs["per_mission_budget"] = mission_budget
+                execute_kwargs["mission_id"] = item.id
             outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
@@ -1418,7 +1453,38 @@ class LifeSupervisor:
         status = str(getattr(outcome, "status", "error") if outcome else "error")
         rounds = int(getattr(outcome, "rounds", 0) or 0)
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
-        usd = cost_sink.total_usd()
+        usage_summary = cost_sink.usage_summary()
+        usd = usage_summary.cost_usd
+        known_usd = usage_summary.known_cost_usd
+        if usage_ledger is None:
+            # Deterministic/memory runners used by tests do not own real
+            # ``run_exec`` calls. Persist their aggregate once so subsequent
+            # budget checks still exercise the same ledger-only read path.
+            UsageLedger(usage_root, migrate_legacy=False).append(
+                UsageRecord(
+                    call_id=f"memory-mission:{item.id}:{int(t0 * 1_000_000)}",
+                    project_id=usage_root.name,
+                    mission_id=item.id,
+                    provider="memory",
+                    model="",
+                    run_label="memory.mission.aggregate",
+                    started_at=t0,
+                    completed_at=time.time(),
+                    status="completed",
+                    input_tokens=usage_summary.input_tokens,
+                    cached_input_tokens=usage_summary.cached_input_tokens,
+                    output_tokens=usage_summary.output_tokens,
+                    reasoning_output_tokens=(
+                        usage_summary.reasoning_output_tokens
+                    ),
+                    premium_requests=usage_summary.premium_requests,
+                    pricing_status="priced",
+                    pricing_tier="memory_aggregate",
+                    cost_usd=known_usd,
+                    cost_basis="legacy_aggregate",
+                    source="legacy.events",
+                )
+            )
 
         # Auth failure: the codex backend detected an expired/invalid
         # token. Stop this drain pass so we do not immediately continue
@@ -1457,10 +1523,18 @@ class LifeSupervisor:
                 "success": False,
                 "status": "budget_pause",
                 "cost_usd": usd,
+                "known_cost_usd": known_usd,
+                "pricing_status": usage_summary.pricing_status,
                 "cap_usd": cap,
-                "spent_usd": usd,
+                "spent_usd": known_usd,
             })
-            return {"status": "budget_pause", "item_id": item.id, "cost_usd": usd}
+            return {
+                "status": "budget_pause",
+                "item_id": item.id,
+                "cost_usd": usd,
+                "known_cost_usd": known_usd,
+                "pricing_status": usage_summary.pricing_status,
+            }
 
         # Update backlog row.
         if success:
@@ -1522,6 +1596,8 @@ class LifeSupervisor:
             kind=kind, report=getattr(outcome, "planner_report", {})
         )
 
+        scientist_totals = cost_sink.scientist_totals()
+        scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
         self._emit({
             "type": "life.mission.completed",
             "item_id": item.id,
@@ -1532,6 +1608,11 @@ class LifeSupervisor:
             "rounds": rounds,
             "elapsed_seconds": elapsed,
             "cost_usd": usd,
+            "known_cost_usd": known_usd,
+            "pricing_status": usage_summary.pricing_status,
+            "usage_record_count": usage_summary.call_count,
+            "partial_usage_records": usage_summary.partial_calls,
+            "unpriced_usage_records": usage_summary.unpriced_calls,
             "planner_task_signature": {
                 "title": _normalize_planner_text(item.title),
                 "objective": _normalize_planner_text(item.objective),
@@ -1554,15 +1635,11 @@ class LifeSupervisor:
             # so a copilot mission's whole dollar cost is this count * rate).
             "util_cost_usd": cost_sink.util_usd(),
             "copilot_cost_usd": cost_sink.copilot_usd(),
-            "copilot_premium_requests": cost_sink.copilot_premium_requests,
-            "scientist_input_tokens": cost_sink.scientist_input_tokens,
-            "scientist_cached_input_tokens": (
-                cost_sink.scientist_cached_input_tokens
-            ),
-            "scientist_output_tokens": cost_sink.scientist_output_tokens,
-            "scientist_reasoning_output_tokens": (
-                cost_sink.scientist_reasoning_output_tokens
-            ),
+            "copilot_premium_requests": cost_sink.copilot_premium_request_total(),
+            "scientist_input_tokens": scientist_totals[0],
+            "scientist_cached_input_tokens": scientist_totals[1],
+            "scientist_output_tokens": scientist_totals[2],
+            "scientist_reasoning_output_tokens": scientist_totals[3],
             "scientist_usage_by_model": {
                 model: {
                     "input_tokens": values[0],
@@ -1570,9 +1647,10 @@ class LifeSupervisor:
                     "output_tokens": values[2],
                     "reasoning_output_tokens": values[3],
                 }
-                for model, values in cost_sink.scientist_usage_by_model.items()
+                for model, values in scientist_usage_by_model.items()
             },
             "input_tokens": cost_sink.total_input_tokens(),
+            "cached_input_tokens": cost_sink.total_cached_input_tokens(),
             "output_tokens": cost_sink.total_output_tokens(),
             "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
             "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
@@ -1622,6 +1700,8 @@ class LifeSupervisor:
             "status": status,
             "rounds": rounds,
             "cost_usd": usd,
+            "known_cost_usd": known_usd,
+            "pricing_status": usage_summary.pricing_status,
             "iteration": None,
             "auth_failure": auth_failure,
         }

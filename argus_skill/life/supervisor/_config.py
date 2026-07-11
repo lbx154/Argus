@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from ...core.ports import EventSink
+from ...core.usage import (
+    UsageLedger,
+    UsageSummary,
+    project_usage_summary,
+    summarize_usage,
+)
 from ..memory import BacklogItem, EventJournal, Journal
 
 try:
@@ -19,23 +25,9 @@ try:
 except ImportError:  # pragma: no cover - production daemon is POSIX
     _fcntl = None
 
-_GLOBAL_JOURNAL_CACHE: dict[tuple[str, str], Journal] = {}
-_GLOBAL_JOURNAL_CACHE_LOCK = threading.Lock()
 _GLOBAL_RESERVATION_THREAD_LOCK = threading.Lock()
 _RESERVATION_STATE_FILE = "budget-reservations.json"
 _RESERVATION_LOCK_FILE = "budget-reservations.lock"
-
-
-def _cached_journal(path: Path, *, event_backed: bool) -> Journal:
-    """Reuse signature-aware journal readers without serving stale totals."""
-    kind = "event" if event_backed else "legacy"
-    key = (kind, str(path.resolve()))
-    with _GLOBAL_JOURNAL_CACHE_LOCK:
-        journal = _GLOBAL_JOURNAL_CACHE.get(key)
-        if journal is None:
-            journal = EventJournal(path) if event_backed else Journal(path)
-            _GLOBAL_JOURNAL_CACHE[key] = journal
-        return journal
 
 
 def _pid_alive(pid: int) -> bool:
@@ -186,13 +178,12 @@ def _local_day_start(now: float) -> float:
     return time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
 
 
-def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
-    """Total canonical event-journal spend across all projects since midnight.
-
-    Modern projects write costs to ``events.jsonl`` and retain every rollover
-    generation. The old implementation scanned only legacy ``journal.jsonl``
-    files, so the global cap observed zero spend in real deployments.
-    """
+def global_daily_usage_summary(
+    *,
+    global_root: Path | None = None,
+    now: float | None = None,
+) -> UsageSummary:
+    """Call-ledger usage across all projects since local midnight."""
     now = time.time() if now is None else float(now)
     day_start = _local_day_start(now)
     if global_root is None:
@@ -205,27 +196,23 @@ def global_daily_spend(*, global_root: Path | None = None, now: float | None = N
     try:
         project_dirs = sorted(p for p in projects_dir.iterdir() if p.is_dir())
     except OSError:
-        return 0.0
+        return summarize_usage([])
 
-    total = 0.0
+    records = []
     for project_dir in project_dirs:
-        events_path = project_dir / "events.jsonl"
         try:
-            has_events = events_path.exists() or any(
-                project_dir.glob("events.jsonl.[0-9]*")
-            )
-        except OSError:
-            has_events = False
-        if has_events:
-            total += _cached_journal(
-                events_path, event_backed=True
-            ).total_cost_since(day_start)
+            records.extend(UsageLedger(project_dir).records(since=day_start))
+        except Exception:  # noqa: BLE001 — one corrupt project must not hide others
             continue
-        # Backward compatibility for pre-event-journal projects.
-        total += _cached_journal(
-            project_dir / "journal.jsonl", event_backed=False
-        ).total_cost_since(day_start)
-    return total
+    return summarize_usage(records)
+
+
+def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
+    """Known call-ledger spend across all projects since local midnight."""
+    return global_daily_usage_summary(
+        global_root=global_root,
+        now=now,
+    ).known_cost_usd
 
 
 @dataclass
@@ -239,8 +226,8 @@ class LifeBudget:
        ``daily_remaining < per_mission_cap_usd``. Either condition
        pauses the supervisor with a journal entry — we do not silently
        trim caps.
-    2. **Daily cap**: cumulative ``cost_usd`` from journal entries
-       whose timestamp is ≥ start-of-current-day-local. The supervisor
+    2. **Daily cap**: cumulative known cost from call-level usage records
+       whose completion timestamp is ≥ start-of-current-day-local. The supervisor
        refreshes this number on each loop tick so a long-running
        supervisor honours LOCAL-day rollover (the pause clears at local
        midnight, matching ``remaining_today``'s ``time.localtime`` math).
@@ -252,10 +239,9 @@ class LifeBudget:
 
     - ``per_mission_cap_usd``: the highest a single mission is allowed
       to cost (sum of engineer + reviewer + author tokens × prices).
-    - ``daily_cap_usd``: ceiling on summed cost of mission entries in
-      ``journal.jsonl`` whose timestamp falls in the current local day.
-    - ``global_daily_cap_usd``: optional ceiling on summed cost across ALL
-      project journals under the global root for the current local day.
+    - ``daily_cap_usd``: ceiling on call-ledger cost in the current local day.
+    - ``global_daily_cap_usd``: optional ceiling on call-ledger cost across ALL
+      projects under the global root for the current local day.
     - ``max_missions``: hard cap on missions run by THIS supervisor
       process (resets per ``LifeSupervisor`` instance).
     """
@@ -269,7 +255,15 @@ class LifeBudget:
         """USD remaining in today's budget."""
         now = now if now is not None else time.time()
         day_start = _local_day_start(now)
-        spent = journal.total_cost_since(day_start)
+        path = Path(getattr(journal, "path", ""))
+        if isinstance(journal, EventJournal) or path.name == "events.jsonl":
+            spent = project_usage_summary(
+                path.parent,
+                since=day_start,
+            ).known_cost_usd
+        else:
+            # Compatibility for callers still using an isolated legacy Journal.
+            spent = journal.total_cost_since(day_start)
         return max(0.0, float(self.daily_cap_usd) - float(spent))
 
     def effective_per_mission_cap(self, item: BacklogItem) -> float:

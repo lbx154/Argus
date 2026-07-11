@@ -53,12 +53,12 @@ describe('shared frontend core', () => {
     });
   });
 
-  it('uses all settled phases and the authoritative project total', () => {
+  it('uses only the authoritative project ledger total', () => {
     const spend = computeSpend([
       { type: 'life.planner.verdict', cost_usd: 0.2 },
       { type: 'life.mission.completed', cost_usd: 0.3 },
     ]);
-    expect(spend.total).toBe(0.5);
+    expect(spend.total).toBe(0);
     expect(authoritativeSpend(spend, 0.8)).toBe(0.8);
   });
 

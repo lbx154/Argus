@@ -3480,12 +3480,17 @@ def _format_completion(
     rounds = final.get("rounds")
     if isinstance(rounds, int) and rounds:
         head += f" · {rounds}r"
+    pricing_status = str(final.get("pricing_status") or "")
+    raw_cost = final.get("cost_usd")
     try:
-        cost = float(final.get("cost_usd") or 0.0)
+        cost = float(raw_cost) if raw_cost is not None else None
     except (TypeError, ValueError):
-        cost = 0.0
-    if cost:
-        head += f" · cost=${cost:.4f}"
+        cost = None
+    if cost is not None:
+        suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
+        head += f" · cost=${cost:.4f}{suffix}"
+    elif pricing_status in {"partial", "unpriced"}:
+        head += f" · cost={pricing_status}"
     lines = [head]
 
     review = final.get("_last_review") or {}
@@ -3614,11 +3619,29 @@ def _invoke_and_track(
     chat_state["mission_count"] = chat_state.get("mission_count", 0) + 1
     if not quiet:
         ran = int(summary.get("missions_run", 0)) if isinstance(summary, dict) else 0
-        cost = float(summary.get("total_cost_usd", 0.0)) if isinstance(summary, dict) else 0.0
+        raw_cost = summary.get("total_cost_usd") if isinstance(summary, dict) else None
+        pricing_status = (
+            str(summary.get("pricing_status") or "")
+            if isinstance(summary, dict)
+            else ""
+        )
+        try:
+            cost = float(raw_cost) if raw_cost is not None else None
+        except (TypeError, ValueError):
+            cost = None
         footer = (
             f"⏱  elapsed {_format_elapsed(elapsed)}"
             + (f"  ·  missions={ran}" if ran else "")
-            + (f"  ·  cost=${cost:.4f}" if cost else "")
+            + (
+                f"  ·  cost=${cost:.4f}"
+                f"{'+' if pricing_status in {'partial', 'unpriced'} else ''}"
+                if cost is not None
+                else (
+                    f"  ·  cost={pricing_status}"
+                    if pricing_status in {"partial", "unpriced"}
+                    else ""
+                )
+            )
         )
         print(theme.dim(footer) if theme else footer)
 

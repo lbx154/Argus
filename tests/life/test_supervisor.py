@@ -226,12 +226,31 @@ def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) ->
     )
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.0)
 
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "type": "life.planner.verdict",
-            "ts": now + 1,
-            "cost_usd": 2.0,
-        }) + "\n")
+    from argus_skill.core.usage import UsageLedger, UsageRecord
+
+    UsageLedger(path.parent, migrate_legacy=False).append(
+        UsageRecord(
+            call_id="new-call",
+            project_id="p1",
+            mission_id=None,
+            provider="legacy",
+            model="",
+            run_label="test.aggregate",
+            started_at=now + 1,
+            completed_at=now + 1,
+            status="completed",
+            input_tokens=None,
+            cached_input_tokens=None,
+            output_tokens=None,
+            reasoning_output_tokens=None,
+            premium_requests=None,
+            pricing_status="priced",
+            pricing_tier="test",
+            cost_usd=2.0,
+            cost_basis="legacy_aggregate",
+            source="legacy.events",
+        )
+    )
 
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.0)
 

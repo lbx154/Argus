@@ -1070,6 +1070,7 @@ export function App({
       <CostGauge
         spend={computeSpend(events)}
         settledUsd={snap?.spend_usd}
+        spendStatus={snap?.spend_status}
         daemon={snap?.daemon}
         requestUsage={snap?.request_usage}
         width={terminal.columns}
