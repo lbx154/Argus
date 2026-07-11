@@ -258,6 +258,15 @@ def cost_control_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def per_call_budget_cap_usd() -> float:
+    """Configured provider-call envelope; ``0`` keeps legacy all-remaining mode."""
+    raw = resolve_knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0").value
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return 5.0
+
+
 @dataclass
 class CallBudgetReservation:
     root: Path
@@ -306,6 +315,7 @@ def reserve_call_budget(
     per_mission_cap_usd: float | None = None,
     project_daily_cap_usd: float | None = None,
     global_daily_cap_usd: float | None = None,
+    per_call_cap_usd: float | None = None,
     now: float | None = None,
     pid: int | None = None,
 ) -> tuple[CallBudgetReservation | None, str]:
@@ -440,6 +450,10 @@ def reserve_call_budget(
             ceiling = mission_cap if mission_cap > 0 else float("inf")
             if available:
                 ceiling = min(ceiling, *(amount for _name, amount in available))
+            if per_call_cap_usd is not None:
+                call_cap = max(0.0, float(per_call_cap_usd))
+                if call_cap > 0:
+                    ceiling = min(ceiling, call_cap)
             amount = 0.0 if ceiling == float("inf") else max(0.0, ceiling)
             fence = provider_spend_fence(provider, amount)
             reservation_id = uuid.uuid4().hex
@@ -667,6 +681,7 @@ __all__ = [
     "CallBudgetReservation",
     "CostControlStateError",
     "cost_control_enabled",
+    "per_call_budget_cap_usd",
     "cost_control_snapshot",
     "reserve_call_budget",
 ]

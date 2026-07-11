@@ -133,6 +133,7 @@ def test_backend_reservation_uses_effective_item_cap(monkeypatch, tmp_path) -> N
 
     assert result.exit_code != 0
     assert seen["per_mission_cap_usd"] == 2.5
+    assert seen["per_call_cap_usd"] == 5.0
     assert seen["mission_id"] == "mission-low-cap"
 
 

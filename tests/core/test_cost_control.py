@@ -203,3 +203,87 @@ def test_threads_cannot_both_reserve_the_last_budget(tmp_path: Path) -> None:
     assert len(allowed) == 1
     assert len(denied) == 1 and "budget exhausted" in denied[0]
     allowed[0].release(reason="test")
+
+
+def test_many_threads_share_global_budget_without_overselling(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    barrier = threading.Barrier(32)
+    results = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        barrier.wait()
+        result = reserve_call_budget(
+            call_id=f"stress-{index}",
+            project_root=project,
+            mission_id=f"mission-{index}",
+            provider="codex",
+            model="gpt-5.6-sol",
+            run_label="engineer-r1",
+            global_root=tmp_path,
+            per_mission_cap_usd=10.0,
+            project_daily_cap_usd=100.0,
+            global_daily_cap_usd=10.0,
+            per_call_cap_usd=1.0,
+        )
+        with lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(32)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    allowed = [reservation for reservation, _reason in results if reservation]
+    assert len(allowed) == 10
+    assert sum(reservation.amount_usd for reservation in allowed) == pytest.approx(10.0)
+    assert cost_control_snapshot(global_root=tmp_path)["reserved_usd"] == pytest.approx(10.0)
+    for reservation in allowed:
+        reservation.release(reason="test")
+
+
+def test_concurrent_calls_respect_each_mission_cap_independently(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    barrier = threading.Barrier(6)
+    results = []
+    lock = threading.Lock()
+
+    def worker(mission_id: str, index: int) -> None:
+        barrier.wait()
+        reservation, reason = reserve_call_budget(
+            call_id=f"{mission_id}-{index}",
+            project_root=project,
+            mission_id=mission_id,
+            provider="codex",
+            model="gpt-5.6-sol",
+            run_label="engineer-r1",
+            global_root=tmp_path,
+            per_mission_cap_usd=2.0,
+            project_daily_cap_usd=100.0,
+            global_daily_cap_usd=10.0,
+            per_call_cap_usd=1.0,
+        )
+        with lock:
+            results.append((mission_id, reservation, reason))
+
+    threads = [
+        threading.Thread(target=worker, args=(mission_id, index))
+        for mission_id in ("m1", "m2")
+        for index in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    for mission_id in ("m1", "m2"):
+        rows = [row for row in results if row[0] == mission_id]
+        allowed = [reservation for _mid, reservation, _reason in rows if reservation]
+        denied = [reason for _mid, reservation, reason in rows if reservation is None]
+        assert len(allowed) == 2
+        assert len(denied) == 1 and "mission budget exhausted" in denied[0]
+        for reservation in allowed:
+            reservation.release(reason="test")

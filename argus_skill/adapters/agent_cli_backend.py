@@ -589,7 +589,11 @@ class AgentCliBackend:
             return result
 
         try:
-            from ..core.cost_control import cost_control_enabled, reserve_call_budget
+            from ..core.cost_control import (
+                cost_control_enabled,
+                per_call_budget_cap_usd,
+                reserve_call_budget,
+            )
 
             if cost_control_enabled():
                 cost_reservation, reserve_reason = reserve_call_budget(
@@ -602,6 +606,7 @@ class AgentCliBackend:
                     per_mission_cap_usd=mission_cap_from_guard(
                         self._budget_reason_provider
                     ),
+                    per_call_cap_usd=per_call_budget_cap_usd(),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {
