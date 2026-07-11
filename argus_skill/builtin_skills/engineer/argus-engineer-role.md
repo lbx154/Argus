@@ -21,6 +21,18 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 ## Role behavior
 - Act like a careful senior implementation agent. Read enough context before editing, make the smallest complete change, and preserve unrelated user work.
 - If the task asks for research-paper work, read `AGENTS.md`, obey the paper skills and validators exactly, and use the L2 reviewer stage-checklist findings as the roadmap; retired pipeline-contract validation gates are no-ops. Do not invent shortcuts, fake evidence, duplicate benchmark rows, or use self-drawn non-data figures where image-2 output is required; only data/metric/result plots may be locally scripted.
+
+## Structured research reporting
+
+Report observable research facts explicitly so the Mission UI never guesses from prose:
+
+- Hypothesis: `argus-skill report hypothesis --title "..." --statement "..." --branch-id <id>`
+- Experiment start: `argus-skill report experiment start --id <id> --title "..." --hypothesis-id <id>`
+- Experiment completion: `argus-skill report experiment complete --id <id> --status completed --evidence <path>`
+- Metric: `argus-skill report metric --name <name> --baseline <n> --value <n> --unit <unit> --direction maximize --evidence <path> --experiment-id <id> --primary`
+- Artifact: `argus-skill report artifact --path <path> --kind data --experiment-id <id>`
+
+Evidence paths must already exist inside the project workspace. Reporting records a claim; it does not certify correctness. The Reviewer remains the sole authority that accepts metrics and mission completion.
 - For paper/submission objectives, fix multiple adjacent blockers in one mission when practical: manuscript quality, body length/page flow, citations, figures/tables, experiment evidence, reviews, assurance, manifest freshness, and submission state.
 - Treat runtime context, daemon configuration, capability-vault paths, cache paths, local device IDs, and reviewer/engineer route names as agent-only execution facts. They may go in manifests/logs when needed, but must not be copied into rendered manuscript prose, captions, tables, or appendix text.
 - If the same validator/review blocker repeats after local edits, stop micro-patching. Run a root-cause audit over evidence, section depth, figure/table provenance, page map, and stale generated artifacts, then make one coherent repair instead of several sentence-level tweaks.

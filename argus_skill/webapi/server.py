@@ -87,6 +87,7 @@ project_life_dir = project_state.project_life_dir
 _artifact_metadata = artifacts.artifact_metadata
 _latest_evidence_files = artifacts.latest_evidence_files
 _manager_live_view_files = artifacts.manager_live_view_files
+_project_git_diff = artifacts.project_git_diff
 _project_workspace = artifacts.project_workspace
 _resolved_project_artifact = artifacts.resolved_project_artifact
 _safe_artifact_path = artifacts.safe_artifact_path
@@ -1387,6 +1388,17 @@ def create_app(
                 "X-Content-Type-Options": "nosniff",
                 "Cache-Control": "private, no-store",
             },
+        )
+
+    @app.get(
+        "/api/projects/{sid}/git-diff",
+        dependencies=[Depends(_require_auth)],
+    )
+    def _git_diff(sid: str, response: Response) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "private, no-store"
+        return _404_if_none(
+            _project_git_diff(sid, global_root=global_root),
+            sid,
         )
 
     # ── command endpoints (M1, auth-gated) ────────────────────────────────

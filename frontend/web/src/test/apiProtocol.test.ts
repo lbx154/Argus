@@ -1,24 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
+import {
+  API_PROTOCOL,
+  REQUIRED_API_CAPABILITIES,
+  SNAPSHOT_SCHEMA_VERSION,
+} from '../../../core/src/protocol';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
-  protocol: { name: 'argus.webapi', major: 1, minor: 6 },
-  snapshot_schema_version: 4,
-  capabilities: [
-    'daemon.admission.v1',
-    'daemon.status.protocol.v1',
-    'daemon.command.v1',
-    'cost.reservation.v1',
-    'event.catalog.v1',
-    'event.payload-schema.v1',
-    'manager.sse.v1',
-    'metrics.slo.v1',
-    'release.identity.v1',
-    'snapshot.budget.v1',
-    'snapshot.schema.v1',
-    'usage.recorded.v2',
-  ],
+  protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
+  snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
+  capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
     package_version: '0.1.0',
     source_root: '/checkout/argus-skill',

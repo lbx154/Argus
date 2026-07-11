@@ -1,22 +1,22 @@
 <h1 align="center">Argus</h1>
 
-<p align="center"><strong>一个完全独立于人类、自己做科研的 research assistant</strong></p>
-<p align="center"><em>Autonomous Research Generation & Understanding System</em></p>
+<p align="center"><strong>One goal in.<br>An autonomous AI research team wakes up.</strong></p>
+<p align="center"><em>Machine policy configured once. Manager, Planner, Engineer, and Reviewer take it from there.</em></p>
 
 <p align="center">
-给它一个目标和这台机器的规则，剩下的它自己来：<br>
-在一个真实的公开 benchmark 上（nanochat / nanogpt-speedrun / KernelBench / …），<br>
-选题、设计实验、在真机上跑、分析、改进——把指标推到目标，由 reviewer 判定做完没。<br>
-没有人在回路里逐步审批。
+给它一个目标。四个角色启动，Planner 展开研究分支，Engineer 在真机上实验，<br>
+Reviewer 用证据打回或验收，指标、产物和新学到的能力实时进入同一个 Mission View。
 </p>
 
 ```text
- █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗
-██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝
-███████║██████╔╝██║  ███╗██║   ██║███████╗
-██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║
-██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║
-╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝
+MISSION   Optimize FlashAttention on B200
+STAGE     Optimize             ROUND     7 / 24
+BEST      61.8% SOL            GAIN      +12.4 points
+
+Manager   ✓ Goal framed
+Planner   ● Comparing optimization branches
+Engineer  ● Profiling fused kernel v7
+Reviewer  ○ Waiting for benchmark evidence
 ```
 
 ---

@@ -185,8 +185,12 @@
       "required": ["item_id", "status"],
       "properties": {
         "item_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "objective": {"type": "string"},
         "status": {"type": "string", "minLength": 1},
         "success": {"type": "boolean"},
+        "rounds": {"type": "integer", "minimum": 0},
+        "elapsed_seconds": {"type": "number", "minimum": 0},
         "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "known_cost_usd": {"type": "number", "minimum": 0},
         "pricing_status": {"type": "string"}
@@ -266,7 +270,13 @@
       "properties": {
         "item_id": {"type": "string", "minLength": 1},
         "title": {"type": "string"},
-        "objective": {"type": "string"}
+        "objective": {"type": "string"},
+        "deps": {"type": "array", "items": {"type": "string"}},
+        "priority": {"type": "integer"},
+        "impact_score": {"type": "number"},
+        "impact_area": {"type": "string"},
+        "branch_id": {"type": "string"},
+        "parent_branch_id": {"type": ["string", "null"]}
       }
     },
     "life.planner.task_skipped": {
@@ -276,6 +286,171 @@
         "item_id": {"type": "string"},
         "title": {"type": "string"},
         "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "life.manager.intent.completed": {
+      "version": 1,
+      "required": ["intent_id", "item_id", "objective", "vertical", "kind", "stages"],
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "item_id": {"type": "string", "minLength": 1},
+        "objective": {"type": "string"},
+        "vertical": {"type": "string"},
+        "kind": {"type": "string"},
+        "stages": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": "string"}
+      }
+    },
+    "engineer.progress": {
+      "version": 1,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "text": {"type": "string"},
+        "actor": {"type": "string"},
+        "agent_layer": {"type": "string"},
+        "message_id": {"type": "string"},
+        "replace": {"type": "boolean"},
+        "round_index": {"type": "integer", "minimum": 0},
+        "experiment_id": {"type": "string"},
+        "branch_id": {"type": "string"}
+      }
+    },
+    "skill.created": {
+      "version": 1,
+      "required": [],
+      "properties": {
+        "skill_id": {"type": "string"},
+        "name": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "scope": {"type": "string"},
+        "path": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "skill.updated": {
+      "version": 1,
+      "required": [],
+      "properties": {
+        "skill_id": {"type": "string"},
+        "name": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "scope": {"type": "string"},
+        "path": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "skill.archived": {
+      "version": 1,
+      "required": [],
+      "properties": {
+        "skill_id": {"type": "string"},
+        "name": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "scope": {"type": "string"},
+        "path": {"type": "string"},
+        "reason": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "research.hypothesis.proposed": {
+      "version": 1,
+      "required": ["hypothesis_id", "title", "statement"],
+      "properties": {
+        "hypothesis_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "statement": {"type": "string", "minLength": 1},
+        "branch_id": {"type": "string"},
+        "parent_branch_id": {"type": ["string", "null"]},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "item_id": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "research.experiment.started": {
+      "version": 1,
+      "required": ["experiment_id", "title"],
+      "properties": {
+        "experiment_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "hypothesis_id": {"type": "string"},
+        "branch_id": {"type": "string"},
+        "item_id": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0},
+        "summary": {"type": "string"}
+      }
+    },
+    "research.experiment.completed": {
+      "version": 1,
+      "required": ["experiment_id", "status"],
+      "properties": {
+        "experiment_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["completed", "failed", "cancelled"]},
+        "hypothesis_id": {"type": "string"},
+        "branch_id": {"type": "string"},
+        "item_id": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0},
+        "summary": {"type": "string"},
+        "duration_seconds": {"type": "number", "minimum": 0},
+        "evidence": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "research.metric.reported": {
+      "version": 1,
+      "required": ["metric_id", "name", "value", "direction", "evidence"],
+      "properties": {
+        "metric_id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "baseline": {"type": ["number", "null"]},
+        "value": {"type": "number"},
+        "unit": {"type": "string"},
+        "direction": {"type": "string", "enum": ["maximize", "minimize", "target"]},
+        "evidence": {"type": "string", "minLength": 1},
+        "experiment_id": {"type": "string"},
+        "hypothesis_id": {"type": "string"},
+        "branch_id": {"type": "string"},
+        "item_id": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0},
+        "primary": {"type": "boolean"}
+      }
+    },
+    "research.metric.verified": {
+      "version": 1,
+      "required": ["metric_id", "status", "reviewer_reason"],
+      "properties": {
+        "metric_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["accepted", "rejected"]},
+        "reviewer_reason": {"type": "string"},
+        "evidence": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "research.artifact.registered": {
+      "version": 1,
+      "required": ["artifact_id", "path", "kind"],
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "enum": ["text", "image", "pdf", "data", "code", "binary"]},
+        "title": {"type": "string"},
+        "why": {"type": "string"},
+        "experiment_id": {"type": "string"},
+        "branch_id": {"type": "string"},
+        "item_id": {"type": "string"},
+        "round_index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "research.achievement.certified": {
+      "version": 1,
+      "required": ["achievement_id", "title", "goal", "reviewer_certified"],
+      "properties": {
+        "achievement_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "goal": {"type": "string"},
+        "metric_id": {"type": "string"},
+        "summary": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "reviewer_certified": {"type": "boolean", "const": true}
       }
     },
     "daemon.command.submitted": {

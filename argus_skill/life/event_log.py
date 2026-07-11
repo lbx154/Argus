@@ -19,10 +19,8 @@ The design is intentionally minimal:
   rather than being deleted, so no event is ever lost. ``.1`` always holds
   the most-recent previous roll (readers/tailers that expect it keep
   working); the full lifetime history is the union of ``events.jsonl*``.
-* Concurrency: a process-local ``threading.Lock`` guards the append.
-  Multiple processes writing to the same file is fine on Linux because
-  ``open(..., "a")`` + a single short ``write()`` is atomic up to
-  ``PIPE_BUF`` (4 KiB on Linux). We deliberately keep the line short.
+* Concurrency: a process-local lock plus a POSIX file lock serializes append,
+  rotation, and Mission View projection across the daemon and report tools.
 """
 from __future__ import annotations
 
@@ -42,6 +40,12 @@ from ..core.event_catalog import (
 ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
 EVENT_FILE = "events.jsonl"
 ROLL_FILE = "events.jsonl.1"
+EVENT_LOCK_FILE = "events.lock"
+
+try:  # pragma: no cover - production daemons are POSIX
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
 
 # Idle-poll chatter that pollutes the persistent log without telling
 # operators anything actionable. We keep these on the in-process sink
@@ -110,6 +114,7 @@ class JsonlEventSink:
         self._dir = Path(life_dir)
         self._path = self._dir / EVENT_FILE
         self._roll_path = self._dir / ROLL_FILE
+        self._file_lock_path = self._dir / EVENT_LOCK_FILE
         self._roll_bytes = max(1024 * 1024, int(roll_bytes))
         self._lock = threading.Lock()
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -194,15 +199,35 @@ class JsonlEventSink:
             except Exception:  # noqa: BLE001
                 pass
         with self._lock:
+            lock_fd = os.open(str(self._file_lock_path), os.O_CREAT | os.O_RDWR, 0o600)
             try:
+                if fcntl is not None:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
                 self._maybe_roll()
                 with self._path.open("a", encoding="utf-8") as fh:
                     fh.write(line + "\n")
+                try:
+                    from ..core.mission_view import (
+                        mission_view_handles_event,
+                        update_mission_view_event,
+                    )
+
+                    if mission_view_handles_event(payload.get("type")):
+                        update_mission_view_event(self._dir, payload)
+                except Exception:  # noqa: BLE001 - projection must not break logging
+                    pass
             except Exception:  # noqa: BLE001
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in
                 # the daemon log via _DaemonSink.handle_event downstream.
                 pass
+            finally:
+                if fcntl is not None:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                os.close(lock_fd)
 
     @staticmethod
     def _normalize(event: dict[str, Any]) -> dict[str, Any]:

@@ -18,6 +18,7 @@ from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role
 from ..core import paths as core_paths
 from ..core.cost_control import cost_control_snapshot
 from ..core.metrics import metrics_snapshot
+from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.transcript import first_operator_text
@@ -175,7 +176,32 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "max_cost_usd": float(getattr(item, "max_cost_usd", 0.0)),
         "iterate": bool(getattr(item, "iterate", False)),
         "pending_question": str(getattr(item, "pending_question", "") or "")[:500],
+        "started_ts": getattr(item, "started_ts", None),
+        "finished_ts": getattr(item, "finished_ts", None),
+        "deps": [str(dep) for dep in (getattr(item, "deps", None) or [])],
+        "iteration_max_cycles": int(getattr(item, "iteration_max_cycles", 0) or 0),
+        "iteration_cycles_done": int(getattr(item, "iteration_cycles_done", 0) or 0),
     }
+
+
+def current_stage_for_session(
+    session: dict[str, Any],
+    life_dir: Path,
+) -> str:
+    from ..skills.stage_checklists import current_stage
+
+    candidates = [session.get("launch_cwd"), session.get("cwd"), life_dir]
+    for raw in candidates:
+        if not raw:
+            continue
+        root = Path(str(raw)).expanduser()
+        if not (root / "research" / "PIPELINE_STATE.json").exists():
+            continue
+        try:
+            return str(current_stage(root) or "")
+        except Exception:  # noqa: BLE001 - snapshot remains available
+            continue
+    return ""
 
 
 def _empty_usage_summary() -> UsageSummary:
@@ -332,6 +358,32 @@ def build_snapshot(
         diagnostics.append(diagnostic("session", exc))
 
     try:
+        continuous_state = read_continuous_state(life_dir)
+        continuous_payload = {
+            "enabled": continuous_state.enabled,
+            "objective": continuous_state.objective,
+            "done_reason": continuous_state.done_reason,
+            "done_at": continuous_state.done_at,
+        }
+    except Exception as exc:  # noqa: BLE001
+        continuous_payload = {"enabled": False, "objective": ""}
+        diagnostics.append(diagnostic("continuous", exc))
+
+    try:
+        mission_view = snapshot_mission_view(
+            life_dir,
+            session=session,
+            daemon=daemon,
+            roles=roles,
+            backlog=backlog,
+            continuous=continuous_payload,
+            current_stage=current_stage_for_session(session, life_dir),
+        )
+    except Exception as exc:  # noqa: BLE001
+        mission_view = None
+        diagnostics.append(diagnostic("mission_view", exc))
+
+    try:
         request_usage = provider_usage_snapshot(root=root)
     except Exception as exc:  # noqa: BLE001
         request_usage = None
@@ -369,26 +421,13 @@ def build_snapshot(
         "cost_control": cost_control,
         "daemon_commands": daemon_commands,
         "observability": observability,
+        "mission_view": mission_view,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:
         snapshot["daemon_admission"] = admission
     if compact:
-        try:
-            continuous = read_continuous_state(life_dir)
-        except Exception as exc:  # noqa: BLE001
-            continuous = None
-            diagnostics.append(diagnostic("continuous", exc))
-        snapshot["continuous"] = (
-            {
-                "enabled": continuous.enabled,
-                "objective": continuous.objective,
-                "done_reason": continuous.done_reason,
-                "done_at": continuous.done_at,
-            }
-            if continuous is not None
-            else {"enabled": False, "objective": ""}
-        )
+        snapshot["continuous"] = continuous_payload
         snapshot["pending_questions"] = [
             compact_backlog_item(item)
             for item in items

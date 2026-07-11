@@ -78,6 +78,29 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+_SELF_RETRYABLE_ACP_ERRORS = (
+    "acp prompt timed out",
+    "acp hard idle timeout",
+    "acp restart requested",
+    "acp process died",
+    "stopreason=cancelled",
+)
+
+
+def _self_retryable_transport_failure(result: Any) -> bool:
+    """Retry only an empty ACP transport failure with no possible side effects."""
+    if (getattr(result, "last_agent_message", "") or "").strip():
+        return False
+    if bool(getattr(result, "tool_activity_observed", False)):
+        return False
+    fatal = str(getattr(result, "fatal_error", "") or "").strip().casefold()
+    if not fatal:
+        return False
+    if fatal.startswith(("external interrupt:", "refused before start:")):
+        return False
+    return any(marker in fatal for marker in _SELF_RETRYABLE_ACP_ERRORS)
+
+
 class _CommonMemory(Protocol):
     @property
     def identity(self) -> Any: ...
@@ -1302,7 +1325,7 @@ class _SkillLoopRunner:
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
                     watchdog_hard_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
+                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 180,
                     ),
                 ),
                 run_label="chat-1",
@@ -1332,11 +1355,19 @@ class _SkillLoopRunner:
         sink.handle_event({
             "type": "round.main.completed",
             "round_index": 1,
+            "exit_code": int(getattr(result, "exit_code", 0) or 0),
             "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
             "cached_input_tokens": int(
                 getattr(result, "cached_input_tokens", 0) or 0
             ),
             "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "reasoning_output_tokens": int(
+                getattr(result, "reasoning_output_tokens", 0) or 0
+            ),
+            "premium_requests": float(
+                getattr(result, "premium_requests", 0.0) or 0.0
+            ),
+            "model": str(getattr(result, "usage_model", "") or args.engineer_model or ""),
             "usage_scope": "delta",
             "last_message": last_msg,
             "session_id": round_thread_id,
@@ -1573,29 +1604,47 @@ class _SkillLoopRunner:
             except Exception:  # noqa: BLE001 — a UI sink must never break the reply
                 pass
 
+        options = RunnerOptions(
+            model=args.engineer_model,
+            reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
+            full_auto=safe_mode,
+            skip_git_repo_check=True,
+            dangerous_yolo=not safe_mode,
+            working_dir=str(workdir),
+            watchdog_hard_idle_seconds=_env_int(
+                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 180,
+            ),
+            watchdog_soft_idle_seconds=_env_int(
+                "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10,
+            ),
+            inactivity_callback=_self_inactivity,
+            on_agent_message=_emit_block,
+        )
+        attempt_results: list[Any] = []
         try:
             result = gateway_run_exec(
                 self._backend,
                 prompt=prompt,
-                options=RunnerOptions(
-                    model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                    watchdog_hard_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
-                    ),
-                    watchdog_soft_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10,
-                    ),
-                    inactivity_callback=_self_inactivity,
-                    on_agent_message=_emit_block,
-                ),
+                options=options,
                 run_label="simple-1",
                 resume_thread_id=seed,
             )
+            attempt_results.append(result)
+            if _self_retryable_transport_failure(result):
+                sink.handle_event({
+                    "type": "engineer.progress",
+                    "kind": "provider_retry",
+                    "agent_layer": "manager",
+                    "text": "Copilot reply transport stalled; retrying once in a fresh session",
+                })
+                result = gateway_run_exec(
+                    self._backend,
+                    prompt=prompt,
+                    options=options,
+                    run_label="simple-1",
+                    resume_thread_id=None,
+                )
+                attempt_results.append(result)
         finally:
             self._current_sink = None
 
@@ -1617,13 +1666,36 @@ class _SkillLoopRunner:
         sink.handle_event({
             "type": "round.main.completed",
             "round_index": 1,
-            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-            "cached_input_tokens": int(getattr(result, "cached_input_tokens", 0) or 0),
-            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "exit_code": int(getattr(result, "exit_code", 0) or 0),
+            "input_tokens": sum(
+                int(getattr(attempt, "input_tokens", 0) or 0)
+                for attempt in attempt_results
+            ),
+            "cached_input_tokens": sum(
+                int(getattr(attempt, "cached_input_tokens", 0) or 0)
+                for attempt in attempt_results
+            ),
+            "output_tokens": sum(
+                int(getattr(attempt, "output_tokens", 0) or 0)
+                for attempt in attempt_results
+            ),
+            "reasoning_output_tokens": sum(
+                int(getattr(attempt, "reasoning_output_tokens", 0) or 0)
+                for attempt in attempt_results
+            ),
+            "premium_requests": sum(
+                float(getattr(attempt, "premium_requests", 0.0) or 0.0)
+                for attempt in attempt_results
+            ),
+            "model": str(getattr(result, "usage_model", "") or args.engineer_model or ""),
             "usage_scope": "delta",
             "last_message": last_msg,
             "session_id": round_thread_id,
-            "turn_completed": True,
+            "turn_completed": bool(
+                getattr(result, "exit_code", 0) == 0
+                and not getattr(result, "fatal_error", None)
+            ),
+            "attempt_count": len(attempt_results),
         })
 
         fatal = getattr(result, "fatal_error", None)

@@ -36,3 +36,19 @@ def test_launcher_rejects_unsupported_node(monkeypatch, tmp_path: Path, capsys) 
 
     assert tui_launcher.main([]) == 2
     assert "found 16" in capsys.readouterr().err
+
+
+def test_report_subcommand_stays_on_python_admin_path(monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: seen.append(argv) or 7,
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+    assert tui_launcher.main(["report", "metric", "--name", "score"]) == 7
+    assert seen == [["report", "metric", "--name", "score"]]

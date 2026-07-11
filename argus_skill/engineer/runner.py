@@ -79,6 +79,8 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "connection closed",
     "connection aborted",
     "network error",
+    "acp prompt timed out",
+    "acp process died",
     # Codex/Copilot CLI subprocess died mid-turn before emitting a verdict
     # (e.g. gpt-5.5 occasionally exits 2: "Process exited with code 2 before
     # turn completion"). Treat as a transient backend failure so the engineer

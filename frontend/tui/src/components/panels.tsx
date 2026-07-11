@@ -18,11 +18,14 @@ import { visibleBacklogItems } from '../../../core/src/backlog.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
 import { roleColor, toneColor } from '../eventRender.js';
+import { computeSpend } from '../cost.js';
+import { activityHistory } from '../../../core/src/activity.js';
+import { CostGauge } from './CostGauge.js';
 
 /** The overlay panel opened by a read/inspect slash command. Loosely-typed
  *  container; each panel body is a typed component below. */
 export interface PanelState {
-  kind: 'help' | 'status' | 'doctor' | 'backlog' | 'journal' | 'config' | 'identity' | 'daemons' | 'artifacts' | 'artifact' | 'events' | 'task';
+  kind: 'operations' | 'help' | 'status' | 'doctor' | 'backlog' | 'journal' | 'config' | 'identity' | 'daemons' | 'artifacts' | 'artifact' | 'events' | 'task';
   all?: boolean; // /backlog all
   page?: number;
   selection?: number;
@@ -97,6 +100,8 @@ export function PanelView({
     );
   }
   switch (panel.kind) {
+    case 'operations':
+      return <OperationsPanel snap={snap} events={events} width={viewportColumns} />;
     case 'help':
       return <HelpPanel page={panel.page ?? 0} pageSize={pageSize} />;
     case 'status':
@@ -158,6 +163,64 @@ export function PanelView({
         />
       );
   }
+}
+
+function OperationsPanel({
+  snap,
+  events,
+  width,
+}: {
+  snap: Snapshot | null;
+  events: EventMsg[];
+  width: number;
+}) {
+  if (!snap) {
+    return <Frame title="Operations" hint="Ctrl+O close"><Text dimColor>loading…</Text></Frame>;
+  }
+  const activities = activityHistory(events, 8);
+  const slo = snap.observability?.slo;
+  return (
+    <Frame title="Operations" hint="Ctrl+O close · /status and /doctor for details">
+      <Row k="daemon" v={snap.daemon.alive ? `● pid ${snap.daemon.pid ?? '—'} · ${Math.floor((snap.daemon.uptime_seconds ?? 0) / 60)}m` : '○ stopped'} c={snap.daemon.alive ? theme.success : 'gray'} />
+      <Row k="backend" v={snap.daemon.backend_label || snap.daemon.backend || '—'} />
+      <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} />
+      <Text> </Text>
+      <CostGauge
+        spend={computeSpend(events)}
+        settledUsd={snap.spend_usd}
+        spendStatus={snap.spend_status}
+        usageSummary={snap.usage_summary}
+        daemon={snap.daemon}
+        requestUsage={snap.request_usage}
+        costControl={snap.cost_control}
+        width={width}
+      />
+      <Text> </Text>
+      <Text dimColor>roles</Text>
+      {snap.roles.map((role) => (
+        <Text key={role.role}>
+          <Text color={theme.role[role.role] ?? 'white'}>{role.role.padEnd(10)}</Text>
+          <Text dimColor>{`${role.backend_label || role.backend} · ${role.model || '—'} · ${role.effort || 'default'}`}</Text>
+        </Text>
+      ))}
+      {slo?.status === 'degraded' ? (
+        <>
+          <Text> </Text>
+          <Text color={theme.error}>SLO degraded</Text>
+          {slo.violations.slice(0, 5).map((violation) => <Text key={violation} dimColor>{`  ! ${violation}`}</Text>)}
+        </>
+      ) : null}
+      {activities.length ? (
+        <>
+          <Text> </Text>
+          <Text dimColor>recent observable activity</Text>
+          {activities.map((activity) => (
+            <Text key={activity.id} dimColor>{`  · ${activity.role} · ${activity.label}`}</Text>
+          ))}
+        </>
+      ) : null}
+    </Frame>
+  );
 }
 
 function pageSlice<T>(rows: T[], page: number, pageSize: number): { shown: T[]; page: number; pages: number } {

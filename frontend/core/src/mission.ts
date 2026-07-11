@@ -2,7 +2,7 @@ import type { BacklogItem, ContinuousState, Snapshot } from './types.js';
 
 export type MissionState = 'working' | 'waiting' | 'complete' | 'idle' | 'offline';
 
-export interface MissionView {
+export interface MissionStatusView {
   state: MissionState;
   objective: string;
   stateLabel: string;
@@ -21,7 +21,7 @@ function queuedItem(items: BacklogItem[]): BacklogItem | undefined {
 export function deriveMissionView(
   snapshot: Snapshot,
   continuousOverride?: ContinuousState,
-): MissionView {
+): MissionStatusView {
   const continuous = continuousOverride ?? snapshot.continuous;
   const active = activeItem(snapshot.backlog);
   const queued = queuedItem(snapshot.backlog);

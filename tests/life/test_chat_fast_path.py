@@ -176,7 +176,7 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 45
+    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 180
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 10
     assert callable(backend.calls[0]["options"].inactivity_callback)
     types = [e.get("type") for e in sink.events]
@@ -185,6 +185,67 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
                for e in sink.events)
     assert "算 17*23" in backend.calls[0]["prompt"]
+
+
+def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:
+    class _FlakyAcpBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                return RunnerResult(
+                    exit_code=1,
+                    thread_id="stalled-session",
+                    fatal_error="ACP prompt timed out after 300s",
+                    input_tokens=7,
+                )
+            return RunnerResult(
+                exit_code=0,
+                thread_id="fresh-session",
+                agent_messages=["落霞与孤鹜齐飞"],
+                input_tokens=11,
+                output_tokens=5,
+            )
+
+    backend = _FlakyAcpBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="写滕王阁序", sink=sink)
+
+    assert out.success is True
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["resume_thread_id"] is None
+    main = next(event for event in sink.events if event.get("type") == "round.main.completed")
+    assert main["attempt_count"] == 2
+    assert main["input_tokens"] == 18
+    assert main["output_tokens"] == 5
+    assert any(event.get("kind") == "provider_retry" for event in sink.events)
+
+
+@pytest.mark.parametrize(
+    "fatal_error",
+    [
+        "External interrupt: daemon stop requested",
+        "External interrupt: operator abort requested: stop now",
+        "refused before start: daily budget exhausted",
+    ],
+)
+def test_self_never_retries_explicit_interrupts(fatal_error: str) -> None:
+    from argus_skill.apps._runtime import _self_retryable_transport_failure
+
+    result = RunnerResult(exit_code=1, fatal_error=fatal_error)
+    assert _self_retryable_transport_failure(result) is False
+
+
+def test_self_does_not_retry_after_tool_activity() -> None:
+    from argus_skill.apps._runtime import _self_retryable_transport_failure
+
+    result = RunnerResult(
+        exit_code=1,
+        fatal_error="ACP prompt timed out after 300s",
+        tool_activity_observed=True,
+    )
+    assert _self_retryable_transport_failure(result) is False
 
 
 def test_execute_team_answer_uses_full_pipeline() -> None:

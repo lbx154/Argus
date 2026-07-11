@@ -6,9 +6,9 @@ export const API_SERVICE = 'argus-skill-webapi';
 export const API_PROTOCOL = {
   name: 'argus.webapi',
   major: 1,
-  minServerMinor: 6,
+  minServerMinor: 7,
 } as const;
-export const SNAPSHOT_SCHEMA_VERSION = 4;
+export const SNAPSHOT_SCHEMA_VERSION = 5;
 export const REQUIRED_API_CAPABILITIES = [
   'daemon.admission.v1',
   'daemon.status.protocol.v1',
@@ -18,6 +18,9 @@ export const REQUIRED_API_CAPABILITIES = [
   'event.payload-schema.v1',
   'manager.sse.v1',
   'metrics.slo.v1',
+  'mission.view.v1',
+  'project.git-diff.v1',
+  'research.events.v1',
   'release.identity.v1',
   'snapshot.budget.v1',
   'snapshot.schema.v1',
@@ -184,6 +187,7 @@ export function requireSnapshotContract(value: unknown): Snapshot {
     'cost_control',
     'daemon_commands',
     'observability',
+    'mission_view',
     'partial',
     'diagnostics',
   ];

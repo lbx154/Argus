@@ -31,6 +31,7 @@ class EventCategory(StrEnum):
     OPERATOR = "operator"
     PLANNER = "planner"
     PROVIDER = "provider"
+    RESEARCH = "research"
     SKILL = "skill"
     USAGE = "usage"
 
@@ -95,6 +96,13 @@ class EventType(StrEnum):
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
+    RESEARCH_HYPOTHESIS_PROPOSED = "research.hypothesis.proposed"
+    RESEARCH_EXPERIMENT_STARTED = "research.experiment.started"
+    RESEARCH_EXPERIMENT_COMPLETED = "research.experiment.completed"
+    RESEARCH_METRIC_REPORTED = "research.metric.reported"
+    RESEARCH_METRIC_VERIFIED = "research.metric.verified"
+    RESEARCH_ARTIFACT_REGISTERED = "research.artifact.registered"
+    RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
@@ -153,6 +161,13 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.IDEA_SEARCH_STARTED,
     EventType.IDEA_SEARCH_COMPLETED,
     EventType.IDEA_SEARCH_SKIPPED,
+    EventType.RESEARCH_HYPOTHESIS_PROPOSED,
+    EventType.RESEARCH_EXPERIMENT_STARTED,
+    EventType.RESEARCH_EXPERIMENT_COMPLETED,
+    EventType.RESEARCH_METRIC_REPORTED,
+    EventType.RESEARCH_METRIC_VERIFIED,
+    EventType.RESEARCH_ARTIFACT_REGISTERED,
+    EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
     EventType.OPERATOR_ALERT,
 })
 
@@ -197,6 +212,8 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.SKILL
     if value.startswith("idea."):
         return EventCategory.IDEA
+    if value.startswith("research."):
+        return EventCategory.RESEARCH
     if value.startswith("daemon.") or value.startswith("life.daemon."):
         return EventCategory.DAEMON
     if value == EventType.OPERATOR_ALERT:

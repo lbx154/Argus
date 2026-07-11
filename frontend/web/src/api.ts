@@ -9,6 +9,7 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -26,6 +27,7 @@ export type {
   CostControlSnapshot,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -264,6 +266,7 @@ export const api = {
     if (download) q.set('download', 'true');
     return getBlob(P(sid, `/artifact/raw?${q}`));
   },
+  gitDiff: (sid: string) => getJson<GitDiffView>(P(sid, '/git-diff')),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),

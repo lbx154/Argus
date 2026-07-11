@@ -60,6 +60,14 @@ export const useArtifact = (sid: string | null, path: string | null) =>
     refetchInterval: sid && path ? 3_000 : false,
   });
 
+export const useGitDiff = (sid: string | null, enabled = true) =>
+  useQuery({
+    queryKey: ['git-diff', sid],
+    queryFn: () => api.gitDiff(sid!),
+    enabled: !!sid && enabled,
+    refetchInterval: enabled ? 5_000 : false,
+  });
+
 export const useBacklogItem = (sid: string | null, itemId: string | null) =>
   useQuery({
     queryKey: ['backlog-item', sid, itemId],

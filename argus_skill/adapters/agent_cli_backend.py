@@ -951,6 +951,9 @@ class AgentCliBackend:
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
             "fatal_error": getattr(argus_result, "fatal_error", None),
+            "tool_activity_observed": bool(
+                getattr(argus_result, "tool_activity_observed", False)
+            ),
             "input_tokens": translated.input_tokens,
             "cached_input_tokens": translated.cached_input_tokens,
             "cache_write_tokens": translated.cache_write_tokens,
@@ -1161,6 +1164,9 @@ class AgentCliBackend:
                 list(copilot_usage.model_usage)
                 if copilot_usage is not None
                 else []
+            ),
+            tool_activity_observed=bool(
+                getattr(argus_result, "tool_activity_observed", False)
             ),
         )
 

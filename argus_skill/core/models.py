@@ -115,6 +115,10 @@ class RunnerResult:
     completed_at: float = 0.0
     duration_ms: int = 0
     model_usage: list[dict[str, Any]] = field(default_factory=list)
+    # True when the provider reported a tool call during this turn. A failed
+    # direct-reply turn with tool activity is not safe to replay automatically,
+    # even when it produced no assistant text.
+    tool_activity_observed: bool = False
 
     @property
     def last_agent_message(self) -> str:

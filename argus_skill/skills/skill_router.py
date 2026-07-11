@@ -30,6 +30,7 @@ import logging
 from typing import Any, Callable
 
 from .skill_prompts import Prompts
+from .store import role_of_path
 
 log = logging.getLogger(__name__)
 
@@ -170,9 +171,15 @@ class SkillRouter:
             updated = self.skill_store.update_skill_content(
                 target, content, task_desc=task, on_event=on_event)
             if updated is not None:
-                self._emit(on_event, {"type": "skill.updated",
-                                      "text": f"updated {updated.name} -> v{updated.version} "
-                                              f"(active)"})
+                self._emit(on_event, {
+                    "type": "skill.updated",
+                    "skill_id": updated.skill_id,
+                    "name": updated.name,
+                    "version": updated.version,
+                    "scope": role_of_path(updated.path, self.skill_store.skills_dir),
+                    "path": updated.path,
+                    "text": f"updated {updated.name} -> v{updated.version} (active)",
+                })
                 return True
             return False
 
@@ -182,8 +189,15 @@ class SkillRouter:
         )
         if new_skill is not None:
             self._last_created_skill = new_skill
-            self._emit(on_event, {"type": "skill.created",
-                                  "text": f"created active skill {new_skill.name}"})
+            self._emit(on_event, {
+                "type": "skill.created",
+                "skill_id": new_skill.skill_id,
+                "name": new_skill.name,
+                "version": new_skill.version,
+                "scope": role_of_path(new_skill.path, self.skill_store.skills_dir),
+                "path": new_skill.path,
+                "text": f"created active skill {new_skill.name}",
+            })
             return True
         return False
 
@@ -221,8 +235,16 @@ class SkillRouter:
         if archived is None:
             return False
         why = (op.get("why") or "").strip()
-        self._emit(on_event, {"type": "skill.archived",
-                              "text": f"archived {name}" + (f": {why}" if why else "")})
+        self._emit(on_event, {
+            "type": "skill.archived",
+            "skill_id": target.skill_id,
+            "name": target.name,
+            "version": target.version,
+            "scope": role_of_path(target.path, self.skill_store.skills_dir),
+            "path": str(archived),
+            "reason": why,
+            "text": f"archived {name}" + (f": {why}" if why else ""),
+        })
         return True
 
     def _refuse_self_governance(self, on_event: EventSink | None, kind: str,

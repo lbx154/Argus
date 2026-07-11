@@ -30,8 +30,54 @@ from typing import Any, Callable
 from .models import AgentRunResult
 
 _DEFAULT_TIMEOUT_S = 60.0
+_DEFAULT_MANAGER_TIMEOUT_S = 300.0
 _DEFAULT_SESSION_RECYCLE = 50
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
+_TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
+
+
+def _prompt_timeout(run_label: str | None) -> float:
+    """Keep cheap classification bounded without truncating Manager replies."""
+    if run_label == _FRONT_DOOR_LABEL:
+        env_name = "ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S"
+        default = _DEFAULT_TIMEOUT_S
+    else:
+        env_name = "ARGUS_SKILL_COPILOT_ACP_MANAGER_TIMEOUT_S"
+        default = _DEFAULT_MANAGER_TIMEOUT_S
+    try:
+        return max(1.0, float(os.environ.get(env_name, "") or default))
+    except ValueError:
+        return default
+
+
+def _filter_transport_notices(raw_text: str, *, final: bool = False) -> str:
+    """Remove ACP transport notices while retaining ordinary assistant prose.
+
+    The notice can arrive over several chunks. Until the final chunk, hold a
+    trailing line that is still a possible notice prefix so it is never streamed
+    to the operator and then made impossible to retract.
+    """
+    if not raw_text:
+        return ""
+    kept: list[str] = []
+    lines = raw_text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        body = line.rstrip("\r\n")
+        stripped = body.strip()
+        if stripped == _TRANSPORT_CANCEL_NOTICE:
+            continue
+        is_unterminated_last = (
+            index == len(lines) - 1 and not line.endswith(("\n", "\r"))
+        )
+        if (
+            not final
+            and is_unterminated_last
+            and stripped
+            and _TRANSPORT_CANCEL_NOTICE.startswith(stripped)
+        ):
+            continue
+        kept.append(line)
+    return "".join(kept)
 
 
 class _Turn:
@@ -41,8 +87,10 @@ class _Turn:
         "session_id",
         "on_block",
         "emit",
+        "raw_text",
         "text",
         "tool_titles",
+        "tool_activity_observed",
         "allow_persistent",
         "last_activity_at",
         "last_event",
@@ -59,8 +107,10 @@ class _Turn:
         self.session_id = session_id
         self.on_block = on_block
         self.emit = emit
+        self.raw_text = ""
         self.text = ""
         self.tool_titles: dict[str, str] = {}
+        self.tool_activity_observed = False
         self.allow_persistent = allow_persistent
         self.last_activity_at = time.monotonic()
         self.last_event = "prompt_started"
@@ -96,6 +146,7 @@ class CopilotAcpClient:
         self._pending: dict[int, dict[str, Any]] = {}
         self._pending_lock = threading.Lock()
         self._sessions: dict[str, str] = {}  # resume_thread_id -> acp sessionId
+        self._invalid_sessions: set[str] = set()
         self._front_door_sid: str | None = None
         self._front_door_uses = 0
         self._session_premium_totals: dict[str, float] = {}
@@ -128,6 +179,7 @@ class CopilotAcpClient:
         with self._pending_lock:
             self._pending.clear()
         self._sessions.clear()
+        self._invalid_sessions.clear()
         self._front_door_sid = None
         self._front_door_uses = 0
         self._session_premium_totals.clear()
@@ -157,6 +209,7 @@ class CopilotAcpClient:
             slot["msg"] = {"error": {"message": "acp process died"}}
             slot["event"].set()
         self._sessions.clear()
+        self._invalid_sessions.clear()
         self._front_door_sid = None
         self._front_door_uses = 0
         self._session_premium_totals.clear()
@@ -264,6 +317,7 @@ class CopilotAcpClient:
         turn.last_activity_at = time.monotonic()
         turn.last_event = update_type or "session_update"
         if update_type == "tool_call":
+            turn.tool_activity_observed = True
             tool_id = str(upd.get("toolCallId") or "")
             title = str(upd.get("title") or upd.get("kind") or "tool")
             if tool_id:
@@ -301,15 +355,25 @@ class CopilotAcpClient:
             text = content
         if not text:
             return
-        turn.text += text
-        if turn.emit is not None:
+        turn.raw_text += text
+        self._sync_turn_text(turn)
+
+    @staticmethod
+    def _sync_turn_text(turn: _Turn, *, final: bool = False) -> None:
+        filtered = _filter_transport_notices(turn.raw_text, final=final)
+        if filtered == turn.text:
+            return
+        prior = turn.text
+        turn.text = filtered
+        delta = filtered[len(prior):] if filtered.startswith(prior) else ""
+        if delta and turn.emit is not None:
             try:
-                turn.emit(text)
+                turn.emit(delta)
             except Exception:  # noqa: BLE001 — a UI sink must never break the turn
                 pass
         if turn.on_block is not None:
             try:
-                turn.on_block(turn.text)  # accumulated → front-end mergeFragment replaces in place
+                turn.on_block(filtered)  # accumulated → front-end replaces in place
             except Exception:  # noqa: BLE001
                 pass
 
@@ -368,14 +432,11 @@ class CopilotAcpClient:
             self._pending[rid] = slot
         try:
             self._write({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
-        except Exception:
+            got = ev.wait(timeout)
+            return slot["msg"] if got else None
+        finally:
             with self._pending_lock:
                 self._pending.pop(rid, None)
-            raise
-        got = ev.wait(timeout)
-        with self._pending_lock:
-            self._pending.pop(rid, None)
-        return slot["msg"] if got else None
 
     def _notify(self, method: str, params: dict[str, Any]) -> None:
         self._write({"jsonrpc": "2.0", "method": method, "params": params})
@@ -383,6 +444,7 @@ class CopilotAcpClient:
     # ── sessions ─────────────────────────────────────────────────────────────
     def _remember_session(self, sid: str, result: dict[str, Any]) -> None:
         """Register an ACP session and its Copilot premium-request multiplier."""
+        self._invalid_sessions.discard(sid)
         self._sessions[sid] = sid
         models_value = result.get("models")
         models: dict[str, Any] = models_value if isinstance(models_value, dict) else {}
@@ -402,6 +464,14 @@ class CopilotAcpClient:
         self._session_premium_multipliers[sid] = multiplier
         self._session_premium_totals.setdefault(sid, 0.0)
 
+    def _invalidate_session(self, sid: str) -> None:
+        """Prevent late packets from a cancelled prompt contaminating its successor."""
+        self._invalid_sessions.add(sid)
+        self._sessions.pop(sid, None)
+        if self._front_door_sid == sid:
+            self._front_door_sid = None
+            self._front_door_uses = 0
+
     def _new_session(self, cwd: str) -> str:
         resp = self._request("session/new", {"cwd": cwd, "mcpServers": []}, timeout=25)
         if resp is None or "error" in resp:
@@ -420,6 +490,8 @@ class CopilotAcpClient:
         run_label: str | None,
     ) -> str:
         if resume_thread_id:
+            if resume_thread_id in self._invalid_sessions:
+                return self._new_session(cwd)
             sid = self._sessions.get(resume_thread_id)
             if sid:
                 return sid
@@ -467,12 +539,7 @@ class CopilotAcpClient:
         emit: Callable[[str], None] | None = None,
         on_block: Callable[[str], None] | None = None,
     ) -> AgentRunResult:
-        try:
-            timeout = float(
-                os.environ.get("ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S", "") or _DEFAULT_TIMEOUT_S
-            )
-        except ValueError:
-            timeout = _DEFAULT_TIMEOUT_S
+        timeout = _prompt_timeout(run_label)
         _cwd = cwd or getattr(options, "working_dir", None) or os.getcwd()
 
         with self._turn_lock:
@@ -520,6 +587,7 @@ class CopilotAcpClient:
                 def _cancel(reason: str) -> None:
                     cancelled["v"] = True
                     cancel_reason["v"] = reason
+                    self._invalidate_session(sid)
                     try:
                         self._notify("session/cancel", {"sessionId": sid})
                     except Exception:  # noqa: BLE001
@@ -569,14 +637,14 @@ class CopilotAcpClient:
                             decision = None
                         if decision == "restart":
                             _cancel(
-                                "Restart requested after "
+                                "ACP restart requested after "
                                 f"{int(idle_seconds)}s without an ACP stream event"
                             )
                             return
 
                     if hard_idle > 0 and idle_seconds >= hard_idle:
                         _cancel(
-                            f"Hard idle timeout after {int(idle_seconds)}s "
+                            f"ACP hard idle timeout after {int(idle_seconds)}s "
                             f"(last ACP event: {turn.last_event})"
                         )
                         return
@@ -589,17 +657,39 @@ class CopilotAcpClient:
                     {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]},
                     timeout=timeout + 5,
                 )
+            except KeyboardInterrupt:
+                cancelled["v"] = True
+                cancel_reason["v"] = "External interrupt: user interrupted Manager turn"
+                self._invalidate_session(sid)
+                try:
+                    self._notify("session/cancel", {"sessionId": sid})
+                except Exception:  # noqa: BLE001
+                    pass
+                raise
             except Exception as exc:  # noqa: BLE001
                 resp = {"error": {"message": str(exc)}}
             finally:
+                self._sync_turn_text(turn, final=True)
                 stop.set()
                 self._active_turn = None
 
             text = turn.text.strip()
             if resp is None:
-                return self._fail_result("acp prompt timed out", sid=sid, text=text)
+                self._invalidate_session(sid)
+                return self._fail_result(
+                    "acp prompt timed out",
+                    sid=sid,
+                    text=text,
+                    tool_activity_observed=turn.tool_activity_observed,
+                )
             if "error" in resp:
-                return self._fail_result(f"acp error: {resp.get('error')}", sid=sid, text=text)
+                self._invalidate_session(sid)
+                return self._fail_result(
+                    f"acp error: {resp.get('error')}",
+                    sid=sid,
+                    text=text,
+                    tool_activity_observed=turn.tool_activity_observed,
+                )
             stop_reason = str((resp.get("result") or {}).get("stopReason") or "")
             completed = (stop_reason == "end_turn") and not cancelled["v"]
             json_events: list[dict[str, Any]] = []
@@ -632,9 +722,17 @@ class CopilotAcpClient:
                     cancel_reason["v"]
                     or (f"stopReason={stop_reason}" if stop_reason else "acp turn incomplete")
                 ),
+                tool_activity_observed=turn.tool_activity_observed,
             )
 
-    def _fail_result(self, msg: str, *, sid: str | None = None, text: str = "") -> AgentRunResult:
+    def _fail_result(
+        self,
+        msg: str,
+        *,
+        sid: str | None = None,
+        text: str = "",
+        tool_activity_observed: bool = False,
+    ) -> AgentRunResult:
         return AgentRunResult(
             command=[self._agent_bin, "--acp"],
             exit_code=-1,
@@ -646,6 +744,7 @@ class CopilotAcpClient:
             turn_completed=False,
             turn_failed=True,
             fatal_error=msg,
+            tool_activity_observed=tool_activity_observed,
         )
 
 

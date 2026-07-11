@@ -171,8 +171,12 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   type: "life.mission.completed";
   payload_schema_version?: 1;
   "item_id": string;
+  "title"?: string;
+  "objective"?: string;
   "status": string;
   "success"?: boolean;
+  "rounds"?: number;
+  "elapsed_seconds"?: number;
   "cost_usd"?: number | null;
   "known_cost_usd"?: number;
   "pricing_status"?: string;
@@ -245,6 +249,12 @@ export interface LifePlannerTaskAddedEvent extends EventMsg {
   "item_id": string;
   "title"?: string;
   "objective"?: string;
+  "deps"?: Array<string>;
+  "priority"?: number;
+  "impact_score"?: number;
+  "impact_area"?: string;
+  "branch_id"?: string;
+  "parent_branch_id"?: string | null;
 }
 
 export interface LifePlannerTaskSkippedEvent extends EventMsg {
@@ -253,6 +263,159 @@ export interface LifePlannerTaskSkippedEvent extends EventMsg {
   "item_id"?: string;
   "title"?: string;
   "reason": string;
+}
+
+export interface LifeManagerIntentCompletedEvent extends EventMsg {
+  type: "life.manager.intent.completed";
+  payload_schema_version?: 1;
+  "intent_id": string;
+  "item_id": string;
+  "objective": string;
+  "vertical": string;
+  "kind": string;
+  "stages": Array<string>;
+  "reason"?: string;
+}
+
+export interface EngineerProgressEvent extends EventMsg {
+  type: "engineer.progress";
+  payload_schema_version?: 1;
+  "kind": string;
+  "text"?: string;
+  "actor"?: string;
+  "agent_layer"?: string;
+  "message_id"?: string;
+  "replace"?: boolean;
+  "round_index"?: number;
+  "experiment_id"?: string;
+  "branch_id"?: string;
+}
+
+export interface SkillCreatedEvent extends EventMsg {
+  type: "skill.created";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillUpdatedEvent extends EventMsg {
+  type: "skill.updated";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillArchivedEvent extends EventMsg {
+  type: "skill.archived";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "reason"?: string;
+  "text"?: string;
+}
+
+export interface ResearchHypothesisProposedEvent extends EventMsg {
+  type: "research.hypothesis.proposed";
+  payload_schema_version?: 1;
+  "hypothesis_id": string;
+  "title": string;
+  "statement": string;
+  "branch_id"?: string;
+  "parent_branch_id"?: string | null;
+  "evidence"?: Array<string>;
+  "item_id"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchExperimentStartedEvent extends EventMsg {
+  type: "research.experiment.started";
+  payload_schema_version?: 1;
+  "experiment_id": string;
+  "title": string;
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "summary"?: string;
+}
+
+export interface ResearchExperimentCompletedEvent extends EventMsg {
+  type: "research.experiment.completed";
+  payload_schema_version?: 1;
+  "experiment_id": string;
+  "status": "completed" | "failed" | "cancelled";
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "summary"?: string;
+  "duration_seconds"?: number;
+  "evidence"?: Array<string>;
+}
+
+export interface ResearchMetricReportedEvent extends EventMsg {
+  type: "research.metric.reported";
+  payload_schema_version?: 1;
+  "metric_id": string;
+  "name": string;
+  "baseline"?: number | null;
+  "value": number;
+  "unit"?: string;
+  "direction": "maximize" | "minimize" | "target";
+  "evidence": string;
+  "experiment_id"?: string;
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "primary"?: boolean;
+}
+
+export interface ResearchMetricVerifiedEvent extends EventMsg {
+  type: "research.metric.verified";
+  payload_schema_version?: 1;
+  "metric_id": string;
+  "status": "accepted" | "rejected";
+  "reviewer_reason": string;
+  "evidence"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchArtifactRegisteredEvent extends EventMsg {
+  type: "research.artifact.registered";
+  payload_schema_version?: 1;
+  "artifact_id": string;
+  "path": string;
+  "kind": "text" | "image" | "pdf" | "data" | "code" | "binary";
+  "title"?: string;
+  "why"?: string;
+  "experiment_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchAchievementCertifiedEvent extends EventMsg {
+  type: "research.achievement.certified";
+  payload_schema_version?: 1;
+  "achievement_id": string;
+  "title": string;
+  "goal": string;
+  "metric_id"?: string;
+  "summary"?: string;
+  "evidence"?: Array<string>;
+  "reviewer_certified": true;
 }
 
 export interface DaemonCommandSubmittedEvent extends EventMsg {
@@ -310,6 +473,18 @@ export interface EventPayloadByType {
   "life.planner.error": LifePlannerErrorEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
+  "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
+  "engineer.progress": EngineerProgressEvent;
+  "skill.created": SkillCreatedEvent;
+  "skill.updated": SkillUpdatedEvent;
+  "skill.archived": SkillArchivedEvent;
+  "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
+  "research.experiment.started": ResearchExperimentStartedEvent;
+  "research.experiment.completed": ResearchExperimentCompletedEvent;
+  "research.metric.reported": ResearchMetricReportedEvent;
+  "research.metric.verified": ResearchMetricVerifiedEvent;
+  "research.artifact.registered": ResearchArtifactRegisteredEvent;
+  "research.achievement.certified": ResearchAchievementCertifiedEvent;
   "daemon.command.submitted": DaemonCommandSubmittedEvent;
   "daemon.command.completed": DaemonCommandCompletedEvent;
   "daemon.command.rejected": DaemonCommandRejectedEvent;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { useProjects, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal } from './hooks';
+import { useProjects, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api } from './api';
 import { TopBar, type ThemeMode } from './components/TopBar';
 import { EventStream } from './components/EventStream';
@@ -16,13 +16,14 @@ import { ResearchCanvas } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { NewDaemonModal } from './components/NewDaemonModal';
 import { DaemonManageModal } from './components/DaemonManageModal';
-import { PlanStrip } from './components/PlanStrip';
 import { Sidebar } from './components/Sidebar';
 import { ProjectInspectorModal } from './components/ProjectInspectorModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { SplitHandle } from './components/SplitHandle';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
+import { MissionControl } from './components/MissionControl';
+import { projectMissionView } from '../../core/src/missionView';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -113,6 +114,7 @@ export default function App() {
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
   const [showReasoning, setShowReasoning] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>('mission');
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -283,6 +285,7 @@ export default function App() {
   const snap = snapQ.data;
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(activeSid, true);
+  const gitDiffQ = useGitDiff(activeSid, workspaceView === 'mission');
   const { events, connected } = useEventStream(activeSid);
   const transcriptQ = useTranscript(activeSid, true, 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
@@ -316,6 +319,10 @@ export default function App() {
       ...events,
     ].sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
   }, [events, transcriptQ.data]);
+  const missionView = useMemo(
+    () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
+    [activityEvents, artifactsQ.data, snap],
+  );
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
   const daemonBusy = actions.startDaemon.isPending
     || actions.stopDaemon.isPending
@@ -683,15 +690,24 @@ export default function App() {
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
+                missionView={missionView}
               />
-              <PlanStrip items={snap.backlog} />
-              <EventStream
-                events={activityEvents}
-                connected={connected}
-                showReasoning={showReasoning}
-                onToggleReasoning={() => setShowReasoning((value) => !value)}
-                embedded
-              />
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
+                <button type="button" onClick={() => setWorkspaceView('mission')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'mission' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Mission</button>
+                <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
+                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : null}
+              </div>
+              {workspaceView === 'mission' && missionView ? (
+                <MissionControl view={missionView} gitDiff={gitDiffQ.data} onOpenArtifact={setArtifactPath} />
+              ) : (
+                <EventStream
+                  events={activityEvents}
+                  connected={connected}
+                  showReasoning={showReasoning}
+                  onToggleReasoning={() => setShowReasoning((value) => !value)}
+                  embedded
+                />
+              )}
               {!kiosk ? (
                 <div className="shrink-0 px-4 pb-6 pt-3">
                   <div className="mx-auto w-full max-w-[760px]">
@@ -744,6 +760,7 @@ export default function App() {
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
                   readOnly={kiosk}
+                  missionView={missionView}
                 />
               </div>
               <ResearchCanvas

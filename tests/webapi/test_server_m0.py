@@ -107,7 +107,7 @@ def test_build_snapshot_shape_and_failsoft(
         "schema_version", "session", "daemon", "roles", "backlog",
         "recent_events", "spend_usd", "spend_status", "usage_summary",
         "request_usage", "cost_control", "daemon_commands", "observability",
-        "partial", "diagnostics",
+        "mission_view", "partial", "diagnostics",
     }
     assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert snap["partial"] is False
@@ -116,6 +116,7 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["cost_control"]["unresolved_calls"] == 0
     assert snap["daemon_commands"]["revision"] == 0
     assert snap["observability"]["slo"]["status"] == "healthy"
+    assert snap["mission_view"]["schema_version"] == 1
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
@@ -326,7 +327,9 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.6"
+    assert r.headers["x-argus-protocol"] == (
+        f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
+    )
     assert r.headers["x-argus-release"].startswith("0.1.0+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
