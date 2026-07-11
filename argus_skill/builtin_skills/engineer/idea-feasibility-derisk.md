@@ -24,8 +24,9 @@ never moves. That was discovered **3.5 hours and $26 later, in the run stage**.
 
 This skill buys a ≤10-min / ≤$1 reality screen *before* plan+run discover the
 death. It is a **provenance/feasibility gate, NOT a science-quality verdict** —
-it proves the signal is measurable and moves, not that the paper is good. The
-reviewer still judges whether the idea is worth pursuing.
+it proves the method beats a reproduced baseline on a cheap slice (or its
+faithful proxy), not that the paper is good. The reviewer still judges whether
+the idea is worth pursuing.
 
 ## When to use
 
@@ -72,15 +73,22 @@ or a local weights path — proving it is box-runnable, not aspirational),
 ## Step 3 — Design the judgemental minimal experiment
 
 Two conditions on the SAME data and SAME budget:
-- `baseline` — the status-quo / undefended / no-mechanism condition.
-- `proposed` — your idea's mechanism applied.
+- `baseline` — a **reproduced, competitive baseline**: the current strong method
+  for this task (or a faithful re-implementation), NOT a crippled/no-op control.
+  Beating a straw-man does not count.
+- `proposed` — your idea's method applied.
 
 Make it **falsifying**: write down, BEFORE running, the observation that KILLS
-the idea (the signal doesn't move; `baseline == proposed`; the model can't
-produce the behaviour at all). Declare `min_meaningful_delta` — the smallest
-metric change that counts as "moved" — up front, not post-hoc. Ceilings:
-wall-clock ≤ 600 s, cost ≤ $1.00. Use the smallest N and cheapest route that
-still separates the two conditions.
+the idea (the method does NOT beat the baseline; `proposed` is within noise of
+`baseline`; the model can't produce the behaviour at all). Declare
+`min_meaningful_delta` — the smallest margin by which `proposed` must beat
+`baseline` to count as a real win (in the `success_direction`) — up front, not
+post-hoc. Keep the SCREEN cheap: wall-clock ≤ 600 s, cost ≤ $1.00, smallest N
+and cheapest route that still separates the two conditions. If the method is
+training-based, de-risk on the cheapest FAITHFUL proxy that still shows the
+method beating the baseline (a tiny slice, a short ≤3 h LoRA run per the GPU
+house rules, or the inference-time component alone); the FULL win is confirmed
+by the ≤8 h main experiment in `plan`/`run`, not here.
 
 ## Step 4 — RUN IT FOR REAL; capture the raw commands + outputs
 
