@@ -905,6 +905,7 @@ class Manager:
         project_root: Path | str | None = None,
         run_exec: Any = None,
         on_event: Any = None,
+        root_task_id: str | None = None,
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -1056,20 +1057,21 @@ class Manager:
                 p for p in (cur, str(getattr(review, "reason", "") or "")) if p
             )
             prompt = self._role_skill_block(_match_objective, match=False) + prompt
-            raw = extract_answer(run_exec(prompt))
-            # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
-            # turn. An empty raw makes parse_stage_decision fall back to a silent
-            # "manager held (default)" — which, after a DONE reviewer verdict,
-            # wedges current_stage FOREVER (research completes but never advances
-            # to plan, because no later mission re-triggers a stage decision).
-            # Retry a couple of times on an empty response before accepting a
-            # hold, mirroring the planner's empty-output retry. A genuine,
-            # non-empty hold verdict is never retried.
-            _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 2:
-                _empty_retries += 1
-                time.sleep(1.0)
+            with self._task_usage_scope(root_task_id):
                 raw = extract_answer(run_exec(prompt))
+                # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
+                # turn. An empty raw makes parse_stage_decision fall back to a silent
+                # "manager held (default)" — which, after a DONE reviewer verdict,
+                # wedges current_stage FOREVER (research completes but never advances
+                # to plan, because no later mission re-triggers a stage decision).
+                # Retry a couple of times on an empty response before accepting a
+                # hold, mirroring the planner's empty-output retry. A genuine,
+                # non-empty hold verdict is never retried.
+                _empty_retries = 0
+                while not str(raw or "").strip() and _empty_retries < 2:
+                    _empty_retries += 1
+                    time.sleep(1.0)
+                    raw = extract_answer(run_exec(prompt))
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
                     review, current_stage=cur, stage_order=order

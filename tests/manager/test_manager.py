@@ -163,6 +163,53 @@ def test_root_task_id_scopes_manager_front_door_call(tmp_path):
     ]
 
 
+def test_root_task_id_scopes_manager_stage_call(tmp_path):
+    from argus_skill.core.models import ReviewDecision
+
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "current_stage": "research"}),
+        encoding="utf-8",
+    )
+    review = ReviewDecision(
+        status="continue",
+        reason="more evidence needed",
+        next_action="continue",
+        checklist=[],
+        planner_report={"headline": "continue", "forward_progress": True},
+    )
+    manager = Manager(
+        project_root=tmp_path,
+        usage_context=usage_context,
+    )
+
+    manager.decide_stage_transition(
+        review=review,
+        project_root=tmp_path,
+        run_exec=lambda prompt: _DecisionResult(json.dumps({
+            "action": "hold",
+            "target_stage": "research",
+            "reason": "continue",
+        })),
+        root_task_id="root-task-3",
+    )
+
+    assert transitions == [
+        ("enter", "root-task-3"),
+        ("exit", "root-task-3"),
+    ]
+
+
 def test_vertical_decision_persists_manager_live_view(tmp_path):
     runner = _DecisionRunner({
         "choice": "existing",

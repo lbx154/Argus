@@ -1174,7 +1174,10 @@ class _SkillLoopRunner:
         # its OWN judgment (advance / hold / rollback) and writes
         # PIPELINE_STATE.json. See ``_decide_stage_transition``.
         stage_transition = self._decide_stage_transition(
-            rounds_list=rounds_list, workdir=workdir, sink=sink
+            rounds_list=rounds_list,
+            workdir=workdir,
+            sink=sink,
+            root_task_id=mission_id,
         )
         return _Outcome(
             success=outcome.successful,
@@ -1195,7 +1198,12 @@ class _SkillLoopRunner:
         )
 
     def _decide_stage_transition(
-        self, *, rounds_list: list, workdir: Path, sink: EventSink
+        self,
+        *,
+        rounds_list: list,
+        workdir: Path,
+        sink: EventSink,
+        root_task_id: str | None = None,
     ) -> dict:
         """Hand this round's reviewer verdict to the Manager — the SOLE
         post-bootstrap writer of the pipeline stage — and let it judge
@@ -1218,10 +1226,12 @@ class _SkillLoopRunner:
                 runner=getattr(self, "manager_backend", None) or self._backend,
                 skill_store=getattr(self, "_manager_skill_store", None),
                 manager_session_root=getattr(self, "_manager_session_root", workdir),
+                usage_context=self.task_usage_context,
             ).decide_stage_transition(
                 review=final_review,
                 project_root=getattr(self, "_artifact_root", workdir),
                 on_event=sink.handle_event,
+                root_task_id=root_task_id,
             )
             decision = {
                 "action": st.action,
