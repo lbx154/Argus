@@ -97,7 +97,7 @@ describe('shared frontend core', () => {
     };
     expect(deriveMissionView(snapshot)).toMatchObject({
       state: 'waiting',
-      stateLabel: 'not running',
+      stateLabel: 'queued',
     });
   });
 

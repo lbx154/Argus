@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, useApp, useInput, useStdout } from 'ink';
 import type { WebSocket } from 'ws';
-import { ApiClient, type ArtifactInfo, type EventMsg, type ProjectRow, type Snapshot } from './api.js';
+import {
+  ApiClient,
+  taskDispatchMessage,
+  type ArtifactInfo,
+  type EventMsg,
+  type ProjectRow,
+  type Snapshot,
+} from './api.js';
 import {
   backspace,
   deleteWordBefore,
@@ -607,7 +614,7 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            if (result.kind === 'task') say(`→ dispatched to the team: ${result.item?.title || 'new mission'}`);
+            if (result.kind === 'task') say(taskDispatchMessage(result));
             else if (!gotDelta) say(result.reply || '(no reply)');
           },
           onError: (err) => {
@@ -626,7 +633,7 @@ export function App({ host, port, token, project: initialProject, initialNotice 
           const result = await api.message(text, controller.signal);
           if (!isCurrent()) return;
           if (result.kind === 'chat' && result.reply) say(result.reply);
-          else if (result.kind === 'task') say(`→ dispatched to the team: ${result.item?.title || 'new mission'}`);
+          else if (result.kind === 'task') say(taskDispatchMessage(result));
           else say(result.reply || '(no response)');
         } catch (error) {
           if (isCurrent()) say(`(couldn’t reach Argus: ${(error as Error).message})`);

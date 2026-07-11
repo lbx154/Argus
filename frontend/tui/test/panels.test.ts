@@ -128,7 +128,7 @@ test('header reports configured work honestly without executor jargon', async ()
     React.createElement(Header, { snap, connected: true, width: 120 }),
     120,
   );
-  assert.match(output, /not running/);
+  assert.match(output, /queued/);
   assert.doesNotMatch(output, /daemon (?:live|off)/);
 });
 

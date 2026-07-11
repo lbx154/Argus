@@ -82,6 +82,49 @@ def test_post_task_lazy_spawns_daemon(ctx, monkeypatch) -> None:
     assert spawned.get("life_dir") == life.resolve()  # lazy spawn fired (no daemon was alive)
 
 
+def test_start_project_daemon_reclaims_old_idle_slot(tmp_path, monkeypatch) -> None:
+    target = _make_project(tmp_path, "s-target001")
+    idle = _make_project(tmp_path, "s-idle0001")
+    (idle / "session.json").write_text(
+        json.dumps({"id": "s-idle0001", "last_active": 1}),
+        encoding="utf-8",
+    )
+    stopped = []
+    spawned = []
+
+    def fake_status(path):
+        path = Path(path)
+        alive = path == idle and not stopped
+        return server.DaemonStatus(
+            alive=alive,
+            pid=123 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=path,
+            pid_path=path / "daemon.pid",
+        )
+
+    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
+    monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
+    monkeypatch.setattr(
+        server,
+        "stop_daemon",
+        lambda path, timeout=10.0: stopped.append(Path(path).name) or 0,
+    )
+    monkeypatch.setattr(
+        server,
+        "spawn_detached_daemon",
+        lambda config, quiet=True: spawned.append(config.life_dir) or 0,
+    )
+
+    result = server.start_project_daemon("s-target001", global_root=tmp_path)
+    assert result is not None and result["rc"] == 0
+    assert result["reclaimed_session"] == "s-idle0001"
+    assert stopped == ["s-idle0001"]
+    assert spawned == [target.resolve()]
+
+
 # ── nudge ─────────────────────────────────────────────────────────────────
 
 def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:

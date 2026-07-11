@@ -101,6 +101,14 @@ export interface PlanPreview {
   error: string;
 }
 
+export interface DaemonStartResult {
+  rc: number;
+  already_alive?: boolean;
+  error?: string;
+  reclaimed_session?: string;
+  daemon?: Daemon;
+}
+
 /** One decoded SSE frame from the streaming Manager endpoint. */
 export interface SSEFrame {
   type: string; // phase | delta | done | error
@@ -112,7 +120,16 @@ export interface StreamDone {
   kind?: string;
   reply?: string | null;
   item?: BacklogItem | null;
+  daemon?: DaemonStartResult;
   [k: string]: unknown;
+}
+
+export function taskDispatchMessage(result: StreamDone): string {
+  const title = result.item?.title || 'new mission';
+  if (result.daemon && result.daemon.rc !== 0) {
+    return `→ queued but not running: ${result.daemon.error || 'background executor failed to start'}`;
+  }
+  return `→ dispatched to the team: ${title}`;
 }
 
 /**
@@ -218,7 +235,7 @@ export class ApiClient {
   async message(
     text: string,
     signal?: AbortSignal,
-  ): Promise<{ kind: string; reply: string | null; item?: BacklogItem | null }> {
+  ): Promise<StreamDone> {
     const r = await fetch(this.p('/message'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
@@ -226,7 +243,7 @@ export class ApiClient {
       signal,
     });
     await ensureResponseOk(r, 'POST', '/message');
-    return (await r.json()) as { kind: string; reply: string | null; item?: BacklogItem | null };
+    return (await r.json()) as StreamDone;
   }
 
   /**

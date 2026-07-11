@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ApiClient, parseSSEFrames } from '../src/api.js';
+import { ApiClient, parseSSEFrames, taskDispatchMessage } from '../src/api.js';
 import { messageId, mergeFragment, renderEvent } from '../src/eventRender.js';
 
 test('parseSSEFrames decodes whole frames and keeps the partial tail', () => {
@@ -136,6 +136,20 @@ test('Ink API errors include the backend detail instead of only a status code', 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('task dispatch reports executor admission failures instead of claiming work started', () => {
+  assert.equal(
+    taskDispatchMessage({
+      kind: 'task',
+      item: {
+        id: 'x', title: 'run benchmark', objective: '', status: 'pending',
+        priority: 1, max_cost_usd: 5,
+      },
+      daemon: { rc: 2, error: 'background executor limit 2 reached' },
+    }),
+    '→ queued but not running: background executor limit 2 reached',
+  );
 });
 
 test('Ink can create a global daemon with auth, name, and objective', async () => {

@@ -79,5 +79,22 @@ test('armed or queued work without an executor is not reported as working', () =
   } as Snapshot;
   const view = deriveMissionView(snapshot);
   assert.equal(view.state, 'waiting');
-  assert.equal(view.stateLabel, 'not running');
+  assert.equal(view.stateLabel, 'queued');
+});
+
+test('pending backlog is shown as queued instead of ready', () => {
+  const snapshot = {
+    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+    roles: [],
+    recent_events: [],
+    backlog: [{
+      id: 'task-1', title: 'Run the experiment', objective: '', status: 'pending',
+      priority: 1, max_cost_usd: 5,
+    }],
+    continuous: { enabled: false, objective: '', done_reason: '' },
+  } as Snapshot;
+  const view = deriveMissionView(snapshot);
+  assert.equal(view.stateLabel, 'queued');
+  assert.equal(view.objective, 'Run the experiment');
 });

@@ -52,6 +52,8 @@ from ..core.transcript import first_operator_text, read_turns
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
+    _active_daemon_count,
+    _max_active_daemons,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
@@ -485,6 +487,44 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
     )
 
 
+_UNFINISHED_BACKLOG_STATUSES = {"pending", "running", "in_progress", "claimed"}
+
+
+def _reclaim_idle_daemon_slot(root: Path, *, exclude_sid: str) -> str:
+    """Stop the oldest daemon that has no queued/running work or continuous goal."""
+    candidates: list[tuple[float, str, Path]] = []
+    projects = root / "projects"
+    try:
+        project_dirs = list(projects.iterdir())
+    except OSError:
+        return ""
+
+    for life_dir in project_dirs:
+        if not life_dir.is_dir() or life_dir.name == exclude_sid:
+            continue
+        try:
+            status = read_daemon_status(life_dir)
+            if not status.alive:
+                continue
+            if read_continuous_state(life_dir).enabled:
+                continue
+            if count_pending_inbox_messages(life_dir) > 0:
+                continue
+            items = LifeMemory.open(life_dir).backlog.all()
+            if any(item.status in _UNFINISHED_BACKLOG_STATUSES for item in items):
+                continue
+            meta = read_session_meta(root, life_dir.name)
+            age_key = float(meta.last_active if meta is not None else life_dir.stat().st_mtime)
+            candidates.append((age_key, life_dir.name, life_dir))
+        except Exception:  # noqa: BLE001 — one corrupt project must not block admission
+            continue
+
+    for _age, sid, life_dir in sorted(candidates):
+        if stop_daemon(life_dir, timeout=10.0) in {0, 1}:
+            return sid
+    return ""
+
+
 def start_project_daemon(
     sid: str, *, global_root: Path | str | None = None,
     resume_continuous: bool = False,
@@ -505,8 +545,41 @@ def start_project_daemon(
             config.continuous = True
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
-    rc = spawn_detached_daemon(config, quiet=True)
-    return {"rc": rc, "already_alive": False, "daemon": _daemon_dict(read_daemon_status(life_dir))}
+    reclaimed = ""
+    daemon_limit = _max_active_daemons(config)
+    active_count = _active_daemon_count(config)
+    if daemon_limit > 0 and active_count >= daemon_limit:
+        reclaimed = _reclaim_idle_daemon_slot(root, exclude_sid=sid)
+        if not reclaimed:
+            return {
+                "rc": 2,
+                "already_alive": False,
+                "error": (
+                    f"background executor limit {daemon_limit} reached "
+                    "and no idle session could be reclaimed"
+                ),
+                "daemon": _daemon_dict(read_daemon_status(life_dir)),
+            }
+    try:
+        rc = spawn_detached_daemon(config, quiet=True)
+    except Exception as exc:  # noqa: BLE001 — return an actionable API result
+        return {
+            "rc": 2,
+            "already_alive": False,
+            "error": f"background executor failed to start: {type(exc).__name__}: {exc}",
+            "reclaimed_session": reclaimed,
+            "daemon": _daemon_dict(read_daemon_status(life_dir)),
+        }
+    result = {
+        "rc": rc,
+        "already_alive": False,
+        "daemon": _daemon_dict(read_daemon_status(life_dir)),
+    }
+    if reclaimed:
+        result["reclaimed_session"] = reclaimed
+    if rc != 0:
+        result["error"] = f"background executor failed to start (rc={rc})"
+    return result
 
 
 def create_daemon(
@@ -1474,8 +1547,14 @@ def create_app(
                             global_root=global_root,
                             resume_continuous=bool(result.get("continuous")),
                         )
-                    except Exception:  # noqa: BLE001 — surface the reply even if spawn hiccups
-                        pass
+                    except Exception as exc:  # noqa: BLE001 — surface failure in done frame
+                        result["daemon"] = {
+                            "rc": 2,
+                            "error": (
+                                "background executor failed to start: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        }
                 q.put({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
                 q.put({"type": "error", "error": str(exc)})
