@@ -187,6 +187,80 @@ class VenueProfile:
             return "Conclusion, then References, then a Reproducibility Checklist"
         return "Conclusion"
 
+    # ---- (de)serialization for dynamic / project-local venue profiles ----
+    def to_dict(self) -> dict:
+        """JSON-serializable dict of every field (tuples render as arrays)."""
+        from dataclasses import asdict
+
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: object) -> "VenueProfile":
+        """Build a profile from a plain dict (e.g. a researched
+        ``research/VENUE_PROFILE.json``), fail-soft per field.
+
+        Each field is coerced to its declared type (inferred from the field's
+        default; required fields — ``key``/``display_name`` and the four page
+        numbers — are coerced by name). Unknown keys are ignored; missing
+        optional fields keep the dataclass default. Raises ``ValueError`` on a
+        non-dict payload or a missing required field.
+        """
+        import dataclasses
+
+        if not isinstance(payload, dict):
+            raise ValueError("VenueProfile payload must be a dict")
+        _REQUIRED_INT = {
+            "body_page_limit",
+            "conclusion_underfill_page",
+            "conclusion_max_page",
+            "references_min_page",
+        }
+        kwargs: dict = {}
+        for f in dataclasses.fields(cls):
+            name = f.name
+            has_default = (
+                f.default is not dataclasses.MISSING
+                or f.default_factory is not dataclasses.MISSING  # type: ignore[misc]
+            )
+            raw = payload.get(name)
+            if name not in payload or raw is None:
+                if has_default:
+                    continue  # let the dataclass supply its own default
+                raise ValueError(f"VenueProfile requires field {name!r}")
+            if f.default is not dataclasses.MISSING:
+                default = f.default
+            elif f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+                default = f.default_factory()  # type: ignore[misc]
+            else:
+                default = None
+            if isinstance(default, bool):  # bool before int (bool subclasses int)
+                kwargs[name] = bool(raw)
+            elif isinstance(default, int):
+                kwargs[name] = int(raw)
+            elif isinstance(default, tuple):
+                kwargs[name] = (
+                    tuple(str(x).strip() for x in raw if str(x).strip())
+                    if isinstance(raw, (list, tuple))
+                    else default
+                )
+            elif isinstance(default, str):
+                kwargs[name] = str(raw)
+            elif name in _REQUIRED_INT:
+                kwargs[name] = int(raw)
+            else:  # required str fields (key, display_name)
+                kwargs[name] = str(raw)
+        return cls(**kwargs)
+
+    @classmethod
+    def from_json(cls, path: "Path | str") -> "VenueProfile":
+        """Load a profile from a ``VENUE_PROFILE.json`` file (raises on
+        unreadable / malformed / invalid)."""
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"cannot load VenueProfile from {path}") from exc
+        return cls.from_dict(payload)
+
 
 
 
@@ -340,13 +414,71 @@ def _venue_key_from_pipeline_state(project_root: Path) -> str | None:
 def resolve_venue_profile(project_root: Path) -> VenueProfile:
     """Resolve the active venue profile for a project.
 
-    Precedence: ``ARGUS_SKILL_VENUE`` env override > ``target_venue`` in
-    ``research/PIPELINE_STATE.json`` > EMNLP default.
+    Precedence: ``ARGUS_SKILL_VENUE`` env override > a project-local researched
+    ``research/VENUE_PROFILE.json`` (dynamic venue) > ``target_venue`` in
+    ``research/PIPELINE_STATE.json`` (built-in registry) > EMNLP default.
     """
     env_key = os.environ.get(_VENUE_ENV)
     if env_key:
         return get_venue_profile(env_key)
+    local = load_local_venue_profile(project_root)
+    if local is not None:
+        return local
     return get_venue_profile(_venue_key_from_pipeline_state(project_root))
+
+
+VENUE_PROFILE_FILENAME = "VENUE_PROFILE.json"
+
+
+def venue_profile_path(project_root: Path) -> Path:
+    """Path to a project's dynamic (researched) venue profile."""
+    return Path(project_root) / "research" / VENUE_PROFILE_FILENAME
+
+
+def is_builtin_venue(key: object) -> bool:
+    """True when ``key`` (case/alias/variant-insensitive) names a BUILT-IN venue.
+
+    Used to decide whether a non-standard ``target_venue`` needs the online
+    venue-format research step (only when it is NOT a built-in and has no
+    cached ``VENUE_PROFILE.json``).
+    """
+    if not key:
+        return False
+    index = _alias_index()
+    raw = str(key).strip().upper()
+    return raw in index or _normalize_venue_key(raw) in index
+
+
+def load_local_venue_profile(project_root: Path) -> "VenueProfile | None":
+    """Return the project-local researched profile if present + valid, else
+    ``None`` (fail-soft — a corrupt cache must never crash resolution)."""
+    path = venue_profile_path(project_root)
+    if not path.is_file():
+        return None
+    try:
+        return VenueProfile.from_json(path)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ignoring invalid %s: %s", path, exc)
+        return None
+
+
+def write_venue_profile(project_root: Path, profile: VenueProfile) -> Path:
+    """Atomically persist a researched profile to research/VENUE_PROFILE.json."""
+    import tempfile
+
+    path = venue_profile_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(profile.to_dict(), indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    return path
 
 
 def cross_venue_excluded_skill_files(active: VenueProfile) -> set[str]:

@@ -302,6 +302,49 @@ class SkillLoop:
         # feature's prompt is explicitly paper-ideation ("candidate discovery for
         # a paper") — firing it there wastes a live-web-search call (and rate-
         # limit budget) on a mission that will never read IDEA_CANDIDATES.md.
+        # Venue-format research: if target_venue is a NON-standard venue (not
+        # EMNLP/AAAI) with no cached profile yet, run ONE codex live-web-search
+        # round to build research/VENUE_PROFILE.json so the paper is graded
+        # against the RIGHT venue instead of the EMNLP default. Fail-open +
+        # run-once (cached by the file). Opt-out via ARGUS_SKILL_VENUE_RESEARCH=0.
+        if os.environ.get("ARGUS_SKILL_VENUE_RESEARCH", "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        ):
+            try:
+                from .skills.stage_checklists import current_stage as _vr_stage
+                from .skills.venue_research import (
+                    needs_venue_research,
+                    research_venue_profile,
+                )
+                from .skills.vertical_select import _persisted_vertical as _vr_vert
+
+                if (
+                    self.config.paper_mission
+                    and (_vr_vert(workdir) or "research") == "research"
+                    and (_vr_stage(workdir) or "").strip().lower() == "research"
+                    and needs_venue_research(workdir)
+                ):
+                    self._emit({
+                        "type": "venue.research.started",
+                        "text": "codex live web-search: researching non-standard venue format",
+                    })
+                    _ok = research_venue_profile(
+                        self.engineer_runner,
+                        workdir,
+                        model=self.config.engineer_model,
+                    )
+                    self._emit({
+                        "type": "venue.research.completed",
+                        "text": (
+                            "built research/VENUE_PROFILE.json"
+                            if _ok else
+                            "venue research produced no profile (falling back to default)"
+                        ),
+                        "ok": _ok,
+                    })
+            except Exception:  # noqa: BLE001 — venue research never blocks the loop
+                log.debug("venue-research hook skipped", exc_info=True)
+
         # Selection is untouched; fail-open + run-once. Opt-out via
         # ARGUS_SKILL_IDEA_SEARCH=0. Recorded on the event stream so operators
         # (cockpit / --follow / events.jsonl) see the extra candidate source.

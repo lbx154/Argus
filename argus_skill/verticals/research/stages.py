@@ -318,25 +318,97 @@ REVIEWER_CHECKLISTS_BY_VENUE: dict[str, dict[str, tuple[str, str, list[str]]]] =
 #: default). New callers use ``reviewer_checklists_for(venue)``.
 REVIEWER_CHECKLISTS = REVIEWER_CHECKLISTS_EMNLP
 
+#: The five venue-NEUTRAL stages, shared by every venue (built-in and dynamic).
+#: The three format-bearing stages (run/review/submission) are native per
+#: built-in venue, or generated from a VenueProfile by build_reviewer_checklists.
+_NEUTRAL_STAGES = ("research", "plan", "benchmark", "analysis", "draft")
+_NEUTRAL_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
+    stage: REVIEWER_CHECKLISTS_EMNLP[stage] for stage in _NEUTRAL_STAGES
+}
+
+
+def build_reviewer_checklists(
+    profile: object,
+) -> dict[str, tuple[str, str, list[str]]]:
+    """Generate a full reviewer-checklist dict for a venue that has no hand-
+    written native dict (a dynamically-researched :class:`VenueProfile`).
+
+    The five neutral stages are shared verbatim; the three format-bearing
+    stages (run/review/submission) are generated from the profile's own fields
+    (``reviewer_persona``, ``page_budget_line()``, ``end_matter_prose()``), so a
+    NeurIPS/ICML/... paper is graded against its own venue, not EMNLP. Uses the
+    venue-neutral ``academic-paper-peer-review-benchmark`` review skill (a
+    dynamic venue has no bespoke academic-language-review skill).
+    """
+    persona = getattr(profile, "reviewer_persona", None) or "the target venue"
+    budget = profile.page_budget_line()
+    end_matter = profile.end_matter_prose()
+    generated: dict[str, tuple[str, str, list[str]]] = {
+        "run": (
+            "reviewer/experiment-results-review.md",
+            "Evaluate the experiment results on these dimensions:\n"
+            "1. Statistical significance — are gains significant, not noise?\n"
+            "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
+            "3. Effect size — are improvements meaningful, not cosmetic?\n"
+            "4. Claim support — does data actually support each claim?\n"
+            "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
+            "6. Completeness — all conditions run, no missing benchmark families?\n"
+            f"If results are too weak to support a {persona} paper, recommend pivot or more experiments.",
+            ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
+        ),
+        "review": (
+            "reviewer/academic-paper-peer-review-benchmark.md",
+            "Evaluate the review artifacts on these dimensions:\n"
+            "1. Layout review — does LAYOUT_REVIEW.json pass? Are pages well-balanced, figures readable?\n"
+            "2. Academic language — does ACADEMIC_LANGUAGE_REVIEW.json pass? No hype, salesy language, or vague claims?\n"
+            "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
+            "4. Citation quality — all citations author-year, no dumping, no placeholders?\n"
+            f"5. Page budget — {budget}?\n"
+            "If any review artifact has unresolved major issues, block until fixed.",
+            ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+             "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
+        ),
+        "submission": (
+            "reviewer/academic-paper-peer-review-benchmark.md",
+            f"FINAL submission gate — be STRICT, evaluate as an actual {persona} reviewer.\n"
+            "Review dimensions (all must pass):\n"
+            "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
+            "2. Evidence strength — do experiments convincingly support claims?\n"
+            "3. Baseline quality — are comparisons against strong, relevant baselines?\n"
+            "4. Writing quality — is the paper well-written and clear?\n"
+            "5. Reproducibility — enough detail to reproduce results?\n"
+            f"6. Significance — would {persona} reviewers find this interesting?\n"
+            f"7. Format compliance — {persona} format ({budget}), references, {end_matter}?\n"
+            "8. Claim-evidence alignment — every claim backed by specific data?\n"
+            f"Score 5+/10 to pass. If the paper would get Reject at {persona}, fail it here.",
+            ["paper/main.tex"],
+        ),
+    }
+    return {**_NEUTRAL_CHECKLISTS, **generated}
+
 
 def reviewer_checklists_for(venue: object) -> dict[str, tuple[str, str, list[str]]]:
-    """Return the NATIVE reviewer checklists for ``venue``.
+    """Return the reviewer checklists for ``venue``.
 
-    ``venue`` may be a :class:`VenueProfile` (uses ``.key``) or a **canonical**
-    venue-key string ("EMNLP"/"AAAI"). Both registered venues are peers; an
-    unknown venue key (including a not-yet-canonicalized alias like "ACL")
-    raises so a new venue is never silently graded against another venue's
-    checklist — callers holding an alias should canonicalize via
-    ``get_venue_profile`` first.
+    - A built-in venue key ("EMNLP"/"AAAI") -> its hand-written NATIVE dict.
+    - A dynamic :class:`VenueProfile` (a researched venue not in the registry)
+      -> checklists generated from the profile by :func:`build_reviewer_checklists`.
+    - A bare unknown venue-key string with no profile -> raises, so a new venue
+      is never silently graded against another venue's checklist.
     """
     key = str(getattr(venue, "key", venue)).upper()
-    try:
+    if key in REVIEWER_CHECKLISTS_BY_VENUE:
         return REVIEWER_CHECKLISTS_BY_VENUE[key]
-    except KeyError as exc:
-        raise KeyError(
-            f"no native reviewer checklists for venue {key!r}; add an entry to "
-            "REVIEWER_CHECKLISTS_BY_VENUE"
-        ) from exc
+    # Dynamic venue: only a real VenueProfile (with the fields we template on)
+    # can be built; a bare unknown string cannot.
+    if hasattr(venue, "reviewer_persona") and callable(
+        getattr(venue, "page_budget_line", None)
+    ):
+        return build_reviewer_checklists(venue)
+    raise KeyError(
+        f"no reviewer checklists for venue {key!r}: pass a built-in key or a "
+        "VenueProfile (dynamic venues are built from their profile)"
+    )
 
 
 # ===========================================================================
