@@ -329,6 +329,40 @@ def test_generate_image_retries_transient_overload(
     assert meta["image"]["mime"] == "image/png"
 
 
+def test_generate_image_caps_retry_after_delay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            headers = Message()
+            headers["Retry-After"] = "3600"
+            raise HTTPError(
+                req.full_url,
+                429,
+                "too many requests",
+                hdrs=headers,
+                fp=io.BytesIO(b'{"error":{"code":"rate_limit"}}'),
+            )
+        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
+
+    monkeypatch.setattr(image_tool, "_urlopen", fake_urlopen)
+    monkeypatch.setattr(image_tool.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    image_tool.generate_image(
+        prompt="clean academic hierarchy diagram",
+        out=tmp_path / "figure.png",
+        env=_env_with_vault(tmp_path),
+    )
+
+    assert sleeps == [45.0]
+
+
 def test_generate_image_keeps_explicit_non_square_size(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

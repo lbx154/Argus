@@ -23,6 +23,7 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS = 500.0
 _DEFAULT_MAX_RETRIES = 4
+_MAX_RETRY_DELAY_SECONDS = 45.0
 _TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
 _SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
@@ -119,12 +120,12 @@ def _retry_delay_seconds(exc: BaseException, attempt_index: int) -> float | None
         retry_after = exc.headers.get("Retry-After") if exc.headers else None
         if retry_after:
             try:
-                return max(1.0, float(retry_after))
+                return min(_MAX_RETRY_DELAY_SECONDS, max(1.0, float(retry_after)))
             except ValueError:
                 pass
     elif not isinstance(exc, urllib.error.URLError):
         return None
-    return min(45.0, 3.0 * (2**attempt_index))
+    return min(_MAX_RETRY_DELAY_SECONDS, 3.0 * (2**attempt_index))
 
 
 def _json_request(
