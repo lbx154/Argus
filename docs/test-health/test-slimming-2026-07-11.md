@@ -30,9 +30,13 @@
 | 项目 | 值 |
 | --- | --- |
 | 仓库 | `/home/argustest/dev/Storm72/argus-skill` |
-| 工作分支 | `Storm72/test-slimming-20260711` |
+| 原始审计分支 | `Storm72/test-slimming-20260711` |
+| 干净 PR 分支 | `Storm72/test-slimming-pr-20260711` |
 | 清理前基线 commit | `0a2146b5b9d0bd6653b77dd4d61202255c2f105b` |
-| 独立基线修复 commit | `11a7f8a` |
+| 原始基线修复 commit | `11a7f8a` |
+| PR 基线修复 commit | `9daa1b5` |
+| 原始测试精简 commit | `7f77714` |
+| PR 测试精简 commit | `64a050a` |
 | Python | 3.13.5 |
 | pytest | 9.1.1 |
 | 主机 | `dsp7`，Linux 6.8.0-1052-azure，x86_64 |
@@ -735,4 +739,3 @@ git diff --check
 | 无新增跨轮不一致失败 | 通过 |
 | wall time 使用中位数比较 | 通过 |
 | 正式 Markdown 报告和原始证据已保存 | 通过 |
-
