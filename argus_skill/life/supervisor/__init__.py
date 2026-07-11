@@ -10,7 +10,7 @@ from ._config import (
     global_daily_usage_summary,
 )
 from ._core import (
-    _FULL_EMNLP_GATE_DESCRIPTION,
+    _FULL_PAPER_GATE_DESCRIPTION,
     _IDLE_BACKOFF_BASE_SECONDS,
     _IDLE_BACKOFF_CAP_SECONDS,
     _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,
@@ -75,6 +75,6 @@ __all__ = [
     "_IDLE_BACKOFF_BASE_SECONDS",
     "_IDLE_BACKOFF_CAP_SECONDS",
     "_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
-    "_FULL_EMNLP_GATE_DESCRIPTION",
+    "_FULL_PAPER_GATE_DESCRIPTION",
     "LifeSupervisor",
 ]

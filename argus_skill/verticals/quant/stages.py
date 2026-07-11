@@ -9,7 +9,7 @@ checks, the reviewer checklists, the markdown ``CHECKLIST_ITEMS`` (ported from
 the original quant-factor domain's ``checklists.py``), and the ``role_banner``.
 
 The deliverable is an interpretable, reviewer-certified **factor report**, so
-``completion_gate`` is ``"full_emnlp"`` (report certification), exactly like
+``completion_gate`` is ``"full_paper"`` (report certification), exactly like
 ``research`` — NOT a numeric speedrun metric.
 
 The reviewer checklists name two built-in finance skills:
@@ -540,7 +540,7 @@ PROTECTED_ITEM_IDS: frozenset[str] = frozenset(
 
 #: Quant missions complete on a certified final factor REPORT (report
 #: certification, the research/EMNLP analog) — NOT a numeric metric.
-completion_gate = "full_emnlp"
+completion_gate = "full_paper"
 
 
 def role_banner(_role: str = "engineer") -> str:

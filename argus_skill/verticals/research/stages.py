@@ -102,10 +102,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# Stage → reviewer checklist
+# Stage → reviewer checklist, per venue.
 # The reviewer agent is a codex agent with shell access in the same workdir.
 # It will load the skill, read the files, and do the review itself.
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
+#
+# EMNLP and AAAI are peers: five stages (research/plan/benchmark/analysis/draft)
+# are venue-neutral and shared verbatim; the three format-bearing stages
+# (run/review/submission) have a NATIVE definition per venue. ``reviewer_
+# checklists_for(venue)`` returns the venue's full native dict — there is no
+# EMNLP-privileged path or per-string patching.
+REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
     # stage: (skill_to_load, review_instructions, files_to_read)
     "research": (
         "engineer/research-brief-to-experiment-plan.md",
@@ -250,6 +256,89 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 }
 
 
+# AAAI-native overrides for the three format-bearing stages. The other five
+# stages (research/plan/benchmark/analysis/draft) are venue-neutral and shared
+# verbatim from the EMNLP dict below.
+_AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
+    "run": (
+        "reviewer/experiment-results-review.md",
+        "Evaluate the experiment results on these dimensions:\n"
+        "1. Statistical significance — are gains significant, not noise?\n"
+        "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
+        "3. Effect size — are improvements meaningful, not cosmetic?\n"
+        "4. Claim support — does data actually support each claim?\n"
+        "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
+        "6. Completeness — all conditions run, no missing benchmark families?\n"
+        "If results are too weak to support an AAAI paper, recommend pivot or more experiments.",
+        ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
+    ),
+    "review": (
+        "reviewer/aaai-academic-language-review.md",
+        "Evaluate the review artifacts on these dimensions:\n"
+        "1. Layout review — does LAYOUT_REVIEW.json pass? Are pages well-balanced, figures readable?\n"
+        "2. Academic language — does ACADEMIC_LANGUAGE_REVIEW.json pass? No hype, salesy language, or vague claims?\n"
+        "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
+        "4. Citation quality — all citations author-year natbib, no dumping, no placeholders?\n"
+        "5. Page budget — body ≤7 pages, conclusion by page 7, references start page 8+, Reproducibility Checklist after References?\n"
+        "If any review artifact has unresolved major issues, block until fixed.",
+        ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+         "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
+    ),
+    "submission": (
+        "reviewer/academic-paper-peer-review-benchmark.md",
+        "FINAL submission gate — be STRICT, evaluate as an actual AAAI reviewer.\n"
+        "Review dimensions (all must pass):\n"
+        "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
+        "2. Evidence strength — do experiments convincingly support claims?\n"
+        "3. Baseline quality — are comparisons against strong, relevant baselines?\n"
+        "4. Writing quality — is the paper well-written and clear?\n"
+        "5. Reproducibility — enough detail to reproduce results?\n"
+        "6. Significance — would AAAI reviewers find this interesting?\n"
+        "7. Format compliance — AAAI format, page budget, references, reproducibility checklist?\n"
+        "8. Claim-evidence alignment — every claim backed by specific data?\n"
+        "Score 5+/10 to pass. If the paper would get Reject at AAAI, fail it here.",
+        ["paper/main.tex"],
+    ),
+}
+
+#: AAAI-native reviewer checklists: neutral stages shared, format stages native.
+REVIEWER_CHECKLISTS_AAAI: dict[str, tuple[str, str, list[str]]] = {
+    **REVIEWER_CHECKLISTS_EMNLP,
+    **_AAAI_STAGE_OVERRIDES,
+}
+
+#: Registry: venue key -> that venue's full native reviewer checklists. Both
+#: venues are peers; add an entry here to onboard a new venue.
+REVIEWER_CHECKLISTS_BY_VENUE: dict[str, dict[str, tuple[str, str, list[str]]]] = {
+    "EMNLP": REVIEWER_CHECKLISTS_EMNLP,
+    "AAAI": REVIEWER_CHECKLISTS_AAAI,
+}
+
+#: Back-compat alias for importers predating the per-venue split (EMNLP
+#: default). New callers use ``reviewer_checklists_for(venue)``.
+REVIEWER_CHECKLISTS = REVIEWER_CHECKLISTS_EMNLP
+
+
+def reviewer_checklists_for(venue: object) -> dict[str, tuple[str, str, list[str]]]:
+    """Return the NATIVE reviewer checklists for ``venue``.
+
+    ``venue`` may be a :class:`VenueProfile` (uses ``.key``) or a **canonical**
+    venue-key string ("EMNLP"/"AAAI"). Both registered venues are peers; an
+    unknown venue key (including a not-yet-canonicalized alias like "ACL")
+    raises so a new venue is never silently graded against another venue's
+    checklist — callers holding an alias should canonicalize via
+    ``get_venue_profile`` first.
+    """
+    key = str(getattr(venue, "key", venue)).upper()
+    try:
+        return REVIEWER_CHECKLISTS_BY_VENUE[key]
+    except KeyError as exc:
+        raise KeyError(
+            f"no native reviewer checklists for venue {key!r}; add an entry to "
+            "REVIEWER_CHECKLISTS_BY_VENUE"
+        ) from exc
+
+
 # ===========================================================================
 # System (B) — markdown stage checklists for the research vertical
 # ===========================================================================
@@ -265,7 +354,7 @@ CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
 CHECKLIST_ITEMS = STAGE_CHECKLISTS
 
 #: Research missions complete on the full EMNLP/paper final-submission gate.
-completion_gate = "full_emnlp"
+completion_gate = "full_paper"
 
 
 def role_banner(_role: str = "engineer") -> str:

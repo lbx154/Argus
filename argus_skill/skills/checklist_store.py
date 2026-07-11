@@ -173,7 +173,7 @@ def _paper_gate_protected_ids(project_root: object) -> frozenset[str]:
         gate = vertical_completion_gate(
             load_vertical(resolve_vertical(project_root), project_root=project_root)
         )
-        return PROTECTED_ITEM_IDS if gate == "full_emnlp" else frozenset()
+        return PROTECTED_ITEM_IDS if gate == "full_paper" else frozenset()
     except Exception:  # noqa: BLE001
         return frozenset()
 

@@ -350,12 +350,12 @@ class Planner:
         # Vertical-native prompt framing: resolve the active vertical and let it
         # supply the top-of-prompt role banner. The paper-pipeline framing below
         # (research gate, parallel paper-drafting, upstream rollback) applies
-        # ONLY to a paper vertical (completion_gate == "full_emnlp"); for any
+        # ONLY to a paper vertical (completion_gate == "full_paper"); for any
         # other vertical (e.g. speedrun) those blocks are suppressed and the
         # vertical's banner is prepended so the planner runs that vertical's loop
         # instead of demanding/rebuilding a research gate.
         _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
-        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "planner")
 
         # Live search-altitude facts (NO verdict) so the planner can SEE the
@@ -411,7 +411,7 @@ class Planner:
         # productive instead of babysitting the run. Prose-only, never advances
         # the stage pointer; final-number integrity is preserved via placeholders.
         parallel_drafting_block = ""
-        if stage in ("run", "analysis") and _full_emnlp:
+        if stage in ("run", "analysis") and _full_paper:
             draft_checklist = format_stage_checklist(
                 "draft", role="planner", project_root=_proot
             )
@@ -518,7 +518,7 @@ class Planner:
             "   model APIs to verify scoring backends, …) — NOT a blind\n"
             "   regenerate or a template fill-in.\n"
         )
-        if not _full_emnlp:
+        if not _full_paper:
             # non-paper verticals have no upstream paper stages to roll back into.
             upstream_rollback_block = ""
 

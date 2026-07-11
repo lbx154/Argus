@@ -90,7 +90,7 @@ class SkillLoopConfig:
     extra_args: list[str] | None = None
     session_id: str | None = None
     # Explicit signal that this mission is a long-horizon academic-paper /
-    # EMNLP-submission task. When True the engineer prompt carries the
+    # submission task. When True the engineer prompt carries the
     # long-horizon paper execution contract. Replaces the old keyword-based
     # objective sniffing; callers (e.g. the life runner) set it explicitly.
     paper_mission: bool = False

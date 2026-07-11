@@ -1,14 +1,14 @@
 """Tests for the reviewer-driven final-submission completion contract.
 
 This contract replaces the retired hardcoded EMNLP validator gate
-(``validate_full_emnlp_readiness`` and friends). Whole-project completion
+(``validate_full_paper_readiness`` and friends). Whole-project completion
 is now certified by the L2 reviewer's full-pipeline checklist verdict:
 
 * ``ReviewDecision.final_submission_certified`` is True only for a ``done``
   verdict scoped to ``final_submission`` whose checklist is non-empty and
   every item is satisfied with concrete evidence (fail-closed).
 * The reviewer JSON parser must parse ``scope`` / ``checklist`` fail-closed.
-* ``LifeSupervisor._journal_has_full_emnlp_gate_success`` reads the event
+* ``LifeSupervisor._journal_has_full_paper_gate_success`` reads the event
   timeline for a ``life.mission.completed`` event stamped ``final_submission_certified``,
   never a validator call.
 """
@@ -275,7 +275,7 @@ def test_open_ended_is_explicit_flag_not_objective_keywords(tmp_path: Path) -> N
 def test_journal_gate_true_only_with_certified_entry(tmp_path: Path) -> None:
     sup = _make_supervisor(tmp_path)
     # No certified entry yet.
-    assert sup._journal_has_full_emnlp_gate_success() is False
+    assert sup._journal_has_full_paper_gate_success() is False
 
     # A completed mission that was NOT certified must not pass the gate.
     _append_event(
@@ -287,7 +287,7 @@ def test_journal_gate_true_only_with_certified_entry(tmp_path: Path) -> None:
             "final_submission_certified": False,
         },
     )
-    assert sup._journal_has_full_emnlp_gate_success() is False
+    assert sup._journal_has_full_paper_gate_success() is False
 
     # A certified final-submission event passes the gate.
     _append_event(
@@ -299,7 +299,7 @@ def test_journal_gate_true_only_with_certified_entry(tmp_path: Path) -> None:
             "final_submission_certified": True,
         },
     )
-    assert sup._journal_has_full_emnlp_gate_success() is True
+    assert sup._journal_has_full_paper_gate_success() is True
 
 
 def test_journal_gate_ignores_stale_validator_text(tmp_path: Path) -> None:
@@ -314,7 +314,7 @@ def test_journal_gate_ignores_stale_validator_text(tmp_path: Path) -> None:
             "completion_summary": "validate-full-emnlp exited 0",
         },
     )
-    assert sup._journal_has_full_emnlp_gate_success() is False
+    assert sup._journal_has_full_paper_gate_success() is False
 
 
 def _write_operator_external_lock(root: Path, *, target_exists: bool = False) -> None:
@@ -341,7 +341,7 @@ def test_project_done_becomes_waiting_for_operator_only_external_blocker(tmp_pat
     project = tmp_path / "project"
     project.mkdir()
     _write_operator_external_lock(project)
-    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_paper_gate=True)
     verdict = PlannerVerdict(project_done=True, reason="local work complete")
 
     converted = sup._defer_project_done_for_operator_external_blocker(verdict)
@@ -357,7 +357,7 @@ def test_project_done_still_requires_final_submission_guard_without_external_loc
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_paper_gate=True)
     verdict = PlannerVerdict(project_done=True, reason="paper ready")
 
     converted = sup._defer_project_done_for_operator_external_blocker(verdict)
@@ -372,7 +372,7 @@ def test_project_done_still_requires_final_submission_guard_after_reentry(
     project = tmp_path / "project"
     project.mkdir()
     _write_operator_external_lock(project, target_exists=True)
-    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_paper_gate=True)
     verdict = PlannerVerdict(project_done=True, reason="paper ready")
 
     converted = sup._defer_project_done_for_operator_external_blocker(verdict)
@@ -393,7 +393,7 @@ def test_open_ended_project_done_idles_when_state_unchanged(
         continuous=True,
         continuous_objective="keep improving",
         open_ended=True,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         project_worktree=project,
     )
     sup._vertical_resolved = True
@@ -437,7 +437,7 @@ def test_non_open_ended_project_done_stops_normally(
         continuous=True,
         continuous_objective="bounded finish",
         open_ended=False,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         project_worktree=project,
     )
     sup._vertical_resolved = True
@@ -472,7 +472,7 @@ def test_open_ended_project_change_replans_and_enqueues_tasks(
         continuous=True,
         continuous_objective="keep improving",
         open_ended=True,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         project_worktree=project,
     )
     sup._vertical_resolved = True
@@ -521,7 +521,7 @@ def test_restart_verdict_still_handoffs_without_terminal_idle(
         continuous=True,
         continuous_objective="keep improving",
         open_ended=True,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         project_worktree=project,
         planner_restart_handler=lambda reason: restart_reasons.append(reason) or True,
     )
@@ -600,7 +600,7 @@ def _waiting_supervisor(tmp_path: Path, monkeypatch, *, reason: str = "gpu busy"
         continuous=True,
         continuous_objective="keep optimizing",
         open_ended=False,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         project_worktree=project,
     )
     sup._vertical_resolved = True

@@ -106,6 +106,13 @@ class VenueProfile:
     reviewer_persona: str = "EMNLP"
     review_skill_path: str = "reviewer/emnlp-academic-language-review.md"
 
+    # ---- figure (image-2) style persona --------------------------------
+    # The venue family used when prompting/reviewing paper figures. EMNLP
+    # figures read as "EMNLP/ACL/NeurIPS" method figures; AAAI as "AAAI".
+    # image_tool builds its prompt/rubric skeleton and fills the venue from
+    # here, so a figure is never prompted or graded against the wrong venue.
+    figure_style_persona: str = "EMNLP/ACL/NeurIPS"
+
     # ---- shared quality heuristics (kept equal across venues for now) ---
     min_verified_bib_entries: int = 35
     min_cited_keys: int = 30
@@ -209,6 +216,7 @@ EMNLP_PROFILE = VenueProfile(
     academic_language_rubric_id="emnlp-academic-language-v2",
     reviewer_persona="EMNLP",
     review_skill_path="reviewer/emnlp-academic-language-review.md",
+    figure_style_persona="EMNLP/ACL/NeurIPS",
     aliases=("ACL", "ARR", "FINDINGS"),
     venue_skill_files=(
         "emnlp-paper-drafting.md",
@@ -250,6 +258,7 @@ AAAI_PROFILE = VenueProfile(
     academic_language_rubric_id="aaai-academic-language-v2",
     reviewer_persona="AAAI",
     review_skill_path="reviewer/aaai-academic-language-review.md",
+    figure_style_persona="AAAI",
     # AAAI has no official abstract word limit — keep a soft advisory floor.
     abstract_word_floor=150,
     abstract_word_floor_is_hard=False,

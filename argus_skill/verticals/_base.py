@@ -13,8 +13,8 @@ OPTIONAL hooks System (B) — the markdown stage checklists in
   markdown checklist items (default: research's ``STAGE_CHECKLISTS``).
 * ``role_banner(role: str) -> str`` — top-of-prompt framing for
   planner/reviewer/engineer (default ``""``).
-* ``completion_gate: str`` — ``"full_emnlp"`` (research) | ``"metric"``
-  (speedrun) | ``"none"`` (default ``"full_emnlp"``).
+* ``completion_gate: str`` — ``"full_paper"`` (research) | ``"metric"``
+  (speedrun) | ``"none"`` (default ``"full_paper"``).
 
 A vertical that does not declare a hook gets the safe default, so the
 ``research`` vertical (which re-exports its checklist defs) stays byte-identical
@@ -160,11 +160,11 @@ def vertical_role_banner(mod: ModuleType, role: str) -> str:
 
 
 def vertical_completion_gate(mod: ModuleType) -> str:
-    """Return ``mod.completion_gate`` or the default ``"full_emnlp"``."""
+    """Return ``mod.completion_gate`` or the default ``"full_paper"``."""
     gate = getattr(mod, "completion_gate", None)
     if isinstance(gate, str) and gate.strip():
         return gate.strip().lower()
-    return "full_emnlp"
+    return "full_paper"
 
 
 def vertical_search_altitude(mod: ModuleType, project_root: object) -> str:

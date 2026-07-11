@@ -20,13 +20,13 @@ def _supervisor(*, effective_gate: bool, tmp_path: Path) -> tuple[LifeSupervisor
     # Raw flag is True (open-ended default), but the VERTICAL-EFFECTIVE gate is
     # what the supervisor must consult.
     sup.config = SimpleNamespace(
-        full_emnlp_gate=True,
+        full_paper_gate=True,
         artifact_root=tmp_path,
         telemetry_dir=None,
     )
-    sup._effective_full_emnlp_gate = lambda _w: effective_gate  # type: ignore[attr-defined]
+    sup._effective_full_paper_gate = lambda _w: effective_gate  # type: ignore[attr-defined]
     sup._project_workdir = lambda: tmp_path  # type: ignore[attr-defined]
-    sup._journal_has_full_emnlp_gate_success = lambda: False  # type: ignore[attr-defined]
+    sup._journal_has_full_paper_gate_success = lambda: False  # type: ignore[attr-defined]
 
     def _wait_reason() -> None:
         consulted.append(True)  # only reached once the paper gate has passed
@@ -87,9 +87,9 @@ def test_persisted_bounded_data_domain_disables_emnlp_gate(
     ])
 
     sup = LifeSupervisor.__new__(LifeSupervisor)
-    sup.config = SimpleNamespace(full_emnlp_gate=True)
+    sup.config = SimpleNamespace(full_paper_gate=True)
 
-    assert sup._effective_full_emnlp_gate(tmp_path) is False
+    assert sup._effective_full_paper_gate(tmp_path) is False
     assert state_path.read_text(encoding="utf-8") == (
         '{"current_stage": "profile", "vertical": "perf_tuning"}\n'
     )
@@ -134,7 +134,7 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
 
     sup = LifeSupervisor.__new__(LifeSupervisor)
     sup.config = SimpleNamespace(
-        full_emnlp_gate=True,
+        full_paper_gate=True,
         artifact_root=tmp_path,
         telemetry_dir=None,
     )
@@ -152,7 +152,7 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     assert result["status"] == "skipped"
     assert updates[0]["item_id"] == item.id
     assert updates[0]["status"] == "skipped"
-    assert "not full_emnlp" in updates[0]["last_error"]
+    assert "not full_paper" in updates[0]["last_error"]
     assert state_path.read_text(encoding="utf-8") == (
         '{"current_stage": "profile", "vertical": "perf_tuning"}\n'
     )

@@ -79,7 +79,7 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.color = None
     ns.verbose = False
     ns.quiet = True
-    # Paper gates (EMNLP) default OFF for a teammate (the common optimize case);
+    # Paper gates default OFF for a teammate (the common optimize case);
     # a paper-fan-out team enables them per teammate via ARGUS_TEAMMATE_PAPER_MISSION.
     ns.paper_mission = _env_bool("ARGUS_TEAMMATE_PAPER_MISSION", paper_mission)
     # Time-box: the runner interrupts the codex mission when this event is set,

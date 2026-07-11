@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
+from argus_skill.skills.venue_profiles import VenueProfile, get_venue_profile
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
@@ -228,6 +229,7 @@ def render_paper_figure_prompt(
     ),
     framing: str = "",
     aspect_ratio: str = "1536x1024 landscape",
+    venue_profile: VenueProfile | None = None,
     # Legacy parameters — composed into content block if content is empty
     studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,  # noqa: ARG001 — kept for write_paper_figure_prompt's keyword pass-through
     input_label: str = "",
@@ -270,12 +272,13 @@ def render_paper_figure_prompt(
         content = "\n".join(lines)
 
     if not framing.strip():
+        persona = venue_profile.figure_style_persona if venue_profile is not None else "EMNLP/ACL"
         framing = (
-            f"Figma-style technical diagram for an EMNLP/ACL paper. "
+            f"Figma-style technical diagram for an {persona} paper. "
             f"Subject: {figure_title}."
         )
 
-    return PAPER_FIGURE_PROMPT_TEMPLATE.format(
+    prompt = PAPER_FIGURE_PROMPT_TEMPLATE.format(
         template_id=PAPER_FIGURE_PROMPT_TEMPLATE_ID,
         figure_studio_source=PAPER_FIGURE_STUDIO_SOURCE_ID,
         framing=framing,
@@ -291,6 +294,30 @@ def render_paper_figure_prompt(
         symbol_formula_necessity=symbol_formula_necessity,
         semantic_contract=semantic_contract,
     ) + "\n"
+    if venue_profile is not None:
+        prompt = _apply_venue_persona(prompt, venue_profile)
+    return prompt
+
+
+def _apply_venue_persona(prompt: str, venue_profile: VenueProfile) -> str:
+    """Rewrite the venue persona baked into the static prompt template.
+
+    ``PAPER_FIGURE_PROMPT_TEMPLATE`` hardcodes the EMNLP/ACL/NeurIPS family in
+    a few places (``EMNLP method figure``, the ``EMNLP/ACL/NeurIPS ... paper``
+    style clauses, the Chinese "适合 EMNLP/ACL/NeurIPS 论文主图" note). When a
+    ``venue_profile`` is supplied, swap those literals for the profile's
+    ``figure_style_persona`` (family clauses) / ``reviewer_persona`` (the short
+    "<venue> method figure" label) so an AAAI figure reads as an AAAI figure.
+    This is a true no-op for the EMNLP profile (figure_style_persona ==
+    "EMNLP/ACL/NeurIPS", reviewer_persona == "EMNLP") and is never called when
+    ``venue_profile`` is None, so legacy prompts are byte-identical.
+    """
+    persona = venue_profile.figure_style_persona
+    replaced = prompt.replace("EMNLP/ACL/NeurIPS", persona)
+    replaced = replaced.replace(
+        "EMNLP method figure", f"{venue_profile.reviewer_persona} method figure"
+    )
+    return replaced
 
 
 def _plan_section(
@@ -340,6 +367,7 @@ def write_paper_figure_prompt(
     ),
     framing: str = "",
     aspect_ratio: str = "1536x1024 landscape",
+    venue_profile: VenueProfile | None = None,
     force: bool = False,
     # Legacy parameters — passed through for backward compat
     studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
@@ -368,6 +396,7 @@ def write_paper_figure_prompt(
         layout_variant=layout_variant,
         framing=framing,
         aspect_ratio=aspect_ratio,
+        venue_profile=venue_profile,
         studio_stage=studio_stage,
         input_label=input_label,
         mechanism_label=mechanism_label,
@@ -622,9 +651,20 @@ def _data_url(path: Path) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
-def _review_prompt(*, original_prompt: str, rubric: str) -> str:
+def _review_prompt(
+    *,
+    original_prompt: str,
+    rubric: str,
+    venue_profile: VenueProfile | None = None,
+) -> str:
+    figure_persona = (
+        venue_profile.figure_style_persona if venue_profile is not None else "EMNLP/ACL"
+    )
+    reviewer_persona = (
+        venue_profile.reviewer_persona if venue_profile is not None else "EMNLP"
+    )
     return (
-        "You are reviewing an academic paper figure for an EMNLP/ACL submission. "
+        f"You are reviewing an academic paper figure for an {figure_persona} submission. "
         "Your ONLY job is to judge whether the figure effectively communicates "
         "the paper's method to a reader. Do NOT nitpick pixel-level prompt "
         "compliance, chip placement, badge count, or exact visual hierarchy — "
@@ -634,7 +674,7 @@ def _review_prompt(*, original_prompt: str, rubric: str) -> str:
         "2. Is the core contribution module visible (not an empty box)?\n"
         "3. Are labels readable and correctly spelled?\n"
         "4. Is the data flow / reader path clear?\n"
-        "5. Would an EMNLP reviewer understand the method from this figure + its caption?\n\n"
+        f"5. Would an {reviewer_persona} reviewer understand the method from this figure + its caption?\n\n"
         "Return JSON with:\n"
         "- score_1_to_5: 4+ means acceptable for submission, 3 means needs one more pass, "
         "1-2 means fundamentally wrong (wrong modules, misleading flow, unreadable)\n"
@@ -647,7 +687,7 @@ def _review_prompt(*, original_prompt: str, rubric: str) -> str:
         "- keep_or_regenerate: 'keep' if score >= 4, 'regenerate' only if the figure "
         "would actively mislead readers about the method.\n\n"
         f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
-        f"Rubric:\n{rubric or 'Does this figure effectively communicate the paper method to an EMNLP reviewer?'}"
+        f"Rubric:\n{rubric or f'Does this figure effectively communicate the paper method to an {reviewer_persona} reviewer?'}"
     )
 
 
@@ -709,13 +749,18 @@ def review_image(
     out: Path | None = None,
     prompt: str = "",
     rubric: str = "",
+    venue_profile: VenueProfile | None = None,
     env: Mapping[str, str] | None = None,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
     max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     grant = _require_route("image_review", env)
     original_prompt = prompt.strip() or _load_sidecar_prompt(image)
-    text = _review_prompt(original_prompt=original_prompt, rubric=rubric)
+    text = _review_prompt(
+        original_prompt=original_prompt,
+        rubric=rubric,
+        venue_profile=venue_profile,
+    )
     image_url = _data_url(image)
     payload = {
         "model": grant.model,
@@ -1102,6 +1147,7 @@ def main(argv: list[str] | None = None) -> int:
     paper.add_argument("--symbol-formula-necessity", default=None)
     paper.add_argument("--semantic-contract", default=None)
     paper.add_argument("--layout-variant", default=None)
+    paper.add_argument("--venue", default=None, help="venue key (e.g. AAAI, EMNLP) for the figure style persona")
 
     gen = sub.add_parser("generate", help="generate an image artifact")
     gen.add_argument("--prompt")
@@ -1121,6 +1167,7 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--prompt")
     rev.add_argument("--prompt-file", type=Path)
     rev.add_argument("--rubric", default="")
+    rev.add_argument("--venue", default=None, help="venue key (e.g. AAAI, EMNLP) for the reviewer persona")
     rev.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
     rev.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
 
@@ -1172,6 +1219,8 @@ def main(argv: list[str] | None = None) -> int:
                 value = getattr(args, cli_name)
                 if value is not None:
                     kwargs[helper_name] = value
+            if args.venue is not None:
+                kwargs["venue_profile"] = get_venue_profile(args.venue)
             _print_json(write_paper_figure_prompt(**kwargs))
             return 0
         if args.cmd == "generate":
@@ -1196,6 +1245,7 @@ def main(argv: list[str] | None = None) -> int:
                 out=args.out,
                 prompt=prompt,
                 rubric=args.rubric,
+                venue_profile=get_venue_profile(args.venue) if args.venue is not None else None,
                 timeout=float(args.timeout),
                 max_retries=int(args.max_retries),
             ))

@@ -95,7 +95,7 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
         # Drive the verdict straight to the consumption loop: no paper gate,
         # no open-ended retry, no external-blocker short circuit.
         paper_mission=False,
-        full_emnlp_gate=False,
+        full_paper_gate=False,
         open_ended=False,
     )
     sink = _NullSink()
@@ -115,7 +115,7 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
     monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
     monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
-    monkeypatch.setattr(sup, "_effective_full_emnlp_gate", lambda *_a, **_k: False)
+    monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
     # Budget always plentiful.
     monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
