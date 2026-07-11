@@ -83,3 +83,14 @@ def test_gpt_5_6_sol_long_context_threshold_is_strictly_over_272k() -> None:
     )
     assert at_threshold.tier == "default"
     assert over_threshold.tier == "long_context"
+
+
+def test_gpt_5_6_sol_cache_writes_use_1_25x_input_rate() -> None:
+    quote = quote_token_usage(
+        "gpt-5.6-sol",
+        input_tokens=1_000,
+        cached_input_tokens=0,
+        cache_write_tokens=1_000,
+        output_tokens=0,
+    )
+    assert quote.cost_usd == pytest.approx(0.00625)

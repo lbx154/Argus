@@ -30,6 +30,7 @@ from argus_skill.adapters.agent_cli_backend import (
     _sum_token_counts,
     build_agent_cli_backend_from_env,
 )
+from argus_skill.core.copilot_usage import CopilotCallUsage, CopilotModelUsage
 from argus_skill.core.models import RunnerOptions
 
 
@@ -361,6 +362,63 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == rows[-2]["call_id"]
+
+
+def test_copilot_run_exec_uses_exact_session_store_tokens(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    backend = AgentCliBackend(backend="copilot")
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        return _make_argus_result(
+            agent_messages=["OK"],
+            json_events=[{"type": "result", "usage": {"premiumRequests": 1.0}}],
+            thread_id="session-1",
+        )
+
+    exact = CopilotCallUsage((CopilotModelUsage(
+        row_id=1,
+        session_id="session-1",
+        turn_index=0,
+        model="gpt-5.6-sol",
+        input_tokens=25_819,
+        output_tokens=8,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        reasoning_tokens=0,
+        total_nano_aiu=16_160_500_000,
+        request_multiplier=1.0,
+        created_at="2026-07-11T09:59:25.919Z",
+    ),))
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda cursor, session_id: exact,
+    )
+
+    result = backend.run_exec(
+        prompt="reply",
+        options=RunnerOptions(model="wrong-configured-model", working_dir=str(tmp_path)),
+        run_label="simple-1",
+    )
+    assert result.input_tokens == 25_819
+    assert result.output_tokens == 8
+    assert result.usage_model == "gpt-5.6-sol"
+    assert result.total_nano_aiu == 16_160_500_000
+    assert result.cost_usd == pytest.approx(0.161605)
+    usage = json.loads((tmp_path / "usage.jsonl").read_text().splitlines()[0])
+    assert usage["model"] == "gpt-5.6-sol"
+    assert usage["cost_basis"] == "token"
+    assert usage["premium_requests"] == 1.0
+    assert usage["premium_request_cost_usd"] == pytest.approx(0.04)
 
 
 def test_compaction_agent_io_is_bounded_and_drops_token_stream(

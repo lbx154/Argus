@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from argus_skill.core.codex_usage import TokenUsage, extract_token_usage
 from argus_skill.core.usage import (
     UsageLedger,
+    UsageRecord,
     build_usage_record,
     format_usage_cost,
     project_usage_summary,
@@ -94,6 +96,87 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert ledger.append(record) is False
     assert ledger.summary().call_count == 1
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
+
+
+def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copilot_home = tmp_path / "copilot"
+    copilot_home.mkdir()
+    db = copilot_home / "session-store.db"
+    monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE assistant_usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                turn_index INTEGER,
+                model TEXT NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_read_tokens INTEGER,
+                cache_write_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                total_nano_aiu INTEGER,
+                request_multiplier REAL,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO assistant_usage_events (
+                session_id, turn_index, model, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                total_nano_aiu, request_multiplier, created_at
+            ) VALUES ('session-1', 0, 'gpt-5.6-sol', 25819, 8, 0, 0, 0,
+                      16160500000, 1.0, '2026-07-11T09:59:25.919Z')
+            """
+        )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    old = UsageRecord(
+        call_id="call-1",
+        project_id="p1",
+        mission_id=None,
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        started_at=1_783_763_961.9,
+        completed_at=1_783_763_965.95,
+        status="completed",
+        input_tokens=None,
+        cached_input_tokens=None,
+        output_tokens=None,
+        reasoning_output_tokens=None,
+        premium_requests=1.0,
+        pricing_status="priced",
+        pricing_tier="premium_request",
+        cost_usd=0.04,
+        cost_basis="premium_request",
+    )
+    UsageLedger(project, migrate_legacy=False).append(old)
+    event_dir = project / ".argus"
+    event_dir.mkdir()
+    (event_dir / "events.jsonl").write_text(
+        json.dumps({
+            "type": "agent.io.complete",
+            "call_id": "call-1",
+            "thread_id": "session-1",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = UsageLedger(project).summary()
+    assert summary.input_tokens == 25_819
+    assert summary.output_tokens == 8
+    assert summary.cost_usd == pytest.approx(0.161605)
+    record = UsageLedger(project).records()[0]
+    assert record.pricing_tier == "copilot_token"
+    assert record.premium_request_cost_usd == pytest.approx(0.04)
 
 
 def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(

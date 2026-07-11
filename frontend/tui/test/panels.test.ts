@@ -232,6 +232,40 @@ test('fresh project renders zero cumulative cost and configured daily budget', a
   assert.match(output, /daily cap \$19/);
 });
 
+test('usage gauge shows the token inputs behind cumulative cost', async () => {
+  const output = await renderNode(
+    React.createElement(CostGauge, {
+      spend: { total: 0, missions: 0, last: 0 },
+      settledUsd: 0.31624875,
+      spendStatus: 'priced',
+      usageSummary: {
+        call_count: 2,
+        known_cost_usd: 0.31624875,
+        cost_usd: 0.31624875,
+        pricing_status: 'priced',
+        priced_calls: 2,
+        partial_calls: 0,
+        unpriced_calls: 0,
+        not_billed_calls: 0,
+        input_tokens: 50505,
+        cached_input_tokens: 0,
+        cache_write_tokens: 0,
+        output_tokens: 20,
+        reasoning_output_tokens: 0,
+        premium_requests: 2,
+        total_nano_aiu: 31624875000,
+        premium_request_cost_usd: 0.08,
+      },
+      daemon: undefined,
+      width: 120,
+    }),
+    120,
+  );
+  assert.match(output, /cumulative cost \$0\.32/);
+  assert.match(output, /tokens · input 50505/);
+  assert.match(output, /output 20/);
+});
+
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
   for (const width of [40, 60]) {
     const output = await renderNode(

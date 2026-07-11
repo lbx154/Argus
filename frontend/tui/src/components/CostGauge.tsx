@@ -2,13 +2,14 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
 import { authoritativeSpend, fraction, type Spend } from '../cost.js';
-import type { Daemon, RequestUsage } from '../api.js';
+import type { Daemon, RequestUsage, UsageSummary } from '../api.js';
 
 /** Live budget gauge backed by the call-level usage ledger. */
 export function CostGauge({
   spend,
   settledUsd,
   spendStatus,
+  usageSummary,
   daemon,
   requestUsage,
   width,
@@ -16,6 +17,7 @@ export function CostGauge({
   spend: Spend;
   settledUsd?: number | null;
   spendStatus?: string;
+  usageSummary?: UsageSummary;
   daemon: Daemon | undefined;
   requestUsage?: RequestUsage;
   width: number;
@@ -53,6 +55,13 @@ export function CostGauge({
           {width < 80
             ? `requests · C ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · P ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`
             : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
+        </Text>
+      ) : null}
+      {usageSummary && usageSummary.call_count > 0 ? (
+        <Text dimColor wrap="truncate-end">
+          {width < 80
+            ? `tokens · in ${usageSummary.input_tokens} · out ${usageSummary.output_tokens}`
+            : `tokens · input ${usageSummary.input_tokens} · cache read ${usageSummary.cached_input_tokens} · cache write ${usageSummary.cache_write_tokens} · output ${usageSummary.output_tokens} · reasoning ${usageSummary.reasoning_output_tokens}`}
         </Text>
       ) : null}
     </Box>

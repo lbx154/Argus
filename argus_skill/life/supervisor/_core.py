@@ -1651,6 +1651,7 @@ class LifeSupervisor:
             },
             "input_tokens": cost_sink.total_input_tokens(),
             "cached_input_tokens": cost_sink.total_cached_input_tokens(),
+            "cache_write_tokens": cost_sink.total_cache_write_tokens(),
             "output_tokens": cost_sink.total_output_tokens(),
             "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
             "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),

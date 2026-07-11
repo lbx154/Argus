@@ -296,6 +296,11 @@ class _CostTrackingSink:
             + self.util_cached_input_tokens
         )
 
+    def total_cache_write_tokens(self) -> int:
+        if self._usage_ledger is not None:
+            return self._ledger_summary().cache_write_tokens
+        return 0
+
     def pricing_status(self) -> str:
         if self._usage_ledger is None:
             return "priced"

@@ -9,6 +9,7 @@ import type {
   RequestUsage,
   Role,
   Snapshot,
+  UsageSummary,
 } from '../../core/src/types.js';
 import { ensureResponseOk } from '../../core/src/http.js';
 
@@ -22,6 +23,7 @@ export type {
   RequestUsage,
   Role,
   Snapshot,
+  UsageSummary,
 } from '../../core/src/types.js';
 
 /**

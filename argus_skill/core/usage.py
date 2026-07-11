@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal
 
 from .codex_usage import TokenUsage, extract_token_usage
+from .copilot_usage import NANO_AIU_PER_USD, find_copilot_usage_near
 from .pricing import PricingStatus, quote_copilot_usage, quote_token_usage
 
 try:  # pragma: no cover - production daemons are POSIX
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover
 USAGE_FILE = "usage.jsonl"
 USAGE_LOCK_FILE = "usage.lock"
 USAGE_MIGRATION_FILE = "usage.migration-v1.json"
+USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
 
@@ -56,6 +58,9 @@ class UsageRecord:
     pricing_tier: str
     cost_usd: float | None
     cost_basis: str
+    cache_write_tokens: int | None = None
+    total_nano_aiu: int | None = None
+    premium_request_cost_usd: float | None = None
     error: str = ""
     source: UsageSource = "run_exec"
     schema_version: int = 1
@@ -78,6 +83,7 @@ class UsageRecord:
             status=_call_status(row.get("status")),
             input_tokens=_optional_int(row.get("input_tokens")),
             cached_input_tokens=_optional_int(row.get("cached_input_tokens")),
+            cache_write_tokens=_optional_int(row.get("cache_write_tokens")),
             output_tokens=_optional_int(row.get("output_tokens")),
             reasoning_output_tokens=_optional_int(
                 row.get("reasoning_output_tokens")
@@ -87,6 +93,10 @@ class UsageRecord:
             pricing_tier=str(row.get("pricing_tier") or "unknown"),
             cost_usd=cost,
             cost_basis=str(row.get("cost_basis") or ""),
+            total_nano_aiu=_optional_int(row.get("total_nano_aiu")),
+            premium_request_cost_usd=_optional_float(
+                row.get("premium_request_cost_usd")
+            ),
             error=str(row.get("error") or ""),
             source=(
                 "legacy.events"
@@ -112,6 +122,9 @@ class UsageSummary:
     output_tokens: int
     reasoning_output_tokens: int
     premium_requests: float
+    cache_write_tokens: int = 0
+    total_nano_aiu: int = 0
+    premium_request_cost_usd: float = 0.0
 
     def to_jsonable(self) -> dict[str, Any]:
         return asdict(self)
@@ -130,6 +143,7 @@ def build_usage_record(
     status: CallStatus,
     token_usage: TokenUsage | None = None,
     premium_requests: float | None = None,
+    total_nano_aiu: int | None = None,
     error: str = "",
     source: UsageSource = "run_exec",
 ) -> UsageRecord:
@@ -140,12 +154,16 @@ def build_usage_record(
         pricing_tier = "not_started"
         cost_usd: float | None = 0.0
         cost_basis = "none"
+    elif normalized_provider == "copilot" and total_nano_aiu is not None:
+        pricing_status = "priced"
+        pricing_tier = "copilot_token"
+        cost_usd = max(0, int(total_nano_aiu)) / NANO_AIU_PER_USD
+        cost_basis = "token"
     elif normalized_provider == "copilot":
-        quote = quote_copilot_usage(premium_requests)
-        pricing_status = quote.status
-        pricing_tier = quote.tier
-        cost_usd = quote.cost_usd
-        cost_basis = "premium_request"
+        pricing_status = "partial"
+        pricing_tier = "premium_request_only"
+        cost_usd = None
+        cost_basis = "none"
     else:
         quote = quote_token_usage(
             model,
@@ -153,6 +171,11 @@ def build_usage_record(
             cached_input_tokens=(
                 usage.cached_input_tokens
                 if usage.cached_input_tokens_present
+                else None
+            ),
+            cache_write_tokens=(
+                usage.cache_write_tokens
+                if usage.cache_write_tokens_present
                 else None
             ),
             output_tokens=usage.output_tokens if usage.output_tokens_present else None,
@@ -180,6 +203,9 @@ def build_usage_record(
         cached_input_tokens=(
             usage.cached_input_tokens if usage.cached_input_tokens_present else None
         ),
+        cache_write_tokens=(
+            usage.cache_write_tokens if usage.cache_write_tokens_present else None
+        ),
         output_tokens=usage.output_tokens if usage.output_tokens_present else None,
         reasoning_output_tokens=(
             usage.reasoning_output_tokens
@@ -191,8 +217,15 @@ def build_usage_record(
         pricing_tier=pricing_tier,
         cost_usd=cost_usd,
         cost_basis=cost_basis,
+        total_nano_aiu=total_nano_aiu,
+        premium_request_cost_usd=quote_copilot_usage(premium_requests).cost_usd,
         error=str(error or "")[:2000],
         source=source,
+        schema_version=(
+            2
+            if total_nano_aiu is not None or usage.cache_write_tokens_present
+            else 1
+        ),
     )
 
 
@@ -204,6 +237,9 @@ class UsageLedger:
         self.path = self.project_root / USAGE_FILE
         self.lock_path = self.project_root / USAGE_LOCK_FILE
         self.migration_path = self.project_root / USAGE_MIGRATION_FILE
+        self.copilot_reconcile_path = (
+            self.project_root / USAGE_COPILOT_RECONCILE_FILE
+        )
         self._migrate_legacy = bool(migrate_legacy)
 
     def append(self, record: UsageRecord) -> bool:
@@ -248,6 +284,7 @@ class UsageLedger:
     ) -> list[UsageRecord]:
         if self._migrate_legacy:
             self.ensure_legacy_migrated()
+            self.ensure_copilot_usage_reconciled()
         out: list[UsageRecord] = []
         seen: set[str] = set()
         try:
@@ -321,6 +358,96 @@ class UsageLedger:
             },
         )
         return appended
+
+    def ensure_copilot_usage_reconciled(self) -> int:
+        if not _copilot_reconcile_enabled_for(self.project_root):
+            return 0
+        signature = _path_signature(self.path)
+        if signature is None and self.copilot_reconcile_path.exists():
+            return 0
+        if _reconcile_marker_signature(self.copilot_reconcile_path) == signature:
+            return 0
+        if signature is None:
+            _write_json_atomic(
+                self.copilot_reconcile_path,
+                {"version": 1, "usage_signature": None, "updated": 0},
+            )
+            return 0
+        call_threads = _legacy_call_threads(self.project_root)
+        updated = 0
+        with self._locked():
+            rows = _read_usage_json_rows(self.path)
+            used_db_rows: set[tuple[str, int]] = set()
+            for row in rows:
+                if str(row.get("provider") or "").lower() != "copilot":
+                    continue
+                if _optional_int(row.get("total_nano_aiu")) is not None:
+                    continue
+                call_id = str(row.get("call_id") or "")
+                completed_at = _float(row.get("completed_at"), 0.0)
+                started_at = _float(row.get("started_at"), completed_at)
+                session_id = call_threads.get(call_id)
+                found = find_copilot_usage_near(
+                    completed_at=completed_at,
+                    started_at=started_at,
+                    session_id=session_id,
+                )
+                if found is None:
+                    continue
+                db_path, usage = found
+                available = tuple(
+                    item
+                    for item in usage.rows
+                    if (str(db_path), item.row_id) not in used_db_rows
+                )
+                if not available or (session_id is None and len(available) != 1):
+                    continue
+                usage = type(usage)(available)
+                for item in available:
+                    used_db_rows.add((str(db_path), item.row_id))
+                previous_cost = _optional_float(row.get("cost_usd"))
+                if row.get("premium_request_cost_usd") is None:
+                    row["premium_request_cost_usd"] = previous_cost
+                row.update(
+                    {
+                        "model": usage.model,
+                        "input_tokens": usage.input_tokens,
+                        "cached_input_tokens": usage.cache_read_tokens,
+                        "cache_write_tokens": usage.cache_write_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "reasoning_output_tokens": usage.reasoning_tokens,
+                        "total_nano_aiu": usage.total_nano_aiu,
+                        "cost_usd": usage.cost_usd,
+                        "cost_basis": "token",
+                        "pricing_status": (
+                            "priced" if usage.cost_usd is not None else "partial"
+                        ),
+                        "pricing_tier": "copilot_token",
+                        "schema_version": max(
+                            2, _optional_int(row.get("schema_version")) or 1
+                        ),
+                    }
+                )
+                updated += 1
+            if updated:
+                _rewrite_usage_rows(self.path, rows)
+                self._cache_call_ids(
+                    {
+                        str(row.get("call_id"))
+                        for row in rows
+                        if row.get("call_id")
+                    }
+                )
+        _write_json_atomic(
+            self.copilot_reconcile_path,
+            {
+                "version": 1,
+                "usage_signature": list(_path_signature(self.path) or ()),
+                "updated": updated,
+                "completed_at": time.time(),
+            },
+        )
+        return updated
 
     def _existing_mission_ids(self) -> set[str]:
         mission_ids: set[str] = set()
@@ -438,6 +565,11 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
             record.reasoning_output_tokens or 0 for record in rows
         ),
         premium_requests=sum(record.premium_requests or 0.0 for record in rows),
+        cache_write_tokens=sum(record.cache_write_tokens or 0 for record in rows),
+        total_nano_aiu=sum(record.total_nano_aiu or 0 for record in rows),
+        premium_request_cost_usd=sum(
+            record.premium_request_cost_usd or 0.0 for record in rows
+        ),
     )
 
 
@@ -694,6 +826,9 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
                 cached_input_tokens=(
                     _optional_int(row.get("cached_input_tokens")) or 0
                 ),
+                cache_write_tokens=(
+                    _optional_int(row.get("cache_write_tokens")) or 0
+                ),
                 output_tokens=_optional_int(row.get("output_tokens")) or 0,
                 reasoning_output_tokens=(
                     _optional_int(row.get("reasoning_output_tokens")) or 0
@@ -701,6 +836,9 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
                 input_tokens_present=extracted.input_tokens_present,
                 cached_input_tokens_present=(
                     extracted.cached_input_tokens_present
+                ),
+                cache_write_tokens_present=(
+                    extracted.cache_write_tokens_present
                 ),
                 output_tokens_present=extracted.output_tokens_present,
                 reasoning_output_tokens_present=(
@@ -711,6 +849,7 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
     names = (
         "input_tokens",
         "cached_input_tokens",
+        "cache_write_tokens",
         "output_tokens",
         "reasoning_output_tokens",
     )
@@ -719,12 +858,14 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
     return TokenUsage(
         input_tokens=values[0] or 0,
         cached_input_tokens=values[1] or 0,
-        output_tokens=values[2] or 0,
-        reasoning_output_tokens=values[3] or 0,
+        cache_write_tokens=values[2] or 0,
+        output_tokens=values[3] or 0,
+        reasoning_output_tokens=values[4] or 0,
         input_tokens_present=present[0],
         cached_input_tokens_present=present[1],
-        output_tokens_present=present[2],
-        reasoning_output_tokens_present=present[3],
+        cache_write_tokens_present=present[2],
+        output_tokens_present=present[3],
+        reasoning_output_tokens_present=present[4],
         source="recorded" if any(present) else "missing",
     )
 
@@ -773,6 +914,104 @@ def _event_history_paths(path: Path) -> list[Path]:
     if path.is_file():
         paths.append(path)
     return paths
+
+
+def _legacy_call_threads(project_root: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for event_path in (
+        project_root / "events.jsonl",
+        project_root / ".argus" / "events.jsonl",
+    ):
+        for path in _event_history_paths(event_path):
+            try:
+                handle = path.open("r", encoding="utf-8")
+            except OSError:
+                continue
+            with handle:
+                for raw in handle:
+                    try:
+                        row = json.loads(raw)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    if not isinstance(row, dict) or row.get("type") != "agent.io.complete":
+                        continue
+                    call_id = str(row.get("call_id") or "")
+                    thread_id = str(row.get("thread_id") or "")
+                    if call_id and thread_id:
+                        out[call_id] = thread_id
+    return out
+
+
+def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
+    if os.environ.get("COPILOT_HOME", "").strip():
+        return True
+    root = Path(
+        os.environ.get("ARGUS_SKILL_HOME", "").strip()
+        or (Path.home() / ".argus-skill")
+    ).expanduser()
+    try:
+        return project_root.resolve().parent == (root / "projects").resolve()
+    except OSError:
+        return False
+
+
+def _read_usage_json_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        handle = path.open("r", encoding="utf-8")
+    except OSError:
+        return rows
+    with handle:
+        for raw in handle:
+            try:
+                row = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
+def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(
+                    json.dumps(
+                        row,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_name, path)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+
+
+def _reconcile_marker_signature(path: Path) -> tuple[int, int, int] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    raw = payload.get("usage_signature") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or len(raw) != 3:
+        return None
+    try:
+        return int(raw[0]), int(raw[1]), int(raw[2])
+    except (TypeError, ValueError):
+        return None
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:

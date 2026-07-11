@@ -25,6 +25,7 @@ export type {
   RequestUsage,
   Role,
   Snapshot,
+  UsageSummary,
 } from '../../core/src/types';
 
 export interface JournalEntry {

@@ -45,6 +45,11 @@ from ..core.codex_usage import (
     extract_token_usage,
     sum_token_counts,
 )
+from ..core.copilot_usage import (
+    CopilotCallUsage,
+    capture_copilot_usage_cursor,
+    read_copilot_usage_since,
+)
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -413,10 +418,12 @@ class AgentCliBackend:
             usage = token_usage or TokenUsage(
                 input_tokens=result.input_tokens,
                 cached_input_tokens=result.cached_input_tokens,
+                cache_write_tokens=result.cache_write_tokens,
                 output_tokens=result.output_tokens,
                 reasoning_output_tokens=result.reasoning_output_tokens,
                 input_tokens_present=result.input_tokens_present,
                 cached_input_tokens_present=result.cached_input_tokens_present,
+                cache_write_tokens_present=result.cache_write_tokens_present,
                 output_tokens_present=result.output_tokens_present,
                 reasoning_output_tokens_present=(
                     result.reasoning_output_tokens_present
@@ -447,7 +454,7 @@ class AgentCliBackend:
                         project_root=project_root,
                         mission_id=mission_id,
                         provider=self._backend_name,
-                        model=str(options.model or ""),
+                        model=result.usage_model or str(options.model or ""),
                         run_label=run_label,
                         started_at=started_at,
                         completed_at=time.time(),
@@ -458,6 +465,7 @@ class AgentCliBackend:
                         ),
                         token_usage=usage,
                         premium_requests=premium,
+                        total_nano_aiu=result.total_nano_aiu,
                         error=error or str(result.fatal_error or ""),
                     )
                     appended = UsageLedger(
@@ -479,11 +487,16 @@ class AgentCliBackend:
                                 "status": record.status,
                                 "input_tokens": record.input_tokens,
                                 "cached_input_tokens": record.cached_input_tokens,
+                                "cache_write_tokens": record.cache_write_tokens,
                                 "output_tokens": record.output_tokens,
                                 "reasoning_output_tokens": (
                                     record.reasoning_output_tokens
                                 ),
                                 "premium_requests": record.premium_requests,
+                                "total_nano_aiu": record.total_nano_aiu,
+                                "premium_request_cost_usd": (
+                                    record.premium_request_cost_usd
+                                ),
                                 "pricing_status": record.pricing_status,
                                 "pricing_tier": record.pricing_tier,
                                 "cost_usd": record.cost_usd,
@@ -630,6 +643,9 @@ class AgentCliBackend:
         else:
             start_row["prompt"] = prompt
         self._log_agent_io(log_path, start_row)
+        copilot_usage_cursor = (
+            capture_copilot_usage_cursor() if self._is_copilot else None
+        )
         try:
             argus_result = self._argus_runner.run_exec(
                 prompt=prompt,
@@ -681,9 +697,17 @@ class AgentCliBackend:
                 error=f"{type(exc).__name__}: {exc}",
             )
 
+        copilot_usage = read_copilot_usage_since(
+            copilot_usage_cursor,
+            session_id=(
+                getattr(argus_result, "thread_id", None) or resume_thread_id
+            ),
+        )
         try:
             translated = self._translate_result(
-                argus_result, resume_thread_id=resume_thread_id
+                argus_result,
+                resume_thread_id=resume_thread_id,
+                copilot_usage=copilot_usage,
             )
         except Exception as exc:  # noqa: BLE001
             _finish_quota(
@@ -740,7 +764,7 @@ class AgentCliBackend:
             "call_id": call_id,
             "run_label": run_label,
             "backend": getattr(self._argus_runner, "backend", ""),
-            "model": options.model,
+            "model": translated.usage_model or options.model,
             "exit_code": getattr(argus_result, "exit_code", None),
             "thread_id": getattr(argus_result, "thread_id", None),
             "turn_completed": getattr(argus_result, "turn_completed", None),
@@ -748,9 +772,12 @@ class AgentCliBackend:
             "fatal_error": getattr(argus_result, "fatal_error", None),
             "input_tokens": translated.input_tokens,
             "cached_input_tokens": translated.cached_input_tokens,
+            "cache_write_tokens": translated.cache_write_tokens,
             "output_tokens": translated.output_tokens,
             "reasoning_output_tokens": translated.reasoning_output_tokens,
             "premium_requests": translated.premium_requests,
+            "total_nano_aiu": translated.total_nano_aiu,
+            "usage_model": translated.usage_model,
             "ts": time.time(),
         }
         if _compact_agent_io(run_label):
@@ -858,17 +885,47 @@ class AgentCliBackend:
         argus_result,
         *,
         resume_thread_id: str | None = None,
+        copilot_usage: CopilotCallUsage | None = None,
     ) -> RunnerResult:
-        raw_usage = extract_token_usage(getattr(argus_result, "json_events", None))
-        (
-            input_tokens,
-            cached_input_tokens,
-            output_tokens,
-            reasoning_output_tokens,
-        ) = self._usage_delta_for_thread(
-            thread_id=argus_result.thread_id or resume_thread_id,
-            raw_totals=raw_usage.as_tuple(),
-        )
+        if copilot_usage is not None:
+            raw_usage = TokenUsage(
+                input_tokens=copilot_usage.input_tokens or 0,
+                cached_input_tokens=copilot_usage.cache_read_tokens or 0,
+                cache_write_tokens=copilot_usage.cache_write_tokens or 0,
+                output_tokens=copilot_usage.output_tokens or 0,
+                reasoning_output_tokens=copilot_usage.reasoning_tokens or 0,
+                input_tokens_present=copilot_usage.input_tokens is not None,
+                cached_input_tokens_present=(
+                    copilot_usage.cache_read_tokens is not None
+                ),
+                cache_write_tokens_present=(
+                    copilot_usage.cache_write_tokens is not None
+                ),
+                output_tokens_present=copilot_usage.output_tokens is not None,
+                reasoning_output_tokens_present=(
+                    copilot_usage.reasoning_tokens is not None
+                ),
+                source="copilot_session_store",
+            )
+            (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+            ) = raw_usage.as_tuple()
+        else:
+            raw_usage = extract_token_usage(
+                getattr(argus_result, "json_events", None)
+            )
+            (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+            ) = self._usage_delta_for_thread(
+                thread_id=argus_result.thread_id or resume_thread_id,
+                raw_totals=raw_usage.as_tuple(),
+            )
         raw_premium, premium_requests_present = _extract_copilot_premium_requests(
             getattr(argus_result, "json_events", None)
         )
@@ -885,16 +942,24 @@ class AgentCliBackend:
             fatal_error=_normalize_fatal_error(argus_result.fatal_error),
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
+            cache_write_tokens=raw_usage.cache_write_tokens,
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
             premium_requests=premium_requests,
             input_tokens_present=raw_usage.input_tokens_present,
             cached_input_tokens_present=raw_usage.cached_input_tokens_present,
+            cache_write_tokens_present=raw_usage.cache_write_tokens_present,
             output_tokens_present=raw_usage.output_tokens_present,
             reasoning_output_tokens_present=(
                 raw_usage.reasoning_output_tokens_present
             ),
             premium_requests_present=premium_requests_present,
+            usage_model=copilot_usage.model if copilot_usage is not None else "",
+            total_nano_aiu=(
+                copilot_usage.total_nano_aiu
+                if copilot_usage is not None
+                else None
+            ),
         )
 
     def _usage_delta_for_thread(

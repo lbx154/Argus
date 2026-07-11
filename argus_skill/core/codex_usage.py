@@ -15,10 +15,12 @@ class TokenUsage:
 
     input_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_tokens: int = 0
     output_tokens: int = 0
     reasoning_output_tokens: int = 0
     input_tokens_present: bool = False
     cached_input_tokens_present: bool = False
+    cache_write_tokens_present: bool = False
     output_tokens_present: bool = False
     reasoning_output_tokens_present: bool = False
     source: str = "missing"
@@ -29,6 +31,7 @@ class TokenUsage:
             (
                 self.input_tokens_present,
                 self.cached_input_tokens_present,
+                self.cache_write_tokens_present,
                 self.output_tokens_present,
                 self.reasoning_output_tokens_present,
             )
@@ -69,8 +72,8 @@ def extract_token_usage(
         return TokenUsage()
 
     cumulative: TokenUsage | None = None
-    delta_values = [0, 0, 0, 0]
-    delta_present = [False, False, False, False]
+    delta_values = [0, 0, 0, 0, 0]
+    delta_present = [False, False, False, False, False]
 
     for event in events:
         if not isinstance(event, dict):
@@ -81,11 +84,12 @@ def extract_token_usage(
         standard_names = (
             "input_tokens",
             "cached_input_tokens",
+            "cache_write_tokens",
             "output_tokens",
             "reasoning_output_tokens",
         )
-        values = [0, 0, 0, 0]
-        present = [False, False, False, False]
+        values = [0, 0, 0, 0, 0]
+        present = [False, False, False, False, False]
         for index, name in enumerate(standard_names):
             for source in standard_sources:
                 if name not in source:
@@ -97,12 +101,14 @@ def extract_token_usage(
             cumulative = TokenUsage(
                 input_tokens=values[0],
                 cached_input_tokens=values[1],
-                output_tokens=values[2],
-                reasoning_output_tokens=values[3],
+                cache_write_tokens=values[2],
+                output_tokens=values[3],
+                reasoning_output_tokens=values[4],
                 input_tokens_present=present[0],
                 cached_input_tokens_present=present[1],
-                output_tokens_present=present[2],
-                reasoning_output_tokens_present=present[3],
+                cache_write_tokens_present=present[2],
+                output_tokens_present=present[3],
+                reasoning_output_tokens_present=present[4],
                 source="cumulative",
             )
 
@@ -110,6 +116,7 @@ def extract_token_usage(
         camel_names = (
             "inputTokens",
             "cachedInputTokens",
+            "cacheWriteTokens",
             "outputTokens",
             "reasoningOutputTokens",
         )
@@ -128,12 +135,14 @@ def extract_token_usage(
         return TokenUsage(
             input_tokens=delta_values[0],
             cached_input_tokens=delta_values[1],
-            output_tokens=delta_values[2],
-            reasoning_output_tokens=delta_values[3],
+            cache_write_tokens=delta_values[2],
+            output_tokens=delta_values[3],
+            reasoning_output_tokens=delta_values[4],
             input_tokens_present=delta_present[0],
             cached_input_tokens_present=delta_present[1],
-            output_tokens_present=delta_present[2],
-            reasoning_output_tokens_present=delta_present[3],
+            cache_write_tokens_present=delta_present[2],
+            output_tokens_present=delta_present[3],
+            reasoning_output_tokens_present=delta_present[4],
             source="per_event",
         )
     return TokenUsage()

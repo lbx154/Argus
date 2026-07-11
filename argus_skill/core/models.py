@@ -81,6 +81,7 @@ class RunnerResult:
     fatal_error: str | None = None
     input_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_tokens: int = 0
     output_tokens: int = 0
     # Additional hidden reasoning tokens billed at the output rate; real usage not
     # shown in visible completion text. 额外的隐藏 reasoning token 按输出单价计费，真实计费但不显示在可见回复文本里。
@@ -96,9 +97,12 @@ class RunnerResult:
     call_id: str = ""
     input_tokens_present: bool = False
     cached_input_tokens_present: bool = False
+    cache_write_tokens_present: bool = False
     output_tokens_present: bool = False
     reasoning_output_tokens_present: bool = False
     premium_requests_present: bool = False
+    usage_model: str = ""
+    total_nano_aiu: int | None = None
     pricing_status: str = ""
     cost_usd: float | None = None
 

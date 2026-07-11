@@ -1071,6 +1071,7 @@ export function App({
         spend={computeSpend(events)}
         settledUsd={snap?.spend_usd}
         spendStatus={snap?.spend_status}
+        usageSummary={snap?.usage_summary}
         daemon={snap?.daemon}
         requestUsage={snap?.request_usage}
         width={terminal.columns}

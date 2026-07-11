@@ -19,6 +19,7 @@ class ModelPrice:
     long_input_multiplier: float = 1.0
     long_cached_input_multiplier: float = 1.0
     long_output_multiplier: float = 1.0
+    cache_write_multiplier: float = 1.25
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ def quote_token_usage(
     cached_input_tokens: int | None,
     output_tokens: int | None,
     reasoning_output_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
 ) -> PricingQuote:
     """Strictly price one token-based call, preserving partial/unpriced states."""
     price = model_price_for(model)
@@ -126,6 +128,10 @@ def quote_token_usage(
         0,
         min(int(cached_input_tokens or 0), input_count),
     )
+    cache_write_count = max(
+        0,
+        min(int(cache_write_tokens or 0), input_count - cached_count),
+    )
     output_count = max(0, int(output_tokens or 0))
     reasoning_count = max(0, int(reasoning_output_tokens or 0))
     long_context = bool(
@@ -138,10 +144,14 @@ def quote_token_usage(
         price.long_cached_input_multiplier if long_context else 1.0
     )
     output_multiplier = price.long_output_multiplier if long_context else 1.0
-    fresh_count = input_count - cached_count
+    fresh_count = input_count - cached_count - cache_write_count
     cost = (
         fresh_count * price.input_usd_per_mtok * input_multiplier
         + cached_count * price.cached_input_usd_per_mtok * cached_multiplier
+        + cache_write_count
+        * price.input_usd_per_mtok
+        * input_multiplier
+        * price.cache_write_multiplier
         + (output_count + reasoning_count)
         * price.output_usd_per_mtok
         * output_multiplier
@@ -197,6 +207,7 @@ def usd_for_tokens(
             model,
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
+            cache_write_tokens=0,
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
         )
