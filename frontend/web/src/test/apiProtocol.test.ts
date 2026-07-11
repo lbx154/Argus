@@ -3,8 +3,8 @@ import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.gen
 
 const currentMeta = {
   service: 'argus-skill-webapi',
-  protocol: { name: 'argus.webapi', major: 1, minor: 5 },
-  snapshot_schema_version: 3,
+  protocol: { name: 'argus.webapi', major: 1, minor: 6 },
+  snapshot_schema_version: 4,
   capabilities: [
     'daemon.admission.v1',
     'daemon.status.protocol.v1',
@@ -13,6 +13,7 @@ const currentMeta = {
     'event.catalog.v1',
     'event.payload-schema.v1',
     'manager.sse.v1',
+    'metrics.slo.v1',
     'release.identity.v1',
     'snapshot.budget.v1',
     'snapshot.schema.v1',

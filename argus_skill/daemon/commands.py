@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Literal
 
 from ..core.event_catalog import EventType
+from ..core.metrics import metrics_root_for_project, record_metric
 
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
@@ -262,6 +263,13 @@ def submit_daemon_command(
         EventType.DAEMON_COMMAND_REJECTED if rejected else EventType.DAEMON_COMMAND_SUBMITTED,
         row,
     )
+    if rejected:
+        record_metric(
+            metrics_root_for_project(path),
+            "daemon.command",
+            labels={"operation": op, "status": "rejected"},
+            fields={"command_id": cid, "revision": revision, "error": row["error"]},
+        )
     return _receipt(row)
 
 
@@ -306,6 +314,16 @@ def ack_daemon_command(
         state["commands"][command_id] = row
         _write_state(path, state)
     _emit(path, EventType.DAEMON_COMMAND_COMPLETED, row)
+    record_metric(
+        metrics_root_for_project(path),
+        "daemon.command",
+        labels={"operation": row["operation"], "status": status},
+        fields={
+            "command_id": command_id,
+            "revision": row["revision"],
+            "error": row["error"],
+        },
+    )
     return _receipt(row)
 
 

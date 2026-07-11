@@ -48,6 +48,7 @@ from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_e
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
 from ..core.event_catalog import EventType
+from ..core.metrics import metrics_snapshot, record_metric, render_prometheus
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, read_session_meta
 from ..core.transcript import read_turns
@@ -988,7 +989,31 @@ def create_app(
 
     @app.middleware("http")
     async def _add_protocol_headers(request, call_next):  # noqa: ANN001
-        response = await call_next(request)
+        started_at = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            record_metric(
+                _global_root(global_root),
+                "web.request",
+                labels={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": 500,
+                },
+                fields={"duration_ms": (time.monotonic() - started_at) * 1_000},
+            )
+            raise
+        record_metric(
+            _global_root(global_root),
+            "web.request",
+            labels={
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+            },
+            fields={"duration_ms": (time.monotonic() - started_at) * 1_000},
+        )
         response.headers["X-Argus-Protocol"] = protocol_header()
         revision = api_meta["runtime"].get("revision")
         if revision:
@@ -1112,6 +1137,18 @@ def create_app(
             "executable": "<redacted>",
         }
         return {**api_meta, "runtime": runtime}
+
+    @app.get("/api/metrics", dependencies=[Depends(_require_auth)])
+    def _metrics() -> dict[str, Any]:
+        return metrics_snapshot(root=_global_root(global_root))
+
+    @app.get("/metrics", dependencies=[Depends(_require_auth)])
+    def _prometheus_metrics() -> Response:
+        snapshot = metrics_snapshot(root=_global_root(global_root))
+        return Response(
+            render_prometheus(snapshot),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/api/projects")
     def _projects(

@@ -43,6 +43,12 @@ def test_duplicate_command_id_executes_handler_exactly_once(tmp_path: Path) -> N
     assert duplicate.result["rc"] == 0
     assert duplicate.revision == first.revision
     assert daemon_command_snapshot(tmp_path)["revision"] == 3
+    metrics = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert metrics[-1]["name"] == "daemon.command"
+    assert metrics[-1]["labels"] == {"operation": "start", "status": "applied"}
 
 
 def test_stale_expected_revision_is_durably_rejected(tmp_path: Path) -> None:

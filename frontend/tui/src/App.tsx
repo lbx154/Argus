@@ -1058,10 +1058,15 @@ export function App({
   const partialDetail = snap?.partial
     ? (snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`).join(' · ')
     : '';
+  const sloDetail = snap?.observability?.slo.status === 'degraded'
+    ? snap.observability.slo.violations.join(' · ')
+    : '';
   const healthNotice = snapshotError
     ? `snapshot refresh failed · ${snapshotError}`
     : snap?.partial
     ? `snapshot partial · ${partialDetail || 'backend reported incomplete state'}`
+    : sloDetail
+    ? `SLO degraded · ${sloDetail}`
     : streamError && !connected
     ? `event stream reconnecting · ${streamError}`
     : '';

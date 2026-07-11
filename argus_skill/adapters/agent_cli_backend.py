@@ -51,6 +51,7 @@ from ..core.copilot_usage import (
     read_copilot_usage_since,
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
+from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -532,6 +533,28 @@ class AgentCliBackend:
                         })
                 except Exception:  # noqa: BLE001 — metering must not break work
                     log.exception("failed to settle cost reservation for %s", call_id)
+            if usage_project_root is not None:
+                try:
+                    record_metric(
+                        metrics_root_for_project(usage_project_root),
+                        "provider.call",
+                        labels={
+                            "provider": self._backend_name,
+                            "status": status,
+                            "pricing_status": result.pricing_status or "unknown",
+                        },
+                        fields={
+                            "call_id": call_id,
+                            "mission_id": usage_mission_id,
+                            "run_label": run_label,
+                            "duration_ms": result.duration_ms,
+                            "cost_usd": result.cost_usd,
+                            "input_tokens": result.input_tokens,
+                            "output_tokens": result.output_tokens,
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("failed to record provider metric for %s", call_id)
             self._io_context.current = None
             return result
 

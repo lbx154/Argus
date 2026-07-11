@@ -179,6 +179,20 @@ class JsonlEventSink:
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         except Exception:  # noqa: BLE001
             return
+        if payload.get("event_validation"):
+            try:
+                from ..core.metrics import metrics_root_for_project, record_metric
+
+                record_metric(
+                    metrics_root_for_project(self._dir),
+                    "event.validation_failure",
+                    labels={"type": payload.get("type") or "unknown"},
+                    fields={
+                        "errors": payload["event_validation"].get("errors", [])
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
         with self._lock:
             try:
                 self._maybe_roll()

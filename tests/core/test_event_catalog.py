@@ -110,6 +110,12 @@ def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
     assert rows[1]["event_validation"]["errors"] == [
         "missing required fields: error"
     ]
+    metrics = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert metrics[-1]["name"] == "event.validation_failure"
+    assert metrics[-1]["labels"]["type"] == "agent.io.error"
 
 
 def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:

@@ -122,6 +122,19 @@ export interface DaemonCommandState {
   recent: DaemonCommandReceipt[];
 }
 
+export interface ObservabilitySnapshot {
+  schema_version: 1;
+  provider: Record<string, unknown>;
+  daemon_commands: Record<string, unknown>;
+  web: Record<string, unknown>;
+  event_validation_failures: number;
+  cost_control: CostControlSnapshot | Record<string, unknown>;
+  slo: {
+    status: 'healthy' | 'degraded';
+    violations: string[];
+  };
+}
+
 export interface DaemonAdmission {
   admission_required: boolean;
   requested_at: number;
@@ -171,6 +184,7 @@ export interface Snapshot {
   request_usage?: RequestUsage | null;
   cost_control?: CostControlSnapshot | null;
   daemon_commands?: DaemonCommandState | null;
+  observability?: ObservabilitySnapshot | null;
   daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;

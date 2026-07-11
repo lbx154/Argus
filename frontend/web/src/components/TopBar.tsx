@@ -79,6 +79,14 @@ export function TopBar({
                 {' · snapshot partial'}
               </span>
             ) : null}
+            {snap.observability?.slo.status === 'degraded' ? (
+              <span
+                className="text-err"
+                title={snap.observability.slo.violations.join('\n')}
+              >
+                {' · SLO degraded'}
+              </span>
+            ) : null}
           </span>
         </div>
         <p className="mt-0.5 truncate text-xs text-ink-faint">

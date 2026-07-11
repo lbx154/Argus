@@ -345,6 +345,13 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     ]
     assert rows[0]["amount_usd"] == pytest.approx(1.0)
     assert rows[-1]["cost_usd"] == pytest.approx(0.008)
+    metrics = [
+        json.loads(line)
+        for line in (root / "metrics.jsonl").read_text().splitlines()
+    ]
+    provider_metric = next(row for row in metrics if row["name"] == "provider.call")
+    assert provider_metric["labels"]["status"] == "completed"
+    assert provider_metric["fields"]["call_id"] == result.call_id
 
 
 def test_unpriced_call_blocks_next_provider_spawn(
