@@ -356,6 +356,13 @@ def test_run_exec_writes_full_agent_io_log(
     assert rows[-2]["stdout_lines"]
     assert rows[-2]["stderr_lines"] == ["tool stderr line"]
     assert rows[-2]["thread_id"] == "thread-1"
+    assert rows[-1]["schema_version"] == 2
+    assert rows[-1]["thread_id"] == "thread-1"
+    assert rows[-1]["started_at"] <= rows[-1]["completed_at"]
+    assert rows[-1]["duration_ms"] >= 0
+    assert rows[-1]["usage"]["models"] == []
+    assert rows[-1]["pricing"]["status"] == rows[-1]["pricing_status"]
+    assert rows[-1]["pricing"]["cost_basis"] == rows[-1]["cost_basis"]
     usage_rows = [
         json.loads(line)
         for line in (tmp_path / "usage.jsonl").read_text().splitlines()
@@ -419,6 +426,41 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert usage["cost_basis"] == "token"
     assert usage["premium_requests"] == 1.0
     assert usage["premium_request_cost_usd"] == pytest.approx(0.04)
+    event = json.loads(log_path.read_text().splitlines()[-1])
+    assert event["type"] == "usage.recorded"
+    assert event["schema_version"] == 2
+    assert event["thread_id"] == "session-1"
+    assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
+    assert event["usage"]["models"][0]["input_tokens"] == 25_819
+    assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
+    assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
+
+
+def test_usage_context_prefers_canonical_project_event_log(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    legacy_path = project / ".argus" / "events.jsonl"
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text(
+        json.dumps({"type": "agent.io.start", "call_id": "old-call"}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(legacy_path))
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+
+    resolved = backend._agent_io_log_path(
+        RunnerOptions(working_dir=str(tmp_path / "worktree"))
+    )
+
+    assert resolved == project / "events.jsonl"
+    migrated = [
+        json.loads(line)
+        for line in resolved.read_text(encoding="utf-8").splitlines()
+    ]
+    assert migrated == [{"type": "agent.io.start", "call_id": "old-call"}]
+    assert (project / "events.migration-v2.json").exists()
 
 
 def test_compaction_agent_io_is_bounded_and_drops_token_stream(

@@ -148,6 +148,13 @@ def test_sums_multiple_model_calls_in_one_run(tmp_path: Path, monkeypatch) -> No
     assert usage.output_tokens == 4
     assert usage.total_nano_aiu == 3_000_000_000
     assert usage.cost_usd == pytest.approx(0.03)
+    assert [row["model"] for row in usage.model_usage] == [
+        "gpt-5.6-sol",
+        "claude-haiku-4.5",
+    ]
+    assert usage.model_usage[0]["input_tokens"] == 100
+    assert usage.model_usage[0]["cost_usd"] == pytest.approx(0.02)
+    assert usage.model_usage[1]["cost_usd"] == pytest.approx(0.01)
 
 
 def test_finds_historical_usage_by_session_and_time(tmp_path: Path, monkeypatch) -> None:

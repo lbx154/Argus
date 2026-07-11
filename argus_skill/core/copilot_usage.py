@@ -37,6 +37,25 @@ class CopilotModelUsage:
     request_multiplier: float | None
     created_at: str
 
+    def to_usage_jsonable(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "turn_index": self.turn_index,
+            "input_tokens": self.input_tokens,
+            "cached_input_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "output_tokens": self.output_tokens,
+            "reasoning_output_tokens": self.reasoning_tokens,
+            "total_nano_aiu": self.total_nano_aiu,
+            "cost_usd": (
+                None
+                if self.total_nano_aiu is None
+                else self.total_nano_aiu / NANO_AIU_PER_USD
+            ),
+            "request_multiplier": self.request_multiplier,
+            "created_at": self.created_at,
+        }
+
 
 @dataclass(frozen=True)
 class CopilotCallUsage:
@@ -75,6 +94,11 @@ class CopilotCallUsage:
     def cost_usd(self) -> float | None:
         total = self.total_nano_aiu
         return None if total is None else total / NANO_AIU_PER_USD
+
+    @property
+    def model_usage(self) -> tuple[dict[str, Any], ...]:
+        """Standard per-model rows suitable for durable usage records."""
+        return tuple(row.to_usage_jsonable() for row in self.rows)
 
 
 def copilot_usage_db_candidates() -> list[Path]:

@@ -414,7 +414,15 @@ class AgentCliBackend:
             premium_requests: float | None = None,
             error: str = "",
         ) -> RunnerResult:
+            completed_at = time.time()
             result.call_id = call_id
+            result.thread_id = result.thread_id or resume_thread_id
+            result.started_at = started_at
+            result.completed_at = completed_at
+            result.duration_ms = max(
+                0,
+                int(round((completed_at - started_at) * 1000)),
+            )
             usage = token_usage or TokenUsage(
                 input_tokens=result.input_tokens,
                 cached_input_tokens=result.cached_input_tokens,
@@ -447,6 +455,7 @@ class AgentCliBackend:
                     from ..core.usage import (
                         UsageLedger,
                         build_usage_record,
+                        usage_recorded_event,
                     )
 
                     record = build_usage_record(
@@ -457,7 +466,7 @@ class AgentCliBackend:
                         model=result.usage_model or str(options.model or ""),
                         run_label=run_label,
                         started_at=started_at,
-                        completed_at=time.time(),
+                        completed_at=completed_at,
                         status=(
                             status
                             if status in {"completed", "error", "denied"}
@@ -466,6 +475,8 @@ class AgentCliBackend:
                         token_usage=usage,
                         premium_requests=premium,
                         total_nano_aiu=result.total_nano_aiu,
+                        thread_id=result.thread_id,
+                        model_usage=result.model_usage,
                         error=error or str(result.fatal_error or ""),
                     )
                     appended = UsageLedger(
@@ -475,34 +486,7 @@ class AgentCliBackend:
                     result.pricing_status = record.pricing_status
                     result.cost_usd = record.cost_usd
                     if appended:
-                        self._log_agent_io(
-                            log_path,
-                            {
-                                "type": "usage.recorded",
-                                "call_id": record.call_id,
-                                "mission_id": record.mission_id,
-                                "provider": record.provider,
-                                "model": record.model,
-                                "run_label": record.run_label,
-                                "status": record.status,
-                                "input_tokens": record.input_tokens,
-                                "cached_input_tokens": record.cached_input_tokens,
-                                "cache_write_tokens": record.cache_write_tokens,
-                                "output_tokens": record.output_tokens,
-                                "reasoning_output_tokens": (
-                                    record.reasoning_output_tokens
-                                ),
-                                "premium_requests": record.premium_requests,
-                                "total_nano_aiu": record.total_nano_aiu,
-                                "premium_request_cost_usd": (
-                                    record.premium_request_cost_usd
-                                ),
-                                "pricing_status": record.pricing_status,
-                                "pricing_tier": record.pricing_tier,
-                                "cost_usd": record.cost_usd,
-                                "ts": record.completed_at,
-                            },
-                        )
+                        self._log_agent_io(log_path, usage_recorded_event(record))
                 except Exception:  # noqa: BLE001 — accounting must not break work
                     log.exception("failed to persist usage record for %s", call_id)
             self._io_context.current = None
@@ -723,7 +707,24 @@ class AgentCliBackend:
             return _finalize_result(
                 RunnerResult(
                     exit_code=-1,
+                    thread_id=(
+                        getattr(argus_result, "thread_id", None)
+                        or resume_thread_id
+                    ),
                     fatal_error=f"result translation failed: {exc}",
+                    usage_model=(
+                        copilot_usage.model if copilot_usage is not None else ""
+                    ),
+                    total_nano_aiu=(
+                        copilot_usage.total_nano_aiu
+                        if copilot_usage is not None
+                        else None
+                    ),
+                    model_usage=(
+                        list(copilot_usage.model_usage)
+                        if copilot_usage is not None
+                        else []
+                    ),
                 ),
                 status="error",
                 token_usage=raw_usage,
@@ -803,6 +804,18 @@ class AgentCliBackend:
         )
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
+        project_root, _mission_id = self._usage_context_snapshot()
+        if project_root is not None:
+            try:
+                from ..core.usage import ensure_project_events_standardized
+
+                ensure_project_events_standardized(project_root)
+            except Exception:  # noqa: BLE001 — logging must not break work
+                log.exception(
+                    "failed to migrate legacy project events for %s",
+                    project_root,
+                )
+            return project_root / "events.jsonl"
         raw = os.environ.get(_AGENT_IO_LOG_ENV, "").strip()
         if raw:
             return Path(raw).expanduser()
@@ -938,7 +951,7 @@ class AgentCliBackend:
             agent_messages=list(argus_result.agent_messages or []),
             stdout_lines=list(argus_result.stdout_lines or []),
             stderr_lines=list(argus_result.stderr_lines or []),
-            thread_id=argus_result.thread_id,
+            thread_id=argus_result.thread_id or resume_thread_id,
             fatal_error=_normalize_fatal_error(argus_result.fatal_error),
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
@@ -959,6 +972,11 @@ class AgentCliBackend:
                 copilot_usage.total_nano_aiu
                 if copilot_usage is not None
                 else None
+            ),
+            model_usage=(
+                list(copilot_usage.model_usage)
+                if copilot_usage is not None
+                else []
             ),
         )
 

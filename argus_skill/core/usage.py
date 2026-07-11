@@ -29,8 +29,20 @@ USAGE_FILE = "usage.jsonl"
 USAGE_LOCK_FILE = "usage.lock"
 USAGE_MIGRATION_FILE = "usage.migration-v1.json"
 USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
+EVENT_MIGRATION_FILE = "events.migration-v2.json"
+EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
+
+_CALL_SCOPED_EVENT_TYPES = frozenset({
+    "agent.io.start",
+    "agent.io.complete",
+    "agent.io.error",
+    "provider.request.started",
+    "provider.request.completed",
+    "provider.request.denied",
+    "usage.recorded",
+})
 
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -58,6 +70,9 @@ class UsageRecord:
     pricing_tier: str
     cost_usd: float | None
     cost_basis: str
+    thread_id: str | None = None
+    duration_ms: int = 0
+    model_usage: tuple[dict[str, Any], ...] = ()
     cache_write_tokens: int | None = None
     total_nano_aiu: int | None = None
     premium_request_cost_usd: float | None = None
@@ -66,11 +81,18 @@ class UsageRecord:
     schema_version: int = 1
 
     def to_jsonable(self) -> dict[str, Any]:
-        return asdict(self)
+        row = asdict(self)
+        row["model_usage"] = [dict(item) for item in self.model_usage]
+        return row
 
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "UsageRecord":
         cost = _optional_float(row.get("cost_usd"))
+        started_at = _float(row.get("started_at"), _float(row.get("ts"), 0.0))
+        completed_at = _float(
+            row.get("completed_at"),
+            _float(row.get("ts"), 0.0),
+        )
         return cls(
             call_id=str(row.get("call_id") or ""),
             project_id=str(row.get("project_id") or ""),
@@ -78,8 +100,8 @@ class UsageRecord:
             provider=str(row.get("provider") or ""),
             model=str(row.get("model") or ""),
             run_label=str(row.get("run_label") or ""),
-            started_at=_float(row.get("started_at"), _float(row.get("ts"), 0.0)),
-            completed_at=_float(row.get("completed_at"), _float(row.get("ts"), 0.0)),
+            started_at=started_at,
+            completed_at=completed_at,
             status=_call_status(row.get("status")),
             input_tokens=_optional_int(row.get("input_tokens")),
             cached_input_tokens=_optional_int(row.get("cached_input_tokens")),
@@ -93,6 +115,13 @@ class UsageRecord:
             pricing_tier=str(row.get("pricing_tier") or "unknown"),
             cost_usd=cost,
             cost_basis=str(row.get("cost_basis") or ""),
+            thread_id=_optional_text(row.get("thread_id")),
+            duration_ms=_duration_ms(
+                started_at,
+                completed_at,
+                recorded=row.get("duration_ms"),
+            ),
+            model_usage=_normalize_model_usage(row.get("model_usage")),
             total_nano_aiu=_optional_int(row.get("total_nano_aiu")),
             premium_request_cost_usd=_optional_float(
                 row.get("premium_request_cost_usd")
@@ -144,6 +173,8 @@ def build_usage_record(
     token_usage: TokenUsage | None = None,
     premium_requests: float | None = None,
     total_nano_aiu: int | None = None,
+    thread_id: str | None = None,
+    model_usage: Iterable[dict[str, Any]] | None = None,
     error: str = "",
     source: UsageSource = "run_exec",
 ) -> UsageRecord:
@@ -217,16 +248,70 @@ def build_usage_record(
         pricing_tier=pricing_tier,
         cost_usd=cost_usd,
         cost_basis=cost_basis,
+        thread_id=_optional_text(thread_id),
+        duration_ms=_duration_ms(started_at, completed_at),
+        model_usage=_normalize_model_usage(model_usage),
         total_nano_aiu=total_nano_aiu,
         premium_request_cost_usd=quote_copilot_usage(premium_requests).cost_usd,
         error=str(error or "")[:2000],
         source=source,
-        schema_version=(
-            2
-            if total_nano_aiu is not None or usage.cache_write_tokens_present
-            else 1
-        ),
+        schema_version=2,
     )
+
+
+def usage_recorded_event(record: UsageRecord) -> dict[str, Any]:
+    """Return the canonical self-contained ``usage.recorded`` v2 event."""
+    models = [dict(item) for item in record.model_usage]
+    usage = {
+        "input_tokens": record.input_tokens,
+        "cached_input_tokens": record.cached_input_tokens,
+        "cache_write_tokens": record.cache_write_tokens,
+        "output_tokens": record.output_tokens,
+        "reasoning_output_tokens": record.reasoning_output_tokens,
+        "premium_requests": record.premium_requests,
+        "total_nano_aiu": record.total_nano_aiu,
+        "models": models,
+    }
+    pricing = {
+        "status": record.pricing_status,
+        "tier": record.pricing_tier,
+        "cost_basis": record.cost_basis,
+        "cost_usd": record.cost_usd,
+        "premium_request_cost_usd": record.premium_request_cost_usd,
+    }
+    return {
+        "type": "usage.recorded",
+        "schema_version": 2,
+        "call_id": record.call_id,
+        "project_id": record.project_id,
+        "mission_id": record.mission_id,
+        "thread_id": record.thread_id,
+        "started_at": record.started_at,
+        "completed_at": record.completed_at,
+        "duration_ms": record.duration_ms,
+        "provider": record.provider,
+        "model": record.model,
+        "run_label": record.run_label,
+        "status": record.status,
+        "source": record.source,
+        "error": record.error,
+        "usage": usage,
+        "pricing": pricing,
+        # Flat compatibility fields for existing event consumers.
+        "input_tokens": record.input_tokens,
+        "cached_input_tokens": record.cached_input_tokens,
+        "cache_write_tokens": record.cache_write_tokens,
+        "output_tokens": record.output_tokens,
+        "reasoning_output_tokens": record.reasoning_output_tokens,
+        "premium_requests": record.premium_requests,
+        "total_nano_aiu": record.total_nano_aiu,
+        "premium_request_cost_usd": record.premium_request_cost_usd,
+        "pricing_status": record.pricing_status,
+        "pricing_tier": record.pricing_tier,
+        "cost_basis": record.cost_basis,
+        "cost_usd": record.cost_usd,
+        "ts": record.completed_at,
+    }
 
 
 class UsageLedger:
@@ -411,12 +496,19 @@ class UsageLedger:
                 row.update(
                     {
                         "model": usage.model,
+                        "thread_id": session_id,
                         "input_tokens": usage.input_tokens,
                         "cached_input_tokens": usage.cache_read_tokens,
                         "cache_write_tokens": usage.cache_write_tokens,
                         "output_tokens": usage.output_tokens,
                         "reasoning_output_tokens": usage.reasoning_tokens,
                         "total_nano_aiu": usage.total_nano_aiu,
+                        "model_usage": list(usage.model_usage),
+                        "duration_ms": _duration_ms(
+                            started_at,
+                            completed_at,
+                            recorded=row.get("duration_ms"),
+                        ),
                         "cost_usd": usage.cost_usd,
                         "cost_basis": "token",
                         "pricing_status": (
@@ -582,6 +674,88 @@ def project_usage_summary(
     return UsageLedger(project_root).summary(since=since, mission_id=mission_id)
 
 
+def ensure_project_events_standardized(project_root: Path | str) -> int:
+    """Merge the legacy worktree event log into the canonical project log once.
+
+    Call-scoped lifecycle rows are de-duplicated by ``type`` + ``call_id``.
+    Repeated stream rows and non-call events use their complete normalized JSON
+    payload so migration never collapses distinct output fragments.
+    """
+    root = Path(project_root).expanduser()
+    marker_path = root / EVENT_MIGRATION_FILE
+    if marker_path.exists():
+        return 0
+    legacy_path = root / ".argus" / "events.jsonl"
+    source_paths = _event_history_paths(legacy_path)
+    if not source_paths:
+        return 0
+
+    canonical_path = root / "events.jsonl"
+    root.mkdir(parents=True, exist_ok=True)
+    rows_seen = 0
+    rows_appended = 0
+    malformed_rows = 0
+    duplicate_rows = 0
+    with _exclusive_file_lock(root / EVENT_MIGRATION_LOCK_FILE):
+        if marker_path.exists():
+            return 0
+        identities = _event_identities(_event_history_paths(canonical_path))
+        try:
+            handle = canonical_path.open("a", encoding="utf-8")
+        except OSError:
+            return 0
+        with handle:
+            for source_path in source_paths:
+                try:
+                    source = source_path.open("r", encoding="utf-8")
+                except OSError:
+                    continue
+                with source:
+                    for raw in source:
+                        rows_seen += 1
+                        try:
+                            row = json.loads(raw)
+                        except (json.JSONDecodeError, ValueError):
+                            malformed_rows += 1
+                            continue
+                        if not isinstance(row, dict):
+                            malformed_rows += 1
+                            continue
+                        identity = _event_identity(row)
+                        if identity in identities:
+                            duplicate_rows += 1
+                            continue
+                        handle.write(
+                            json.dumps(
+                                row,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                        identities.add(identity)
+                        rows_appended += 1
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+        _write_json_atomic(
+            marker_path,
+            {
+                "version": 2,
+                "completed_at": time.time(),
+                "source_files": [str(path) for path in source_paths],
+                "rows_seen": rows_seen,
+                "rows_appended": rows_appended,
+                "duplicate_rows": duplicate_rows,
+                "malformed_rows": malformed_rows,
+            },
+        )
+    return rows_appended
+
+
 def format_usage_cost(summary: UsageSummary, *, decimals: int = 2) -> str:
     """Human-readable cost that never renders unknown usage as ``$0.00``."""
     status = summary.pricing_status
@@ -680,6 +854,7 @@ def _legacy_event_records(
                         status="error" if failed else "completed",
                         token_usage=token_usage,
                         premium_requests=premium,
+                        thread_id=_optional_text(row.get("thread_id")),
                         error=fatal,
                         source="legacy.events",
                     )
@@ -916,6 +1091,58 @@ def _event_history_paths(path: Path) -> list[Path]:
     return paths
 
 
+def _event_identities(paths: Iterable[Path]) -> set[str]:
+    identities: set[str] = set()
+    for path in paths:
+        try:
+            handle = path.open("r", encoding="utf-8")
+        except OSError:
+            continue
+        with handle:
+            for raw in handle:
+                try:
+                    row = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if isinstance(row, dict):
+                    identities.add(_event_identity(row))
+    return identities
+
+
+def _event_identity(row: dict[str, Any]) -> str:
+    kind = str(row.get("type") or "")
+    call_id = str(row.get("call_id") or "")
+    if kind in _CALL_SCOPED_EVENT_TYPES and call_id:
+        return f"call:{kind}:{call_id}"
+    return "row:" + json.dumps(
+        row,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+@contextmanager
+def _exclusive_file_lock(path: Path) -> Iterator[None]:
+    key = str(path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with thread_lock:
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            os.close(fd)
+
+
 def _legacy_call_threads(project_root: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for event_path in (
@@ -1041,6 +1268,56 @@ def _path_signature(path: Path) -> tuple[int, int, int] | None:
     )
 
 
+def _duration_ms(
+    started_at: float,
+    completed_at: float,
+    *,
+    recorded: Any = None,
+) -> int:
+    explicit = _optional_int(recorded)
+    if explicit is not None:
+        return explicit
+    return max(0, int(round((float(completed_at) - float(started_at)) * 1000)))
+
+
+def _normalize_model_usage(value: Any) -> tuple[dict[str, Any], ...]:
+    if value is None or isinstance(value, (str, bytes)):
+        return ()
+    if isinstance(value, dict):
+        raw_items = [value]
+    else:
+        try:
+            raw_items = list(value)
+        except TypeError:
+            return ()
+    items: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        total_nano_aiu = _optional_int(raw.get("total_nano_aiu"))
+        cost_usd = _optional_float(raw.get("cost_usd"))
+        if cost_usd is None and total_nano_aiu is not None:
+            cost_usd = total_nano_aiu / NANO_AIU_PER_USD
+        items.append({
+            "model": str(raw.get("model") or ""),
+            "turn_index": _optional_int(raw.get("turn_index")),
+            "input_tokens": _optional_int(raw.get("input_tokens")),
+            "cached_input_tokens": _optional_int(
+                raw.get("cached_input_tokens")
+            ),
+            "cache_write_tokens": _optional_int(raw.get("cache_write_tokens")),
+            "output_tokens": _optional_int(raw.get("output_tokens")),
+            "reasoning_output_tokens": _optional_int(
+                raw.get("reasoning_output_tokens")
+            ),
+            "total_nano_aiu": total_nano_aiu,
+            "cost_usd": cost_usd,
+            "request_multiplier": _optional_float(raw.get("request_multiplier")),
+            "created_at": str(raw.get("created_at") or ""),
+        })
+    return tuple(items)
+
+
 def _optional_text(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
@@ -1087,12 +1364,15 @@ def _call_status(value: Any) -> CallStatus:
 
 __all__ = [
     "CallStatus",
+    "EVENT_MIGRATION_FILE",
     "USAGE_FILE",
     "UsageLedger",
     "UsageRecord",
     "UsageSummary",
     "build_usage_record",
+    "ensure_project_events_standardized",
     "format_usage_cost",
     "project_usage_summary",
     "summarize_usage",
+    "usage_recorded_event",
 ]

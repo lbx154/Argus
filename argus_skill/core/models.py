@@ -105,6 +105,10 @@ class RunnerResult:
     total_nano_aiu: int | None = None
     pricing_status: str = ""
     cost_usd: float | None = None
+    started_at: float = 0.0
+    completed_at: float = 0.0
+    duration_ms: int = 0
+    model_usage: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def last_agent_message(self) -> str:

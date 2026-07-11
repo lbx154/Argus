@@ -12,8 +12,10 @@ from argus_skill.core.usage import (
     UsageLedger,
     UsageRecord,
     build_usage_record,
+    ensure_project_events_standardized,
     format_usage_cost,
     project_usage_summary,
+    usage_recorded_event,
 )
 from argus_skill.life.supervisor import global_daily_spend
 from argus_skill.life.supervisor._cost import _CostTrackingSink
@@ -96,6 +98,107 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert ledger.append(record) is False
     assert ledger.summary().call_count == 1
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
+
+
+def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    record = build_usage_record(
+        call_id="call-1",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        started_at=10.0,
+        completed_at=11.25,
+        status="completed",
+        token_usage=_known_usage(input_tokens=100, output_tokens=20),
+        premium_requests=1.0,
+        total_nano_aiu=2_000_000_000,
+        thread_id="thread-1",
+        model_usage=[{
+            "model": "gpt-5.6-sol",
+            "turn_index": 0,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "total_nano_aiu": 2_000_000_000,
+        }],
+    )
+
+    event = usage_recorded_event(record)
+
+    assert event["schema_version"] == 2
+    assert event["project_id"] == "p1"
+    assert event["thread_id"] == "thread-1"
+    assert event["duration_ms"] == 1250
+    assert event["usage"]["input_tokens"] == event["input_tokens"] == 100
+    assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
+    assert event["pricing"]["cost_basis"] == event["cost_basis"] == "token"
+    assert event["pricing"]["cost_usd"] == pytest.approx(0.02)
+
+    ledger = UsageLedger(project, migrate_legacy=False)
+    assert ledger.append(record) is True
+    stored = ledger.records()[0]
+    assert stored.thread_id == "thread-1"
+    assert stored.duration_ms == 1250
+    assert stored.model_usage[0]["total_nano_aiu"] == 2_000_000_000
+
+
+def test_legacy_worktree_events_migrate_once_without_call_duplicates(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    legacy = project / ".argus" / "events.jsonl"
+    legacy.parent.mkdir(parents=True)
+    canonical_start = {
+        "type": "agent.io.start",
+        "call_id": "call-1",
+        "ts": 1.0,
+    }
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "events.jsonl").write_text(
+        json.dumps(canonical_start) + "\n",
+        encoding="utf-8",
+    )
+    legacy_rows = [
+        {**canonical_start, "ts": 2.0},
+        {"type": "agent.io.complete", "call_id": "call-1", "ts": 3.0},
+        {
+            "type": "agent.io.stream",
+            "call_id": "call-1",
+            "line": "first",
+            "ts": 2.1,
+        },
+        {
+            "type": "agent.io.stream",
+            "call_id": "call-1",
+            "line": "second",
+            "ts": 2.2,
+        },
+    ]
+    legacy.write_text(
+        "".join(json.dumps(row) + "\n" for row in legacy_rows) + "not-json\n",
+        encoding="utf-8",
+    )
+
+    assert ensure_project_events_standardized(project) == 3
+    assert ensure_project_events_standardized(project) == 0
+
+    rows = [
+        json.loads(line)
+        for line in (project / "events.jsonl").read_text().splitlines()
+    ]
+    assert sum(row["type"] == "agent.io.start" for row in rows) == 1
+    assert sum(row["type"] == "agent.io.complete" for row in rows) == 1
+    assert [
+        row["line"] for row in rows if row["type"] == "agent.io.stream"
+    ] == ["first", "second"]
+    marker = json.loads(
+        (project / "events.migration-v2.json").read_text(encoding="utf-8")
+    )
+    assert marker["rows_appended"] == 3
+    assert marker["duplicate_rows"] == 1
+    assert marker["malformed_rows"] == 1
 
 
 def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
