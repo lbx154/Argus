@@ -6,7 +6,7 @@ Argus runs four cooperating roles (plus a curator pool):
 * **Manager**  — front door: classifies operator free text as chat vs task,
   approves distilled skills, decides stage transitions.
 * **Planner**  — when the backlog is empty, plans the next batch of work
-  (continuous mode) and drives EMNLP finalization dispatch.
+  (continuous mode) and drives paper finalization dispatch.
 * **Engineer** — L1: writes code / runs commands, one round at a time.
 * **Reviewer** — L2: structured done / continue / blocked verdict.
 

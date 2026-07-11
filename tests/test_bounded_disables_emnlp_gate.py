@@ -1,4 +1,4 @@
-"""Behavioral regression: bounded mode must disable full_emnlp_gate."""
+"""Behavioral regression: bounded mode must disable full_paper_gate."""
 from __future__ import annotations
 
 import threading
@@ -23,7 +23,7 @@ def _worker_cfg(tmp_path: Path, *, open_ended: bool) -> LifeWorkerConfig:
     )
 
 
-def test_bounded_disables_full_emnlp_gate(tmp_path: Path):
+def test_bounded_disables_full_paper_gate(tmp_path: Path):
     cfg = _build_supervisor_config(
         _worker_cfg(tmp_path, open_ended=False),
         runtime_root=tmp_path / "life",
@@ -37,7 +37,7 @@ def test_bounded_disables_full_emnlp_gate(tmp_path: Path):
     )
 
     assert cfg.open_ended is False
-    assert cfg.full_emnlp_gate is False
+    assert cfg.full_paper_gate is False
 
 
 def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
@@ -55,10 +55,10 @@ def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
 
     assert cfg.open_ended is True
     assert cfg.paper_mission is False
-    assert cfg.full_emnlp_gate is False
+    assert cfg.full_paper_gate is False
 
 
-def test_repl_bounded_disables_full_emnlp_gate(tmp_path: Path):
+def test_repl_bounded_disables_full_paper_gate(tmp_path: Path):
     cfg = _build_repl_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
@@ -75,7 +75,7 @@ def test_repl_bounded_disables_full_emnlp_gate(tmp_path: Path):
     )
 
     assert cfg.open_ended is False
-    assert cfg.full_emnlp_gate is False
+    assert cfg.full_paper_gate is False
 
 
 def test_repl_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
@@ -96,7 +96,7 @@ def test_repl_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path)
 
     assert cfg.open_ended is True
     assert cfg.paper_mission is False
-    assert cfg.full_emnlp_gate is False
+    assert cfg.full_paper_gate is False
 
 
 def _repl_cfg_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
@@ -132,7 +132,7 @@ def test_repl_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path)
 def test_repl_supervisor_paper_mission_on_for_research_vertical(tmp_path: Path):
     cfg = _repl_cfg_for_vertical(tmp_path, "research")
     assert cfg.paper_mission is True
-    assert cfg.full_emnlp_gate is True
+    assert cfg.full_paper_gate is True
 
 
 def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
@@ -154,5 +154,5 @@ def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
     )
 
     assert cfg.paper_mission is True
-    assert cfg.full_emnlp_gate is True
+    assert cfg.full_paper_gate is True
     assert cfg.artifact_root == tmp_path

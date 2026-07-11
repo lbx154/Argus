@@ -1227,7 +1227,7 @@ class LifeWorker:
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the
         # vertical.  Mission typing is fail-safe (non-paper until a
-        # ``full_emnlp`` vertical is positively resolved), so constructing this
+        # ``full_paper`` vertical is positively resolved), so constructing this
         # before divide would incorrectly leave a brand-new paper campaign in
         # bounded mode for its whole daemon lifetime.
         sup_cfg = _build_supervisor_config(
@@ -1752,7 +1752,7 @@ def _build_supervisor_config(
         continuous_objective=init_objective,
         open_ended=cfg.continuous_open_ended,
         paper_mission=paper_mission,
-        full_emnlp_gate=paper_mission and cfg.continuous_open_ended,
+        full_paper_gate=paper_mission and cfg.continuous_open_ended,
         continuous_config_provider=continuous_provider,
         planner_runtime_context_provider=planner_runtime_context_provider,
         planner_restart_handler=planner_restart_handler,

@@ -50,6 +50,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...skills.venue_profiles import resolve_venue_profile
+
 MIN_QUESTIONS = 10
 ALLOWED_SEVERITIES = frozenset({"critical", "major", "minor"})
 QUESTIONS_FILENAME = "REVIEWER_QUESTIONS.json"
@@ -118,6 +120,7 @@ def _find_main_tex(project_root: Path) -> Path | None:
 
 
 def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
+    venue = resolve_venue_profile(project_root)
     qpath = _find_questions(project_root)
     if qpath is None:
         return SimulationReport(
@@ -198,7 +201,7 @@ def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
             code="too_few_questions",
             detail=(
                 f"only {report.questions_found} reviewer question(s) "
-                f"(minimum {MIN_QUESTIONS}); a real EMNLP reviewer would "
+                f"(minimum {MIN_QUESTIONS}); a real {venue.reviewer_persona} reviewer would "
                 "raise more than that — see kill-argument and paper-"
                 "review-revision-loop skills for elicitation playbooks"
             ),

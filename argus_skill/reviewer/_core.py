@@ -539,11 +539,11 @@ class Reviewer:
         # Vertical-native prompt framing: resolve the active vertical and let it
         # supply the top-of-prompt role banner. The rollback / final-submission
         # framing below applies ONLY to a paper vertical (completion_gate ==
-        # "full_emnlp"); for any other vertical (e.g. speedrun) those blocks are
+        # "full_paper"); for any other vertical (e.g. speedrun) those blocks are
         # suppressed and the vertical's banner is prepended so the reviewer judges
         # only that vertical's metric instead of paper-pipeline artifacts.
         _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
-        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
         # floor history when judging forward_progress — i.e. distinguish "this
@@ -781,7 +781,7 @@ class Reviewer:
         )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
-        # running ``validate_full_emnlp_readiness`` and friends, the reviewer
+        # running ``validate_full_paper_readiness`` and friends, the reviewer
         # is the single source of truth for whether the *whole project* is
         # ready to submit. It only fires for final_submission missions.
         final_submission_block = ""
@@ -808,7 +808,7 @@ class Reviewer:
                 "Do not certify on the engineer's word — re-run the verification "
                 "commands yourself and cite your own output.\n\n"
             )
-        if not _full_emnlp:
+        if not _full_paper:
             # non-paper vertical: no paper stages to roll back to, and no
             # final-submission certification — judge only the vertical's metric.
             rollback_block = ""

@@ -37,6 +37,7 @@ from .academic_language_review import (
     _write_text,
     collect_latex_source_paths,
 )
+from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.json")
 PAPER_INFRASTRUCTURE_REVIEW_MD_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.md")
@@ -82,6 +83,7 @@ def generate_paper_infrastructure_review(
 
     root = Path(project_root)
     threshold = max(float(threshold), MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
+    venue = resolve_venue_profile(root)
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
     source_snapshots = [
@@ -129,6 +131,7 @@ def generate_paper_infrastructure_review(
                 threshold=threshold,
                 env=env,
                 timeout=timeout,
+                venue=venue,
             )
         except (ImageToolError, PaperInfrastructureReviewError) as exc:
             issue = _issue(
@@ -237,9 +240,12 @@ def _run_model_review(
     threshold: float,
     env: Mapping[str, str] | None,
     timeout: float,
+    venue: VenueProfile,
 ) -> dict[str, Any]:
     route = _require_route("reviewer", env)
-    prompt = _review_prompt(source_text_by_path=source_text_by_path, threshold=threshold)
+    prompt = _review_prompt(
+        source_text_by_path=source_text_by_path, threshold=threshold, venue=venue
+    )
     prompt_sha256 = review_sha256_text(prompt)
     endpoint = "/responses"
     try:
@@ -282,10 +288,12 @@ def _run_model_review(
     return parsed
 
 
-def _review_prompt(*, source_text_by_path: Mapping[str, str], threshold: float) -> str:
+def _review_prompt(
+    *, source_text_by_path: Mapping[str, str], threshold: float, venue: VenueProfile
+) -> str:
     numbered_source = _numbered_source_excerpt(source_text_by_path, limit=28000)
     return (
-        "You are a strict EMNLP paper reviewer checking only whether reader-facing "
+        f"You are a strict {venue.reviewer_persona} paper reviewer checking only whether reader-facing "
         "manuscript prose leaks local execution infrastructure irrelevant to the "
         "scientific paper. Inspect title, abstract, body, captions, tables, and "
         "appendix prose. Ignore LaTeX comments, build logs, and external artifacts "
@@ -419,9 +427,10 @@ def _next_iteration(root: Path) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    venue = resolve_venue_profile(Path.cwd())
     parser = argparse.ArgumentParser(
         prog="python -m argus_skill.verticals.research.paper_infrastructure_review",
-        description="Score final EMNLP paper for reader-facing infrastructure leaks.",
+        description=f"Score final {venue.reviewer_persona} paper for reader-facing infrastructure leaks.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("model",), default="model")

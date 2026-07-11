@@ -87,10 +87,10 @@ def test_store_override_shows_in_render(tmp_path, monkeypatch):
     assert "simulate.seeds" in body and "Run at least 3 seeds" in body
 
 
-def test_data_domain_gate_is_not_full_emnlp(tmp_path, monkeypatch):
+def test_data_domain_gate_is_not_full_paper(tmp_path, monkeypatch):
     # R5-1: the gate / prompt call sites must thread project_root into load_vertical
     # so a Manager-authored data domain (completion_gate="none") is honored, not
-    # silently resolved to research/full_emnlp -- which would wedge a metric mission
+    # silently resolved to research/full_paper -- which would wedge a metric mission
     # forever (the EMNLP gate can never certify). The full-pipeline title is one such
     # site: a data domain must render as itself, not the EMNLP final-submission gate.
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)

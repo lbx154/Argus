@@ -1335,7 +1335,7 @@ class _SkillLoopRunner:
             str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
         )
         # A paper contract is enabled only by a positively resolved
-        # ``full_emnlp`` vertical.  An explicit False from a specialized caller
+        # ``full_paper`` vertical.  An explicit False from a specialized caller
         # may still opt out; True cannot turn a non-paper vertical into a paper.
         _proot = Path(
             getattr(self, "_artifact_root", None)
@@ -2236,7 +2236,7 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
             vertical_completion_gate(
                 load_vertical(vertical, project_root=root)
             )
-            == "full_emnlp"
+            == "full_paper"
         )
     except Exception:  # noqa: BLE001 — mission typing must fail safe
         return False
@@ -2284,7 +2284,7 @@ def _build_repl_supervisor_config(
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,
-        full_emnlp_gate=paper_mission and open_ended,
+        full_paper_gate=paper_mission and open_ended,
         paper_mission=paper_mission,
         telemetry_dir=project_root,
         artifact_root=artifact_root or project_root,

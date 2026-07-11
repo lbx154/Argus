@@ -123,7 +123,7 @@ class ReviewDecision:
     completion_summary_markdown: str = ""
     failure_cause: str = ""
     verification_summary: str = ""
-    # Reviewer completion contract (replaces the hardcoded EMNLP validator
+    # Reviewer completion contract (replaces the old hardcoded paper-validator
     # gate). For ``final_submission`` missions the reviewer must set
     # ``scope == "final_submission"`` and populate ``checklist`` with one
     # entry ``{"item", "satisfied", "evidence"}`` per full-pipeline

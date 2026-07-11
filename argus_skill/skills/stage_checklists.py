@@ -1342,7 +1342,7 @@ def format_stage_checklist(
 def _full_pipeline_title(project_root) -> str:
     """Vertical-aware title line for the full-pipeline checklist header.
 
-    Paper-shaped verticals (``completion_gate == "full_emnlp"``, i.e. research)
+    Paper-shaped verticals (``completion_gate == "full_paper"``, i.e. research)
     keep the historical ``final submission gate`` wording byte-identical. Any
     other vertical (e.g. speedrun, whose gate is ``"metric"``) names itself so
     the header is not research-flavoured. Fails open to the research wording so
@@ -1359,7 +1359,7 @@ def _full_pipeline_title(project_root) -> str:
         vertical = resolve_vertical(project_root)
         if vertical_completion_gate(
             load_vertical(vertical, project_root=project_root)
-        ) != "full_emnlp":
+        ) != "full_paper":
             return f"## Full pipeline checklist ({vertical})\n"
     except Exception:  # noqa: BLE001 — title must never break prompt building
         pass

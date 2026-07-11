@@ -48,34 +48,23 @@ __all__ = [
 def _reviewer_checklist_for(
     stage: str, venue: Any
 ) -> tuple[str, str, list[str]] | None:
-    """Return the venue-adjusted (skill, instructions, files) for a stage.
+    """Return the NATIVE (skill, instructions, files) for a stage + venue.
 
-    EMNLP returns the static template byte-for-byte. For other venues the
-    load-bearing reviewer-skill filename, the page-budget line, and the
-    reviewer-persona references are rewritten from the profile so an AAAI
-    reviewer is not pointed at the EMNLP skill or told to enforce ACL pages.
+    EMNLP and AAAI are peers: each venue owns a full native reviewer-checklist
+    dict (from the research vertical's ``reviewer_checklists_for``), so there is
+    no EMNLP-privileged byte-for-byte path and no per-string ``.replace``
+    patching — both venues go through the same lookup. ``venue`` is a
+    :class:`VenueProfile` for the research vertical, or ``None`` for
+    venue-neutral verticals (which use the module-level checklists).
     """
-    entry = REVIEWER_CHECKLISTS.get(stage)
-    if entry is None:
-        return None
-    skill, instructions, files = entry
-    if getattr(venue, "key", "EMNLP") == "EMNLP":
-        return skill, instructions, files
-    persona = venue.reviewer_persona
-    if skill == "reviewer/emnlp-academic-language-review.md":
-        skill = venue.review_skill_path
-    instructions = (
-        instructions.replace("an actual EMNLP reviewer", f"an actual {persona} reviewer")
-        .replace("EMNLP reviewers find", f"{persona} reviewers find")
-        .replace("Reject at EMNLP", f"Reject at {persona}")
-        .replace("support an EMNLP paper", f"support an {persona} paper")
-        .replace("ACL format, page budget", f"{persona} format, page budget")
-        .replace(
-            "body ≤8 pages, conclusion on page 8, references start page 9+",
-            venue.page_budget_line(),
-        )
-    )
-    return skill, instructions, files
+    checklists = REVIEWER_CHECKLISTS
+    if venue is not None:
+        try:
+            from ..verticals.research.stages import reviewer_checklists_for
+            checklists = reviewer_checklists_for(venue)
+        except Exception:  # noqa: BLE001 — fall back to the neutral checklists
+            checklists = REVIEWER_CHECKLISTS
+    return checklists.get(stage)
 
 
 def _get_current_stage(project_root: Path) -> str:

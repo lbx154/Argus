@@ -49,4 +49,4 @@ def test_final_submission_cert_persists_after_journal_tail_ages_out(tmp_path: Pa
             )
 
     assert sup._final_submission_cert_path().exists()
-    assert sup._journal_has_full_emnlp_gate_success() is True
+    assert sup._journal_has_full_paper_gate_success() is True

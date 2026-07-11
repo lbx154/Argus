@@ -369,13 +369,13 @@ class LifeSupervisorConfig:
     continuous_objective: str = ""
     # Explicit mission-type signals (replace the old keyword sniffing of the
     # objective text). ``paper_mission`` toggles the long-horizon paper guidance
-    # the planner hands to bounded items; ``full_emnlp_gate`` requires the L2
+    # the planner hands to bounded items; ``full_paper_gate`` requires the L2
     # reviewer's full-pipeline checklist to be certified before ``project_done``
     # is honoured (and drives the auto-stop once that gate passes). Both default
     # False: callers enable these only after the Manager has resolved
-    # a vertical whose completion gate is explicitly ``full_emnlp``.
+    # a vertical whose completion gate is explicitly ``full_paper``.
     paper_mission: bool = False
-    full_emnlp_gate: bool = False
+    full_paper_gate: bool = False
     # ``open_ended`` controls what happens when the planner certifies
     # ``project_done`` on a continuous mission: when True the supervisor does
     # NOT hard-stop — it logs a planner retry and keeps the mission alive so the

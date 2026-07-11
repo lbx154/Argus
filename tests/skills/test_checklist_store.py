@@ -66,7 +66,7 @@ def test_malformed_rows_dropped_on_read(tmp_path):
 
 
 def test_protected_floor_item_not_removable_on_paper_vertical(tmp_path):
-    # The research vertical (gate full_emnlp) freezes protected ids. The Manager
+    # The research vertical (gate full_paper) freezes protected ids. The Manager
     # decides + persists the vertical before any read (resolve_vertical is
     # fail-hard), so seed research here.
     persist_vertical(tmp_path, "research")

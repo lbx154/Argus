@@ -134,7 +134,7 @@ def test_quant_vertical_seeds_paper_contract(tmp_path: Path) -> None:
     ``Manager._kind_for`` classification (``manager/_core.py``: it maps
     ``quant`` into the same ``"research"`` bucket as ``"research"`` itself,
     because a quant mission's deliverable is a reviewer-certified factor
-    report gated on ``full_emnlp``, not a lean numeric metric).
+    report gated on ``full_paper``, not a lean numeric metric).
 
     A prior fix (commit ``1545128``) replaced the old ``is_optimize``
     allowlist with a NEW, independently-maintained literal check

@@ -68,7 +68,7 @@ STAGE_ORDER = ["ingest", "study", "curate", "review"]
 
 #: This vertical's success is a reviewer-certified set of library edits, NOT a
 #: numeric metric and NOT a paper submission. ``"none"`` suppresses both the
-#: paper (``full_emnlp``) and the metric prompt-framing regimes.
+#: paper (``full_paper``) and the metric prompt-framing regimes.
 completion_gate = "none"
 
 #: Skill categories a learning mission may STRENGTHEN but never archive/delete.

@@ -180,7 +180,7 @@ _VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 # harness never decides what "progress" is; it just refuses to let the agent
 # system loop invisibly without bringing the human in.
 _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
-_FULL_EMNLP_GATE_DESCRIPTION = (
+_FULL_PAPER_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
 
@@ -491,8 +491,8 @@ class LifeSupervisor:
             if (
                 self.config.continuous
                 and self.config.continuous_objective
-                and self._effective_full_emnlp_gate(self._artifact_root())
-                and self._journal_has_full_emnlp_gate_success()
+                and self._effective_full_paper_gate(self._artifact_root())
+                and self._journal_has_full_paper_gate_success()
             ):
                 self._emit_status(
                     "auto-stop: EMNLP gate passes, project complete"
@@ -541,8 +541,8 @@ class LifeSupervisor:
                     # project is done — don't ask the planner to invent
                     # more work.
                     if (
-                        self.config.full_emnlp_gate
-                        and self._journal_has_full_emnlp_gate_success()
+                        self.config.full_paper_gate
+                        and self._journal_has_full_paper_gate_success()
                     ):
                         self._emit_status(
                             "planner: project done — EMNLP gate passes"
@@ -960,7 +960,7 @@ class LifeSupervisor:
         """Retire stale paper-final tasks when the active vertical is bounded.
 
         ``scope:final_submission`` only has meaning when the active vertical's
-        completion gate is ``full_emnlp``. If a stale default ``research`` state
+        completion gate is ``full_paper``. If a stale default ``research`` state
         caused the planner to enqueue a final-submission proof for a
         Manager-authored bounded domain (for example ``perf_tuning``), do not
         spend another engineer/reviewer round proving the paper pipeline is
@@ -969,12 +969,12 @@ class LifeSupervisor:
         """
         if self._planner_scope_from_item(item) != _PLANNER_SCOPE_FINAL_SUBMISSION:
             return None
-        if self._effective_full_emnlp_gate(self._artifact_root()):
+        if self._effective_full_paper_gate(self._artifact_root()):
             return None
 
         reason = (
             "skipped stale final_submission task: active vertical completion "
-            "gate is not full_emnlp"
+            "gate is not full_paper"
         )
         self.memory.backlog.update(
             item.id,
@@ -1111,16 +1111,16 @@ class LifeSupervisor:
             #       so we don't re-fire + spam the event timeline every tick.
             #
             # When the reviewer truly certifies, supervisor.run() auto-
-            # stops via ``_journal_has_full_emnlp_gate_success`` instead.
+            # stops via ``_journal_has_full_paper_gate_success`` instead.
             artifact_root = (
                 self._artifact_root() if hasattr(self, "_artifact_root") else memory_root
             )
-            uncertified_full_emnlp = (
-                self._effective_full_emnlp_gate(artifact_root)
-                and not self._journal_has_full_emnlp_gate_success()
+            uncertified_full_paper = (
+                self._effective_full_paper_gate(artifact_root)
+                and not self._journal_has_full_paper_gate_success()
             )
             if (
-                uncertified_full_emnlp
+                uncertified_full_paper
                 and status.state == ProjectState.DONE
                 and persisted.get("state") == ProjectState.DONE.value
             ):
@@ -1130,7 +1130,7 @@ class LifeSupervisor:
                     at=datetime.now(timezone.utc),
                     from_state=ProjectState.DONE,
                     to_state=ProjectState.WRITING,
-                    reason="full_emnlp_gate_not_certified",
+                    reason="full_paper_gate_not_certified",
                 )
                 status = apply_event(status, repair_event)
                 try:
@@ -1149,13 +1149,13 @@ class LifeSupervisor:
                     "type": "life.lifecycle.transition",
                     "from_state": ProjectState.DONE.value,
                     "to_state": ProjectState.WRITING.value,
-                    "reason": "full_emnlp_gate_not_certified",
+                    "reason": "full_paper_gate_not_certified",
                     "agent_layer": "supervisor",
                 })
 
             event = decide_next_state(status)
             if (
-                uncertified_full_emnlp
+                uncertified_full_paper
                 and event is not None
                 and event.to_state == ProjectState.DONE
                 and event.reason == "submission_artifact_present"
@@ -1941,7 +1941,7 @@ class LifeSupervisor:
             lines.append("- tags: " + ", ".join(item.tags))
         if scope == _PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
-                f"- final_submission_gate: {_FULL_EMNLP_GATE_DESCRIPTION} must be "
+                f"- final_submission_gate: {_FULL_PAPER_GATE_DESCRIPTION} must be "
                 "fully satisfied (every checklist item certified by the reviewer "
                 "with concrete evidence) before this item can be marked done."
             )
@@ -1984,7 +1984,7 @@ class LifeSupervisor:
                 return str(value)[:4000]
         return ""
 
-    def _journal_has_full_emnlp_gate_success(self) -> bool:
+    def _journal_has_full_paper_gate_success(self) -> bool:
         """Decide whether the project-final completion gate has passed.
 
         Source of truth (post-validator-retirement): the event timeline. A
@@ -1992,7 +1992,7 @@ class LifeSupervisor:
         reviewer returns a full-pipeline completion verdict, which the
         supervisor records as a ``life.mission.completed`` event carrying
         ``final_submission_certified = True``. We no longer call the
-        hardcoded ``validate_full_emnlp_readiness`` validator — the reviewer's
+        hardcoded ``validate_full_paper_readiness`` validator — the reviewer's
         checklist verdict is the single source of truth.
 
         Fail-closed: only an explicit certified entry counts. We scan the
@@ -2014,11 +2014,11 @@ class LifeSupervisor:
                 return True
         return False
 
-    def _effective_full_emnlp_gate(self, workdir: object) -> bool:
+    def _effective_full_paper_gate(self, workdir: object) -> bool:
         """Whether the full-pipeline final-submission gate applies here.
 
-        Returns ``self.config.full_emnlp_gate`` AND the active vertical's
-        completion gate being the paper gate (``"full_emnlp"``). The
+        Returns ``self.config.full_paper_gate`` AND the active vertical's
+        completion gate being the paper gate (``"full_paper"``). The
         final-submission completion gate only makes sense for a *research*
         vertical: a ``speedrun`` mission runs just the optimize+measure stages
         and has no submission package to certify, so requiring the gate would
@@ -2028,7 +2028,7 @@ class LifeSupervisor:
         The read side is deterministic and exception-free, so this never spends
         a token.
         """
-        if not self.config.full_emnlp_gate:
+        if not self.config.full_paper_gate:
             return False
         from ...skills.vertical_select import (
             VerticalResolutionError,
@@ -2049,7 +2049,7 @@ class LifeSupervisor:
             # treat "no vertical yet" as "gate not satisfied" for THIS check.
             return False
         mod = load_vertical(vertical, project_root=workdir)
-        return vertical_completion_gate(mod) == "full_emnlp"
+        return vertical_completion_gate(mod) == "full_paper"
 
     def _final_submission_cert_path(self) -> Path:
         root = Path(
@@ -2120,8 +2120,8 @@ class LifeSupervisor:
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
             getattr(verdict, "project_done", False)
-            and self._effective_full_emnlp_gate(self._artifact_root())
-            and not self._journal_has_full_emnlp_gate_success()
+            and self._effective_full_paper_gate(self._artifact_root())
+            and not self._journal_has_full_paper_gate_success()
         ):
             return verdict
         wait_reason = self._operator_only_external_blocker_wait_reason()
@@ -2517,13 +2517,13 @@ class LifeSupervisor:
 
         # Only skip the planner on an operator-only external blocker when the
         # full EMNLP gate is active. A ``--bounded`` mission
-        # (``full_emnlp_gate=False``) does not require the external benchmark
+        # (``full_paper_gate=False``) does not require the external benchmark
         # targets, so it must fall through to the planner and reach its own
         # ``project_done`` instead of waiting forever on artifacts it never
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
         short_circuit = None
-        if self._effective_full_emnlp_gate(self._artifact_root()):
+        if self._effective_full_paper_gate(self._artifact_root()):
             short_circuit = self._operator_external_blocker_short_circuit_decision(
                 project_root=self._project_workdir(),
             )
@@ -2630,8 +2630,8 @@ class LifeSupervisor:
 
         if (
             verdict.project_done
-            and self._effective_full_emnlp_gate(self._artifact_root())
-            and not self._journal_has_full_emnlp_gate_success()
+            and self._effective_full_paper_gate(self._artifact_root())
+            and not self._journal_has_full_paper_gate_success()
         ):
             from ...planner import TaskSpec
 

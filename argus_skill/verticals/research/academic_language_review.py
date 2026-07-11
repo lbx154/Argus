@@ -290,7 +290,7 @@ def generate_academic_language_review(
     # checklist. We surface neutral measurements as facts, relay TODO/placeholder
     # markers as a publication-integrity finding, and feed the heuristic signals
     # to the model reviewer as context — but emit no harness quality verdict.
-    deterministic = _deterministic_assessment(combined_source)
+    deterministic = _deterministic_assessment(combined_source, venue=venue)
     facts = _neutral_language_facts(combined_source)
     integrity_findings: list[dict[str, Any]] = []
     if facts.get("placeholder_marker_count"):
@@ -490,7 +490,7 @@ def _combined_source_text(source_text_by_path: Mapping[str, str]) -> str:
     return "\n".join(chunks)
 
 
-def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
+def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     plain = _latex_to_plain_text(tex_text)
     abstract = _extract_environment(tex_text, "abstract")
@@ -529,7 +529,7 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                     action="rewrite_abstract",
                 )
             )
-        for code, message, penalty, score_cap in _abstract_quality_issue_specs(abstract):
+        for code, message, penalty, score_cap in _abstract_quality_issue_specs(abstract, venue=venue):
             score_penalty += penalty
             section_scores["abstract"] = min(section_scores["abstract"], score_cap)
             required_checks["five_sentence_abstract_or_equivalent"] = False
@@ -792,6 +792,29 @@ def _run_model_review(
     return parsed
 
 
+def _spell_small_number(value: int) -> str:
+    """Spell a small page count as an English word for agent-facing prose.
+
+    Keeps EMNLP's original ``"eight-page body budget"`` byte-identical while
+    letting every venue derive the same phrasing from its ``body_page_limit``
+    (AAAI -> ``"seven-page"``). Falls back to the numeric form for values
+    outside the expected page-budget range.
+    """
+    words = {
+        1: "one",
+        2: "two",
+        3: "three",
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+        8: "eight",
+        9: "nine",
+        10: "ten",
+    }
+    return words.get(value, str(value))
+
+
 def _review_prompt(
     *,
     source_text_by_path: Mapping[str, str],
@@ -800,16 +823,26 @@ def _review_prompt(
     venue: VenueProfile,
 ) -> str:
     source_context = _review_source_context(source_text_by_path)
-    # Venue-local strings. EMNLP reproduces the exact original tokens so its
-    # prompt (and the persisted prompt_sha256) stays byte-identical; AAAI uses
-    # the resolved persona / page budget / abstract policy.
-    if venue.key == "EMNLP":
-        persona_label = "EMNLP long paper"
+    # Venue-local strings, all derived from the resolved profile so neither
+    # venue gets a hardcoded special path. EMNLP's profile fields reproduce the
+    # exact original tokens ("EMNLP long paper", the ACL/EMNLP hard-floor
+    # standard, an eight-page body budget) so its prompt — and the persisted
+    # prompt_sha256 — stays byte-identical; AAAI derives its own persona, page
+    # budget, and (advisory) abstract policy from the same fields.
+    #
+    # ``abstract_word_floor_is_hard`` is the ACL-family axis: venues that keep a
+    # hard abstract floor (EMNLP/ACL) also render the long-paper persona and the
+    # spelled-out body budget; advisory-floor venues (AAAI) use the plain persona
+    # and the numeric body budget. This keeps both venues' wording profile-driven
+    # rather than branching on ``venue.key``.
+    intro_label = venue.reviewer_persona
+    if venue.abstract_word_floor_is_hard:
+        persona_label = f"{venue.reviewer_persona} long paper"
         abstract_standard = (
-            f"Apply this ACL/EMNLP standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words are too thin. "
+            f"Apply this ACL/{venue.reviewer_persona} standard: abstracts under "
+            f"{venue.abstract_word_floor} words are too thin. "
         )
-        body_budget_phrase = "eight-page body budget"
-        intro_label = "EMNLP"
+        body_budget_phrase = f"{_spell_small_number(venue.body_page_limit)}-page body budget"
     else:
         persona_label = f"{venue.reviewer_persona} paper"
         abstract_standard = (
@@ -818,7 +851,6 @@ def _review_prompt(
             "method, result, and implication rather than on a fixed minimum length. "
         )
         body_budget_phrase = f"{venue.body_page_limit}-page body budget"
-        intro_label = venue.reviewer_persona
     return (
         f"You are the final academic-language reviewer for an {persona_label}. "
         "Reject papers that read like generic agent output: template LLM openings, "
@@ -1263,7 +1295,9 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
     return issues
 
 
-def _abstract_quality_issue_specs(abstract: str) -> list[tuple[str, str, float, float]]:
+def _abstract_quality_issue_specs(
+    abstract: str, *, venue: VenueProfile
+) -> list[tuple[str, str, float, float]]:
     if not abstract.strip():
         return []
 
@@ -1277,7 +1311,7 @@ def _abstract_quality_issue_specs(abstract: str) -> list[tuple[str, str, float, 
             (
                 "thin_abstract",
                 (
-                    f"abstract has {abstract_words} words; final EMNLP abstracts "
+                    f"abstract has {abstract_words} words; final {venue.reviewer_persona} abstracts "
                     f"should be at least {MIN_REVIEW_ABSTRACT_WORDS} words and cover "
                     "problem, gap, method, model/benchmark, result, and implication"
                 ),
@@ -1861,9 +1895,10 @@ def _float_or_none(value: object) -> float | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    venue = resolve_venue_profile(Path.cwd())
     parser = argparse.ArgumentParser(
         prog="python -m argus_skill.verticals.research.academic_language_review",
-        description="Score final EMNLP paper academic language and narrative quality.",
+        description=f"Score final {venue.reviewer_persona} paper academic language and narrative quality.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("model", "heuristic"), default="model")
