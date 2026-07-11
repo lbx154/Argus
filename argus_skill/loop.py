@@ -668,15 +668,6 @@ class SkillLoop:
         except Exception:  # never let UI errors kill the loop
             log.exception("on_event handler raised")
 
-    def _render_skill_playbook(self, skills: list[Skill]) -> str:
-        """Deprecated shim — delegates to the shared role-mission renderer.
-
-        Kept so external callers/tests referencing this method keep working;
-        new code should call ``render_skill_playbook`` directly. Treats every
-        passed skill as a primary (own-role) playbook.
-        """
-        return render_skill_playbook(self.skill_store, skills)
-
     @staticmethod
     def _build_engineer_prompt(
         *,
