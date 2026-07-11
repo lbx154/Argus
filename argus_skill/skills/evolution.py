@@ -104,10 +104,15 @@ def evolve_skills_after_mission(
     if auto_compact_enabled:
         from .compaction import auto_compact_skills
 
-        stores = [getattr(skill_store, name, None) for name in ("project", "global_")]
-        skill_dirs = [
-            Path(store.skills_dir) for store in stores if store is not None
-        ] or [Path(fallback_skills_dir)]
+        # A project mission may evolve only its own layer. Shared/global skill
+        # maintenance requires an explicit operator maintenance pass, matching
+        # SkillRouter's refusal to archive global skills from a project review.
+        project_store = getattr(skill_store, "project", None)
+        skill_dirs = (
+            [Path(project_store.skills_dir)]
+            if project_store is not None
+            else [Path(fallback_skills_dir)]
+        )
         for skill_dir in skill_dirs:
             result = auto_compact_skills(
                 skill_dir,
