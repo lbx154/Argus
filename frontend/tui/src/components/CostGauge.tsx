@@ -35,6 +35,7 @@ export function CostGauge({
     && !requestUsage
     && !costControl?.reserved_usd
     && !costControl?.unresolved_calls
+    && !costControl?.fence_breach_calls
   ) return null;
   const frac = fraction(spend.last, missionCap);
   const color = frac < 0.6 ? theme.success : frac < 0.85 ? theme.warning : theme.error;
@@ -66,9 +67,9 @@ export function CostGauge({
             : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
         </Text>
       ) : null}
-      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
-        <Text color={costControl.unresolved_calls > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0}>
-          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
+      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
+        <Text color={costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0 && (costControl.fence_breach_calls ?? 0) === 0}>
+          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls} · fence breaches ${costControl.fence_breach_calls ?? 0}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (

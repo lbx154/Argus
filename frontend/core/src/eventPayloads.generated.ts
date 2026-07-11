@@ -158,6 +158,20 @@ export interface BudgetUnpricedBlockedEvent extends EventMsg {
   "run_label"?: string;
 }
 
+export interface BudgetFenceBreachBlockedEvent extends EventMsg {
+  type: "budget.fence_breach.blocked";
+  payload_schema_version?: 1;
+  "call_id": string;
+  "project_id"?: string;
+  "mission_id"?: string | null;
+  "provider": string;
+  "model"?: string;
+  "run_label"?: string;
+  "breach_call_id"?: string;
+  "overrun_usd"?: number;
+  "reason": string;
+}
+
 export interface LifeMissionStartedEvent extends EventMsg {
   type: "life.mission.started";
   payload_schema_version?: 1;
@@ -774,6 +788,7 @@ export interface EventPayloadByType {
   "budget.reservation.settled": BudgetReservationSettledEvent;
   "budget.reservation.released": BudgetReservationReleasedEvent;
   "budget.unpriced.blocked": BudgetUnpricedBlockedEvent;
+  "budget.fence_breach.blocked": BudgetFenceBreachBlockedEvent;
   "life.mission.started": LifeMissionStartedEvent;
   "life.mission.completed": LifeMissionCompletedEvent;
   "round.start": RoundStartEvent;

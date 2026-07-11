@@ -50,4 +50,27 @@ describe('CostGauge', () => {
     expect(markup).toContain('partial');
     expect(markup).not.toContain('$0.00');
   });
+
+  it('surfaces provider fence breaches as a cost-control error', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(CostGauge, {
+        spend: { total: 1, missions: 1, last: 1 },
+        settledUsd: 1,
+        daemon: undefined,
+        costControl: {
+          day: '2026-07-11',
+          active_reservations: 0,
+          reserved_usd: 0,
+          unresolved_calls: 0,
+          unresolved: [],
+          fence_breach_calls: 1,
+          fence_breaches: [],
+          policy: 'block',
+          fence_breach_policy: 'block',
+        },
+      }),
+    );
+    expect(markup).toContain('fence breaches 1');
+    expect(markup).toContain('text-err');
+  });
 });

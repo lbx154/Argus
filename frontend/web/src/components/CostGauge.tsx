@@ -61,9 +61,9 @@ export function CostGauge({
             {' · '}P {requestUsage.copilot.daily_calls}/{requestUsage.copilot.daily_cap || '∞'}
           </span>
         ) : null}
-        {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
-          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 ? 'text-err' : 'text-ink-faint'}`}>
-            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls}
+        {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
+          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? 'text-err' : 'text-ink-faint'}`}>
+            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls} · fence breaches {costControl.fence_breach_calls ?? 0}
           </span>
         ) : null}
       </div>

@@ -170,6 +170,21 @@
         "run_label": {"type": "string"}
       }
     },
+    "budget.fence_breach.blocked": {
+      "version": 1,
+      "required": ["call_id", "provider", "reason"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "project_id": {"type": "string"},
+        "mission_id": {"type": ["string", "null"]},
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string"},
+        "run_label": {"type": "string"},
+        "breach_call_id": {"type": "string"},
+        "overrun_usd": {"type": "number", "minimum": 0},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
     "life.mission.started": {
       "version": 1,
       "required": ["item_id"],

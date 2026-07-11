@@ -104,6 +104,8 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
     Knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0", "maximum USD envelope reserved for one provider call (0 uses all remaining)", "budget"),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_FENCE_BREACH_POLICY", "block", "handling after a provider exceeds its reserved fence: block | allow", "budget"),
+    Knob("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900", "seconds to block that provider after a priced fence overrun", "budget"),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),

@@ -100,7 +100,10 @@ export interface CostControlSnapshot {
   reserved_usd: number;
   unresolved_calls: number;
   unresolved: Array<Record<string, unknown>>;
+  fence_breach_calls?: number;
+  fence_breaches?: Array<Record<string, unknown>>;
   policy: 'block' | 'allow';
+  fence_breach_policy?: 'block' | 'allow';
 }
 
 export interface DaemonCommandReceipt {
