@@ -1,6 +1,6 @@
 ---
 name: Idea Creator
-description: Given IDEA_CANDIDATES.md from idea-discovery, rank candidates and pilot the top 1-3 in parallel within a budget. Each pilot is a minimal cheap proof-of-concept (2-hour train-free run) that produces a kill-or-keep verdict. Pilots that pass become the experiment plan; pilots that fail are documented and pivot to the next candidate.
+description: Given IDEA_CANDIDATES.md from idea-discovery, rank candidates and pilot the top 1-3 in parallel within a budget. Each pilot is a minimal cheap proof-of-concept (resource-adaptive, ≤3h/run) that shows whether the proposed method beats a reproduced baseline, producing a kill-or-keep verdict. Pilots that pass become the experiment plan; pilots that fail are documented and pivot to the next candidate.
 category: paper-ideation
 version: 1
 created_at: 2026-06-01T00:00:00+00:00
@@ -57,8 +57,9 @@ killed at the signal-de-risk gate after wasting the pilot.
 
 ### Step 2 — design pilots for the top 1-3
 
-For each `run`-recommended candidate, write a **2-hour train-free
-pilot spec**:
+For each `run`-recommended candidate, write a **resource-adaptive pilot spec**
+(a cheap proof the method beats a reproduced baseline; ≤3h/run, and the eventual
+main experiment must fit ≤8h wall-clock):
 
 ```markdown
 ## Pilot P-{{id}}: <one-line goal>
@@ -83,8 +84,9 @@ distinguish hypothesis from null>
 ### Step 3 — execute pilots in parallel
 
 Run pilots via the existing `agent-research-benchmark-runner` skill;
-do NOT block on each other. Pilots run train-free (only API calls),
-which keeps the cost bounded to the operator's budget.
+do NOT block on each other. Pilots run resource-adaptively within the
+per-run budget (cheap inference, or a short ≤3h LoRA/FT run on the available
+GPUs), which keeps the cost bounded to the operator's budget.
 
 ### Step 4 — record verdicts
 
