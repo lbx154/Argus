@@ -4,11 +4,15 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from argus_skill.wiki.bootstrap import init_wiki
 from argus_skill.wiki.index import rebuild_indexes
 from argus_skill.wiki.schema import PageCard, SourcePaper, SourceRun
 from argus_skill.wiki.store import WikiStore
 from argus_skill.wiki.validate import validate_wiki
+
+pytestmark = pytest.mark.e2e
 
 
 def test_full_loop(tmp_path: Path):

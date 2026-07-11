@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner import (
     Planner,
@@ -117,43 +119,47 @@ def test_parse_planner_text_returns_error_verdict_on_garbage() -> None:
     assert v.error or v.new_tasks == []
 
 
-def test_parse_planner_text_waiting_is_not_error() -> None:
+@pytest.mark.parametrize(
+    ("reason", "waiting_reason", "expected_fragment"),
+    [
+        (
+            "training run still in progress; nothing higher-impact to do",
+            "CV-GRPO run 2b510 at step 40/200, not terminal",
+            "CV-GRPO",
+        ),
+        (
+            "image route remains a provider-side blocker",
+            (
+                "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents the "
+                "non-local image generation unknown_model blocker; all local draft "
+                "work is exhausted"
+            ),
+            "IMAGE2_OPERATOR_ACTION_REQUIRED.md",
+        ),
+    ],
+    ids=["running-experiment", "external-capability"],
+)
+def test_parse_planner_text_waiting_is_not_error(
+    reason: str,
+    waiting_reason: str,
+    expected_fragment: str,
+) -> None:
     # First-class await-external: planner intentionally idles with no tasks
     # and no done. This must NOT be reported as an error (which would spin /
     # make-work); it is a clean waiting outcome.
     txt = json.dumps({
         "project_done": False,
-        "reason": "training run still in progress; nothing higher-impact to do",
+        "reason": reason,
         "new_tasks": [],
         "waiting": True,
-        "waiting_reason": "CV-GRPO run 2b510 at step 40/200, not terminal",
+        "waiting_reason": waiting_reason,
     })
     v = parse_planner_text(txt)
     assert v.waiting is True
     assert v.project_done is False
     assert v.new_tasks == []
     assert not v.error
-    assert "CV-GRPO" in v.waiting_reason
-
-
-def test_parse_planner_text_waiting_external_capability_blocker_is_not_error() -> None:
-    txt = json.dumps({
-        "project_done": False,
-        "reason": "image route remains a provider-side blocker",
-        "new_tasks": [],
-        "waiting": True,
-        "waiting_reason": (
-            "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents the "
-            "non-local image generation unknown_model blocker; all local draft "
-            "work is exhausted"
-        ),
-    })
-    v = parse_planner_text(txt)
-    assert v.waiting is True
-    assert v.project_done is False
-    assert v.new_tasks == []
-    assert not v.error
-    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in v.waiting_reason
+    assert expected_fragment in v.waiting_reason
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:

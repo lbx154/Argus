@@ -57,19 +57,17 @@ def test_archived_state_never_transitions() -> None:
     assert decide_next_state(status, now=_utc("2027-01-01T00:00:00")) is None
 
 
-def test_submission_artifact_promotes_to_done_from_writing() -> None:
-    status = _fresh(state=ProjectState.WRITING, has_submission_artifact=True)
+@pytest.mark.parametrize(
+    "state",
+    [ProjectState.WRITING, ProjectState.RUNNING],
+    ids=["from-writing", "from-running"],
+)
+def test_submission_artifact_promotes_to_done(state: ProjectState) -> None:
+    status = _fresh(state=state, has_submission_artifact=True)
     event = decide_next_state(status, now=_utc("2026-05-15T00:00:00"))
     assert event is not None
     assert event.to_state == ProjectState.DONE
     assert event.reason == "submission_artifact_present"
-
-
-def test_submission_artifact_promotes_even_from_running() -> None:
-    status = _fresh(state=ProjectState.RUNNING, has_submission_artifact=True)
-    event = decide_next_state(status)
-    assert event is not None
-    assert event.to_state == ProjectState.DONE
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 import argus_skill.builtin_skills as _builtin
+from argus_skill.core.models import RunnerResult
 from argus_skill.manager._core import Manager
 from argus_skill.skills.role_context import load_builtin_skill_text
 from argus_skill.skills.store import (
@@ -88,9 +89,14 @@ class _CapturingRunExec:
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    def __call__(self, prompt: str) -> str:
+    def __call__(self, prompt: str) -> RunnerResult:
         self.prompts.append(prompt)
-        return '{"action": "hold", "target_stage": "research", "reason": "stub"}'
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[
+                '{"action": "hold", "target_stage": "research", "reason": "stub"}'
+            ],
+        )
 
 
 def test_manager_accepts_skill_store_and_is_backward_compatible() -> None:

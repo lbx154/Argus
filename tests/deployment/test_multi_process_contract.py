@@ -10,7 +10,11 @@ import time
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 from argus_skill.release import release_manifest
+
+pytestmark = pytest.mark.e2e
 
 
 def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str) -> None:
