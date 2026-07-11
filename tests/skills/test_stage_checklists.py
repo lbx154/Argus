@@ -72,6 +72,15 @@ def test_format_stage_checklist_reviewer_framing() -> None:
     assert "Do not run any `validate-*` shell command" in text
 
 
+def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None:
+    text = format_stage_checklist("plan", role="reviewer")
+    assert "Clinical or mechanism projects" in text
+    assert "real public data source, comparator/control, and planned cohort" in text
+    assert "license/access conditions" in text
+    assert "planned with task_count=0" in text
+    assert "must never be relabeled as benchmark tasks" in text
+
+
 def test_format_stage_checklist_unknown_stage_returns_safe_block() -> None:
     text = format_stage_checklist("nonexistent_stage", role="engineer")
     # Should not crash and should communicate that there's no checklist.

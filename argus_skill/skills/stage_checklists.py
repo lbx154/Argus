@@ -169,9 +169,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="plan.benchmark",
             statement=(
-                "Benchmark-and-baseline plan names at least 3 independent real "
-                "benchmark families (not 3 splits of the same dataset) with URL, "
-                "license, task count, and capability tested for each."
+                "The evaluation-source and comparator plan matches the empirical "
+                "domain. Computational benchmark projects name at least 3 "
+                "independent real benchmark families (not 3 splits of the same "
+                "dataset), with URL, license, task count, and capability tested. "
+                "Clinical or mechanism projects instead enumerate every real public "
+                "data source, comparator/control, and planned cohort, including "
+                "source URL (or the prospective registry plan), license/access "
+                "conditions, observed or planned scale, implementation status, and "
+                "the evidence ceiling. Unimplemented cohorts must be labeled "
+                "planned with task_count=0; participant visits or nights must never "
+                "be relabeled as benchmark tasks."
             ),
             evidence_hint="research/BASELINE_AND_BENCHMARK_PLAN.md, experiments/BENCHMARK_PROVENANCE.json",
         ),
