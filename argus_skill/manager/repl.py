@@ -50,9 +50,7 @@ from ..apps._life_actions import (
     render_backend_cmd,
     render_config_cmd,
     render_identity_cmd,
-    render_reset_cmd,
     render_skills_cmd,
-    stop_iteration,
 )
 from ..apps._runtime import (
     _CommonMemory,
@@ -65,11 +63,11 @@ from ..apps._runtime import (
 from ..core import paths as core_paths
 from ..core.knobs import resolve_role_model
 from ..life import BacklogItem, LifeMemory, MemoryBundle
+from .repl_commands import dispatch_command
 from .repl_help import (
     _HELP_SECTIONS,
     SLASH_COMMANDS,
     _bottom_hint_line,
-    _closest_slash_command,
     _help_command_rows,
     _top_frame_line,
 )
@@ -94,6 +92,7 @@ __all__ = [
     "_get_prompt_session",
     "_split_readline_safe_prompt",
     "_visual_row_delta",
+    "dispatch_command",
     "run_manager_repl",
 ]
 
@@ -4282,168 +4281,6 @@ def _run_manager_repl_locked(
             return 0
 
 
-def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | None:
-    """Run one REPL line (slash command or free text). Shared by the line REPL
-    and the TUI so both surfaces dispatch identically — handlers print to stdout;
-    the TUI captures that. Returns "exit" to quit, else None."""
-    alias, alias_note = _cockpit_cli_alias(line)
-    if alias_note:
-        print(theme.gray(alias_note) if theme is not None else alias_note)
-    if alias is None and alias_note is not None:
-        return None
-    if alias is not None:
-        line = alias
-        raw = alias
-
-    if not line.startswith("/"):
-        _free_text_cmd(mem, raw, chat_state)
-        return None
-    try:
-        tokens = shlex.split(line)
-    except ValueError as exc:
-        print(theme.red(f"parse error: {exc}"))
-        return None
-    cmd = tokens[0].lower()
-    rest = tokens[1:]
-    rest_text = line[len(tokens[0]):].lstrip()
-    if True:
-        if cmd in ("/help", "/commands"):
-            sys.stdout.write(_render_help(theme))
-            sys.stdout.flush()
-            return None
-        if cmd == "/status":
-            _status_cmd(mem, chat_state)
-            return None
-        if cmd == "/roles":
-            _roles_cmd(mem, chat_state, rest_text)
-            return None
-        if cmd == "/doctor":
-            _doctor_cmd(mem, chat_state, global_root)
-            return None
-        if cmd == "/daemon":
-            _daemon_cmd(mem, rest_text, chat_state)
-            return None
-        if cmd == "/daemons":
-            _daemons_cmd(chat_state, global_root, mem.project.root)
-            return None
-        if cmd == "/attach":
-            _attach_cmd(chat_state, global_root, rest_text)
-            return None
-        if cmd == "/resume":
-            _resume_cmd(mem, chat_state, global_root, rest_text)
-            return None
-        if cmd == "/plan":
-            _plan_cmd(mem, chat_state, rest_text)
-            return None
-        if cmd == "/start":
-            _continuous_cmd(mem, f"start {rest_text}".strip(), chat_state)
-            return None
-        if cmd == "/continuous":
-            _continuous_cmd(mem, rest_text, chat_state)
-            return None
-        if cmd == "/identity":
-            _identity_cmd(mem, rest, rest_text)
-            return None
-        if cmd == "/backlog":
-            include_all = bool(rest) and rest[0].lower() == "all"
-            _backlog_list_cmd(mem, include_all=include_all)
-            return None
-        if cmd == "/add":
-            if not rest_text:
-                print(theme.gray(
-                    "usage: /add <objective>  "
-                    "[--once] [--cycles=N] [--budget=$X]"
-                ))
-                return None
-            cfg = chat_state.get("config", {})
-            iterate, max_cycles, budget, body = parse_add_flags(
-                rest_text,
-                defaults=cfg,
-            )
-            if not body:
-                print(theme.gray("/add: empty objective after flags"))
-                return None
-            _manager_divide_user_task(mem, body, chat_state, theme=theme)
-            _add_only(
-                mem,
-                body,
-                iterate=iterate,
-                iteration_max_cycles=max_cycles,
-                iteration_budget_usd=budget,
-            )
-            return None
-        if cmd == "/stop":
-            if not rest:
-                print(theme.gray("usage: /stop <item_id>"))
-                return None
-            print(stop_iteration(mem, rest[0]))
-            return None
-        if cmd in ("/done", "/skip", "/rm"):
-            if not rest:
-                print(theme.gray(f"usage: {cmd} <item_id>"))
-                return None
-            _status_change_cmd(mem, cmd, rest[0])
-            return None
-        if cmd == "/journal":
-            n = 10
-            if rest:
-                try:
-                    n = int(rest[0])
-                except ValueError:
-                    print(theme.gray(f"usage: /journal [N]  (got: {rest[0]!r})"))
-                    return None
-            _journal_tail_cmd(mem, n)
-            return None
-        if cmd == "/note":
-            if not rest_text:
-                print(theme.gray("usage: /note <text>"))
-                return None
-            print(theme.gray(append_note(mem, rest_text)))
-            return None
-        if cmd in ("/nudge", "/inject", "/notify"):
-            if not rest_text:
-                print(theme.gray("usage: /nudge <message>  (one line, "
-                                 "spliced into the next engineer round)"))
-                return None
-            from ..apps._inbox import queue_inbox_message
-            queue_inbox_message(mem.project.root, rest_text, source="repl.nudge")
-            print(theme.gray(
-                f"nudge queued ({len(rest_text)} chars) → next mission round "
-                f"will see it as operator guidance"
-            ))
-            return None
-        if cmd == "/backend":
-            _backend_cmd(rest, chat_state)
-            return None
-        if cmd == "/config":
-            _config_cmd(rest, chat_state, life_dir=mem.project.root)
-            return None
-        if cmd in ("/verbose", "/quiet"):
-            print(theme.gray(
-                "verbose is always on now (the toggle was removed). "
-                "every event is rendered."
-            ))
-            return None
-        if cmd == "/reset":
-            print(theme.gray(render_reset_cmd(chat_state)))
-            return None
-        if cmd == "/run":
-            _run_cmd(mem, chat_state)
-            return None
-        if cmd == "/skills":
-            _skills_cmd(rest)
-            return None
-        hint = _closest_slash_command(cmd)
-        if hint:
-            print(theme.gray(
-                f"unknown command: {cmd}  — did you mean {hint}?  "
-                f"(/help lists every command)"
-            ))
-        else:
-            print(theme.gray(f"unknown command: {cmd}  (/help lists every command)"))
-        return None
-
-
 __all__ = [
     "run_manager_repl",
     "_run_manager_repl_locked",
@@ -4471,4 +4308,5 @@ __all__ = [
     "read_message_with_live_cockpit",
     "_life_dir_for",
     "_record_mission_outcome",
+    "dispatch_command",
 ]

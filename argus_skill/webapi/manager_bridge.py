@@ -169,6 +169,7 @@ def manager_message(
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.repl import (
+        _accepts_keyword,
         _apply_config_intent,
         _front_door_classify,
         enqueue_mission,
@@ -267,11 +268,16 @@ def manager_message(
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
+        classify_kwargs = (
+            {"root_task_id": root_task_id}
+            if _accepts_keyword(_front_door_classify, "root_task_id")
+            else {}
+        )
         intent, route = _front_door_classify(
             mem,
             body,
             chat_state,
-            root_task_id=root_task_id,
+            **classify_kwargs,
         )
 
         cfg_lines: list[str] = []

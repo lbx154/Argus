@@ -343,6 +343,22 @@ def test_metrics_endpoints_expose_json_slo_and_prometheus(client: TestClient) ->
     assert "argus_slo_healthy" in prometheus.text
 
 
+def test_web_metrics_use_route_templates_instead_of_project_ids(
+    tmp_path: Path,
+) -> None:
+    _make_project(tmp_path)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.get("/api/projects/s-testaaaa/snapshot")
+    assert response.status_code == 200
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+    ]
+    request_metric = next(row for row in rows if row["name"] == "web.request")
+    assert request_metric["labels"]["path"] == "/api/projects/{sid}/snapshot"
+    assert "s-testaaaa" not in request_metric["labels"]["path"]
+
+
 def test_get_projects_limit_param(client: TestClient) -> None:
     r = client.get("/api/projects?limit=1")
     assert r.status_code == 200

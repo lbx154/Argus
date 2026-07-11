@@ -114,7 +114,11 @@
         "amount_usd": {"type": "number", "minimum": 0},
         "provider": {"type": "string"},
         "model": {"type": "string"},
-        "run_label": {"type": "string"}
+        "run_label": {"type": "string"},
+        "fence_enforcement": {"type": "string", "enum": ["hard", "soft", "unsupported", "none"]},
+        "fence_limit_usd": {"type": ["number", "null"], "minimum": 0},
+        "fence_limit_ai_credits": {"type": ["integer", "null"], "minimum": 0},
+        "fence_reason": {"type": "string"}
       }
     },
     "budget.reservation.denied": {
@@ -137,6 +141,11 @@
         "amount_usd": {"type": "number", "minimum": 0},
         "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "overrun_usd": {"type": ["number", "null"], "minimum": 0},
+        "fence_breached": {"type": "boolean"},
+        "fence_enforcement": {"type": "string", "enum": ["hard", "soft", "unsupported", "none"]},
+        "fence_limit_usd": {"type": ["number", "null"], "minimum": 0},
+        "fence_limit_ai_credits": {"type": ["integer", "null"], "minimum": 0},
+        "fence_reason": {"type": "string"},
         "pricing_status": {"type": "string"}
       }
     },

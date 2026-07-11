@@ -49,7 +49,12 @@ from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_e
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
 from ..core.event_catalog import EventType
-from ..core.metrics import metrics_snapshot, record_metric, render_prometheus
+from ..core.metrics import (
+    http_route_template,
+    metrics_snapshot,
+    record_metric,
+    render_prometheus,
+)
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, read_session_meta, write_session_meta
 from ..core.transcript import read_turns
@@ -1071,7 +1076,7 @@ def create_app(
                 "web.request",
                 labels={
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": http_route_template(request.scope, request.url.path),
                     "status": 500,
                 },
                 fields={"duration_ms": (time.monotonic() - started_at) * 1_000},
@@ -1082,7 +1087,7 @@ def create_app(
             "web.request",
             labels={
                 "method": request.method,
-                "path": request.url.path,
+                "path": http_route_template(request.scope, request.url.path),
                 "status": response.status_code,
             },
             fields={"duration_ms": (time.monotonic() - started_at) * 1_000},

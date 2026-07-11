@@ -39,27 +39,6 @@ from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
 from ...core.usage import UsageLedger, UsageRecord, project_usage_summary
 from ..memory import BacklogItem
-from ..project_lifecycle import (
-    LifecycleEvent,
-    ProjectState,
-    apply_event,
-    decide_next_state,
-    infer_observable_status,
-    is_token_allocatable,
-)
-from ..project_lifecycle_io import (
-    LifecycleIOError,
-    apply_persisted_to_status,
-)
-from ..project_lifecycle_io import (
-    append_event as _lifecycle_append_event,
-)
-from ..project_lifecycle_io import (
-    lifecycle_path as _lifecycle_path,
-)
-from ..project_lifecycle_io import (
-    load_persisted as _lifecycle_load_persisted,
-)
 from ._config import (
     LifeSupervisorConfig,
     _MemoryView,
@@ -69,7 +48,6 @@ from ._config import (
 from ._cost import _CostTrackingSink, copilot_usd_for_premium_requests
 from ._helpers import (
     _entry_task_signature,
-    _is_recent_no_progress_failure,
     _legacy_final_submission_marker,
     _normalize_planner_text,
     _operator_only_external_blocker_wait_reason_for_project,
@@ -77,11 +55,9 @@ from ._helpers import (
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
+from ._lifecycle import LifecycleMixin
+from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
-from ._subagent_family_failures import (
-    SubagentFamilyFailure,
-    recent_subagent_family_failures,
-)
 
 log = logging.getLogger(__name__)
 
@@ -105,8 +81,11 @@ _price_for = price_for
 
 
 _PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
+# Compatibility constants re-exported from ``life.supervisor``.
 _PLANNER_RECENT_HISTORY_WINDOW = 20
+# Compatibility export retained for callers/tests that classify journal failures.
 _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
+_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 _PLANNER_SCOPE_BOUNDED = "bounded"
 _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 
@@ -159,11 +138,6 @@ def _per_mission_distill_enabled() -> bool:
     return os.environ.get("ARGUS_SKILL_PER_MISSION_DISTILL", "").strip().lower() in (
         "1", "true", "yes", "on")
 
-# Re-emit an unchanged lifecycle-block status/event line at most this often
-# (a heartbeat) so a long-lived blocked state stays visible without spamming
-# the event timeline every tick.
-_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
-
 # Legacy heartbeat used by budget pauses and tests that exercise the old idle
 # gate. Planner waiting/idling is now represented by structured events.
 _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
@@ -201,7 +175,11 @@ _FULL_PAPER_GATE_DESCRIPTION = (
 # ----- thin protocol describing what we need from a MissionExecutor --------
 
 
-class LifeSupervisor(PlannerRenderingMixin):
+class LifeSupervisor(
+    LifecycleMixin,
+    PlannerOrchestrationMixin,
+    PlannerRenderingMixin,
+):
     """Cross-mission scheduler.
 
     Public API:
@@ -716,181 +694,6 @@ class LifeSupervisor(PlannerRenderingMixin):
             })
         return recovered
 
-    def _planner_cycle_gate_reason(self) -> str:
-        gate = self.config.planner_cycle_gate
-        if gate is None:
-            return ""
-        try:
-            reason = gate()
-        except Exception:  # noqa: BLE001
-            log.exception("planner cycle gate raised; continuing with planner")
-            return ""
-        return str(reason or "").strip()
-
-    def _planner_runtime_context(self) -> str:
-        provider = self.config.planner_runtime_context_provider
-        if provider is None:
-            return ""
-        try:
-            context = provider()
-        except Exception:  # noqa: BLE001
-            log.exception("planner runtime context provider raised; continuing")
-            return ""
-        return str(context or "").strip()
-
-    def _planner_project_context(self) -> str:
-        """Return cheap project-state context that keeps planner work grounded."""
-        return self._planner_runtime_context()
-
-    def _planner_runtime_with_idle_note(self) -> str:
-        """Project context for the planner, prefixed — when it has been idling on
-        the same blocker — with a domain-agnostic CURRENT-REALITY check so the
-        planner does not stay immersed in its own stale 'awaiting ...' memory.
-
-        Threshold 2 (below the verification-probe K) so the perception nudge
-        precedes the forced probe. Domain-agnostic: it tells the planner to
-        CONFIRM, never to ignore any specific blocker.
-        """
-        base = self._planner_project_context()
-        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
-        if n < 2:
-            return base
-        note = (
-            "CURRENT-REALITY CHECK (read before trusting the journal below): you "
-            f"have idled {n} consecutive cycle(s) concluding `waiting=true` on the "
-            "same blocker. Your journal may be STALE — the external dependency may "
-            "already have cleared. Before concluding `waiting` again, confirm the "
-            "blocker is still live against CURRENT state, not a past observation; a "
-            "verification-probe mission has been or will be dispatched to test it "
-            "first-hand."
-        )
-        return f"{note}\n\n{base}" if base else note
-
-    def _recent_no_progress_failures(self) -> dict[tuple[str, str], Any]:
-        """Return recent failed task signatures quarantined from replanning."""
-        try:
-            recent_entries = self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW)
-        except Exception:  # noqa: BLE001
-            log.exception("life supervisor: failed to read recent journal for planner")
-            return {}
-        matches: dict[tuple[str, str], Any] = {}
-        for entry in reversed(recent_entries):
-            if not _is_recent_no_progress_failure(entry):
-                continue
-            signature = _entry_task_signature(entry)
-            if signature is None or signature in matches:
-                continue
-            matches[signature] = entry
-        return matches
-
-    def _recent_subagent_family_failures(self) -> dict[str, SubagentFamilyFailure]:
-        """Return subagent-job families stuck in an unresolved failure streak.
-
-        Complements ``_recent_no_progress_failures``: that mechanism only sees
-        journal-level ``mission_failed``/``no_progress`` entries, which never
-        fires when the SUPERVISOR's own mission is graded a success (the
-        engineer really did resubmit/monitor/document real work) even though
-        the subagent job it launched keeps erroring underneath. Reading the
-        subagent registry directly catches that case. Fail-soft: a missing or
-        unreadable registry (or a test double config without these fields)
-        yields an empty dict and never blocks planning.
-        """
-        try:
-            streak_limit = int(
-                getattr(self.config, "subagent_family_failure_streak_limit", 3)
-            )
-        except (TypeError, ValueError):
-            streak_limit = 3
-        try:
-            window_hours = float(
-                getattr(self.config, "subagent_family_failure_window_hours", 72.0)
-            )
-        except (TypeError, ValueError):
-            window_hours = 72.0
-        if streak_limit <= 0:
-            return {}
-        try:
-            return recent_subagent_family_failures(
-                self._project_workdir(),
-                window_seconds=max(0.0, window_hours) * 3600.0,
-                min_streak=streak_limit,
-            )
-        except Exception:  # noqa: BLE001
-            log.exception("life supervisor: failed to read subagent registry for planner")
-            return {}
-
-    @staticmethod
-    def _task_mentions_family(task: Any, family: str) -> bool:
-        """True if ``family`` (an experiment-family slug like
-        ``swebench-verified-full-canary``) appears in the task's own text.
-
-        Family slugs are distinctive, multi-token, hyphen/underscore-joined
-        identifiers minted by the subagent tool from real run/benchmark names
-        — not generic words — so a case-insensitive substring match is a safe
-        heuristic here, in the same spirit as the existing (also text-based)
-        duplicate-task signature match just above this loop. Checks both the
-        hyphenated slug as written and its underscore variant, since planner
-        prose and benchmark_family identifiers mix both conventions (e.g.
-        ``swebench-verified-full-canary`` vs ``swebench_verified``).
-        """
-        if not family:
-            return False
-        haystack = " ".join((task.title, task.objective, task.evidence)).casefold()
-        needle = family.casefold()
-        if needle in haystack:
-            return True
-        return needle.replace("-", "_") in haystack.replace("-", "_")
-
-    @staticmethod
-    def _stuck_subagent_families_note(
-        family_failures: dict[str, SubagentFamilyFailure],
-    ) -> str:
-        """Advisory fact block telling the planner which experiment families
-        are currently stuck, BEFORE it proposes new tasks (not just a post-hoc
-        skip). Per the harness design philosophy this only states facts and a
-        constraint — it does not choose the planner's next move for it.
-        """
-        if not family_failures:
-            return ""
-        lines = [
-            "STUCK EXPERIMENT FAMILIES (facts, not a directive on what to do "
-            "instead): the following subagent job families have failed "
-            "repeatedly, back-to-back, with no successful completion in "
-            "between. A bare resubmission with an unchanged strategy will be "
-            "AUTOMATICALLY SKIPPED by the supervisor (it will not reach the "
-            "engineer) — propose either a materially different approach "
-            "(root-cause fix, reduced scope, alternate method) or an explicit "
-            "operator-escalation task instead.",
-        ]
-        for failure in sorted(family_failures.values(), key=lambda f: -f.streak):
-            reason = f" (last failure: {failure.last_reason})" if failure.last_reason else ""
-            lines.append(
-                f"  - {failure.family}: {failure.streak} consecutive "
-                f"{failure.last_state} attempt(s), most recently "
-                f"{failure.last_task_id!r}{reason}"
-            )
-        return "\n".join(lines)
-
-    def _handle_planner_restart(self, reason: str) -> bool:
-        handler = self.config.planner_restart_handler
-        if handler is None:
-            return False
-        try:
-            return bool(handler(reason))
-        except Exception:  # noqa: BLE001
-            log.exception("planner restart handler raised; continuing")
-            return False
-
-    def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
-        hook = self.config.post_mission_hook
-        if hook is None:
-            return ""
-        try:
-            return str(hook(outcome) or "").strip()
-        except Exception:  # noqa: BLE001
-            log.exception("post mission hook raised; continuing")
-            return ""
-
     def tick(self) -> dict[str, Any] | None:
         """Process at most one backlog item. Returns its result dict or
         ``None`` if nothing was eligible to run."""
@@ -1016,278 +819,6 @@ class LifeSupervisor(PlannerRenderingMixin):
         })
         self._emit_status(reason)
         return {"status": "skipped", "item_id": item.id, "reason": reason}
-
-    # ------------------------------------------------------------------
-    # F5 project-lifecycle gate
-    # ------------------------------------------------------------------
-
-    def _lifecycle_root(self) -> Path:
-        """Directory holding this project's ``lifecycle.json`` sidecar.
-
-        Prefer the per-project telemetry/life dir so lifecycle state is
-        isolated per project. Fall back to the global memory root when no
-        telemetry dir is configured (non-daemon ``life run`` / tests), which
-        preserves the historical single-file behavior.
-        """
-        tdir = getattr(self.config, "telemetry_dir", None)
-        if tdir is not None:
-            return Path(tdir)
-        return Path(getattr(self.memory, "root", None) or ".")
-
-    def _migrate_global_lifecycle_if_needed(self, per_root: Path) -> None:
-        """One-time carry-over of the legacy GLOBAL lifecycle sidecar.
-
-        Historically lifecycle.json lived under the global memory root and was
-        (incorrectly) shared across projects. When a per-project dir is now in
-        use and has no sidecar yet, copy the legacy global file in once, then
-        retire the global file (rename to ``*.migrated``) so future projects
-        start clean instead of inheriting a mis-keyed shared state. Best-effort
-        and idempotent; only runs in the per-project (telemetry_dir) regime.
-        """
-        if getattr(self.config, "telemetry_dir", None) is None:
-            return
-        if getattr(self, "_lifecycle_migrated", False):
-            return
-        self._lifecycle_migrated = True
-        try:
-            per_file = _lifecycle_path(per_root)
-            if per_file.exists():
-                return
-            global_root = Path(getattr(self.memory, "root", None) or ".")
-            if global_root == per_root:
-                return
-            global_file = _lifecycle_path(global_root)
-            if not global_file.exists():
-                return
-            per_root.mkdir(parents=True, exist_ok=True)
-            data = global_file.read_text(encoding="utf-8")
-            tmp = per_file.with_name(per_file.name + ".tmp")
-            tmp.write_text(data, encoding="utf-8")
-            os.replace(tmp, per_file)
-            try:
-                global_file.replace(
-                    global_file.with_name(global_file.name + ".migrated")
-                )
-            except OSError:
-                log.warning(
-                    "lifecycle: copied global sidecar to %s but could not "
-                    "retire %s; future projects may inherit it",
-                    per_file, global_file,
-                )
-            log.info(
-                "lifecycle: migrated legacy global sidecar into per-project "
-                "dir %s", per_file,
-            )
-        except Exception:  # noqa: BLE001
-            log.exception(
-                "lifecycle migration failed; continuing with fresh "
-                "per-project state"
-            )
-
-    def _maybe_block_on_lifecycle(
-        self, item: BacklogItem
-    ) -> dict[str, Any] | None:
-        """Run one F5 tick and decide whether to short-circuit dispatch.
-
-        Returns ``None`` when the project is allocatable (supervisor
-        proceeds to ``_run_one``). Returns a status dict when blocked —
-        the daemon treats this like a budget pause.
-
-        Fail-soft: any exception in the lifecycle path is logged and
-        treated as "allocatable" so a corrupt sidecar can never wedge
-        the supervisor.
-        """
-        try:
-            memory_root = self._lifecycle_root()
-            self._migrate_global_lifecycle_if_needed(memory_root)
-            project_root = self._project_workdir()
-            spent_usd, budget_usd = self._lifecycle_budget_snapshot()
-
-            status = infer_observable_status(
-                project_root,
-                project_id=memory_root.name,
-                budget_usd=budget_usd,
-                spent_usd=spent_usd,
-            )
-            try:
-                persisted = _lifecycle_load_persisted(memory_root)
-            except LifecycleIOError as exc:
-                log.warning(
-                    "lifecycle sidecar at %s is malformed (%s); "
-                    "treating project as fresh",
-                    memory_root, exc,
-                )
-                persisted = {}
-            status = apply_persisted_to_status(status, persisted)
-
-            # EMNLP completion authority is the L2 reviewer's
-            # ``final_submission`` certification — NOT the mere presence
-            # of ``paper/main.pdf`` (which the agent compiles for format
-            # preflight long before the draft is submission-ready). The
-            # generic F5 rule ``submission_artifact_present -> DONE`` is
-            # therefore premature for an uncertified full-EMNLP mission,
-            # and DONE is terminal + non-allocatable, so it permanently
-            # starves the project of tokens. Defer to the reviewer:
-            #
-            #   (a) repair an already-persisted bad DONE back to WRITING
-            #       once (preserving history via append_event), and
-            #   (b) suppress a fresh ``submission_artifact_present`` DONE
-            #       transition *before* it is applied/persisted
-            #       so we don't re-fire + spam the event timeline every tick.
-            #
-            # When the reviewer truly certifies, supervisor.run() auto-
-            # stops via ``_journal_has_full_paper_gate_success`` instead.
-            artifact_root = (
-                self._artifact_root() if hasattr(self, "_artifact_root") else memory_root
-            )
-            uncertified_full_paper = (
-                self._effective_full_paper_gate(artifact_root)
-                and not self._journal_has_full_paper_gate_success()
-            )
-            if (
-                uncertified_full_paper
-                and status.state == ProjectState.DONE
-                and persisted.get("state") == ProjectState.DONE.value
-            ):
-                from datetime import datetime, timezone
-
-                repair_event = LifecycleEvent(
-                    at=datetime.now(timezone.utc),
-                    from_state=ProjectState.DONE,
-                    to_state=ProjectState.WRITING,
-                    reason="full_paper_gate_not_certified",
-                )
-                status = apply_event(status, repair_event)
-                try:
-                    _lifecycle_append_event(
-                        memory_root,
-                        new_status=status,
-                        event=repair_event,
-                    )
-                except OSError as exc:
-                    log.warning(
-                        "could not repair premature-DONE lifecycle "
-                        "sidecar at %s: %s",
-                        memory_root, exc,
-                    )
-                self._emit({
-                    "type": EventType.LIFE_LIFECYCLE_TRANSITION,
-                    "from_state": ProjectState.DONE.value,
-                    "to_state": ProjectState.WRITING.value,
-                    "reason": "full_paper_gate_not_certified",
-                    "agent_layer": "supervisor",
-                })
-
-            event = decide_next_state(status)
-            if (
-                uncertified_full_paper
-                and event is not None
-                and event.to_state == ProjectState.DONE
-                and event.reason == "submission_artifact_present"
-            ):
-                # Suppress non-persistently: drop the event entirely so it
-                # is never applied or persisted. The project
-                # stays WRITING (allocatable) until the reviewer certifies.
-                event = None
-            if event is not None:
-                status = apply_event(status, event)
-                try:
-                    _lifecycle_append_event(
-                        memory_root,
-                        new_status=status,
-                        event=event,
-                    )
-                except OSError as exc:
-                    log.warning(
-                        "could not persist lifecycle transition to %s: %s",
-                        memory_root, exc,
-                    )
-                self._emit({
-                    "type": EventType.LIFE_LIFECYCLE_TRANSITION,
-                    "from_state": event.from_state.value,
-                    "to_state": event.to_state.value,
-                    "reason": event.reason,
-                    "agent_layer": "supervisor",
-                })
-
-            # Advisory time signals (incubating_time / running_evidence_gap
-            # / writing_idle) are PULLED on demand by --status / cockpit /
-            # telegram digest, not PUSHED into the event timeline every tick.
-            # See ``advisory_time_signals`` in project_lifecycle.py. The
-            # harness must not spam the timeline with non-event facts.
-
-            if not is_token_allocatable(status):
-                # Log hygiene: the held-item status/event line is identical
-                # every tick a project sits in the same non-allocatable state.
-                # Emit only when the (state, item) signature changes
-                # or a heartbeat interval elapses — otherwise a long block used
-                # to flood events.jsonl with tens of thousands
-                # of identical lines. Dispatch behavior is unchanged: we always
-                # return the block dict.
-                state_value = status.state.value
-                sig = (state_value, item.id)
-                now = time.monotonic()
-                reason = (
-                    f"project lifecycle is {state_value}; "
-                    f"resume with --lifecycle-resume or archive with "
-                    f"--lifecycle-archive"
-                )
-                last_sig = getattr(self, "_last_lifecycle_block_sig", None)
-                last_at = getattr(self, "_last_lifecycle_block_at", 0.0)
-                should_emit = (
-                    sig != last_sig
-                    or (now - last_at) >= _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS
-                )
-                if should_emit:
-                    self._last_lifecycle_block_sig = sig
-                    self._last_lifecycle_block_at = now
-                    self._emit_status(
-                        f"lifecycle gate: project state={state_value}; "
-                        f"backlog item {item.id!r} held"
-                    )
-                    self._emit({
-                        "type": EventType.LIFE_LIFECYCLE_BLOCK,
-                        "item_id": item.id,
-                        "title": item.title,
-                        "lifecycle_state": state_value,
-                        "reason": reason,
-                        "agent_layer": "supervisor",
-                    })
-                return {
-                    "status": "lifecycle_block",
-                    "item_id": item.id,
-                    "lifecycle_state": state_value,
-                    "reason": reason,
-                }
-        except Exception:  # noqa: BLE001
-            log.exception("lifecycle gate failed; allowing dispatch")
-        return None
-
-    def _lifecycle_budget_snapshot(self) -> tuple[float, float]:
-        """Best-effort (spent_usd, total_budget_usd) for F5 budget gate.
-
-        LifeBudget tracks per-mission and daily caps; we approximate the
-        project's total budget as ``daily_cap * 30`` (a month of running)
-        and spent as the call-ledger cumulative cost. If either is
-        unavailable, returns ``(0.0, 0.0)`` and the F5 budget gate stays
-        dormant for that tick.
-        """
-        try:
-            budget = getattr(self.config, "budget", None)
-            if budget is None:
-                return (0.0, 0.0)
-            daily = float(getattr(budget, "daily_cap_usd", 0.0) or 0.0)
-            total = daily * 30.0
-            spent = project_usage_summary(
-                Path(
-                    getattr(self.memory, "project_root", None)
-                    or getattr(self.memory, "root", None)
-                    or self._artifact_root()
-                )
-            ).known_cost_usd
-            return (spent, total)
-        except Exception:  # noqa: BLE001
-            return (0.0, 0.0)
 
     # ------------------------------------------------------------------
     # One mission

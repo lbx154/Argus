@@ -20,6 +20,7 @@ from typing import Any, Iterator
 
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
+from .provider_fencing import ProviderSpendFence, provider_spend_fence
 from .usage import UsageLedger, UsageRecord
 
 try:  # pragma: no cover - production daemons are POSIX
@@ -268,6 +269,7 @@ class CallBudgetReservation:
     provider: str = ""
     model: str = ""
     run_label: str = ""
+    provider_fence: ProviderSpendFence = ProviderSpendFence(enforcement="none")
     _closed: bool = False
 
     def release(self, *, reason: str = "not_started") -> bool:
@@ -439,6 +441,7 @@ def reserve_call_budget(
             if available:
                 ceiling = min(ceiling, *(amount for _name, amount in available))
             amount = 0.0 if ceiling == float("inf") else max(0.0, ceiling)
+            fence = provider_spend_fence(provider, amount)
             reservation_id = uuid.uuid4().hex
             row = {
                 "id": reservation_id,
@@ -451,6 +454,7 @@ def reserve_call_budget(
                 "model": str(model or ""),
                 "run_label": str(run_label or ""),
                 "amount_usd": amount,
+                **fence.event_fields(),
                 "created_at": timestamp,
             }
             reservations.append(row)
@@ -482,6 +486,7 @@ def reserve_call_budget(
         model=model,
         run_label=run_label,
         amount_usd=amount,
+        **fence.event_fields(),
     )
     return (
         CallBudgetReservation(
@@ -494,6 +499,7 @@ def reserve_call_budget(
             provider=str(provider or ""),
             model=str(model or ""),
             run_label=str(run_label or ""),
+            provider_fence=fence,
         ),
         "",
     )
@@ -585,6 +591,7 @@ def _close_reservation(
             reservation_id=reservation.reservation_id,
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
+            **reservation.provider_fence.event_fields(),
             reason=release_reason,
         )
     else:
@@ -595,6 +602,7 @@ def _close_reservation(
             reservation_id=reservation.reservation_id,
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
+            **reservation.provider_fence.event_fields(),
             cost_usd=actual,
             overrun_usd=(
                 max(0.0, actual - reservation.amount_usd)

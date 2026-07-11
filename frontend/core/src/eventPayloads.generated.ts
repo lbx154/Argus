@@ -107,6 +107,10 @@ export interface BudgetReservationCreatedEvent extends EventMsg {
   "provider"?: string;
   "model"?: string;
   "run_label"?: string;
+  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
+  "fence_limit_usd"?: number | null;
+  "fence_limit_ai_credits"?: number | null;
+  "fence_reason"?: string;
 }
 
 export interface BudgetReservationDeniedEvent extends EventMsg {
@@ -127,6 +131,11 @@ export interface BudgetReservationSettledEvent extends EventMsg {
   "amount_usd"?: number;
   "cost_usd"?: number | null;
   "overrun_usd"?: number | null;
+  "fence_breached"?: boolean;
+  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
+  "fence_limit_usd"?: number | null;
+  "fence_limit_ai_credits"?: number | null;
+  "fence_reason"?: string;
   "pricing_status": string;
 }
 
