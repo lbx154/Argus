@@ -16,6 +16,7 @@ from typing import Any
 from ..apps.cli._follow import _read_recent_project_events
 from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role_activity
 from ..core import paths as core_paths
+from ..core.cost_control import cost_control_snapshot
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.transcript import first_operator_text
@@ -334,6 +335,12 @@ def build_snapshot(
         request_usage = None
         diagnostics.append(diagnostic("request_usage", exc))
 
+    try:
+        cost_control = cost_control_snapshot(global_root=root)
+    except Exception as exc:  # noqa: BLE001
+        cost_control = None
+        diagnostics.append(diagnostic("cost_control", exc))
+
     snapshot: dict[str, Any] = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "session": session,
@@ -345,6 +352,7 @@ def build_snapshot(
         "spend_status": spend.pricing_status,
         "usage_summary": spend.to_jsonable(),
         "request_usage": request_usage,
+        "cost_control": cost_control,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:

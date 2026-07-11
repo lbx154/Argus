@@ -101,6 +101,8 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "USD cap per mission", "budget", cockpit=True),
     Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "USD cap per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-wide USD cap across all projects per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
+    Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
@@ -153,6 +155,7 @@ _EFFORT_KNOBS = frozenset(
 )
 _TOGGLE_KNOBS = frozenset(
     {
+        "ARGUS_SKILL_COST_CONTROL",
         "ARGUS_SKILL_SAFE_MODE",
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",
@@ -246,6 +249,11 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("config value cannot be empty")
+    if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
+        policy = raw.lower()
+        if policy not in {"block", "allow"}:
+            raise ValueError(f"{name} must be block or allow")
+        return policy
     if name in BUDGET_KNOB_DEFAULTS:
         number = _parse_budget_value(name, raw.removeprefix("$"))
         return f"{number:g}"

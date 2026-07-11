@@ -1079,6 +1079,7 @@ export function App({
         usageSummary={snap?.usage_summary}
         daemon={snap?.daemon}
         requestUsage={snap?.request_usage}
+        costControl={snap?.cost_control}
         width={terminal.columns}
       />
       {replacement ? (

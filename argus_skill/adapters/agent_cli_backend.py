@@ -399,6 +399,10 @@ class AgentCliBackend:
         call_id = uuid.uuid4().hex
         started_at = time.time()
         log_path = self._agent_io_log_path(options)
+        usage_project_root, usage_mission_id = self._usage_context_snapshot()
+        if usage_project_root is None and log_path is not None:
+            usage_project_root = log_path.parent
+        cost_reservation = None
         self._io_context.current = {
             "call_id": call_id,
             "run_label": run_label,
@@ -416,6 +420,7 @@ class AgentCliBackend:
             error: str = "",
         ) -> RunnerResult:
             completed_at = time.time()
+            usage_record = None
             result.call_id = call_id
             result.thread_id = result.thread_id or resume_thread_id
             result.started_at = started_at
@@ -448,10 +453,7 @@ class AgentCliBackend:
                     else None
                 )
             )
-            project_root, mission_id = self._usage_context_snapshot()
-            if project_root is None and log_path is not None:
-                project_root = log_path.parent
-            if project_root is not None:
+            if usage_project_root is not None:
                 try:
                     from ..core.usage import (
                         UsageLedger,
@@ -461,8 +463,8 @@ class AgentCliBackend:
 
                     record = build_usage_record(
                         call_id=call_id,
-                        project_root=project_root,
-                        mission_id=mission_id,
+                        project_root=usage_project_root,
+                        mission_id=usage_mission_id,
                         provider=self._backend_name,
                         model=result.usage_model or str(options.model or ""),
                         run_label=run_label,
@@ -481,17 +483,116 @@ class AgentCliBackend:
                         error=error or str(result.fatal_error or ""),
                     )
                     appended = UsageLedger(
-                        project_root,
+                        usage_project_root,
                         migrate_legacy=False,
                     ).append(record)
+                    usage_record = record
                     result.pricing_status = record.pricing_status
                     result.cost_usd = record.cost_usd
                     if appended:
                         self._log_agent_io(log_path, usage_recorded_event(record))
                 except Exception:  # noqa: BLE001 — accounting must not break work
                     log.exception("failed to persist usage record for %s", call_id)
+            if cost_reservation is not None:
+                try:
+                    if status == "denied":
+                        cost_reservation.release(
+                            reason=error or str(result.fatal_error or "not_started")
+                        )
+                        self._log_agent_io(log_path, {
+                            "type": EventType.BUDGET_RESERVATION_RELEASED,
+                            "reservation_id": cost_reservation.reservation_id,
+                            "call_id": call_id,
+                            "amount_usd": cost_reservation.amount_usd,
+                            "reason": error or str(result.fatal_error or "not_started"),
+                        })
+                    elif usage_record is not None:
+                        cost_reservation.settle(usage_record)
+                        self._log_agent_io(log_path, {
+                            "type": EventType.BUDGET_RESERVATION_SETTLED,
+                            "reservation_id": cost_reservation.reservation_id,
+                            "call_id": call_id,
+                            "amount_usd": cost_reservation.amount_usd,
+                            "cost_usd": usage_record.cost_usd,
+                            "pricing_status": usage_record.pricing_status,
+                        })
+                    else:
+                        reason = error or str(
+                            result.fatal_error or "usage record was not persisted"
+                        )
+                        cost_reservation.settle_unknown(reason=reason)
+                        self._log_agent_io(log_path, {
+                            "type": EventType.BUDGET_RESERVATION_SETTLED,
+                            "reservation_id": cost_reservation.reservation_id,
+                            "call_id": call_id,
+                            "amount_usd": cost_reservation.amount_usd,
+                            "cost_usd": None,
+                            "pricing_status": "unknown",
+                            "error": reason,
+                        })
+                except Exception:  # noqa: BLE001 — metering must not break work
+                    log.exception("failed to settle cost reservation for %s", call_id)
             self._io_context.current = None
             return result
+
+        try:
+            from ..core.cost_control import cost_control_enabled, reserve_call_budget
+
+            if cost_control_enabled():
+                cost_reservation, reserve_reason = reserve_call_budget(
+                    call_id=call_id,
+                    project_root=usage_project_root,
+                    mission_id=usage_mission_id,
+                    provider=self._backend_name,
+                    model=str(options.model or ""),
+                    run_label=run_label,
+                )
+                if cost_reservation is None:
+                    self._log_agent_io(log_path, {
+                        "type": EventType.BUDGET_RESERVATION_DENIED,
+                        "call_id": call_id,
+                        "provider": self._backend_name,
+                        "model": str(options.model or ""),
+                        "run_label": run_label,
+                        "reason": reserve_reason,
+                    })
+                    return _finalize_result(
+                        RunnerResult(
+                            exit_code=-1,
+                            thread_id=resume_thread_id,
+                            fatal_error=f"refused before start: {reserve_reason}",
+                        ),
+                        status="denied",
+                        error=reserve_reason,
+                    )
+                self._log_agent_io(log_path, {
+                    "type": EventType.BUDGET_RESERVATION_CREATED,
+                    "reservation_id": cost_reservation.reservation_id,
+                    "call_id": call_id,
+                    "provider": self._backend_name,
+                    "model": str(options.model or ""),
+                    "run_label": run_label,
+                    "amount_usd": cost_reservation.amount_usd,
+                })
+        except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
+            reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
+            self._log_agent_io(log_path, {
+                "type": EventType.BUDGET_RESERVATION_DENIED,
+                "call_id": call_id,
+                "provider": self._backend_name,
+                "model": str(options.model or ""),
+                "run_label": run_label,
+                "reason": reason,
+            })
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                ),
+                status="denied",
+                error=reason,
+            )
 
         copilot_permit = None
         codex_permit = None

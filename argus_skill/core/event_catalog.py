@@ -35,6 +35,11 @@ class EventType(StrEnum):
     PROVIDER_REQUEST_DENIED = "provider.request.denied"
     CODEX_UTIL_COMPLETED = "codex.util.completed"
     SKILL_COST_COMPLETED = "skill.cost.completed"
+    BUDGET_RESERVATION_CREATED = "budget.reservation.created"
+    BUDGET_RESERVATION_DENIED = "budget.reservation.denied"
+    BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
+    BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
+    BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
     LOOP_START = "loop.start"
     LOOP_DONE = "loop.done"
     ROUND_START = "round.start"
@@ -119,6 +124,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
     EventType.LIFE_PLANNER_STALL_ESCALATION,
     EventType.LIFE_BUDGET_PAUSE,
+    EventType.BUDGET_RESERVATION_DENIED,
+    EventType.BUDGET_UNPRICED_BLOCKED,
     EventType.LIFE_LIFECYCLE_BLOCK,
     EventType.LIFE_LIFECYCLE_TRANSITION,
     EventType.PROVIDER_REQUEST_STARTED,
@@ -152,6 +159,19 @@ _REQUIRED_FIELDS: dict[EventType, tuple[str, ...]] = {
     EventType.PROVIDER_REQUEST_STARTED: ("provider", "run_label"),
     EventType.PROVIDER_REQUEST_COMPLETED: ("provider", "run_label"),
     EventType.PROVIDER_REQUEST_DENIED: ("provider", "run_label"),
+    EventType.BUDGET_RESERVATION_CREATED: (
+        "reservation_id",
+        "call_id",
+        "amount_usd",
+    ),
+    EventType.BUDGET_RESERVATION_DENIED: ("call_id", "reason"),
+    EventType.BUDGET_RESERVATION_SETTLED: (
+        "reservation_id",
+        "call_id",
+        "pricing_status",
+    ),
+    EventType.BUDGET_RESERVATION_RELEASED: ("reservation_id", "call_id"),
+    EventType.BUDGET_UNPRICED_BLOCKED: ("call_id", "reason"),
 }
 
 

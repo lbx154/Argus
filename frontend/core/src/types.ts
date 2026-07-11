@@ -94,6 +94,15 @@ export interface RequestUsage {
   copilot: ProviderRequestUsage;
 }
 
+export interface CostControlSnapshot {
+  day: string;
+  active_reservations: number;
+  reserved_usd: number;
+  unresolved_calls: number;
+  unresolved: Array<Record<string, unknown>>;
+  policy: 'block' | 'allow';
+}
+
 export interface DaemonAdmission {
   admission_required: boolean;
   requested_at: number;
@@ -141,6 +150,7 @@ export interface Snapshot {
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   usage_summary?: UsageSummary;
   request_usage?: RequestUsage | null;
+  cost_control?: CostControlSnapshot | null;
   daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;

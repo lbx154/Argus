@@ -21,6 +21,7 @@ import {
 export type {
   ArtifactInfo,
   BacklogItem,
+  CostControlSnapshot,
   Daemon,
   DaemonAdmission,
   EventMsg,

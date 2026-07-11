@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
 import { authoritativeSpend, fraction, type Spend } from '../cost.js';
-import type { Daemon, RequestUsage, UsageSummary } from '../api.js';
+import type { CostControlSnapshot, Daemon, RequestUsage, UsageSummary } from '../api.js';
 
 /** Live budget gauge backed by the call-level usage ledger. */
 export function CostGauge({
@@ -12,6 +12,7 @@ export function CostGauge({
   usageSummary,
   daemon,
   requestUsage,
+  costControl,
   width,
 }: {
   spend: Spend;
@@ -20,13 +21,21 @@ export function CostGauge({
   usageSummary?: UsageSummary;
   daemon: Daemon | undefined;
   requestUsage?: RequestUsage | null;
+  costControl?: CostControlSnapshot | null;
   width: number;
 }) {
   const dailyCap = daemon?.daily_cap_usd ?? null;
   const missionCap = daemon?.per_mission_cap_usd ?? null;
   const total = authoritativeSpend(spend, settledUsd);
   const incomplete = spendStatus === 'partial' || spendStatus === 'unpriced';
-  if (total <= 0 && !incomplete && !dailyCap && !requestUsage) return null;
+  if (
+    total <= 0
+    && !incomplete
+    && !dailyCap
+    && !requestUsage
+    && !costControl?.reserved_usd
+    && !costControl?.unresolved_calls
+  ) return null;
   const frac = fraction(spend.last, missionCap);
   const color = frac < 0.6 ? theme.success : frac < 0.85 ? theme.warning : theme.error;
   const codex = requestUsage?.codex;
@@ -55,6 +64,11 @@ export function CostGauge({
           {width < 80
             ? `requests · C ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · P ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`
             : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
+        </Text>
+      ) : null}
+      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
+        <Text color={costControl.unresolved_calls > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0}>
+          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (

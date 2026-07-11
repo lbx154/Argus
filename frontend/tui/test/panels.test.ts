@@ -194,6 +194,30 @@ test('request quotas render alongside monetary spend', async () => {
   assert.match(output, /premium 2\.5\/20/);
 });
 
+test('cost control exposes in-flight reservations and unresolved pricing', async () => {
+  const output = await renderNode(
+    React.createElement(CostGauge, {
+      spend: { total: 0.2, missions: 1, last: 0.2 },
+      settledUsd: 0.2,
+      spendStatus: 'partial',
+      daemon: undefined,
+      width: 120,
+      costControl: {
+        day: '2026-07-11',
+        active_reservations: 2,
+        reserved_usd: 4.5,
+        unresolved_calls: 1,
+        unresolved: [],
+        policy: 'block',
+      },
+    }),
+    120,
+  );
+  assert.match(output, /reserved \$4\.50/);
+  assert.match(output, /in-flight 2/);
+  assert.match(output, /unresolved 1/);
+});
+
 test('partial usage never renders as a zero-dollar cumulative cost', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {

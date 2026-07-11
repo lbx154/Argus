@@ -293,6 +293,112 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
     assert global_daily_spend(global_root=root) == pytest.approx(result.cost_usd)
 
 
+def test_run_exec_atomically_reserves_and_settles_call_cost(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "1")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "2")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda self, **kwargs: _make_argus_result(
+            json_events=[{
+                "type": "token_count",
+                "input_tokens": 1_000,
+                "output_tokens": 100,
+            }],
+            thread_id="cost-thread",
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="priced call",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="engineer-r1",
+    )
+
+    assert result.cost_usd == pytest.approx(0.008)
+    state = json.loads((root / "cost-control.json").read_text())
+    assert state["reservations"] == []
+    assert state["unresolved"] == []
+    rows = [
+        json.loads(line)
+        for line in (project / "events.jsonl").read_text().splitlines()
+    ]
+    assert [row["type"] for row in rows] == [
+        "budget.reservation.created",
+        "agent.io.start",
+        "agent.io.complete",
+        "usage.recorded",
+        "budget.reservation.settled",
+    ]
+    assert rows[0]["amount_usd"] == pytest.approx(1.0)
+    assert rows[-1]["cost_usd"] == pytest.approx(0.008)
+
+
+def test_unpriced_call_blocks_next_provider_spawn(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+    calls = []
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        calls.append(kwargs["run_label"])
+        return _make_argus_result(
+            json_events=[{
+                "type": "token_count",
+                "input_tokens": 100,
+                "output_tokens": 20,
+            }],
+            thread_id="unknown-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+
+    first = backend.run_exec(
+        prompt="unknown price",
+        options=RunnerOptions(model="future-model"),
+        run_label="engineer-r1",
+    )
+    second = backend.run_exec(
+        prompt="must not spawn",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="reviewer",
+    )
+
+    assert first.pricing_status == "unpriced"
+    assert first.cost_usd is None
+    assert calls == ["engineer-r1"]
+    assert "unresolved provider cost blocks new calls" in str(second.fatal_error)
+    assert second.pricing_status == "not_billed"
+    state = json.loads((root / "cost-control.json").read_text())
+    assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
+
+
 def test_run_exec_writes_full_agent_io_log(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

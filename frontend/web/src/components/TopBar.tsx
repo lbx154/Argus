@@ -121,6 +121,7 @@ export function TopBar({
           daemon={d}
           backendLabel={backend}
           requestUsage={snap.request_usage}
+          costControl={snap.cost_control}
         />
       </div>
 

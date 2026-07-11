@@ -1,6 +1,6 @@
 import { fraction, type Spend } from '../lib/cost';
 import { money } from '../lib/format';
-import type { Daemon, RequestUsage } from '../api';
+import type { CostControlSnapshot, Daemon, RequestUsage } from '../api';
 
 /**
  * Spend gauge backed by the call-level usage ledger. The event stream contributes
@@ -13,6 +13,7 @@ export function CostGauge({
   daemon,
   backendLabel,
   requestUsage,
+  costControl,
 }: {
   spend: Spend;
   settledUsd: number | null | undefined;
@@ -20,6 +21,7 @@ export function CostGauge({
   daemon: Daemon | undefined;
   backendLabel?: string;
   requestUsage?: RequestUsage | null;
+  costControl?: CostControlSnapshot | null;
 }) {
   const cap = daemon?.per_mission_cap_usd ?? null;
   const daily = daemon?.daily_cap_usd ?? null;
@@ -57,6 +59,11 @@ export function CostGauge({
           <span className="text-[10px] tabular-nums text-ink-faint">
             C {requestUsage.codex.daily_calls}/{requestUsage.codex.daily_cap || '∞'}
             {' · '}P {requestUsage.copilot.daily_calls}/{requestUsage.copilot.daily_cap || '∞'}
+          </span>
+        ) : null}
+        {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
+          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 ? 'text-err' : 'text-ink-faint'}`}>
+            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls}
           </span>
         ) : null}
       </div>

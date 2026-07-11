@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
-  protocol: { name: 'argus.webapi', major: 1, minor: 1 },
-  snapshot_schema_version: 1,
+  protocol: { name: 'argus.webapi', major: 1, minor: 2 },
+  snapshot_schema_version: 2,
   capabilities: [
     'daemon.admission.v1',
     'daemon.status.protocol.v1',
+    'cost.reservation.v1',
     'event.catalog.v1',
     'manager.sse.v1',
     'snapshot.budget.v1',
