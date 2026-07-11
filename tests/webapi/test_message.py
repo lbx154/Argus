@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi import server
+from argus_skill.webapi import project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -289,6 +289,7 @@ def test_create_daemon_at_cap_returns_replacement_candidates(
         )
 
     monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(project_state, "read_daemon_status", fake_status)
     monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
     client = TestClient(server.create_app(global_root=tmp_path))

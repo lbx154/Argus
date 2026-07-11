@@ -19,7 +19,7 @@ export function CostGauge({
   spendStatus?: string;
   usageSummary?: UsageSummary;
   daemon: Daemon | undefined;
-  requestUsage?: RequestUsage;
+  requestUsage?: RequestUsage | null;
   width: number;
 }) {
   const dailyCap = daemon?.daily_cap_usd ?? null;

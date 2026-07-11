@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi import server
+from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
     API_PROTOCOL_MAJOR,
@@ -122,7 +122,7 @@ def test_build_snapshot_marks_failsoft_sections_partial(
     def broken_status(_life_dir: Path):
         raise RuntimeError("status sidecar is unreadable")
 
-    monkeypatch.setattr(server, "read_daemon_status", broken_status)
+    monkeypatch.setattr(project_state, "read_daemon_status", broken_status)
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
     assert snap["partial"] is True
@@ -142,7 +142,7 @@ def test_build_snapshot_marks_running_legacy_daemon_incompatible(
 ) -> None:
     life = _make_project(tmp_path)
     monkeypatch.setattr(
-        server,
+        project_state,
         "read_daemon_status",
         lambda _life_dir: server.DaemonStatus(
             alive=True,
@@ -160,6 +160,77 @@ def test_build_snapshot_marks_running_legacy_daemon_incompatible(
     assert snap["daemon"]["protocol_compatible"] is False
     assert "no protocol metadata" in snap["daemon"]["protocol_error"]
     assert snap["diagnostics"][0]["section"] == "daemon_protocol"
+
+
+def test_snapshot_auxiliary_failures_keep_schema_and_report_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path)
+
+    def broken(name: str):
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError(f"{name} unavailable")
+
+        return _raise
+
+    monkeypatch.setattr(
+        project_state,
+        "project_usage_summary",
+        broken("usage"),
+    )
+    monkeypatch.setattr(
+        project_state,
+        "read_session_meta",
+        broken("session"),
+    )
+    monkeypatch.setattr(
+        project_state,
+        "provider_usage_snapshot",
+        broken("request usage"),
+    )
+
+    snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
+
+    assert snap is not None
+    assert snap["partial"] is True
+    assert snap["session"]["id"] == "s-testaaaa"
+    assert snap["spend_usd"] is None
+    assert snap["usage_summary"]["call_count"] == 0
+    assert snap["request_usage"] is None
+    assert {item["section"] for item in snap["diagnostics"]} >= {
+        "usage",
+        "session",
+        "request_usage",
+    }
+    repeated = server.build_snapshot("s-testaaaa", global_root=tmp_path)
+    assert repeated is not None
+    assert "usage" in {item["section"] for item in repeated["diagnostics"]}
+
+
+def test_server_reexports_project_state_read_api() -> None:
+    assert server.build_snapshot is project_state.build_snapshot
+    assert server.list_projects is project_state.list_projects
+    assert server.project_life_dir is project_state.project_life_dir
+
+
+def test_malformed_daemon_admission_is_visible_in_snapshot_diagnostics(
+    tmp_path: Path,
+) -> None:
+    life = _make_project(tmp_path)
+    (life / project_state.DAEMON_ADMISSION_FILE).write_text(
+        "{broken",
+        encoding="utf-8",
+    )
+
+    snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
+
+    assert snap is not None
+    assert snap["partial"] is True
+    assert snap.get("daemon_admission") is None
+    assert "daemon_admission" in {
+        item["section"] for item in snap["diagnostics"]
+    }
 
 
 def test_daemon_backend_follows_engineer_role_not_stale_status(tmp_path: Path, monkeypatch) -> None:

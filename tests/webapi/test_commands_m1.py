@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import server
+from argus_skill.webapi import project_state, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -110,6 +110,7 @@ def test_start_project_daemon_returns_replacement_candidates_at_cap(
         )
 
     monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(project_state, "read_daemon_status", fake_status)
     monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
     monkeypatch.setattr(
@@ -166,6 +167,7 @@ def test_replace_project_daemon_parks_state_then_starts_target(
         return 0
 
     monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(project_state, "read_daemon_status", fake_status)
     monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: len(running))
     monkeypatch.setattr(server, "stop_daemon", fake_stop)

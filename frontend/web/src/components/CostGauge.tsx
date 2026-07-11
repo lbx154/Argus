@@ -19,7 +19,7 @@ export function CostGauge({
   spendStatus?: string;
   daemon: Daemon | undefined;
   backendLabel?: string;
-  requestUsage?: RequestUsage;
+  requestUsage?: RequestUsage | null;
 }) {
   const cap = daemon?.per_mission_cap_usd ?? null;
   const daily = daemon?.daily_cap_usd ?? null;

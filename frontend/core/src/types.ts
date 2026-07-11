@@ -133,7 +133,7 @@ export interface Snapshot {
   spend_usd?: number | null;
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   usage_summary?: UsageSummary;
-  request_usage?: RequestUsage;
+  request_usage?: RequestUsage | null;
   daemon_admission?: DaemonAdmission;
   /** Present on compact UI snapshots. */
   continuous?: ContinuousState;
