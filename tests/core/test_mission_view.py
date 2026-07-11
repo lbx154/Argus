@@ -245,3 +245,31 @@ def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None
     assert view["learned_wiki_pages"][0]["title"] == "Bounded retry pattern"
     assert view["learned_wiki_pages"][0]["status"] == "candidate"
     assert view["timeline"][-1]["title"] == "Knowledge promoted"
+
+
+def test_skill_source_promotion_updates_capability_projection(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "skill.created",
+        1,
+        skill_id="s1",
+        name="bounded retry",
+        version=1,
+        path="/state/project/skills/bounded-retry.md",
+    )
+    view = emit(
+        tmp_path,
+        "skill.tidied",
+        2,
+        name="bounded retry",
+        placement="vertical",
+        vertical="kernelbench",
+        path="/source/verticals/kernelbench/skills/bounded-retry.md",
+        text="promoted",
+    )
+
+    skill = view["learned_skills"][0]
+    assert skill["source_placement"] == "vertical"
+    assert skill["source_vertical"] == "kernelbench"
+    assert skill["source_path"].endswith("bounded-retry.md")
+    assert view["timeline"][-1]["title"] == "Capability promoted to source"

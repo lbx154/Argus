@@ -344,6 +344,20 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.storage.global_skill_dir = S(event, 'global_skill_dir') || view.storage.global_skill_dir;
     view.storage.project_skill_count = N(event, 'project_skill_count') ?? view.storage.project_skill_count;
     view.storage.global_skill_count = N(event, 'global_skill_count') ?? view.storage.global_skill_count;
+  } else if (type === EVENT_TYPES.SKILL_TIDIED) {
+    const name = S(event, 'name');
+    if (name) {
+      const existing = view.learned_skills.find((skill) => skill.name === name);
+      const patch = {
+        source_path: S(event, 'path'),
+        source_placement: S(event, 'placement'),
+        source_vertical: S(event, 'vertical'),
+        updated_at: ts,
+      };
+      if (existing) Object.assign(existing, patch);
+      else upsert(view.learned_skills, 'id', name, { id: name, name, version: 1, scope: '', path: '', status: 'active', ...patch });
+      addTimeline(view, event, 'manager', 'Capability promoted to source', name, 'skill');
+    }
   } else if ([EVENT_TYPES.WIKI_INITIALIZED, EVENT_TYPES.WIKI_EVOLUTION_COMPLETED].includes(type as never)) {
     const candidates = [
       ...((Array.isArray(event.paths) ? event.paths : []).map((path) => String(path))),

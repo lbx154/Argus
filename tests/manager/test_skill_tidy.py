@@ -222,10 +222,12 @@ def test_tidy_uses_batch_classifier_instead_of_one_call_per_skill(
             for item in items
         }
 
+    events = []
     counts = skill_tidy.tidy_runtime_skills_to_source(
         runtime,
         classify,
         classify_batch=classify_batch,
+        on_event=events.append,
     )
 
     assert len(batch_calls) == 1
@@ -233,6 +235,9 @@ def test_tidy_uses_batch_classifier_instead_of_one_call_per_skill(
     assert counts["to_builtin"] == 2
     assert (builtin / "one.md").exists()
     assert (builtin / "two.md").exists()
+    assert {event["name"] for event in events} == {"one", "two"}
+    assert all(event["placement"] == "global" for event in events)
+    assert all(event["path"].endswith(".md") for event in events)
 
 
 def test_tidy_chunks_large_skill_sets(monkeypatch, isolated_source, tmp_path) -> None:

@@ -320,7 +320,13 @@ def tidy_runtime_skills_to_source(
                         written.append(dest)
                         source_names.add(name.casefold())
                         counts["to_builtin"] += 1
-                        _emit(on_event, f"{name} → builtin ({why})")
+                        _emit(
+                            on_event,
+                            text=f"{name} → builtin ({why})",
+                            name=name,
+                            placement="global",
+                            path=dest,
+                        )
                     else:
                         counts["stayed"] += 1
                 elif placement == "vertical":
@@ -331,7 +337,14 @@ def tidy_runtime_skills_to_source(
                         written.append(dest)
                         source_names.add(name.casefold())
                         counts["to_vertical"] += 1
-                        _emit(on_event, f"{name} → verticals/{vertical} ({why})")
+                        _emit(
+                            on_event,
+                            text=f"{name} → verticals/{vertical} ({why})",
+                            name=name,
+                            placement="vertical",
+                            vertical=vertical,
+                            path=dest,
+                        )
                     else:
                         counts["stayed"] += 1
                 else:
@@ -402,10 +415,25 @@ def tidy_after_mission(
         return dict(_ZERO)
 
 
-def _emit(on_event: Any, text: str) -> None:
+def _emit(
+    on_event: Any,
+    *,
+    text: str,
+    name: str,
+    placement: str,
+    path: Path,
+    vertical: str = "",
+) -> None:
     if callable(on_event):
         try:
-            on_event({"type": EventType.SKILL_TIDIED, "text": text})
+            on_event({
+                "type": EventType.SKILL_TIDIED,
+                "name": name,
+                "placement": placement,
+                "vertical": vertical,
+                "path": str(path),
+                "text": text,
+            })
         except Exception:  # noqa: BLE001 — event sink must never break tidy
             pass
 

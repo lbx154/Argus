@@ -375,6 +375,10 @@ export interface SkillScientistCreatedEvent extends EventMsg {
 export interface SkillTidiedEvent extends EventMsg {
   type: "skill.tidied";
   payload_schema_version?: 1;
+  "name": string;
+  "placement": "global" | "vertical";
+  "vertical"?: string;
+  "path": string;
   "text": string;
 }
 

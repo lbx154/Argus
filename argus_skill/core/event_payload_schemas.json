@@ -404,8 +404,14 @@
     },
     "skill.tidied": {
       "version": 1,
-      "required": ["text"],
-      "properties": {"text": {"type": "string", "minLength": 1}}
+      "required": ["name", "placement", "path", "text"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "placement": {"type": "string", "enum": ["global", "vertical"]},
+        "vertical": {"type": "string"},
+        "path": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1}
+      }
     },
     "skill.compacted": {
       "version": 1,

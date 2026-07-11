@@ -167,6 +167,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_TIDIED,
     EventType.SKILL_EVOLUTION_COMPLETED,
     EventType.WIKI_INITIALIZED,
     EventType.WIKI_EVOLUTION_COMPLETED,
@@ -527,6 +528,38 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         for skill in view.setdefault("learned_skills", []):
             if skill.get("id") == skill_id:
                 skill.update({"status": "archived", "updated_at": ts})
+
+    elif event_type == EventType.SKILL_TIDIED:
+        name = _text(event, "name", 240)
+        if name:
+            skills = view.setdefault("learned_skills", [])
+            existing = next((skill for skill in skills if skill.get("name") == name), None)
+            patch = {
+                "source_path": _text(event, "path", 1000),
+                "source_placement": _text(event, "placement"),
+                "source_vertical": _text(event, "vertical"),
+                "updated_at": ts,
+            }
+            if existing is not None:
+                existing.update(patch)
+            else:
+                skills.append({
+                    "id": name,
+                    "name": name,
+                    "version": 1,
+                    "scope": "",
+                    "path": "",
+                    "status": "active",
+                    **patch,
+                })
+            _timeline(
+                view,
+                event,
+                role="manager",
+                title="Capability promoted to source",
+                detail=name,
+                tone="skill",
+            )
 
     elif event_type == EventType.SKILL_EVOLUTION_COMPLETED:
         storage = view.setdefault("storage", {})
