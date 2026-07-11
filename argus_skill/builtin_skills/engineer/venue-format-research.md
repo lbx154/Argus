@@ -52,6 +52,7 @@ LaTeX style files so the draft compiles in the real template.
    | `conclusion_max_page` | Conclusion must land by this page (= body limit) | `9` |
    | `conclusion_underfill_page` | before this page ⇒ underfilled body (usually body-1) | `8` |
    | `references_min_page` | References start on/after this page (usually body+1) | `10` |
+   | `two_column` | `true` if the template is two-column (EMNLP/AAAI/CVPR); `false` for single-column kits (NeurIPS/ICML/ICLR) | `false` |
    | `mandatory_end_sections` | sections REQUIRED after Conclusion (e.g. `["Limitations"]`); `[]` if none | `[]` |
    | `post_reference_sections` | sections allowed AFTER References | `["Checklist","Appendix"]` |
    | `documentclass` | LaTeX documentclass line | `"\\documentclass{article}"` |

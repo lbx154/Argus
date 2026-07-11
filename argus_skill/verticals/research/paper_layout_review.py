@@ -77,7 +77,19 @@ ALLOWED_DIRECTIVE_ACTIONS = {
 }
 
 MAX_BODY_FIGURES = 5
-MAX_BODY_WIDE_FIGURES = 1
+# Full-width (``figure*``) body floats allowed on a two-column venue. Two is the
+# common well-composed maximum: a teaser (Figure 1) + a main pipeline/overview.
+# Single-column venues (``venue.two_column`` false) have no ``figure*`` notion,
+# so the cap does not apply to them.
+MAX_BODY_WIDE_FIGURES = 2
+
+# Figures whose ROLE is an overview/teaser/pipeline should span both columns
+# (``figure*``) on a two-column venue; when one is placed in a single-column
+# ``figure`` it reads as cramped. Matched against the graphic filename and the
+# figure label only (not caption prose) to avoid false positives.
+_WIDE_FIGURE_ROLE_RE = re.compile(
+    r"teaser|pipeline|overview|framework|architecture|\bsystem\b", re.IGNORECASE
+)
 
 
 class LayoutReviewError(RuntimeError):
@@ -613,20 +625,42 @@ def _deterministic_assessment(
         )
 
     body_wide_figures = len(re.findall(r"\\begin\s*\{\s*figure\*\s*\}", body_tex))
-    if body_wide_figures > MAX_BODY_WIDE_FIGURES:
+    if venue.two_column and body_wide_figures > MAX_BODY_WIDE_FIGURES:
         penalty += 0.8
         issues.append(
             _issue(
                 "too_many_wide_figures",
                 "major",
                 (
-                    f"body contains {body_wide_figures} figure* environments; research.md allows "
-                    f"only {MAX_BODY_WIDE_FIGURES} full-width body figure"
+                    f"body contains {body_wide_figures} figure* environments; allow at most "
+                    f"{MAX_BODY_WIDE_FIGURES} full-width body figures (e.g. a teaser + a main "
+                    "pipeline); move the rest to single-column figures"
                 ),
                 hard_gate=True,
                 action="move_float",
             )
         )
+
+    # Advisory (two-column venues only): a teaser/pipeline/overview graphic in a
+    # single-column ``figure`` should usually span both columns via ``figure*``.
+    if venue.two_column:
+        misplaced = _single_column_wide_role_figures(body_tex)
+        if misplaced:
+            penalty += 0.3
+            issues.append(
+                _issue(
+                    "wide_role_figure_single_column",
+                    "major",
+                    (
+                        f"{len(misplaced)} overview/teaser/pipeline figure(s) "
+                        f"({', '.join(misplaced)}) sit in a single-column `figure`; a "
+                        "teaser or pipeline/architecture overview should span both columns "
+                        "via `figure*` (`[t]`, width=\\textwidth). Sub-module/detail figures "
+                        "stay single-column"
+                    ),
+                    action="rebalance_columns",
+                )
+            )
 
     tiny_font_count = len(re.findall(r"\\(?:tiny|scriptsize)\b", tex_text))
     if tiny_font_count:
@@ -1462,6 +1496,37 @@ def _normalize_action(value: object) -> str | None:
         return None
     normalized = re.sub(r"[^a-z0-9_]+", "_", value.strip().lower()).strip("_")
     return normalized if normalized in ALLOWED_DIRECTIVE_ACTIONS else None
+
+
+def _single_column_wide_role_figures(body_tex: str) -> list[str]:
+    """Identifiers of overview/teaser/pipeline figures placed in a single-column
+    ``figure`` (rather than a full-width ``figure*``).
+
+    Only the ``\\includegraphics`` path(s) and ``\\label`` of each single-column
+    figure block are matched against the role regex, so caption prose that
+    merely mentions "our pipeline" does not trigger a false positive. Returns a
+    short identifier per offending figure (its label, else the graphic
+    basename), de-duplicated in document order.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    # Non-greedy match of each single-column figure block; ``figure\b`` excludes
+    # the ``figure*`` star form.
+    for match in re.finditer(
+        r"\\begin\s*\{\s*figure\s*\}(.*?)\\end\s*\{\s*figure\s*\}", body_tex, re.S
+    ):
+        block = match.group(1)
+        graphics = re.findall(r"\\includegraphics[^{}]*\{([^}]*)\}", block)
+        labels = re.findall(r"\\label\s*\{([^}]*)\}", block)
+        targets = " ".join(graphics + labels)
+        if not _WIDE_FIGURE_ROLE_RE.search(targets):
+            continue
+        ident = (labels[0] if labels else (graphics[0] if graphics else "figure"))
+        ident = ident.rsplit("/", 1)[-1]
+        if ident not in seen:
+            seen.add(ident)
+            found.append(ident)
+    return found
 
 
 def _references_after_appendix(tex_text: str) -> bool:

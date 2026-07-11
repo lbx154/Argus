@@ -63,6 +63,8 @@ def _build_prompt(venue: str) -> str:
         "  body_page_limit (int), conclusion_max_page (= body_page_limit), "
         "conclusion_underfill_page (usually body-1), references_min_page "
         "(usually body+1),\n"
+        "  two_column (bool; true for EMNLP/AAAI/CVPR-style two-column kits, "
+        "false for single-column kits like NeurIPS/ICML/ICLR),\n"
         "  mandatory_end_sections (list; [] if none), post_reference_sections "
         "(list),\n"
         "  documentclass, style_package, style_files (list), style_clone_url, "
