@@ -1151,6 +1151,16 @@ class Manager:
             runner=(self._session or self.runner),
         )
 
+    def classify_skill_placements(self, skills: list[dict[str, str]]) -> Any:
+        """Batch variant used by source promotion to avoid one call per skill."""
+        from .skill_review import classify_skill_placements as _classify_batch
+
+        return _classify_batch(
+            skills=skills,
+            candidate_verticals=list(vertical_select.VERTICALS),
+            runner=(self._session or self.runner),
+        )
+
     # ---- progress view ----
     def current_stage(self) -> str:
         """Which Stage the engine is on now (read from PIPELINE_STATE.json)."""

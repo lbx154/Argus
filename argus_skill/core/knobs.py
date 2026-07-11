@@ -123,6 +123,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0", "blue/green self-handoff on source change (default OFF)", "lifecycle"),
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "let end-of-mission skill tidy-up git-commit distilled skills to the argus repo (default OFF — never auto-commits the operator's working tree)", "lifecycle"),
     Knob("ARGUS_SKILL_PER_MISSION_DISTILL", "off", "promote eligible runtime skills after EACH mission (default OFF)", "lifecycle"),
+    Knob("ARGUS_SKILL_TIDY_BATCH_SIZE", "8", "runtime skills classified per source-promotion Manager call", "lifecycle"),
     Knob("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "off", "promote eligible runtime skills into the source tree on clean shutdown (explicit opt-in)", "lifecycle"),
     Knob("ARGUS_SKILL_SKILL_OPS", "on", "apply reviewer-proposed create/update/archive operations to project skills", "lifecycle"),
     Knob("ARGUS_SKILL_WIKI_OPS", "on", "apply reviewer-proposed project wiki operations after each mission", "lifecycle"),
