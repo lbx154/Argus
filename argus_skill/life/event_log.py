@@ -33,6 +33,12 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..core.event_catalog import (
+    SIGNAL_EVENT_TYPES,
+    EventType,
+    normalize_event_envelope,
+)
+
 ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
 EVENT_FILE = "events.jsonl"
 ROLL_FILE = "events.jsonl.1"
@@ -43,8 +49,8 @@ ROLL_FILE = "events.jsonl.1"
 # events.jsonl. Match by ``type`` + literal ``text``; an exact-match
 # table avoids false positives.
 DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
-    ("life.status", "backlog empty; exiting"),
-    ("life.status", "stop requested while idle"),
+    (EventType.LIFE_STATUS, "backlog empty; exiting"),
+    (EventType.LIFE_STATUS, "stop requested while idle"),
 })
 
 
@@ -55,28 +61,7 @@ DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
 # command_execution, session.roll, watchdog waits, telemetry deltas, match
 # diagnostics) that bloats events.jsonl to multi-MB without telling an operator
 # what changed. Errors and wins are preserved by a separate text-marker rule.
-HIGH_VALUE_EVENT_TYPES: frozenset[str] = frozenset({
-    "loop.start", "loop.done",
-    "round.start", "round.main.completed", "round.review.completed",
-    "round.escalated", "round.stall", "round.reviewer_backend_failure",
-    "skill.created", "skill.updated", "skill.archived",
-    "life.mission.started", "life.mission.completed",
-    "life.manager.intent.started", "life.manager.intent.completed",
-    "life.manager.intent.failed", "life.manager.stage_decision",
-    "life.vertical.resolved",
-    "life.planner.start", "life.planner.task_added",
-    "life.planner.task_skipped", "life.planner.verdict",
-    "life.planner.waiting", "life.planner.terminal_idle",
-    "life.planner.verification_probe", "life.planner.stall_escalation",
-    "life.budget.pause", "life.lifecycle.block", "life.lifecycle.transition",
-    "provider.request.started", "provider.request.completed",
-    "provider.request.denied",
-    "life.inbox.queued",
-    "life.daemon.idle_timeout",
-    "daemon.parked",
-    "idea.search.started", "idea.search.completed", "idea.search.skipped",
-    "operator_alert",
-})
+HIGH_VALUE_EVENT_TYPES = SIGNAL_EVENT_TYPES
 # In "signal" mode, an engineer.progress event is kept only if its text carries
 # a win/result/error marker (so a measured win or a traceback is never lost).
 _SIGNAL_TEXT_MARKERS = (
@@ -207,8 +192,7 @@ class JsonlEventSink:
 
     @staticmethod
     def _normalize(event: dict[str, Any]) -> dict[str, Any]:
-        out = dict(event) if isinstance(event, dict) else {"raw": str(event)}
-        out.setdefault("ts", time.time())
+        out = normalize_event_envelope(event, timestamp=time.time())
         # Drop non-serialisable values rather than crash.
         for k, v in list(out.items()):
             try:

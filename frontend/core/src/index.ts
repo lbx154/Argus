@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './cost.js';
 export * from './events.js';
+export * from './eventCatalog.js';
 export * from './projects.js';
 export * from './mission.js';
 export * from './guardian.js';

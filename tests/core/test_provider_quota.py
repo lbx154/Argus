@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from argus_skill.core.provider_quota import (
     acquire_codex_permit,
     codex_quota_snapshot,
@@ -24,6 +26,17 @@ def test_codex_daily_cap_blocks_after_counted_start(monkeypatch, tmp_path) -> No
     assert snapshot["daily_calls"] == 1
     assert snapshot["completed_calls"] == 1
     assert snapshot["remaining"] == 0
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "codex-usage.jsonl").read_text().splitlines()
+    ]
+    assert [row["type"] for row in rows] == [
+        "provider.request.started",
+        "provider.request.completed",
+        "provider.request.denied",
+    ]
+    assert all(row["event_schema_version"] == 1 for row in rows)
+    assert all("event_validation" not in row for row in rows)
 
 
 def test_provider_snapshot_combines_codex_and_copilot(monkeypatch, tmp_path) -> None:

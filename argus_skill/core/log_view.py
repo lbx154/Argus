@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
+from .event_catalog import EventType, canonical_event_type
+
 # ── connectors (returned by ``advance``) ──────────────────────────────────
 OPEN = "open"    # first line of a group (mission / planner cycle)
 MID = "mid"      # interior line of an open group
@@ -83,7 +85,8 @@ def advance(state: LogState, etype: str, event: dict[str, Any]) -> str:
     (fresh sink / daemon restart) degrades to ``FLAT`` rather than faking a
     header — safe for a streaming log.
     """
-    if etype in ("life.mission.started",):
+    etype = canonical_event_type(etype)
+    if etype == EventType.LIFE_MISSION_STARTED:
         state.mission_open = True
         state.planner_open = False
         state.mission_id = str(event.get("item_id") or "")
@@ -92,31 +95,35 @@ def advance(state: LogState, etype: str, event: dict[str, Any]) -> str:
         state.mission_title = str(event.get("title") or "")
         state.round_index = None
         return OPEN
-    if etype in ("life.mission.completed", "life.mission.orphaned"):
+    if etype in (
+        EventType.LIFE_MISSION_COMPLETED,
+        EventType.LIFE_MISSION_ORPHANED,
+    ):
         was = state.mission_open
         state.mission_open = False
         state.round_index = None
         return CLOSE if was else FLAT
-    if etype == "life.planner.start":
+    if etype == EventType.LIFE_PLANNER_START:
         state.mission_open = False
         state.planner_open = True
         return OPEN
-    if etype in ("life.planner.verdict", "life.planner.error"):
+    if etype in (EventType.LIFE_PLANNER_VERDICT, EventType.LIFE_PLANNER_ERROR):
         was = state.planner_open
         state.planner_open = False
         return CLOSE if was else FLAT
     if etype in (
-        "life.phase.started",
-        "round.main.completed",
-        "round.review.completed",
+        EventType.LIFE_PHASE_STARTED,
+        EventType.ROUND_START,
+        EventType.ROUND_MAIN_COMPLETED,
+        EventType.ROUND_REVIEW_COMPLETED,
         "engineer.failure_nudge",
-        "life.manager.stage_decision",
+        EventType.LIFE_MANAGER_STAGE_DECISION,
     ):
         r = _round_of(event)
         if r is not None:
             state.round_index = r
         return MID if state.mission_open else FLAT
-    if etype in ("life.planner.task_added", "life.planner.deferred"):
+    if etype in (EventType.LIFE_PLANNER_TASK_ADDED, "life.planner.deferred"):
         return MID if state.planner_open else FLAT
     if etype in ("life.supervisor.error", "life.auth_failure"):
         return MID if (state.mission_open or state.planner_open) else FLAT

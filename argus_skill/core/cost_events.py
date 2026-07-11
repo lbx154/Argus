@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .event_catalog import EventType
+
 
 def emit_codex_util_cost(
     on_event: Callable[[dict], None] | None,
@@ -33,7 +35,7 @@ def emit_codex_util_cost(
         return
     try:
         on_event({
-            "type": "codex.util.completed",
+            "type": EventType.CODEX_UTIL_COMPLETED,
             "agent_layer": layer,
             "model": model,
             "run_label": run_label,

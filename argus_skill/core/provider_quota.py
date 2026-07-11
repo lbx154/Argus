@@ -14,6 +14,7 @@ try:
 except ImportError:  # pragma: no cover - POSIX production path
     fcntl = None  # type: ignore[assignment]
 
+from .event_catalog import EventType, normalize_event_envelope
 from .knob_store import persisted_knob
 from .paths import global_root
 
@@ -74,6 +75,7 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
 
 def _append_usage(root: Path, row: dict[str, Any]) -> None:
     try:
+        row = normalize_event_envelope(row)
         path = root / _CODEX_USAGE_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
@@ -142,7 +144,7 @@ class ProviderPermit:
                 self.root,
                 {
                     "ts": time.time(),
-                    "type": "provider.request.completed",
+                    "type": EventType.PROVIDER_REQUEST_COMPLETED,
                     "provider": self.provider,
                     "run_label": self.run_label,
                     "success": bool(success),
@@ -174,7 +176,7 @@ def acquire_codex_permit(run_label: str) -> ProviderPermit:
                 root,
                 {
                     "ts": time.time(),
-                    "type": "provider.request.denied",
+                    "type": EventType.PROVIDER_REQUEST_DENIED,
                     "provider": "codex",
                     "run_label": run_label,
                     "reason": reason,
@@ -191,7 +193,7 @@ def acquire_codex_permit(run_label: str) -> ProviderPermit:
             root,
             {
                 "ts": time.time(),
-                "type": "provider.request.started",
+                "type": EventType.PROVIDER_REQUEST_STARTED,
                 "provider": "codex",
                 "run_label": run_label,
                 "daily_calls": used,

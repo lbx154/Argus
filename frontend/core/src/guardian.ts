@@ -1,4 +1,5 @@
 import type { EventMsg } from './types.js';
+import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
 
 export type AlertTone = 'block' | 'warn';
 export interface GuardianAlert {
@@ -7,28 +8,31 @@ export interface GuardianAlert {
 }
 
 const ALERT_TYPES: Record<string, AlertTone> = {
-  'life.lifecycle.block': 'block',
-  'round.reviewer_backend_failure': 'block',
-  'life.budget.pause': 'warn',
-  'round.stall': 'warn',
-  'round.escalated': 'warn',
-  'life.planner.stall_escalation': 'warn',
+  [EVENT_TYPES.LIFE_LIFECYCLE_BLOCK]: 'block',
+  [EVENT_TYPES.ROUND_REVIEWER_BACKEND_FAILURE]: 'block',
+  [EVENT_TYPES.LIFE_BUDGET_PAUSE]: 'warn',
+  [EVENT_TYPES.ROUND_STALL]: 'warn',
+  [EVENT_TYPES.ROUND_ESCALATED]: 'warn',
+  [EVENT_TYPES.LIFE_PLANNER_STALL_ESCALATION]: 'warn',
 };
 
 const RESOLVING_TYPES = new Set([
-  'life.mission.started',
-  'mission.started',
-  'round.main.completed',
-  'life.mission.completed',
-  'mission.completed',
-  'loop.completed',
-  'round.started',
-  'round.start',
+  EVENT_TYPES.LIFE_MISSION_STARTED,
+  EVENT_TYPES.ROUND_MAIN_COMPLETED,
+  EVENT_TYPES.LIFE_MISSION_COMPLETED,
+  EVENT_TYPES.LOOP_DONE,
+  EVENT_TYPES.ROUND_START,
   'ui.operator',
 ]);
 
 function alertOf(event: EventMsg): GuardianAlert | null {
-  const type = String(event.type ?? '');
+  const type = canonicalEventType(event.canonical_type ?? event.type);
+  if (event.event_validation?.status === 'invalid') {
+    return {
+      tone: 'warn',
+      text: `invalid event ${type || 'unknown'}: ${event.event_validation.errors.join('; ')}`,
+    };
+  }
   const tone = event.operator_alert === true ? 'block' : ALERT_TYPES[type];
   if (!tone) return null;
   return {
@@ -42,7 +46,10 @@ export function activeGuardianAlert(events: EventMsg[]): GuardianAlert | null {
   for (const event of events) {
     const next = alertOf(event);
     if (next) alert = next;
-    else if (alert && RESOLVING_TYPES.has(String(event.type ?? ''))) alert = null;
+    else if (
+      alert
+      && RESOLVING_TYPES.has(canonicalEventType(event.canonical_type ?? event.type))
+    ) alert = null;
   }
   return alert;
 }

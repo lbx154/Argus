@@ -122,6 +122,34 @@ def test_event_journal_reads_every_rollover_in_chronological_order(tmp_path: Pat
     ]
 
 
+def test_event_journal_canonicalizes_legacy_lifecycle_names(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text(
+        json.dumps({
+            "type": "mission.started",
+            "ts": 1.0,
+            "item_id": "m1",
+            "objective": "legacy mission",
+        })
+        + "\n"
+        + json.dumps({
+            "type": "mission.completed",
+            "ts": 2.0,
+            "item_id": "m1",
+            "success": True,
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entries = EventJournal(path).all()
+
+    assert [entry.kind for entry in entries] == [
+        "mission_started",
+        "mission_complete",
+    ]
+
+
 def test_journal_tail_does_not_call_read_jsonl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

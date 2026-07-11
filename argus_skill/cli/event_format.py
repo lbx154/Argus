@@ -10,6 +10,8 @@ import re
 import shlex
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
+
 # map fall back to ``[event.type]`` so internal/dev events stay grep-able
 # in verbose mode.
 _EVENT_ICONS: dict[str, str] = {
@@ -32,9 +34,9 @@ _EVENT_ICONS: dict[str, str] = {
     "loop.started":     "🚀",
     "loop.completed":   "🏁",
     "round.started":    "🔁",
-    "round.main.completed":   "🔧",
+    EventType.ROUND_MAIN_COMPLETED:   "🔧",
     "round.checks.completed": "🔍",
-    "round.review.completed": "🧑‍⚖️",
+    EventType.ROUND_REVIEW_COMPLETED: "🧑‍⚖️",
     "round.control.injected": "💉",
     "round.watchdog.checked":          "🐶",
     "round.watchdog.restart_requested": "🔄",
@@ -46,16 +48,16 @@ _EVENT_ICONS: dict[str, str] = {
     "distill.start":    "🧬",
     "distill.done":     "🧬",
     # Life-mode lifecycle (in-process REPL surfaces these).
-    "life.mission.started":   "▶",
-    "life.mission.completed": "■",
-    "life.status":            "ℹ️",
+    EventType.LIFE_MISSION_STARTED:   "▶",
+    EventType.LIFE_MISSION_COMPLETED: "■",
+    EventType.LIFE_STATUS:            "ℹ️",
     # SkillLoop legacy lifecycle (used by life mode's runner).
-    "loop.start":  "🚀",
-    "loop.done":   "🏁",
-    "round.start": "🔁",
+    EventType.LOOP_START:  "🚀",
+    EventType.LOOP_DONE:   "🏁",
+    EventType.ROUND_START: "🔁",
     # Live codex/claude/copilot stream progress (one beat per
     # ``item.completed`` JSON event the backend emits).
-    "engineer.progress": "◆",
+    EventType.ENGINEER_PROGRESS: "◆",
     # Repeated-tool-failure interrupt: the failed-tool ledger fires this
     # at most once per tool per mission when the agent is detected to be
     # blind-retrying a failing operation. High-signal — user should see it.
@@ -572,9 +574,9 @@ def _render_round_start(event: dict[str, Any]) -> str:
 _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "loop.started": _render_loop_started,
     "round.started": _render_round_started,
-    "round.main.completed": _render_round_main_completed,
+    EventType.ROUND_MAIN_COMPLETED: _render_round_main_completed,
     "round.checks.completed": _render_round_checks_completed,
-    "round.review.completed": _render_round_review_completed,
+    EventType.ROUND_REVIEW_COMPLETED: _render_round_review_completed,
     "round.control.injected": _render_round_control_injected,
     "round.watchdog.checked": _render_round_watchdog_checked,
     "round.watchdog.restart_requested": _render_round_watchdog_restart_requested,
@@ -585,12 +587,12 @@ _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "command.ack": _render_command_ack,
     "status.report": _render_status_report,
     # Life mode + legacy SkillLoop:
-    "engineer.progress": _render_engineer_progress,
-    "life.mission.started": _render_life_mission_started,
-    "life.mission.completed": _render_life_mission_completed,
-    "loop.start": _render_loop_start,
-    "loop.done": _render_loop_done,
-    "round.start": _render_round_start,
+    EventType.ENGINEER_PROGRESS: _render_engineer_progress,
+    EventType.LIFE_MISSION_STARTED: _render_life_mission_started,
+    EventType.LIFE_MISSION_COMPLETED: _render_life_mission_completed,
+    EventType.LOOP_START: _render_loop_start,
+    EventType.LOOP_DONE: _render_loop_done,
+    EventType.ROUND_START: _render_round_start,
 }
 
 

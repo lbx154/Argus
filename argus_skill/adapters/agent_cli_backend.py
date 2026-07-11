@@ -50,6 +50,7 @@ from ..core.copilot_usage import (
     capture_copilot_usage_cursor,
     read_copilot_usage_since,
 )
+from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -517,7 +518,7 @@ class AgentCliBackend:
                 reason = copilot_permit.reason
                 release_denied_permit(copilot_permit)
                 self._log_agent_io(log_path, {
-                    "type": "provider.request.denied",
+                    "type": EventType.PROVIDER_REQUEST_DENIED,
                     "provider": "copilot",
                     "call_id": call_id,
                     "run_label": run_label,
@@ -541,7 +542,7 @@ class AgentCliBackend:
             if not codex_permit.allowed:
                 reason = codex_permit.reason
                 self._log_agent_io(log_path, {
-                    "type": "provider.request.denied",
+                    "type": EventType.PROVIDER_REQUEST_DENIED,
                     "provider": "codex",
                     "call_id": call_id,
                     "run_label": run_label,
@@ -569,7 +570,7 @@ class AgentCliBackend:
         )
         if event_permit is not None:
             self._log_agent_io(log_path, {
-                "type": "provider.request.started",
+                "type": EventType.PROVIDER_REQUEST_STARTED,
                 "provider": self._backend_name,
                 "call_id": call_id,
                 "run_label": run_label,
@@ -598,7 +599,7 @@ class AgentCliBackend:
                 codex_permit.finish(success=success, error_text=error_text)
             if event_permit is not None:
                 self._log_agent_io(log_path, {
-                    "type": "provider.request.completed",
+                    "type": EventType.PROVIDER_REQUEST_COMPLETED,
                     "provider": self._backend_name,
                     "call_id": call_id,
                     "run_label": run_label,
@@ -611,7 +612,7 @@ class AgentCliBackend:
                 })
 
         start_row: dict[str, Any] = {
-            "type": "agent.io.start",
+            "type": EventType.AGENT_IO_START,
             "io_kind": "start",
             "call_id": call_id,
             "run_label": run_label,
@@ -641,7 +642,7 @@ class AgentCliBackend:
             log.exception("codex CLI binary not found")
             _finish_quota(error_text=str(exc), success=False)
             self._log_agent_io(log_path, {
-                "type": "agent.io.error",
+                "type": EventType.AGENT_IO_ERROR,
                 "io_kind": "error",
                 "call_id": call_id,
                 "run_label": run_label,
@@ -664,7 +665,7 @@ class AgentCliBackend:
                 success=False,
             )
             self._log_agent_io(log_path, {
-                "type": "agent.io.error",
+                "type": EventType.AGENT_IO_ERROR,
                 "io_kind": "error",
                 "call_id": call_id,
                 "run_label": run_label,
@@ -760,7 +761,7 @@ class AgentCliBackend:
         )
 
         complete_row: dict[str, Any] = {
-            "type": "agent.io.complete",
+            "type": EventType.AGENT_IO_COMPLETE,
             "io_kind": "complete",
             "call_id": call_id,
             "run_label": run_label,
@@ -826,14 +827,14 @@ class AgentCliBackend:
     def _log_agent_io(self, path: Path | None, row: dict[str, Any]) -> None:
         if path is None:
             return
-        _jsonl_append(path, row, self._io_log_lock)
+        _jsonl_append(path, normalize_event_envelope(row), self._io_log_lock)
 
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
-                "type": "agent.io.stream",
+                "type": EventType.AGENT_IO_STREAM,
                 "io_kind": "stream",
                 "call_id": ctx.get("call_id"),
                 "run_label": ctx.get("run_label"),

@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
 
+from ..core.event_catalog import EventType
 from ..core.models import (
     LoopOutcome,
     LoopStatus,
@@ -1119,7 +1120,7 @@ class SupervisedEngineer:
                 engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
             if on_event:
                 on_event({
-                    "type": "round.start",
+                    "type": EventType.ROUND_START,
                     "round_index": round_index,
                     # Kept for readers of the historical event schema.
                     "round": round_index,
@@ -1156,7 +1157,7 @@ class SupervisedEngineer:
             # when reviewer tokens were also missing pre-fix.
             if on_event:
                 on_event({
-                    "type": "round.main.completed",
+                    "type": EventType.ROUND_MAIN_COMPLETED,
                     "round_index": round_index,
                     "round_max": supervised_config.max_rounds,
                     "session_id": round_thread_id,
@@ -1402,7 +1403,7 @@ class SupervisedEngineer:
 
             if on_event:
                 on_event({
-                    "type": "round.review.started",
+                    "type": EventType.ROUND_REVIEW_STARTED,
                     "round_index": round_index,
                     "round_max": supervised_config.max_rounds,
                     "session_id": supervised_config.session_id,
@@ -1426,7 +1427,7 @@ class SupervisedEngineer:
                 )
                 if on_event and round_index == supervised_config.soft_round_limit:
                     on_event({
-                        "type": "round.escalated",
+                        "type": EventType.ROUND_ESCALATED,
                         "round_index": round_index,
                         "soft_round_limit": supervised_config.soft_round_limit,
                         "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
@@ -1580,7 +1581,7 @@ class SupervisedEngineer:
                         review_skipped=True,
                     ))
                     on_event({
-                        "type": "round.reviewer_backend_failure",
+                        "type": EventType.ROUND_REVIEWER_BACKEND_FAILURE,
                         "round_index": round_index,
                         "round_max": supervised_config.max_rounds,
                         "streak": reviewer_backend_failure_streak,
@@ -1660,7 +1661,7 @@ class SupervisedEngineer:
                 semantic_stall_streak += 1
                 if on_event and semantic_stall_streak > 0:
                     on_event({
-                        "type": "round.stall",
+                        "type": EventType.ROUND_STALL,
                         "round_index": round_index,
                         "round_max": supervised_config.max_rounds,
                         "semantic_stall_streak": semantic_stall_streak,

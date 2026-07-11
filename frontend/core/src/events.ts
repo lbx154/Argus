@@ -1,4 +1,5 @@
 import type { EventMsg } from './types.js';
+import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
 
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -34,7 +35,7 @@ export function eventKey(event: EventMsg): string {
 }
 
 export function isReasoning(event: EventMsg): boolean {
-  return event.type === 'engineer.progress' && event.kind === 'reasoning';
+  return event.type === EVENT_TYPES.ENGINEER_PROGRESS && event.kind === 'reasoning';
 }
 
 /** Reviewer backends stream their machine-readable verdict through the same
@@ -42,7 +43,7 @@ export function isReasoning(event: EventMsg): boolean {
  * payload is protocol, not transcript content: the settled
  * `round.review.completed` event renders the useful verdict separately. */
 export function isStructuredAgentPayload(event: EventMsg): boolean {
-  if (event.type !== 'engineer.progress') return false;
+  if (event.type !== EVENT_TYPES.ENGINEER_PROGRESS) return false;
   if (!['assistant_message', 'agent_message', 'message'].includes(String(event.kind ?? ''))) {
     return false;
   }
@@ -72,10 +73,13 @@ export interface EventPresentation {
 }
 
 const MILESTONE_TYPES = new Set([
-  'life.mission.started', 'mission.started', 'life.mission.completed',
-  'mission.completed', 'life.mission.failed', 'mission.error', 'loop.start',
-  'loop.done', 'life.planner.verdict', 'final.report.ready', 'pptx.report.ready',
-  'plan.completed', 'life.budget.pause', 'life.lifecycle.block',
+  EVENT_TYPES.LIFE_MISSION_STARTED,
+  EVENT_TYPES.LIFE_MISSION_COMPLETED,
+  EVENT_TYPES.LIFE_MISSION_FAILED,
+  EVENT_TYPES.LOOP_START, EVENT_TYPES.LOOP_DONE,
+  EVENT_TYPES.LIFE_PLANNER_VERDICT, 'final.report.ready', 'pptx.report.ready',
+  'plan.completed', EVENT_TYPES.LIFE_BUDGET_PAUSE,
+  EVENT_TYPES.LIFE_LIFECYCLE_BLOCK,
 ]);
 
 /** Shared filter/search semantics so Web and Ink surface the same event subset. */
@@ -85,7 +89,7 @@ export function eventMatchesView(
   filter: EventViewFilter = 'all',
   query = '',
 ): boolean {
-  const type = String(event.type ?? '');
+  const type = canonicalEventType(event.canonical_type ?? event.type);
   const kind = String(event.kind ?? '');
   if (
     filter === 'attention' &&

@@ -332,6 +332,8 @@ def test_run_exec_writes_full_agent_io_log(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert all(row["event_schema_version"] == 1 for row in rows)
+    assert all("event_validation" not in row for row in rows)
     assert [row["type"] for row in rows] == [
         "agent.io.start",
         "agent.io.stream",

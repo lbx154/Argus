@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .core.event_catalog import EventType
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
@@ -228,7 +229,10 @@ class SkillLoop:
         workdir = Path(workdir) if workdir else Path.cwd()
         skill_task = (objective_for_skill or task).strip() or task
         request_anchor = (original_objective or objective_for_skill or task).strip() or task
-        self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
+        self._emit({
+            "type": EventType.LOOP_START,
+            "text": f"task: {skill_task[:120]}",
+        })
 
         # Step 1: matcher (role mission — shared scaffold across all roles).
         # Suppress the other venue's paper skills so an AAAI project never
@@ -647,7 +651,7 @@ class SkillLoop:
         except Exception:  # noqa: BLE001
             log.debug("skill.outcome emit failed", exc_info=True)
         self._emit({
-            "type": "loop.done",
+            "type": EventType.LOOP_DONE,
             "text": f"status={status} rounds={len(rounds)} reason={reason[:80]}",
         })
         return outcome

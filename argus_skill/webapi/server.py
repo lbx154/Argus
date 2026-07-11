@@ -48,6 +48,7 @@ from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_events
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
+from ..core.event_catalog import EventType
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, read_session_meta
 from ..core.transcript import read_turns
@@ -432,7 +433,7 @@ def _write_parked_state(
         from ..life.event_log import JsonlEventSink
 
         JsonlEventSink(None, life_dir=victim_dir).append({
-            "type": "daemon.parked",
+            "type": EventType.DAEMON_PARKED,
             "replaced_by": target_sid,
             "previous_pid": previous_pid,
             "unfinished_tasks": unfinished,

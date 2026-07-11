@@ -18,6 +18,7 @@ from typing import Any, Iterable, Iterator, Literal
 
 from .codex_usage import TokenUsage, extract_token_usage
 from .copilot_usage import NANO_AIU_PER_USD, find_copilot_usage_near
+from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingStatus, quote_copilot_usage, quote_token_usage
 
 try:  # pragma: no cover - production daemons are POSIX
@@ -33,16 +34,6 @@ EVENT_MIGRATION_FILE = "events.migration-v2.json"
 EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
-
-_CALL_SCOPED_EVENT_TYPES = frozenset({
-    "agent.io.start",
-    "agent.io.complete",
-    "agent.io.error",
-    "provider.request.started",
-    "provider.request.completed",
-    "provider.request.denied",
-    "usage.recorded",
-})
 
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -280,7 +271,7 @@ def usage_recorded_event(record: UsageRecord) -> dict[str, Any]:
         "premium_request_cost_usd": record.premium_request_cost_usd,
     }
     return {
-        "type": "usage.recorded",
+        "type": EventType.USAGE_RECORDED,
         "schema_version": 2,
         "call_id": record.call_id,
         "project_id": record.project_id,
@@ -797,11 +788,13 @@ def _legacy_event_records(
                     continue
                 if not isinstance(row, dict):
                     continue
-                kind = str(row.get("type") or "")
-                if kind == "life.mission.started":
+                kind = canonical_event_type(
+                    row.get("canonical_type") or row.get("type")
+                )
+                if kind == EventType.LIFE_MISSION_STARTED:
                     current_mission = _optional_text(row.get("item_id"))
                     continue
-                if kind == "life.mission.completed":
+                if kind == EventType.LIFE_MISSION_COMPLETED:
                     item_id = _optional_text(row.get("item_id"))
                     cost = _optional_float(row.get("cost_usd"))
                     if cost is not None:
@@ -817,13 +810,13 @@ def _legacy_event_records(
                 call_id = str(row.get("call_id") or "")
                 if not call_id:
                     continue
-                if kind == "agent.io.start":
+                if kind == EventType.AGENT_IO_START:
                     starts[call_id] = row
                     call_missions[call_id] = current_mission
                     continue
                 if call_id in emitted:
                     continue
-                if kind == "agent.io.complete":
+                if kind == EventType.AGENT_IO_COMPLETE:
                     token_usage = _legacy_token_usage(row)
                     premium = _legacy_premium_usage(row)
                     fatal = str(row.get("fatal_error") or "")
@@ -861,7 +854,7 @@ def _legacy_event_records(
                     if mission_id:
                         missions_with_calls.add(mission_id)
                     emitted.add(call_id)
-                elif kind == "agent.io.error":
+                elif kind == EventType.AGENT_IO_ERROR:
                     started = starts.get(call_id, {})
                     error = str(row.get("error") or "")
                     denied = "binary not found" in error.lower()
@@ -893,7 +886,7 @@ def _legacy_event_records(
                     if mission_id:
                         missions_with_calls.add(mission_id)
                     emitted.add(call_id)
-                elif kind == "provider.request.denied":
+                elif kind == EventType.PROVIDER_REQUEST_DENIED:
                     yield build_usage_record(
                         call_id=call_id,
                         project_root=project_root,
@@ -1112,7 +1105,7 @@ def _event_identities(paths: Iterable[Path]) -> set[str]:
 def _event_identity(row: dict[str, Any]) -> str:
     kind = str(row.get("type") or "")
     call_id = str(row.get("call_id") or "")
-    if kind in _CALL_SCOPED_EVENT_TYPES and call_id:
+    if kind in CALL_SCOPED_EVENT_TYPES and call_id:
         return f"call:{kind}:{call_id}"
     return "row:" + json.dumps(
         row,
@@ -1160,7 +1153,10 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
                         row = json.loads(raw)
                     except (json.JSONDecodeError, ValueError):
                         continue
-                    if not isinstance(row, dict) or row.get("type") != "agent.io.complete":
+                    if (
+                        not isinstance(row, dict)
+                        or row.get("type") != EventType.AGENT_IO_COMPLETE
+                    ):
                         continue
                     call_id = str(row.get("call_id") or "")
                     thread_id = str(row.get("thread_id") or "")

@@ -12,7 +12,7 @@ import { ensureApi, probeApi } from '../src/ensureApi.js';
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
-    protocol: { name: 'argus.webapi', major: 1, minor: 0 },
+    protocol: { name: 'argus.webapi', major: 1, minor: 1 },
     snapshot_schema_version: 1,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
@@ -35,6 +35,11 @@ test('protocol contract accepts the current server and rejects missing capabilit
   const incompatible = inspectApiMeta(meta({ capabilities: ['manager.sse.v1'] }));
   assert.equal(incompatible.compatible, false);
   assert.match(incompatible.reason, /missing capabilities: daemon\.admission\.v1/);
+  const oldMinor = inspectApiMeta(meta({
+    protocol: { name: 'argus.webapi', major: 1, minor: 0 },
+  }));
+  assert.equal(oldMinor.compatible, false);
+  assert.match(oldMinor.reason, /older than required 1/);
   const wrongCheckout = inspectApiMeta(meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),

@@ -17,6 +17,7 @@ from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
     API_PROTOCOL_MAJOR,
+    API_PROTOCOL_MINOR,
     API_PROTOCOL_NAME,
     SNAPSHOT_SCHEMA_VERSION,
     build_api_meta,
@@ -59,7 +60,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["protocol"] == {
         "name": API_PROTOCOL_NAME,
         "major": API_PROTOCOL_MAJOR,
-        "minor": 0,
+        "minor": API_PROTOCOL_MINOR,
     }
     assert meta["snapshot_schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert meta["capabilities"] == list(API_CAPABILITIES)
@@ -73,6 +74,7 @@ def test_frontend_protocol_constants_match_backend_contract() -> None:
     ).read_text(encoding="utf-8")
     assert f"name: '{API_PROTOCOL_NAME}'" in source
     assert f"major: {API_PROTOCOL_MAJOR}" in source
+    assert f"minServerMinor: {API_PROTOCOL_MINOR}" in source
     assert f"SNAPSHOT_SCHEMA_VERSION = {SNAPSHOT_SCHEMA_VERSION}" in source
     capabilities_block = source.split(
         "REQUIRED_API_CAPABILITIES = [", 1
@@ -308,7 +310,7 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.0"
+    assert r.headers["x-argus-protocol"] == "argus.webapi/1.1"
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
     assert authenticated.json()["runtime"]["source_root"] != "<redacted>"

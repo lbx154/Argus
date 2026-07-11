@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeGuardianAlert,
   authoritativeSpend,
   computeSpend,
   defaultProject,
   deriveMissionView,
+  EVENT_TYPES,
   eventKey,
   eventMatchesView,
   filterProjects,
+  canonicalEventType,
   resolveProjectSelection,
   responseError,
   visibleBacklogItems,
@@ -15,6 +18,25 @@ import { formatBytes } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 
 describe('shared frontend core', () => {
+  it('uses the canonical event catalog and explicit legacy aliases', () => {
+    expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
+    expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
+    expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
+  });
+
+  it('surfaces persisted event validation failures instead of hiding them', () => {
+    expect(activeGuardianAlert([{
+      type: EVENT_TYPES.AGENT_IO_ERROR,
+      event_validation: {
+        status: 'invalid',
+        errors: ['missing required fields: error'],
+      },
+    }])).toEqual({
+      tone: 'warn',
+      text: 'invalid event agent.io.error: missing required fields: error',
+    });
+  });
+
   it('selects live work first and gives replayed events one identity', () => {
     const rows = [
       { id: 'new', label: 'new', objective: '', last_active: 20, daemon_alive: false, daemon_pid: null, uptime_seconds: null },

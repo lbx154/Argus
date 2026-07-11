@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ...core.event_catalog import EventType
 from ...core.ports import EventSink
 from ...core.pricing import (
     copilot_usd_per_premium_request,
@@ -94,7 +95,7 @@ class _CostTrackingSink:
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
             kind = event.get("type") if isinstance(event, dict) else None
-            if kind == "round.main.completed":
+            if kind == EventType.ROUND_MAIN_COMPLETED:
                 in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                     event,
                     layer="engineer",
@@ -105,7 +106,7 @@ class _CostTrackingSink:
                 self.engineer_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
                 self._engineer_round_count += 1
-            elif kind == "round.review.started":
+            elif kind == EventType.ROUND_REVIEW_STARTED:
                 if not self._reviewer_notified and self._on_phase_change:
                     self._reviewer_notified = True
                     try:
@@ -116,7 +117,7 @@ class _CostTrackingSink:
                         })
                     except Exception:  # noqa: BLE001
                         log.debug("phase change callback failed", exc_info=True)
-            elif kind == "round.review.completed":
+            elif kind == EventType.ROUND_REVIEW_COMPLETED:
                 in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                     event,
                     layer="reviewer",
@@ -126,10 +127,10 @@ class _CostTrackingSink:
                 self.reviewer_output_tokens += out_tok
                 self.reviewer_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
-            elif kind == "skill.cost.completed":
+            elif kind == EventType.SKILL_COST_COMPLETED:
                 self._record_scientist_usage(event)
                 self.copilot_premium_requests += self._premium_delta(event)
-            elif kind == "codex.util.completed":
+            elif kind == EventType.CODEX_UTIL_COMPLETED:
                 in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                     event,
                     layer="util",

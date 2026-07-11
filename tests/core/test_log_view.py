@@ -83,6 +83,13 @@ def test_mission_round_lifecycle() -> None:
     assert not s.mission_open
 
 
+def test_legacy_lifecycle_names_share_the_canonical_grouping_path() -> None:
+    state = lv.LogState()
+    assert _adv(state, "mission.started", item_id="m1") == lv.OPEN
+    assert _adv(state, "round.started", round_index=1) == lv.MID
+    assert _adv(state, "mission.completed", item_id="m1") == lv.CLOSE
+
+
 def test_failure_nudge_uses_round_field() -> None:
     s = lv.LogState()
     _adv(s, "life.mission.started", item_id="m1")
@@ -177,4 +184,3 @@ def test_block_pure_text_flows_from_head() -> None:
     assert "…" not in out               # full text
     assert "STATUS" in lines[0]
     assert " ".join([lines[0].split("STATUS")[-1]] + lines[1:]).split() == text.split()
-

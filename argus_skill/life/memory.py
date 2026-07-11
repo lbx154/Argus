@@ -34,6 +34,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
+from ..core.event_catalog import EventType, canonical_event_type
+
 fcntl: Any
 try:  # pragma: no cover - platform-specific import
     import fcntl
@@ -407,13 +409,13 @@ class EventJournal(Journal):
     LEGACY_EVENT_TYPE = "journal.entry"
     JOURNAL_EVENT_TYPES = {
         "journal.entry",
-        "life.mission.started",
-        "life.mission.completed",
-        "life.planner.verdict",
-        "life.planner.error",
-        "life.planner.waiting",
-        "life.budget.pause",
-        "life.lifecycle.block",
+        EventType.LIFE_MISSION_STARTED,
+        EventType.LIFE_MISSION_COMPLETED,
+        EventType.LIFE_PLANNER_VERDICT,
+        EventType.LIFE_PLANNER_ERROR,
+        EventType.LIFE_PLANNER_WAITING,
+        EventType.LIFE_BUDGET_PAUSE,
+        EventType.LIFE_LIFECYCLE_BLOCK,
         "user.note",
     }
 
@@ -423,30 +425,34 @@ class EventJournal(Journal):
 
     @classmethod
     def _is_journal_event(cls, row: dict[str, Any]) -> bool:
-        return bool(row.get("journal_kind")) or str(row.get("type") or "") in cls.JOURNAL_EVENT_TYPES
+        event_type = canonical_event_type(row.get("canonical_type") or row.get("type"))
+        return bool(row.get("journal_kind")) or event_type in cls.JOURNAL_EVENT_TYPES
 
     @staticmethod
     def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
         if row.get("journal_kind") or row.get("type") == EventJournal.LEGACY_EVENT_TYPE:
             return JournalEntry.from_jsonable(row)
-        etype = str(row.get("type") or "")
+        etype = canonical_event_type(row.get("canonical_type") or row.get("type"))
         # The mid-mission budget breaker emits ``life.mission.completed`` with
         # ``status="budget_pause"`` (success=False). Derive the documented
         # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —
         # the generic completed→kind map below keys only on ``success``.
-        if etype == "life.mission.completed" and str(row.get("status") or "") == "budget_pause":
+        if (
+            etype == EventType.LIFE_MISSION_COMPLETED
+            and str(row.get("status") or "") == "budget_pause"
+        ):
             kind: str | None = "budget_pause"
         else:
             kind = {
-                "life.mission.started": "mission_started",
-                "life.mission.completed": (
+                EventType.LIFE_MISSION_STARTED: "mission_started",
+                EventType.LIFE_MISSION_COMPLETED: (
                     "mission_complete" if row.get("success", True) else "mission_failed"
                 ),
-                "life.planner.verdict": "planner_cycle",
-                "life.planner.error": "planner_error",
-                "life.planner.waiting": "planner_waiting",
-                "life.budget.pause": "budget_pause",
-                "life.lifecycle.block": "lifecycle_block",
+                EventType.LIFE_PLANNER_VERDICT: "planner_cycle",
+                EventType.LIFE_PLANNER_ERROR: "planner_error",
+                EventType.LIFE_PLANNER_WAITING: "planner_waiting",
+                EventType.LIFE_BUDGET_PAUSE: "budget_pause",
+                EventType.LIFE_LIFECYCLE_BLOCK: "lifecycle_block",
                 "user.note": "user_note",
             }.get(etype)
         if kind is None:

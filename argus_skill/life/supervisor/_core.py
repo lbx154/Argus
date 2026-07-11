@@ -34,6 +34,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ...core.event_catalog import EventType
 from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
 from ...core.usage import UsageLedger, UsageRecord, project_usage_summary
@@ -442,7 +443,7 @@ class LifeSupervisor:
             "source": st.source,
             "diagnostic": st.diagnostic,
         }
-        self._emit({"type": "life.manager.stage_decision", **decision})
+        self._emit({"type": EventType.LIFE_MANAGER_STAGE_DECISION, **decision})
         self._emit_status(
             "manager consumed rollback-accepted stage-check packet; "
             f"rolled back to {st.target_stage}"
@@ -475,7 +476,7 @@ class LifeSupervisor:
             if idle_stop:
                 idle_s = round(time.monotonic() - (self._idle_since or 0.0), 1)
                 self._emit({
-                    "type": "life.daemon.idle_timeout",
+                    "type": EventType.LIFE_DAEMON_IDLE_TIMEOUT,
                     "idle_seconds": idle_s,
                     "agent_layer": "planner",
                 })
@@ -697,7 +698,7 @@ class LifeSupervisor:
                 mission_id=item_id,
             )
             self._emit({
-                "type": "life.mission.completed",
+                "type": EventType.LIFE_MISSION_COMPLETED,
                 "item_id": item_id,
                 "title": title,
                 "objective": objective,
@@ -918,7 +919,7 @@ class LifeSupervisor:
             self._emit_status(f"budget block: {reason}")
             if self._should_journal_idle_repeat("budget_pause"):
                 self._emit({
-                    "type": "life.budget.pause",
+                    "type": EventType.LIFE_BUDGET_PAUSE,
                     "item_id": item.id,
                     "title": item.title,
                     "reason": reason,
@@ -960,7 +961,7 @@ class LifeSupervisor:
         if reservation is None:
             self._emit_status(f"budget block: {reserve_reason}")
             self._emit({
-                "type": "life.budget.pause",
+                "type": EventType.LIFE_BUDGET_PAUSE,
                 "item_id": item.id,
                 "title": item.title,
                 "reason": reserve_reason,
@@ -1169,7 +1170,7 @@ class LifeSupervisor:
                         memory_root, exc,
                     )
                 self._emit({
-                    "type": "life.lifecycle.transition",
+                    "type": EventType.LIFE_LIFECYCLE_TRANSITION,
                     "from_state": ProjectState.DONE.value,
                     "to_state": ProjectState.WRITING.value,
                     "reason": "full_paper_gate_not_certified",
@@ -1201,7 +1202,7 @@ class LifeSupervisor:
                         memory_root, exc,
                     )
                 self._emit({
-                    "type": "life.lifecycle.transition",
+                    "type": EventType.LIFE_LIFECYCLE_TRANSITION,
                     "from_state": event.from_state.value,
                     "to_state": event.to_state.value,
                     "reason": event.reason,
@@ -1244,7 +1245,7 @@ class LifeSupervisor:
                         f"backlog item {item.id!r} held"
                     )
                     self._emit({
-                        "type": "life.lifecycle.block",
+                        "type": EventType.LIFE_LIFECYCLE_BLOCK,
                         "item_id": item.id,
                         "title": item.title,
                         "lifecycle_state": state_value,
@@ -1323,7 +1324,7 @@ class LifeSupervisor:
         self._missions_started += 1
 
         self._emit({
-            "type": "life.mission.started",
+            "type": EventType.LIFE_MISSION_STARTED,
             "item_id": item.id,
             "title": item.title,
             # Carry the objective on the event itself (not just the journal
@@ -1336,7 +1337,7 @@ class LifeSupervisor:
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
             try:
                 self._emit({
-                    "type": "life.phase.started",
+                    "type": EventType.LIFE_PHASE_STARTED,
                     "item_id": item.id,
                     "agent_layer": layer,
                     "round_index": info.get("round_index", 0),
@@ -1518,7 +1519,7 @@ class LifeSupervisor:
             cap = self._effective_per_mission_cap(item)
             self.memory.backlog.update(item.id, status="pending")
             self._emit({
-                "type": "life.mission.completed",
+                "type": EventType.LIFE_MISSION_COMPLETED,
                 "item_id": item.id,
                 "success": False,
                 "status": "budget_pause",
@@ -1599,7 +1600,7 @@ class LifeSupervisor:
         scientist_totals = cost_sink.scientist_totals()
         scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
         self._emit({
-            "type": "life.mission.completed",
+            "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
             "title": item.title,
             "objective": item.objective,
@@ -1962,7 +1963,7 @@ class LifeSupervisor:
 
         sleep_s = self._enter_idle_backoff()
         self._emit({
-            "type": "life.planner.terminal_idle",
+            "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
             "cycle": self._planning_cycles,
             "reason": "open-ended project_done unchanged since last planner verdict",
             "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
@@ -2307,7 +2308,7 @@ class LifeSupervisor:
         sleep_s = self._enter_idle_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         self._emit({
-            "type": "life.planner.waiting",
+            "type": EventType.LIFE_PLANNER_WAITING,
             "cycle": self._planning_cycles,
             "reason": reason,
             "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
@@ -2387,7 +2388,7 @@ class LifeSupervisor:
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
         self._emit({
-            "type": "life.planner.verification_probe",
+            "type": EventType.LIFE_PLANNER_VERIFICATION_PROBE,
             "cycle": self._planning_cycles,
             "reason": reason,
             "idle_cycles": n,
@@ -2422,7 +2423,7 @@ class LifeSupervisor:
         # re-fires after another N (not on every subsequent mission).
         self._consecutive_no_progress_missions = 0
         self._emit({
-            "type": "life.planner.stall_escalation",
+            "type": EventType.LIFE_PLANNER_STALL_ESCALATION,
             "consecutive_no_progress_missions": n,
             "objective": (self.config.continuous_objective or "")[:200],
         })
@@ -2478,7 +2479,7 @@ class LifeSupervisor:
         )
         self.memory.backlog.add(item)
         self._emit({
-            "type": "life.planner.task_added",
+            "type": EventType.LIFE_PLANNER_TASK_ADDED,
             "cycle": self._planning_cycles,
             "item_id": item.id,
             "title": item.title,
@@ -2486,7 +2487,7 @@ class LifeSupervisor:
             "impact_area": task.impact_area,
         })
         self._emit({
-            "type": "life.planner.verdict",
+            "type": EventType.LIFE_PLANNER_VERDICT,
             "cycle": self._planning_cycles,
             "project_done": False,
             "reason": "external blocker present; scheduling one wiki_collect escape-valve mission",
@@ -2577,7 +2578,7 @@ class LifeSupervisor:
         self._planning_cycles += 1
         manager_intent = self._manager_intent_context()
         self._emit({
-            "type": "life.planner.start",
+            "type": EventType.LIFE_PLANNER_START,
             "cycle": self._planning_cycles,
             "objective": self.config.continuous_objective[:200],
             "manager_intent": manager_intent,
@@ -2590,7 +2591,7 @@ class LifeSupervisor:
         if self.planner_runner is None:
             self._emit_status("planner error: no planner runner wired; retry later")
             self._emit({
-                "type": "life.planner.error",
+                "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,
                 "error": "no planner runner wired",
             })
@@ -2659,7 +2660,7 @@ class LifeSupervisor:
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: planner raised; retrying later")
             self._emit({
-                "type": "life.planner.error",
+                "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,
                 "error": f"{type(exc).__name__}: {exc}",
             })
@@ -2676,7 +2677,7 @@ class LifeSupervisor:
 
         if verdict.error:
             self._emit({
-                "type": "life.planner.error",
+                "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,
                 "error": verdict.error,
                 "raw_text": verdict.raw_text,
@@ -2756,7 +2757,7 @@ class LifeSupervisor:
             )
             self._enter_idle_backoff()
             self._emit({
-                "type": "life.planner.verdict",
+                "type": EventType.LIFE_PLANNER_VERDICT,
                 "cycle": self._planning_cycles,
                 "project_done": verdict.project_done,
                 "reason": verdict.reason,
@@ -2780,7 +2781,7 @@ class LifeSupervisor:
 
         if verdict.project_done:
             self._emit({
-                "type": "life.planner.verdict",
+                "type": EventType.LIFE_PLANNER_VERDICT,
                 "cycle": self._planning_cycles,
                 "project_done": verdict.project_done,
                 "reason": verdict.reason,
@@ -2809,7 +2810,7 @@ class LifeSupervisor:
         if verdict.restart_daemon and not verdict.new_tasks:
             restart_reason = verdict.restart_reason or verdict.reason
             self._emit({
-                "type": "life.planner.verdict",
+                "type": EventType.LIFE_PLANNER_VERDICT,
                 "cycle": self._planning_cycles,
                 "project_done": verdict.project_done,
                 "reason": verdict.reason,
@@ -2834,7 +2835,7 @@ class LifeSupervisor:
 
         if not verdict.new_tasks:
             self._emit({
-                "type": "life.planner.error",
+                "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,
                 "error": "planner produced no tasks",
                 "raw_text": verdict.raw_text,
@@ -2909,7 +2910,7 @@ class LifeSupervisor:
                     else "duplicate pending/running task"
                 )
                 self._emit({
-                    "type": "life.planner.task_skipped",
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
                     "title": task.title,
                     "objective": task.objective,
@@ -2927,7 +2928,7 @@ class LifeSupervisor:
                 failure_extra = getattr(recent_failure, "extra", {}) or {}
                 failure_signature = _entry_task_signature(recent_failure)
                 self._emit({
-                    "type": "life.planner.task_skipped",
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
                     "title": task.title,
                     "objective": task.objective,
@@ -2960,7 +2961,7 @@ class LifeSupervisor:
             if family_failure is not None:
                 skipped_subagent_family_failure_titles.append(task.title)
                 self._emit({
-                    "type": "life.planner.task_skipped",
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
                     "title": task.title,
                     "objective": task.objective,
@@ -3020,7 +3021,7 @@ class LifeSupervisor:
             added_titles.append(item.title)
             added_impact_scores.append(task.impact_score)
             self._emit({
-                "type": "life.planner.task_added",
+                "type": EventType.LIFE_PLANNER_TASK_ADDED,
                 "item_id": item.id,
                 "title": item.title,
                 "impact_score": task.impact_score,
@@ -3029,7 +3030,7 @@ class LifeSupervisor:
             })
 
         self._emit({
-            "type": "life.planner.verdict",
+            "type": EventType.LIFE_PLANNER_VERDICT,
             "cycle": self._planning_cycles,
             "project_done": verdict.project_done,
             "reason": verdict.reason,

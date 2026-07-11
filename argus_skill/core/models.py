@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
+from .event_catalog import EventType
+
 ReviewStatus = Literal["done", "continue", "blocked"]
 LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error", "budget_exhausted"]
 
@@ -289,7 +291,7 @@ class ReviewDecision:
         ``text``, ``type``) without losing them to a key collision.
         """
         payload: dict[str, Any] = {
-            "type": "round.review.completed",
+            "type": EventType.ROUND_REVIEW_COMPLETED,
             "status": self.status,
             "reason": self.reason,
             "next_action": self.next_action,
