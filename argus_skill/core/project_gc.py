@@ -14,9 +14,10 @@ This module adds a conservative, REVERSIBLE garbage collector:
      touched), and
   2. **stale** — nothing under it has been modified within
      ``retention_days``.
-* Newly-created empty sessions receive a grace period. This closes the race
-  where another user's concurrent daemon startup sweeps the session between
-  ``POST /api/daemons`` and the TUI's first snapshot/message.
+* Explicit GC can sweep empty-session litter after a grace period. Automatic
+  startup GC never does this: multiple independently-run WebAPI instances may
+  share one global root, so one developer's startup must not invalidate another
+  developer's still-open idle TUI session.
 * Removal is a **move to ``projects_trash/<date>/``**, never an ``rm`` —
   so an over-eager prune is fully recoverable (the operator has been
   bitten by irreversible deletes before).
@@ -209,11 +210,20 @@ def maybe_gc_stale_projects(
 ) -> list[str]:
     """Startup-hook wrapper: run GC, swallow everything (never break boot).
 
+    Startup GC deliberately leaves recent empty-session litter alone. A shared
+    ``ARGUS_SKILL_HOME`` can be served by multiple independent WebAPI processes,
+    none of which can know whether another process's idle session is still open
+    in a TUI. The explicit ``--gc`` path retains the one-hour empty sweep.
+
     ``exclude`` is forwarded so a startup sweep never trashes the caller's own
     just-resolved (and not-yet-locked) session.
     """
     try:
-        return gc_stale_projects(global_root, exclude=exclude)
+        return gc_stale_projects(
+            global_root,
+            sweep_empty=False,
+            exclude=exclude,
+        )
     except Exception:  # noqa: BLE001 — GC is best-effort housekeeping
         log.exception("project-gc: sweep failed (ignored)")
         return []

@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
-from argus_skill.core.project_gc import _project_is_empty, gc_stale_projects
+from argus_skill.core.project_gc import (
+    _project_is_empty,
+    gc_stale_projects,
+    maybe_gc_stale_projects,
+)
 from argus_skill.core.session import list_sessions
 
 
@@ -87,6 +92,15 @@ def test_gc_sweeps_empty_after_startup_grace(tmp_path):
     for gone in ("s-empty1", "s-empty2"):
         assert not (tmp_path / "projects" / gone).exists()
     assert (tmp_path / "projects_trash").exists()
+
+
+def test_startup_gc_preserves_other_webapi_idle_sessions(tmp_path):
+    # Independent developer WebAPIs share ARGUS_SKILL_HOME. Starting one must
+    # not invalidate an idle session still selected in another developer's TUI.
+    _mk(tmp_path, "s-other1", now=time.time() - 7200)
+
+    assert maybe_gc_stale_projects(tmp_path) == []
+    assert (tmp_path / "projects" / "s-other1").is_dir()
 
 
 def test_gc_sweep_empty_can_be_disabled(tmp_path):
