@@ -1216,6 +1216,9 @@ def create_app(
         revision = api_meta["runtime"].get("revision")
         if revision:
             response.headers["X-Argus-Revision"] = str(revision)
+        response.headers["X-Argus-Release"] = str(
+            api_meta["runtime"].get("release_id") or "unknown"
+        )
         return response
 
     @app.on_event("shutdown")

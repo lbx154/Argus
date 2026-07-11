@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
+from ..release import release_identity
 
 _PROCESS_STARTED_AT = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -59,6 +60,7 @@ def runtime_identity() -> dict[str, Any]:
         "python_version": platform.python_version(),
         "executable": sys.executable,
         "started_at": _PROCESS_STARTED_AT,
+        **release_identity(loaded_root),
     }
 
 

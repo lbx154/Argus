@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
-  protocol: { name: 'argus.webapi', major: 1, minor: 4 },
+  protocol: { name: 'argus.webapi', major: 1, minor: 5 },
   snapshot_schema_version: 3,
   capabilities: [
     'daemon.admission.v1',
@@ -12,6 +13,7 @@ const currentMeta = {
     'event.catalog.v1',
     'event.payload-schema.v1',
     'manager.sse.v1',
+    'release.identity.v1',
     'snapshot.budget.v1',
     'snapshot.schema.v1',
     'usage.recorded.v2',
@@ -26,6 +28,10 @@ const currentMeta = {
     python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
+    release_id: RELEASE_ID,
+    manifest_source_digest: RELEASE_SOURCE_DIGEST,
+    runtime_source_digest: RELEASE_SOURCE_DIGEST,
+    release_matches_source: true,
   },
 };
 

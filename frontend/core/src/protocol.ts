@@ -1,10 +1,12 @@
 import type { Snapshot } from './types.js';
 
+import { RELEASE_ID } from './release.generated.js';
+
 export const API_SERVICE = 'argus-skill-webapi';
 export const API_PROTOCOL = {
   name: 'argus.webapi',
   major: 1,
-  minServerMinor: 4,
+  minServerMinor: 5,
 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 3;
 export const REQUIRED_API_CAPABILITIES = [
@@ -15,6 +17,7 @@ export const REQUIRED_API_CAPABILITIES = [
   'event.catalog.v1',
   'event.payload-schema.v1',
   'manager.sse.v1',
+  'release.identity.v1',
   'snapshot.budget.v1',
   'snapshot.schema.v1',
   'usage.recorded.v2',
@@ -30,6 +33,10 @@ export interface ApiRuntimeIdentity {
   python_version: string;
   executable: string;
   started_at: string;
+  release_id: string;
+  manifest_source_digest: string | null;
+  runtime_source_digest: string | null;
+  release_matches_source: boolean | null;
 }
 
 export interface ApiMeta {
@@ -68,7 +75,7 @@ export function describeApiRuntime(meta: ApiMeta): string {
   const mismatch = meta.runtime.source_root_matches_config === false
     ? `; configured source is ${meta.runtime.configured_source_root}`
     : '';
-  return `${source} @ ${revision} (pid ${meta.runtime.pid})${mismatch}`;
+  return `${source} @ ${revision} · release ${meta.runtime.release_id} (pid ${meta.runtime.pid})${mismatch}`;
 }
 
 export function inspectApiMeta(value: unknown): ApiCompatibility {
@@ -87,6 +94,7 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
     typeof runtime.source_root !== 'string'
     || number(runtime.pid) === null
     || typeof runtime.package_version !== 'string'
+    || typeof runtime.release_id !== 'string'
   ) {
     return { compatible: false, reason: 'malformed /api/meta runtime identity' };
   }
@@ -119,6 +127,18 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
     return {
       compatible: false,
       reason: `backend loaded source ${String(runtime.source_root)} but ARGUS_SKILL_SOURCE_ROOT points to ${String(runtime.configured_source_root)}`,
+    };
+  }
+  if (runtime.release_matches_source === false) {
+    return {
+      compatible: false,
+      reason: `backend release manifest does not match loaded source (${String(runtime.runtime_source_digest)} != ${String(runtime.manifest_source_digest)})`,
+    };
+  }
+  if (runtime.release_id !== RELEASE_ID) {
+    return {
+      compatible: false,
+      reason: `backend release ${String(runtime.release_id)} does not match client release ${RELEASE_ID}`,
     };
   }
   const meta = value as ApiMeta;

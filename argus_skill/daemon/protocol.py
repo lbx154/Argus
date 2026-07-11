@@ -8,10 +8,11 @@ from ..core.runtime_identity import runtime_identity
 
 DAEMON_PROTOCOL_NAME = "argus.daemon"
 DAEMON_PROTOCOL_MAJOR = 1
-DAEMON_PROTOCOL_MINOR = 0
+DAEMON_PROTOCOL_MINOR = 1
 DAEMON_CAPABILITIES = (
     "budget.status.v1",
     "events.jsonl.v1",
+    "release.identity.v1",
     "usage.ledger.v1",
 )
 
@@ -53,6 +54,16 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
             "daemon loaded source "
             f"{runtime.get('source_root')} but ARGUS_SKILL_SOURCE_ROOT points to "
             f"{runtime.get('configured_source_root')}",
+        )
+    if isinstance(runtime, dict) and runtime.get("release_matches_source") is False:
+        return False, "daemon release manifest does not match its loaded source"
+    expected_release = str(runtime_identity().get("release_id") or "")
+    actual_release = str((runtime or {}).get("release_id") or "")
+    if expected_release and actual_release and expected_release != actual_release:
+        return (
+            False,
+            f"daemon release {actual_release} is incompatible with WebAPI release "
+            f"{expected_release}",
         )
     return True, ""
 

@@ -66,6 +66,8 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["capabilities"] == list(API_CAPABILITIES)
     assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
     assert meta["runtime"]["pid"] > 0
+    assert meta["runtime"]["release_id"].startswith("0.1.0+")
+    assert meta["runtime"]["release_matches_source"] is True
 
 
 def test_frontend_protocol_constants_match_backend_contract() -> None:
@@ -313,7 +315,8 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.4"
+    assert r.headers["x-argus-protocol"] == "argus.webapi/1.5"
+    assert r.headers["x-argus-release"].startswith("0.1.0+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
     assert authenticated.json()["runtime"]["source_root"] != "<redacted>"

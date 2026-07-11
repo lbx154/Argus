@@ -6,7 +6,7 @@
   "description": "React web cockpit for the argus-skill autonomous-research daemon — a client of the argus-skill webapi.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "python ../../scripts/generate_release_manifest.py --check && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview": "vite preview"

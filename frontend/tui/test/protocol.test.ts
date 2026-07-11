@@ -6,13 +6,14 @@ import {
   requireSnapshotContract,
   REQUIRED_API_CAPABILITIES,
 } from '../../core/src/protocol.js';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
 import { ensureApi, probeApi } from '../src/ensureApi.js';
 
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
-    protocol: { name: 'argus.webapi', major: 1, minor: 4 },
+    protocol: { name: 'argus.webapi', major: 1, minor: 5 },
     snapshot_schema_version: 3,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
@@ -25,6 +26,10 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
       python_version: '3.13.0',
       executable: '/venv/bin/python',
       started_at: '2026-07-11T00:00:00Z',
+      release_id: RELEASE_ID,
+      manifest_source_digest: RELEASE_SOURCE_DIGEST,
+      runtime_source_digest: RELEASE_SOURCE_DIGEST,
+      release_matches_source: true,
     },
     ...overrides,
   };
@@ -36,10 +41,10 @@ test('protocol contract accepts the current server and rejects missing capabilit
   assert.equal(incompatible.compatible, false);
   assert.match(incompatible.reason, /missing capabilities: daemon\.admission\.v1/);
   const oldMinor = inspectApiMeta(meta({
-    protocol: { name: 'argus.webapi', major: 1, minor: 3 },
+    protocol: { name: 'argus.webapi', major: 1, minor: 4 },
   }));
   assert.equal(oldMinor.compatible, false);
-  assert.match(oldMinor.reason, /older than required 4/);
+  assert.match(oldMinor.reason, /older than required 5/);
   const wrongCheckout = inspectApiMeta(meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -49,6 +54,14 @@ test('protocol contract accepts the current server and rejects missing capabilit
   }));
   assert.equal(wrongCheckout.compatible, false);
   assert.match(wrongCheckout.reason, /loaded source .*ARGUS_SKILL_SOURCE_ROOT/);
+  const wrongRelease = inspectApiMeta(meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      release_id: '0.1.0+stale',
+    },
+  }));
+  assert.equal(wrongRelease.compatible, false);
+  assert.match(wrongRelease.reason, /does not match client release/);
 });
 
 test('snapshot contract fails closed when budget fields are absent', () => {
@@ -93,7 +106,10 @@ test('startup probe reports the backend checkout and revision', async () => {
   try {
     const probe = await probeApi('127.0.0.1', 8799);
     assert.equal(probe.state, 'compatible');
-    assert.match(probe.message, /\/home\/dev\/current\/argus-skill @ abc123 \(pid 123\)/);
+    assert.match(
+      probe.message,
+      /\/home\/dev\/current\/argus-skill @ abc123 · release 0\.1\.0\+[a-f0-9]+ \(pid 123\)/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
