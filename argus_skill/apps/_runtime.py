@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
 
@@ -394,6 +395,7 @@ class _SkillLoopRunner:
         self._usage_project_root = (
             Path(raw_usage_root).expanduser() if raw_usage_root else None
         )
+        self._active_usage_mission_id: str | None = None
         self._set_usage_context(None)
         # The ONE Manager instance for this runner. All daemon-side Manager uses
         # (divide / is_conversational / skill placement) go through this single
@@ -447,6 +449,7 @@ class _SkillLoopRunner:
             runner=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
             manager_session_root=_manager_session_root,
+            usage_context=self.task_usage_context,
         )
         self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from
@@ -531,6 +534,7 @@ class _SkillLoopRunner:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
         route: str | None = None,
+        root_task_id: str | None = None,
     ) -> "_Outcome | None":
         # Operator-REPL front door: classify into SELF (one Codex can handle it)
         # or TEAM (queue the Planner/Engineer/Reviewer pipeline). Daemon/backlog
@@ -635,7 +639,17 @@ class _SkillLoopRunner:
         _phase(f"Deciding: {_backend_label} solo vs. the Argus team…")
         if route not in ("simple", "complex"):
             # No precomputed verdict → classify here (line-REPL / daemon path).
-            route = self.manager.route(objective, run_exec=_classify_run_exec)
+            if root_task_id is None:
+                route = self.manager.route(
+                    objective,
+                    run_exec=_classify_run_exec,
+                )
+            else:
+                route = self.manager.route(
+                    objective,
+                    run_exec=_classify_run_exec,
+                    root_task_id=root_task_id,
+                )
         if route == "simple":
             _phase(f"{_backend_label} handling it solo…")
             return self._simple_quick_reply(
@@ -646,7 +660,12 @@ class _SkillLoopRunner:
         _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
 
-    def classify_needs_continuous(self, objective: str) -> bool:
+    def classify_needs_continuous(
+        self,
+        objective: str,
+        *,
+        root_task_id: str | None = None,
+    ) -> bool:
         """Should ``objective`` (already routed to the TEAM/complex path) be
         armed as a STANDING (continuous) campaign instead of a one-shot bounded
         mission? Used by the REPL front door so the operator never has to
@@ -681,9 +700,14 @@ class _SkillLoopRunner:
             )
 
         try:
-            return bool(
-                self.manager.needs_persistence(objective, run_exec=_classify_run_exec)
-            )
+            with self.task_usage_context(root_task_id):
+                return bool(
+                    self.manager.needs_persistence(
+                        objective,
+                        run_exec=_classify_run_exec,
+                        root_task_id=root_task_id,
+                    )
+                )
         except Exception:  # noqa: BLE001 — a classify failure must never force continuous
             return False
 
@@ -695,6 +719,7 @@ class _SkillLoopRunner:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
         route: str | None = None,
+        root_task_id: str | None = None,
     ) -> bool:
         """Front-end hook: classify + (if chat/simple) reply in-band.
 
@@ -708,13 +733,15 @@ class _SkillLoopRunner:
         optional PRECOMPUTED "simple"/"complex" verdict from the merged
         front-door classifier; when given the internal route classify is skipped.
         """
-        return self._maybe_chat_outcome(
-            objective=objective,
-            sink=sink,
-            seed_thread_id=seed_thread_id,
-            phase_cb=phase_cb,
-            route=route,
-        ) is not None
+        with self.task_usage_context(root_task_id):
+            return self._maybe_chat_outcome(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+                phase_cb=phase_cb,
+                route=route,
+                root_task_id=root_task_id,
+            ) is not None
 
     def reset_chat_session(self) -> None:
         """Forget the remembered chat thread so the NEXT front-door reply starts a
@@ -790,6 +817,7 @@ class _SkillLoopRunner:
 
     def _set_usage_context(self, mission_id: str | None) -> list:
         """Point every role backend at this project's call ledger."""
+        self._active_usage_mission_id = mission_id
         backends = self._distinct_backends()
         for backend in backends:
             setter = getattr(backend, "set_usage_context", None)
@@ -803,6 +831,15 @@ class _SkillLoopRunner:
             except Exception:  # noqa: BLE001 — metering must not break a mission
                 pass
         return backends
+
+    @contextmanager
+    def task_usage_context(self, mission_id: str | None):
+        previous = getattr(self, "_active_usage_mission_id", None)
+        self._set_usage_context(mission_id)
+        try:
+            yield
+        finally:
+            self._set_usage_context(previous)
 
     def _consume_auth_failure(self) -> bool:
         """Read and clear auth/policy failure flags across every role backend."""

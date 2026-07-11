@@ -6,6 +6,7 @@ fake runner returning the decision JSON (no real LLM).
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 import pytest
 
@@ -110,6 +111,56 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     assert "regular" in d.headline()
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
+
+
+def test_root_task_id_scopes_manager_vertical_call(tmp_path):
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    manager = Manager(
+        project_root=tmp_path,
+        runner=_existing("research"),
+        usage_context=usage_context,
+    )
+
+    manager.divide("write a paper", root_task_id="root-task-1")
+
+    assert transitions == [
+        ("enter", "root-task-1"),
+        ("exit", "root-task-1"),
+    ]
+
+
+def test_root_task_id_scopes_manager_front_door_call(tmp_path):
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    manager = Manager(
+        project_root=tmp_path,
+        runner=_DecisionRunner({}),
+        usage_context=usage_context,
+    )
+
+    manager.classify_front_door("build it", root_task_id="root-task-2")
+
+    assert transitions == [
+        ("enter", "root-task-2"),
+        ("exit", "root-task-2"),
+    ]
 
 
 def test_vertical_decision_persists_manager_live_view(tmp_path):

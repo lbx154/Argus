@@ -215,6 +215,9 @@ def manager_message(
         # operator never notices the seam. Turn count is a cheap proxy for "full".
         chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
         send_body = f"{startup_handoff}\n\n{body}" if startup_handoff else body
+        from ..life import BacklogItem
+
+        root_task_id = BacklogItem.new_id()
         if chat_state["turns"] > _rotate_after():
             send_body = f"{_build_handoff(life_dir)}\n\n{body}"
             chat_state["last_thread_id"] = None  # start a fresh session thread
@@ -244,7 +247,12 @@ def manager_message(
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
-        intent, route = _front_door_classify(mem, body, chat_state)
+        intent, route = _front_door_classify(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+        )
 
         cfg_lines: list[str] = []
         if intent is not None:
@@ -267,7 +275,14 @@ def manager_message(
         # route was already decided in the merged call above, so triage skips its
         # own route classify (``route=route``).
         try:
-            reply = manager_triage(mem, send_body, chat_state, on_fragment=on_fragment, route=route)
+            reply = manager_triage(
+                mem,
+                send_body,
+                chat_state,
+                on_fragment=on_fragment,
+                route=route,
+                root_task_id=root_task_id,
+            )
         except Exception:  # noqa: BLE001 — triage failure → task path (same as REPL)
             reply = None
 
@@ -280,7 +295,12 @@ def manager_message(
 
         # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
         try:
-            item, daemon_alive, daemon_pid = enqueue_mission(mem, body, chat_state)
+            item, daemon_alive, daemon_pid = enqueue_mission(
+                mem,
+                body,
+                chat_state,
+                root_task_id=root_task_id,
+            )
         except Exception as exc:  # noqa: BLE001
             return {"kind": "error", "reply": f"could not enqueue: {exc}"}
 

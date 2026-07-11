@@ -607,10 +607,11 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
     partial = sum(record.pricing_status == "partial" for record in rows)
     unpriced = sum(record.pricing_status == "unpriced" for record in rows)
     not_billed = sum(record.pricing_status == "not_billed" for record in rows)
+    contributions = _deduplicated_usage_contributions(rows)
     known_costs = [
-        float(record.cost_usd)
-        for record in rows
-        if record.cost_usd is not None
+        float(item["cost_usd"])
+        for item in contributions
+        if item.get("cost_usd") is not None
     ]
     known_cost = sum(known_costs)
     if partial:
@@ -639,21 +640,54 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
         partial_calls=partial,
         unpriced_calls=unpriced,
         not_billed_calls=not_billed,
-        input_tokens=sum(record.input_tokens or 0 for record in rows),
+        input_tokens=sum(item.get("input_tokens") or 0 for item in contributions),
         cached_input_tokens=sum(
-            record.cached_input_tokens or 0 for record in rows
+            item.get("cached_input_tokens") or 0 for item in contributions
         ),
-        output_tokens=sum(record.output_tokens or 0 for record in rows),
+        output_tokens=sum(item.get("output_tokens") or 0 for item in contributions),
         reasoning_output_tokens=sum(
-            record.reasoning_output_tokens or 0 for record in rows
+            item.get("reasoning_output_tokens") or 0 for item in contributions
         ),
         premium_requests=sum(record.premium_requests or 0.0 for record in rows),
-        cache_write_tokens=sum(record.cache_write_tokens or 0 for record in rows),
-        total_nano_aiu=sum(record.total_nano_aiu or 0 for record in rows),
+        cache_write_tokens=sum(
+            item.get("cache_write_tokens") or 0 for item in contributions
+        ),
+        total_nano_aiu=sum(
+            item.get("total_nano_aiu") or 0 for item in contributions
+        ),
         premium_request_cost_usd=sum(
             record.premium_request_cost_usd or 0.0 for record in rows
         ),
     )
+
+
+def _deduplicated_usage_contributions(
+    records: Iterable[UsageRecord],
+) -> list[dict[str, Any]]:
+    contributions: list[dict[str, Any]] = []
+    seen_copilot_events: set[tuple[str, int]] = set()
+    for record in records:
+        if not record.model_usage:
+            contributions.append({
+                "input_tokens": record.input_tokens,
+                "cached_input_tokens": record.cached_input_tokens,
+                "cache_write_tokens": record.cache_write_tokens,
+                "output_tokens": record.output_tokens,
+                "reasoning_output_tokens": record.reasoning_output_tokens,
+                "total_nano_aiu": record.total_nano_aiu,
+                "cost_usd": record.cost_usd,
+            })
+            continue
+        for item in record.model_usage:
+            session_id = _optional_text(item.get("session_id"))
+            usage_event_id = _optional_int(item.get("usage_event_id"))
+            if session_id is not None and usage_event_id is not None:
+                identity = (session_id, usage_event_id)
+                if identity in seen_copilot_events:
+                    continue
+                seen_copilot_events.add(identity)
+            contributions.append(dict(item))
+    return contributions
 
 
 def project_usage_summary(
@@ -1287,14 +1321,24 @@ def _normalize_model_usage(value: Any) -> tuple[dict[str, Any], ...]:
         except TypeError:
             return ()
     items: list[dict[str, Any]] = []
+    seen_copilot_events: set[tuple[str, int]] = set()
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
+        session_id = _optional_text(raw.get("session_id"))
+        usage_event_id = _optional_int(raw.get("usage_event_id"))
+        if session_id is not None and usage_event_id is not None:
+            identity = (session_id, usage_event_id)
+            if identity in seen_copilot_events:
+                continue
+            seen_copilot_events.add(identity)
         total_nano_aiu = _optional_int(raw.get("total_nano_aiu"))
         cost_usd = _optional_float(raw.get("cost_usd"))
         if cost_usd is None and total_nano_aiu is not None:
             cost_usd = total_nano_aiu / NANO_AIU_PER_USD
         items.append({
+            "usage_event_id": usage_event_id,
+            "session_id": session_id,
             "model": str(raw.get("model") or ""),
             "turn_index": _optional_int(raw.get("turn_index")),
             "input_tokens": _optional_int(raw.get("input_tokens")),

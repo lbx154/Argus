@@ -689,6 +689,96 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
     assert captured["tail_item_id"] == pending[0].id
 
 
+def test_enqueue_mission_preserves_preallocated_root_task_id(
+    mem: LifeMemory,
+) -> None:
+    item, daemon_alive, daemon_pid = manager_repl.enqueue_mission(
+        mem,
+        "measure this task",
+        {"backend": "memory"},
+        root_task_id="root-task-1",
+    )
+
+    assert item is not None
+    assert item.id == "root-task-1"
+    assert mem.backlog.all()[0].id == "root-task-1"
+
+
+def test_front_door_propagates_preallocated_root_task_id(
+    mem: LifeMemory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Manager:
+        def classify_front_door(
+            self,
+            text: str,
+            *,
+            root_task_id: str | None = None,
+        ) -> tuple[None, str]:
+            captured["text"] = text
+            captured["root_task_id"] = root_task_id
+            return None, "complex"
+
+    class _Runner:
+        manager = _Manager()
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, memory: _Runner(),
+    )
+
+    intent, route = manager_repl._front_door_classify(
+        mem,
+        "measure this task",
+        {"backend": "copilot"},
+        root_task_id="root-task-2",
+    )
+
+    assert intent is None
+    assert route == "complex"
+    assert captured == {
+        "text": "measure this task",
+        "root_task_id": "root-task-2",
+    }
+
+
+def test_manager_triage_propagates_root_id_without_retry(
+    mem: LifeMemory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class _Runner:
+        last_thread_id = None
+
+        def chat_reply_if_conversational(self, **kwargs: Any) -> bool:
+            calls.append(kwargs)
+            return False
+
+    runner = _Runner()
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, memory: runner,
+    )
+
+    reply = manager_repl.manager_triage(
+        mem,
+        "measure this task",
+        {"backend": "copilot"},
+        route="complex",
+        root_task_id="root-task-3",
+    )
+
+    assert reply is None
+    assert len(calls) == 1
+    assert calls[0]["route"] == "complex"
+    assert calls[0]["root_task_id"] == "root-task-3"
+
+
 def test_blocked_verdict_sets_question_and_reply_continues(mem: LifeMemory) -> None:
     """A blocked mission with an operator_question must (1) be remembered in
     chat_state and (2) make the next free-text reply CONTINUE the same objective

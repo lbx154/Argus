@@ -541,12 +541,16 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert usage["cost_basis"] == "token"
     assert usage["premium_requests"] == 1.0
     assert usage["premium_request_cost_usd"] == pytest.approx(0.04)
+    assert usage["model_usage"][0]["usage_event_id"] == 1
+    assert usage["model_usage"][0]["session_id"] == "session-1"
     event = json.loads(log_path.read_text().splitlines()[-1])
     assert event["type"] == "usage.recorded"
     assert event["schema_version"] == 2
     assert event["thread_id"] == "session-1"
     assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
     assert event["usage"]["models"][0]["input_tokens"] == 25_819
+    assert event["usage"]["models"][0]["usage_event_id"] == 1
+    assert event["usage"]["models"][0]["session_id"] == "session-1"
     assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
     assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
 

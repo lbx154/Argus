@@ -598,11 +598,16 @@ class BacklogItem:
     deps: list[str] = field(default_factory=list)
 
     @classmethod
+    def new_id(cls) -> str:
+        return uuid.uuid4().hex[:12]
+
+    @classmethod
     def new(
         cls,
         *,
         title: str,
         objective: str,
+        item_id: str | None = None,
         priority: int = 100,
         max_cost_usd: float = 30.0,
         tags: list[str] | None = None,
@@ -614,7 +619,7 @@ class BacklogItem:
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
-            id=uuid.uuid4().hex[:12],
+            id=str(item_id or cls.new_id()),
             ts=time.time(),
             title=title.strip(),
             objective=objective,

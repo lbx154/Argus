@@ -32,6 +32,7 @@ import shlex
 import sys
 import time
 from datetime import datetime
+from inspect import Parameter, signature
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1167,10 +1168,12 @@ def _add_only(
     iterate: bool = True,
     iteration_max_cycles: int = 6,
     iteration_budget_usd: float = 30.0,
+    item_id: str | None = None,
 ) -> BacklogItem:
     item = add_backlog_item(
         mem,
         text,
+        item_id=item_id,
         priority=priority,
         iterate=iterate,
         iteration_max_cycles=iteration_max_cycles,
@@ -1972,8 +1975,24 @@ def _with_manager_spinner(theme: object | None, label: str, fn: Callable[[], Any
         return fn()
 
 
+def _accepts_keyword(fn: Any, name: str) -> bool:
+    try:
+        parameters = signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        parameter.name == name or parameter.kind == Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
 def _manager_divide_user_task(
-    mem: Any, body: str, chat_state: dict[str, Any], *, theme: object | None = None
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    theme: object | None = None,
+    root_task_id: str | None = None,
 ) -> None:
     """Run Manager division for an operator-submitted task before enqueue.
 
@@ -1990,6 +2009,7 @@ def _manager_divide_user_task(
         "type": "life.manager.intent.started",
         "agent_layer": "manager",
         "intent_id": intent_id,
+        "item_id": root_task_id,
         "source": "user",
         "objective": body,
         "text": "manager interpreting user task",
@@ -2008,13 +2028,28 @@ def _manager_divide_user_task(
                 project_root=getattr(mem, "project_root", None) or Path.cwd(),
                 runner=None,
             )
+        def _divide() -> Any:
+            if root_task_id is None or not _accepts_keyword(
+                mgr.divide,
+                "root_task_id",
+            ):
+                return mgr.divide(body, ask_on_new_domain=False)
+            return mgr.divide(
+                body,
+                ask_on_new_domain=False,
+                root_task_id=root_task_id,
+            )
+
         division = _with_manager_spinner(
-            theme, "Manager choosing the vertical…", lambda: mgr.divide(body, ask_on_new_domain=False)
+            theme,
+            "Manager choosing the vertical…",
+            _divide,
         )
         payload = {
             "type": "life.manager.intent.completed",
             "agent_layer": "manager",
             "intent_id": intent_id,
+            "item_id": root_task_id,
             "source": "user",
             "objective": body,
             "vertical": getattr(division, "vertical", ""),
@@ -2033,6 +2068,7 @@ def _manager_divide_user_task(
             "type": "life.manager.intent.failed",
             "agent_layer": "manager",
             "intent_id": intent_id,
+            "item_id": root_task_id,
             "source": "user",
             "objective": body,
             "error": f"{type(exc).__name__}: {exc}",
@@ -2043,7 +2079,8 @@ def _manager_divide_user_task(
 
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
-                   route: str | None = None) -> str | None:
+                   route: str | None = None,
+                   root_task_id: str | None = None) -> str | None:
     """Front-door route: one-Codex SELF work returns a reply; TEAM work returns
     ``None`` so the caller queues the Argus Planner/Engineer/Reviewer pipeline.
 
@@ -2154,12 +2191,19 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 pass
 
     try:
-        if runner.chat_reply_if_conversational(
-            objective=body, sink=_Capture(progress_phases=False),
-            seed_thread_id=chat_state.get("last_thread_id"),
-            phase_cb=_runner_phase,
-            route=route,
+        triage_kwargs: dict[str, Any] = {
+            "objective": body,
+            "sink": _Capture(progress_phases=False),
+            "seed_thread_id": chat_state.get("last_thread_id"),
+            "phase_cb": _runner_phase,
+            "route": route,
+        }
+        if root_task_id is not None and _accepts_keyword(
+            runner.chat_reply_if_conversational,
+            "root_task_id",
         ):
+            triage_kwargs["root_task_id"] = root_task_id
+        if runner.chat_reply_if_conversational(**triage_kwargs):
             chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else "(no reply)"
     except TypeError:
@@ -2182,6 +2226,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                     iterate: bool = True, max_cycles: int = 6,
                     budget: float = 30.0, theme: object | None = None,
+                    root_task_id: str | None = None,
                     ) -> tuple[Any | None, bool, int | None]:
     """Enqueue ``body`` as a head-priority mission (NO blocking tail — the caller
     decides whether to follow). Handles the blocked-continuation rewrite and, in
@@ -2209,7 +2254,13 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                 pass
         body = f"{prior}\n\nOperator reply: {body}"
     chat_state["last_objective"] = body
-    _manager_divide_user_task(mem, body, chat_state, theme=theme)
+    _manager_divide_user_task(
+        mem,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+    )
     life_dir = _life_dir_for(mem)
     if chat_state.get("config", {}).get("continuous", False):
         # User task is a PROJECT objective, not an Engineer work item. Arm the
@@ -2229,7 +2280,8 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
     item = _add_only(mem, body, priority=free_priority, iterate=iterate,
-                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget)
+                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget,
+                     item_id=root_task_id)
     _maybe_name_session(chat_state, body)
     daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
     if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
@@ -2241,7 +2293,12 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
 
 
 def _maybe_auto_promote_to_continuous(
-    mem: Any, body: str, chat_state: dict[str, Any], theme: Any,
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    theme: Any,
+    *,
+    root_task_id: str | None = None,
 ) -> bool:
     """Let the Manager judge whether ``body`` is open-ended work that should run
     as a STANDING (continuous) campaign, rather than a one-shot bounded
@@ -2276,7 +2333,15 @@ def _maybe_auto_promote_to_continuous(
             theme=theme,
             accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
         ):
-            is_standing = bool(classify(body))
+            if root_task_id is None or not _accepts_keyword(
+                classify,
+                "root_task_id",
+            ):
+                is_standing = bool(classify(body))
+            else:
+                is_standing = bool(
+                    classify(body, root_task_id=root_task_id)
+                )
         if not is_standing:
             return False
     except Exception:  # noqa: BLE001 — classify failure must never force continuous
@@ -2356,7 +2421,11 @@ def _render_live_role_overlay(
 
 
 def _front_door_classify(
-    mem: Any, text: str, chat_state: dict[str, Any]
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+    *,
+    root_task_id: str | None = None,
 ) -> "tuple[Any, str]":
     """ONE merged LLM call for the cockpit front-door: returns
     ``(ConfigIntent | None, route)`` where route is ``"simple"``/``"complex"``.
@@ -2371,14 +2440,28 @@ def _front_door_classify(
         mgr = getattr(runner, "manager", None) if runner is not None else None
         if mgr is None or not hasattr(mgr, "classify_front_door"):
             return None, "complex"
-        intent, route = mgr.classify_front_door(text)
+        if root_task_id is None or not _accepts_keyword(
+            mgr.classify_front_door,
+            "root_task_id",
+        ):
+            intent, route = mgr.classify_front_door(text)
+        else:
+            intent, route = mgr.classify_front_door(
+                text,
+                root_task_id=root_task_id,
+            )
         return intent, (route if route in ("simple", "complex") else "complex")
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
         return None, "complex"
 
 
 def _maybe_handle_config_intent(
-    mem: Any, text: str, chat_state: dict[str, Any], *, on_confirm: Any = None
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+    *,
+    on_confirm: Any = None,
+    root_task_id: str | None = None,
 ) -> bool:
     """Recognize + apply a natural-language change to one of Argus's OWN runtime
     knobs (a role's backend/model/effort, a budget cap, or the safe_mode/
@@ -2400,7 +2483,16 @@ def _maybe_handle_config_intent(
     if mgr is None or not hasattr(mgr, "classify_config_intent"):
         return False
     try:
-        intent = mgr.classify_config_intent(text)
+        if root_task_id is None or not _accepts_keyword(
+            mgr.classify_config_intent,
+            "root_task_id",
+        ):
+            intent = mgr.classify_config_intent(text)
+        else:
+            intent = mgr.classify_config_intent(
+                text,
+                root_task_id=root_task_id,
+            )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
         return False
     if intent is None:
@@ -2557,11 +2649,17 @@ def _free_text_cmd(
     )
     body = body or text.strip()
     theme = chat_state.get("theme")
+    root_task_id = BacklogItem.new_id()
 
     # Natural-language change to one of Argus's own runtime knobs (backend /
     # model / effort / budget cap / a toggle)? One LLM intent call decides —
     # no keyword/regex matching — before the text becomes research work.
-    if _maybe_handle_config_intent(mem, body, chat_state):
+    if _maybe_handle_config_intent(
+        mem,
+        body,
+        chat_state,
+        root_task_id=root_task_id,
+    ):
         return
 
     # Persist this turn to the session transcript (for /resume replay + labels).
@@ -2645,7 +2743,13 @@ def _free_text_cmd(
                     else:
                         _live.update(label)
 
-                reply = manager_triage(mem, body, chat_state, on_phase=_on_phase)
+                reply = manager_triage(
+                    mem,
+                    body,
+                    chat_state,
+                    on_phase=_on_phase,
+                    root_task_id=root_task_id,
+                )
         finally:
             # Erase the overlay (LiveStatus already erased its OWN line on
             # exit — it uses "\r\x1b[2K", which clears in place without
@@ -2673,11 +2777,17 @@ def _free_text_cmd(
         # once continuous, every later task already flows through the
         # existing continuous branch below unchanged.
         if not continuous:
-            continuous = _maybe_auto_promote_to_continuous(mem, body, chat_state, theme)
+            continuous = _maybe_auto_promote_to_continuous(
+                mem,
+                body,
+                chat_state,
+                theme,
+                root_task_id=root_task_id,
+            )
 
     item, daemon_alive, daemon_pid = enqueue_mission(
         mem, body, chat_state, iterate=iterate, max_cycles=max_cycles,
-        budget=budget, theme=theme)
+        budget=budget, theme=theme, root_task_id=root_task_id)
     life_dir = _life_dir_for(mem)
     if _tlife is not None:
         _transcript.append_turn(

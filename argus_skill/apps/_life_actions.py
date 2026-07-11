@@ -66,6 +66,7 @@ def add_backlog_item(
     mem: Any,
     text: str,
     *,
+    item_id: str | None = None,
     priority: int = 100,
     iterate: bool = True,
     iteration_max_cycles: int = 6,
@@ -74,6 +75,7 @@ def add_backlog_item(
     text = text.strip()
     title = text.splitlines()[0][:60].strip() or "(untitled)"
     return mem.backlog.add(BacklogItem.new(
+        item_id=item_id,
         title=title,
         objective=text,
         priority=priority,
