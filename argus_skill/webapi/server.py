@@ -34,13 +34,12 @@ Command POSTs (task/nudge/daemon start-stop/config) land in M1.
 
 import asyncio
 import json
-import mimetypes
 import os
 import queue
 import shlex
 import threading
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
@@ -64,9 +63,9 @@ from ..daemon.life_worker import (
     stop_daemon,
     write_continuous_config,
 )
-from ..life.memory import LifeMemory, _read_jsonl_tail_history
+from ..life.memory import LifeMemory
 from ..tools.doctor import run_diagnostics
-from . import project_state
+from . import artifacts, project_state
 from .protocol import build_api_meta, protocol_header
 
 _DAEMON_ADMISSION_FILE = project_state.DAEMON_ADMISSION_FILE
@@ -78,6 +77,14 @@ _stat_signature = project_state.stat_signature
 build_snapshot = project_state.build_snapshot
 list_projects = project_state.list_projects
 project_life_dir = project_state.project_life_dir
+_artifact_metadata = artifacts.artifact_metadata
+_latest_evidence_files = artifacts.latest_evidence_files
+_manager_live_view_files = artifacts.manager_live_view_files
+_project_workspace = artifacts.project_workspace
+_resolved_project_artifact = artifacts.resolved_project_artifact
+_safe_artifact_path = artifacts.safe_artifact_path
+get_project_artifact = artifacts.get_project_artifact
+list_project_artifacts = artifacts.list_project_artifacts
 
 __all__ = [
     "DaemonStatus",
@@ -708,236 +715,6 @@ def get_journal(
     return rows
 
 
-_TEXT_ARTIFACT_SUFFIXES = {
-    ".bib", ".cfg", ".csv", ".html", ".ini", ".json", ".jsonl", ".log",
-    ".md", ".py", ".rst", ".sh", ".tex", ".toml", ".tsv", ".txt", ".yaml",
-    ".yml",
-}
-_INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
-
-
-def _project_workspace(
-    sid: str, *, global_root: Path | str | None = None,
-) -> Path | None:
-    root = _global_root(global_root)
-    meta = read_session_meta(root, sid)
-    if meta is None or not meta.cwd.strip():
-        return None
-    try:
-        workspace = Path(meta.cwd).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError):
-        return None
-    return workspace if workspace.is_dir() else None
-
-
-def _safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] | None:
-    raw = str(relative_path or "").strip().replace("\\", "/")
-    if not raw or "\x00" in raw:
-        return None
-    # Parse as a URL-style path on every OS.  PurePosixPath conveniently
-    # removes a harmless leading ``./`` without corrupting dotfiles (the old
-    # ``lstrip('./')`` changed ``.env`` into ``env``).  Reject traversal before
-    # normalization so ``a/../secret`` can never be made to look innocuous.
-    rel = PurePosixPath(raw)
-    if rel.is_absolute() or ".." in rel.parts:
-        return None
-    normalized = rel.as_posix()
-    if normalized in {"", "."}:
-        return None
-    try:
-        resolved = (workspace / normalized).resolve(strict=False)
-        resolved.relative_to(workspace)
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return normalized, resolved
-
-
-def _latest_evidence_files(
-    sid: str, *, global_root: Path | str | None = None,
-) -> list[dict[str, str]]:
-    # Evidence is scoped to the latest completed mission.  Never fall back to
-    # an older mission merely because a newer result omitted evidence: that
-    # would silently keep stale files allowlisted.  The filtered reverse reader
-    # finds that mission even after thousands of progress events/user notes and
-    # follows the single supported rollover.
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return []
-    events = _read_jsonl_tail_history(
-        life_dir / EVENT_FILE,
-        1,
-        predicate=lambda row: str(row.get("type") or "") == "life.mission.completed",
-    )
-    latest = events[-1] if events else {}
-    report = latest.get("planner_report") if isinstance(latest, dict) else {}
-    evidence = report.get("evidence_files") if isinstance(report, dict) else None
-    if not isinstance(evidence, list) or not evidence:
-        return []
-    out: list[dict[str, str]] = []
-    for item in evidence:
-        if isinstance(item, dict) and str(item.get("path") or "").strip():
-            out.append({
-                "path": str(item["path"]).strip(),
-                "why": str(item.get("why") or "").strip(),
-            })
-    return out
-
-
-def _manager_live_view_files(workspace: Path) -> list[dict[str, str]]:
-    """Manager-selected files for the active project view.
-
-    The declaration is project-local and already path-normalized by the
-    Manager boundary. Re-parse it here so a hand-edited/corrupt manifest cannot
-    expand the artifact allowlist.
-    """
-    from ..manager.live_view import load_live_view_decision
-
-    view = load_live_view_decision(workspace)
-    if view is None:
-        return []
-    return [
-        {
-            "path": path,
-            "why": view.reason,
-            "source": "manager_live",
-            "group_title": view.title,
-        }
-        for path in view.paths
-    ]
-
-
-def _artifact_metadata(
-    workspace: Path,
-    relative_path: str,
-    *,
-    why: str = "",
-    preview_bytes: int = 0,
-) -> dict[str, Any] | None:
-    safe = _safe_artifact_path(workspace, relative_path)
-    if safe is None:
-        return None
-    normalized, resolved = safe
-    try:
-        exists = resolved.is_file()
-        stat = resolved.stat() if exists else None
-    except OSError:
-        exists = False
-        stat = None
-    mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
-    suffix = resolved.suffix.lower()
-    kind = (
-        "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
-        else "image" if mime in _INLINE_IMAGE_MIMES
-        else "pdf" if mime == "application/pdf"
-        else "binary"
-    )
-    row: dict[str, Any] = {
-        "path": normalized,
-        "name": Path(normalized).name,
-        "why": why,
-        "exists": exists,
-        "kind": kind,
-        "mime": mime,
-        "size": int(stat.st_size) if stat is not None else 0,
-        "mtime": float(stat.st_mtime) if stat is not None else None,
-    }
-    if preview_bytes > 0 and exists and kind == "text":
-        try:
-            # Read only the preview window.  ``Path.read_bytes()[:limit]``
-            # still allocates the whole file first and lets a huge allowlisted
-            # log exhaust the API process.
-            with resolved.open("rb") as fh:
-                raw = fh.read(preview_bytes + 1)
-            row["preview"] = raw[:preview_bytes].decode("utf-8", errors="replace")
-            row["truncated"] = len(raw) > preview_bytes
-        except OSError:
-            row["preview"] = ""
-            row["truncated"] = False
-    return row
-
-
-def list_project_artifacts(
-    sid: str, *, global_root: Path | str | None = None,
-) -> list[dict[str, Any]] | None:
-    """Manager live-view files plus latest reviewer evidence, workspace-confined."""
-    if project_life_dir(sid, global_root=global_root) is None:
-        return None
-    workspace = _project_workspace(sid, global_root=global_root)
-    if workspace is None:
-        return []
-    rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    evidence_rows = [
-        *_manager_live_view_files(workspace),
-        *(
-            {
-                **evidence,
-                "source": "reviewer_evidence",
-                "group_title": "Latest reviewed result",
-            }
-            for evidence in _latest_evidence_files(sid, global_root=global_root)
-        ),
-    ]
-    for evidence in evidence_rows:
-        row = _artifact_metadata(workspace, evidence["path"], why=evidence["why"])
-        if row is not None and row["path"] not in seen:
-            row["source"] = evidence["source"]
-            row["group_title"] = evidence["group_title"]
-            seen.add(row["path"])
-            rows.append(row)
-    return rows
-
-
-def get_project_artifact(
-    sid: str,
-    artifact_path: str,
-    *,
-    global_root: Path | str | None = None,
-    preview_bytes: int = 128 * 1024,
-) -> dict[str, Any] | None:
-    """Metadata/preview for a Manager- or Reviewer-allowlisted artifact."""
-    artifacts = list_project_artifacts(sid, global_root=global_root)
-    if artifacts is None:
-        return None
-    workspace = _project_workspace(sid, global_root=global_root)
-    if workspace is None:
-        return None
-    safe_requested = _safe_artifact_path(workspace, artifact_path)
-    if safe_requested is None:
-        return None
-    requested = safe_requested[0]
-    allowed = next((row for row in artifacts if row["path"] == requested), None)
-    if allowed is None or not allowed["exists"]:
-        return None
-    row = _artifact_metadata(
-        workspace,
-        requested,
-        why=str(allowed.get("why") or ""),
-        preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)),
-    )
-    if row is None:
-        return None
-    row["source"] = str(allowed.get("source") or "reviewer_evidence")
-    row["group_title"] = str(allowed.get("group_title") or "")
-    return row
-
-
-def _resolved_project_artifact(
-    sid: str,
-    artifact_path: str,
-    *,
-    global_root: Path | str | None = None,
-) -> tuple[dict[str, Any], Path] | None:
-    info = get_project_artifact(
-        sid, artifact_path, global_root=global_root, preview_bytes=0,
-    )
-    workspace = _project_workspace(sid, global_root=global_root)
-    if info is None or workspace is None:
-        return None
-    safe = _safe_artifact_path(workspace, str(info["path"]))
-    if safe is None or not safe[1].is_file():
-        return None
-    return info, safe[1]
 
 
 def add_project_note(
