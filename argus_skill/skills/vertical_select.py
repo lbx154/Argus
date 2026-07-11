@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "research", "quant", "speedrun",
+    "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam",
 )
@@ -77,6 +77,10 @@ VERTICALS: tuple[str, ...] = (
 VERTICAL_PURPOSES: dict[str, str] = {
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
+    "math": "mathematical conjectures, proofs, and open research problems; dynamically "
+    "choose background retrieval, examples/counterexamples, computation, natural-language "
+    "proof, and Lean formalization as appropriate; not a paper pipeline or a "
+    "metric-optimization vertical",
     "quant": "finance factor-research REPORT — mine/evaluate equity factors "
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
