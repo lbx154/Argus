@@ -27,6 +27,7 @@ from typing import Callable
 
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.ports import RunnerBackend
+from ..core.run_gateway import run_exec as gateway_run_exec
 from .skill_prompts import Prompts
 
 log = logging.getLogger(__name__)
@@ -718,7 +719,8 @@ class SkillStore:
                 task_description, batch, requesting_role=role
             )
             try:
-                result: RunnerResult = self.runner.run_exec(
+                result: RunnerResult = gateway_run_exec(
+                    self.runner,
                     prompt=prompt,
                     options=RunnerOptions(
                         model=self.matcher_model,

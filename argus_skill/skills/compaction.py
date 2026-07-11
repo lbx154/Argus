@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -193,7 +194,8 @@ def llm_plan_compaction(
             continue
         prompt = Prompts.skill_compaction_batch([_summary_of(s) for s in batch])
         try:
-            result = judge_runner.run_exec(
+            result = gateway_run_exec(
+                judge_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=judge_model or None,

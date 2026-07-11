@@ -41,6 +41,7 @@ from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
 from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
 from ..core.models import RunnerResult
 from ..core.ports import EventSink
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ..life import BacklogItem  # noqa: F401 — re-exported convenience
 from ..life.supervisor import (
@@ -943,7 +944,7 @@ class _SkillLoopRunner:
     def stream_to(self, sink: EventSink):
         """Context manager: temporarily route stream lines to *sink*.
 
-        Use this when calling ``backend.run_exec()`` directly (critic /
+        Use this when calling the execution gateway directly (critic /
         planner) outside the normal ``execute()`` path so that streaming
         events still flow through the trampoline to the event sink.
         """
@@ -971,7 +972,7 @@ class _SkillLoopRunner:
         silently no-op'd). Delegate to the same backend the Manager itself uses.
         """
         backend = self.manager_backend or self._backend
-        return backend.run_exec(**kwargs)
+        return gateway_run_exec(backend, **kwargs)
 
     def _maybe_chat_outcome(
         self,
@@ -1002,7 +1003,8 @@ class _SkillLoopRunner:
         )
 
         def _classify_run_exec(prompt: str) -> Any:
-            return self._backend.run_exec(
+            return gateway_run_exec(
+                self._backend,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self._args.engineer_model,
@@ -1114,7 +1116,8 @@ class _SkillLoopRunner:
         )
 
         def _classify_run_exec(prompt: str) -> Any:
-            return self._backend.run_exec(
+            return gateway_run_exec(
+                self._backend,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self._args.engineer_model,
@@ -1692,7 +1695,8 @@ class _SkillLoopRunner:
         self._current_sink = sink
         self._current_failure_ledger = None
         try:
-            result = self._backend.run_exec(
+            result = gateway_run_exec(
+                self._backend,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=args.engineer_model,
@@ -1974,7 +1978,8 @@ class _SkillLoopRunner:
                 pass
 
         try:
-            result = self._backend.run_exec(
+            result = gateway_run_exec(
+                self._backend,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=args.engineer_model,

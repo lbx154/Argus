@@ -39,6 +39,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
     emit_subagent_cost_events,
@@ -1760,7 +1761,8 @@ class SupervisedEngineer:
                 )
                 effective_progress_provider = effective_progress_watchdog.interrupt_reason
         try:
-            result = self.engineer_runner.run_exec(
+            result = gateway_run_exec(
+                self.engineer_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.engineer_config.model,

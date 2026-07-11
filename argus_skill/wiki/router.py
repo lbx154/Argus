@@ -33,11 +33,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.provenance import verify_evidence
 from .compaction import build_duplicate_check_prompt
 from .index import rebuild_indexes
 from .schema import PageCard, SourceNote
-from .store import WikiStore, _PAGE_SUBDIR, _validate_stem
+from .store import _PAGE_SUBDIR, WikiStore, _validate_stem
 
 log = logging.getLogger(__name__)
 
@@ -216,7 +217,8 @@ class WikiRouter:
             title=title, body=body, card_type=card_type, existing_pages=pages,
         )
         try:
-            result = self.judge_runner.run_exec(
+            result = gateway_run_exec(
+                self.judge_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.judge_model or None,

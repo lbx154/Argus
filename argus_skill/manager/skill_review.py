@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +86,8 @@ def classify_skill_placement(
         'use "stay".'
     )
     try:
-        result = runner.run_exec(
+        result = gateway_run_exec(
+            runner,
             prompt=prompt,
             options=RunnerOptions(
                 model=model or None,

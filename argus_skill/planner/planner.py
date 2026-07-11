@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.role_context import format_role_context
 
 MIN_PLANNER_IMPACT_SCORE = 4
@@ -194,7 +195,8 @@ class Planner:
             meta_block=(flow.prompt_block if flow is not None else ""),
         )
         try:
-            result = self.runner.run_exec(
+            result = gateway_run_exec(
+                self.runner,
                 prompt=prompt,
                 resume_thread_id=None,
                 options=RunnerOptions(

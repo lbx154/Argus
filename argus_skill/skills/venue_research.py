@@ -18,6 +18,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 from .venue_profiles import (
     _venue_key_from_pipeline_state,
     is_builtin_venue,
@@ -103,10 +105,9 @@ def research_venue_profile(
         if not needs_venue_research(workdir):
             return False
         venue = _target_venue(workdir) or ""
-        from ..core.models import RunnerOptions
-
         log.info("venue-research: codex live web-search for venue %r", venue)
-        runner.run_exec(
+        gateway_run_exec(
+            runner,
             prompt=_build_prompt(venue),
             options=RunnerOptions(
                 model=model,

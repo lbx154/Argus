@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -212,7 +213,8 @@ def llm_cluster_wiki(
             continue
         prompt = build_compaction_batch_prompt(batch)
         try:
-            result = judge_runner.run_exec(
+            result = gateway_run_exec(
+                judge_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=judge_model or None,

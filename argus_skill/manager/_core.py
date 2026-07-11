@@ -34,6 +34,7 @@ try:  # POSIX advisory file locking; absent on Windows.
 except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills import vertical_select
 from ..skills.vertical_select import (
     persist_vertical,
@@ -172,7 +173,8 @@ class _ManagerSession:
         nested under it.
         """
         def _no_session() -> Any:
-            return self.runner.run_exec(
+            return gateway_run_exec(
+                self.runner,
                 prompt=prompt, options=options, run_label=run_label
             )
 
@@ -192,7 +194,8 @@ class _ManagerSession:
                 return _no_session()
             try:
                 tid = self._read_tid()
-                result = self.runner.run_exec(
+                result = gateway_run_exec(
+                    self.runner,
                     prompt=prompt,
                     options=options,
                     run_label=run_label,
@@ -483,7 +486,8 @@ class Manager:
             existing_data_domains=existing,
         )
         safe_mode = _manager_safe_mode()
-        result = backend.run_exec(
+        result = gateway_run_exec(
+            backend,
             prompt=prompt,
             options=RunnerOptions(
                 reasoning_effort=_manager_reasoning_effort(),
@@ -681,7 +685,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -723,7 +728,8 @@ class Manager:
             _backend = self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -763,7 +769,8 @@ class Manager:
             ).strip() or "low"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_effort,
@@ -793,7 +800,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -823,7 +831,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -944,7 +953,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),

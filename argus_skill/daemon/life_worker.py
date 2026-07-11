@@ -45,6 +45,8 @@ except ImportError:  # pragma: no cover - detached daemon is POSIX-only
 from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
+from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.usage import format_usage_cost
 from ..life.memory import BacklogItem, GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ..life.supervisor import (
@@ -978,13 +980,14 @@ class LifeWorker:
         if backend is None:
             return None
         from ..core.knobs import resolve_role_model
-        from ..core.models import RunnerOptions
+
         model = resolve_role_model("curator", role_env="ARGUS_SKILL_CURATOR_MODEL")
         effort = os.environ.get("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high")
         workdir = str(self.config.project_workdir) if self.config.project_workdir else None
 
         def _distill(prompt: str) -> str:
-            result = backend.run_exec(
+            result = gateway_run_exec(
+                backend,
                 prompt=prompt,
                 options=RunnerOptions(model=model or None, reasoning_effort=effort,
                                       skip_git_repo_check=True, full_auto=True,

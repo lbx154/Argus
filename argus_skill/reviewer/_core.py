@@ -19,6 +19,7 @@ from typing import Any
 
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
@@ -335,7 +336,8 @@ class Reviewer:
         delta = (_REEVALUATE_HEADER + delta_base) if resume else delta_base
         prompt = delta if resume else static + delta
         try:
-            result = self.runner.run_exec(
+            result = gateway_run_exec(
+                self.runner,
                 prompt=prompt,
                 resume_thread_id=resume,
                 options=RunnerOptions(

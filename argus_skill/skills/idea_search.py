@@ -24,6 +24,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
+
 log = logging.getLogger(__name__)
 
 #: Provenance marker delimiting the codex-web-search block in IDEA_CANDIDATES.md.
@@ -127,14 +130,12 @@ def augment_idea_candidates(
         resolved = _resolve_direction(workdir, direction)
         if not resolved:
             return 0
-
-        from ..core.models import RunnerOptions
-
         log.info(
             "idea-search: running codex live web-search (model=%s, n=%d) for %r",
             model, n, resolved[:80],
         )
-        result = runner.run_exec(
+        result = gateway_run_exec(
+            runner,
             prompt=_build_prompt(resolved, n),
             options=RunnerOptions(
                 model=model,
