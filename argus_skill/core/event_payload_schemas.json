@@ -573,6 +573,8 @@
         "card_type": {"type": "string"},
         "page_id": {"type": "string", "minLength": 1},
         "target_id": {"type": "string", "minLength": 1},
+        "retired_path": {"type": "string"},
+        "evidence_sources": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"}
       }
     },

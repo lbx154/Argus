@@ -527,6 +527,8 @@ export interface WikiCompactedEvent extends EventMsg {
   "card_type": string;
   "page_id": string;
   "target_id": string;
+  "retired_path"?: string;
+  "evidence_sources"?: Array<string>;
   "text"?: string;
 }
 

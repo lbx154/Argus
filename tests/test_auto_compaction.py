@@ -231,6 +231,9 @@ def test_auto_compact_merges_preexisting_near_duplicate_wiki_pages(tmp_path: Pat
 
     assert any(e.get("type") == "wiki.compacted" for e in events), [
         e.get("type") for e in events]
+    compacted = next(e for e in events if e.get("type") == "wiki.compacted")
+    assert compacted["evidence_sources"] == []
+    assert Path(compacted["retired_path"]).exists()
     remaining = WikiStore(wiki_root).iter_pages()
     assert len(remaining) == 1
     # The higher-status (candidate) page won over the scratch one.

@@ -220,6 +220,7 @@ def evolve_wikis_after_mission(
             )
             totals["compaction_clusters"] += int(compact.get("clusters", 0) or 0)
             totals["compacted"] += int(compact.get("retired", 0) or 0)
+            totals["skipped"] += int(compact.get("skipped", 0) or 0)
             totals["errors"] += int(compact.get("errors", 0) or 0)
 
     _emit(
