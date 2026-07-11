@@ -342,6 +342,41 @@ export function overlayRoleActivities(roles: Role[], events: EventMsg[]): Role[]
   return merged;
 }
 
+/** Overlay UI-local work that has not been journaled to the project event log. */
+export function overlayActiveRole(
+  roles: Role[],
+  roleName: string,
+  label: string,
+  ageS = 0,
+): Role[] {
+  const activityLabel = label.trim() || 'working';
+  const activeAge = Math.max(0, ageS);
+  let found = false;
+  const merged = roles.map((role) => {
+    if (role.role !== roleName) return role;
+    found = true;
+    return {
+      ...role,
+      active: true,
+      label: activityLabel,
+      status: 'running',
+      age_s: activeAge,
+    };
+  });
+  if (found) return merged;
+  return merged.concat({
+    role: roleName,
+    backend: '',
+    backend_label: '',
+    model: '',
+    effort: null,
+    active: true,
+    label: activityLabel,
+    status: 'running',
+    age_s: activeAge,
+  });
+}
+
 export function activityHistory(events: EventMsg[], max = 10): ActivityView[] {
   return events
     .map(toActivityView)

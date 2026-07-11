@@ -35,7 +35,12 @@ import { useTerminalSize } from './useTerminalSize.js';
 import { filterProjects, rankProjects } from '../../core/src/projects.js';
 import { moveSelection } from './input/selection.js';
 import { visibleBacklogItems } from '../../core/src/backlog.js';
-import { latestRunningActivity, overlayRoleActivities, reduceOperatorEvent } from '../../core/src/activity.js';
+import {
+  latestRunningActivity,
+  overlayActiveRole,
+  overlayRoleActivities,
+  reduceOperatorEvent,
+} from '../../core/src/activity.js';
 import {
   daemonDraftValues,
   daemonFormInput,
@@ -903,7 +908,18 @@ export function App({ host, port, token, project: initialProject, initialNotice 
   const comps = slashCompletions(edit.value);
   const backgroundExcludedRoles = pending ? ['manager'] : [];
   const activeActivity = latestRunningActivity(events, backgroundExcludedRoles);
-  const displayRoles = overlayRoleActivities(snap?.roles ?? [], events);
+  const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
+  const managerPhase = (phase || 'handling your message')
+    .replace(/^Manager\s*·\s*/i, '')
+    .replace(/[.…]+$/u, '');
+  const displayRoles = pending
+    ? overlayActiveRole(
+        eventRoles,
+        'manager',
+        managerPhase,
+        Math.max(0, (Date.now() - startedAt) / 1000),
+      )
+    : eventRoles;
   const healthNotice = snapshotError
     ? `snapshot refresh failed · ${snapshotError}`
     : streamError && !connected

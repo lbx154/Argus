@@ -36,8 +36,9 @@ exits non-zero instead of silently changing its target.
 ## Everyday controls
 
 - Type natural language and press Enter to talk to the Manager front door.
-- Multiline clipboard paste is supported. The input shows a compact cursor
-  window and character count while retaining the complete text sent on Enter.
+- Multiline clipboard paste is supported. The input automatically wraps up to
+  four rows around the cursor and shows a character count only when clipped,
+  while retaining the complete text sent on Enter.
 - One Manager turn runs at a time. Switching daemons cancels the old stream, so
   late phases or replies can never appear in the newly selected project. Press
   Esc or use `/cancel` (`/abort`) to stop waiting without switching; the notice

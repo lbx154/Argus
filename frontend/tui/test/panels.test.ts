@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 import React from 'react';
 import { Box, render } from 'ink';
+import stringWidth from 'string-width';
 import { PanelView, type PanelState } from '../src/components/panels.js';
 import { Header } from '../src/components/Header.js';
 import { Footer } from '../src/components/Footer.js';
@@ -125,7 +126,7 @@ test('pending Manager line exposes stop-waiting help at narrow widths', async ()
   }
 });
 
-test('long multiline paste renders as a bounded single-line preview', async () => {
+test('long input wraps while keeping a bounded view around the caret', async () => {
   const value = `first line\n${'long prompt '.repeat(20)}final line`;
   const output = await renderNode(
     React.createElement(PromptBox, {
@@ -134,10 +135,43 @@ test('long multiline paste renders as a bounded single-line preview', async () =
     }),
     60,
   );
-  assert.match(output, /·261/);
+  assert.match(output, /261 chars/);
   assert.match(output.replace(/\s+/g, ' '), /final.*line/);
   assert.doesNotMatch(output, /first line/);
+  assert.ok(output.split('\n').length > 3);
   assert.ok(output.split('\n').every((line) => Array.from(line).length <= 60));
+});
+
+test('an unclipped prompt automatically wraps instead of truncating', async () => {
+  const value = '1234567890'.repeat(8);
+  const output = await renderNode(
+    React.createElement(PromptBox, {
+      edit: { value, cursor: Array.from(value).length },
+      width: 60,
+    }),
+    60,
+  );
+  const finalFrame = output.slice(output.lastIndexOf('╭'));
+  assert.equal((finalFrame.match(/\d/g) ?? []).length, value.length);
+  assert.doesNotMatch(finalFrame, /chars/);
+  assert.ok(finalFrame.split('\n').length >= 5);
+  assert.ok(finalFrame.split('\n').every((line) => Array.from(line).length <= 60));
+});
+
+test('wrapped prompt respects terminal cell widths for CJK text', async () => {
+  const value = `${'前'.repeat(80)}光标位置${'后'.repeat(80)}`;
+  const output = await renderNode(
+    React.createElement(PromptBox, {
+      edit: { value, cursor: 82 },
+      width: 60,
+    }),
+    60,
+  );
+  const finalFrame = output.slice(output.lastIndexOf('╭'));
+  assert.match(finalFrame, /光标位置/);
+  assert.match(finalFrame, /164 chars/);
+  assert.ok(finalFrame.split('\n').length <= 7);
+  assert.ok(finalFrame.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
 test('Manager waiting line distinguishes the foreground message and hides handoff internals', async () => {
