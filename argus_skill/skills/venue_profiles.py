@@ -73,6 +73,13 @@ class VenueProfile:
     conclusion_max_page: int
     references_min_page: int
 
+    # ---- column layout --------------------------------------------------
+    # Two-column venues (EMNLP/ACL/AAAI/CVPR-style) distinguish a single-column
+    # ``figure`` from a full-width ``figure*``; the layout review enforces that
+    # teaser/pipeline visuals use ``figure*``. Single-column venues (NeurIPS,
+    # ICML, …) have no such distinction, so those checks are skipped for them.
+    two_column: bool = True
+
     # ---- end-matter contract -------------------------------------------
     # Sections that MUST appear after Conclusion (ACL: Limitations + Ethics;
     # AAAI: none). ``post_reference_sections`` are sections legitimately

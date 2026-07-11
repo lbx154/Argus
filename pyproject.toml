@@ -42,6 +42,20 @@ dependencies = [
 # `pip install 'argus-skill[codex]'` invocations in user scripts still
 # succeed without pulling in anything.
 codex = []
+# `argus-skill[figures]` — publication chart styling for scripted DATA plots
+# (argus_skill/builtin_skills/engineer/figure_spec_scripts/paper_chart_style.py:
+# SciencePlots base + colour-blind-safe seaborn palettes + font embedding).
+# Kept OUT of the base deps: the daemon/cockpit never plot, and paper projects
+# install these into their OWN venv (the `paper-chart-styling` skill copies the
+# helper into `paper/analysis/` and runs `pip install matplotlib seaborn
+# SciencePlots` there). Declared here so `argus-skill[figures]` is available for
+# environments that do want them on the harness side, and the helper degrades to
+# plain matplotlib if they are absent.
+figures = [
+  "matplotlib>=3.8",
+  "seaborn>=0.13",
+  "SciencePlots>=2.1",
+]
 # `argus-skill[signing]` — the Ed25519 result-provenance feature
 # (argus_skill/team/result_provenance.py) is off by default (inert unless
 # ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY is set) and
