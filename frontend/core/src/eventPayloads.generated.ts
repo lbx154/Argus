@@ -325,6 +325,58 @@ export interface SkillArchivedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface SkillEvolutionCompletedEvent extends EventMsg {
+  type: "skill.evolution.completed";
+  payload_schema_version?: 1;
+  "ops_proposed": number;
+  "created": number;
+  "updated": number;
+  "archived": number;
+  "rejected": number;
+  "compaction_clusters"?: number;
+  "compacted"?: number;
+  "errors"?: number;
+  "text"?: string;
+}
+
+export interface WikiInitializedEvent extends EventMsg {
+  type: "wiki.initialized";
+  payload_schema_version?: 1;
+  "project": string;
+  "path": string;
+  "auto": boolean;
+  "text"?: string;
+}
+
+export interface WikiInitializationFailedEvent extends EventMsg {
+  type: "wiki.initialization.failed";
+  payload_schema_version?: 1;
+  "workdir": string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiEvolutionCompletedEvent extends EventMsg {
+  type: "wiki.evolution.completed";
+  payload_schema_version?: 1;
+  "wiki_count": number;
+  "ops_proposed": number;
+  "sources"?: number;
+  "scratch_pages"?: number;
+  "created"?: number;
+  "updated"?: number;
+  "retired"?: number;
+  "skipped"?: number;
+  "rejected"?: number;
+  "promoted"?: number;
+  "demoted"?: number;
+  "compaction_clusters"?: number;
+  "compacted"?: number;
+  "errors"?: number;
+  "paths"?: Array<string>;
+  "text"?: string;
+}
+
 export interface ResearchHypothesisProposedEvent extends EventMsg {
   type: "research.hypothesis.proposed";
   payload_schema_version?: 1;
@@ -478,6 +530,10 @@ export interface EventPayloadByType {
   "skill.created": SkillCreatedEvent;
   "skill.updated": SkillUpdatedEvent;
   "skill.archived": SkillArchivedEvent;
+  "skill.evolution.completed": SkillEvolutionCompletedEvent;
+  "wiki.initialized": WikiInitializedEvent;
+  "wiki.initialization.failed": WikiInitializationFailedEvent;
+  "wiki.evolution.completed": WikiEvolutionCompletedEvent;
   "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
   "research.experiment.started": ResearchExperimentStartedEvent;
   "research.experiment.completed": ResearchExperimentCompletedEvent;

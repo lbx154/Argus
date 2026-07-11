@@ -36,6 +36,9 @@ from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
 from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
+from ..core.mission_budget import (
+    build_mission_budget_guard as _budget_reason_provider,
+)
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -935,6 +938,10 @@ class _SkillLoopRunner:
                 "ARGUS_SKILL_WIKI_OPS",
                 default=True,
             ),
+            "auto_init_wiki": _env_flag(
+                "ARGUS_SKILL_AUTO_INIT_WIKI",
+                default=True,
+            ),
             "auto_compact_enabled": _env_flag(
                 "ARGUS_SKILL_AUTO_COMPACT",
                 # Compaction is an explicit maintenance operation, not part of
@@ -956,6 +963,7 @@ class _SkillLoopRunner:
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
             ),
+            "session_id": mission_id,
             # Process-correctness audit: the reviewer runs in the project
             # work-tree and only sees the engineer's final summary. Give it the
             # ABSOLUTE path to this project's engineer execution log
@@ -1847,31 +1855,6 @@ def _resolve_runner_backend_name(
     if resolved in ("codex", "claude", "copilot"):
         return resolved
     return None
-
-
-def _budget_reason_provider(budget: Any) -> "Callable[[], str | None] | None":
-    """A live interrupt provider that trips once a ``MissionBudget`` hits its cap.
-
-    ``None`` when there is no budget (or it lacks ``exceeded``) — the cap is then
-    unenforced, exactly as before. Otherwise returns a callable polled at the
-    source (``AgentCliRunner.run_exec``) before every LLM call: a non-empty reason
-    once ``budget.exceeded()`` (which is itself ``cap_usd > 0 and spent >= cap``),
-    so no new call fires past the cap."""
-    if budget is None or not hasattr(budget, "exceeded"):
-        return None
-
-    def _check() -> "str | None":
-        try:
-            if budget.exceeded():
-                return (
-                    f"per-mission budget ${float(budget.cap_usd):.2f} exhausted "
-                    f"(spent ${float(budget.spent()):.2f})"
-                )
-        except Exception:  # noqa: BLE001 — a budget-probe fault must never wedge a call
-            return None
-        return None
-
-    return _check
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):

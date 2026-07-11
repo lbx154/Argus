@@ -46,6 +46,7 @@ from ._config import (
     reserve_global_daily_budget,
 )
 from ._cost import _CostTrackingSink, copilot_usd_for_premium_requests
+from ._evolution import EvolutionMixin
 from ._helpers import (
     _entry_task_signature,
     _legacy_final_submission_marker,
@@ -130,14 +131,6 @@ def _idle_exit_seconds() -> float:
     return max(0.0, minutes) * 60.0
 
 
-def _per_mission_distill_enabled() -> bool:
-    """Whether to distill a reusable skill from EACH mission's process data at
-    completion. OFF by default (it's an LLM classify + commit after every mission);
-    ``ARGUS_SKILL_PER_MISSION_DISTILL=1`` opts in. When off, distillation runs only
-    on clean daemon shutdown."""
-    return os.environ.get("ARGUS_SKILL_PER_MISSION_DISTILL", "").strip().lower() in (
-        "1", "true", "yes", "on")
-
 # Legacy heartbeat used by budget pauses and tests that exercise the old idle
 # gate. Planner waiting/idling is now represented by structured events.
 _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
@@ -176,6 +169,7 @@ _FULL_PAPER_GATE_DESCRIPTION = (
 
 
 class LifeSupervisor(
+    EvolutionMixin,
     LifecycleMixin,
     PlannerOrchestrationMixin,
     PlannerRenderingMixin,
@@ -986,6 +980,11 @@ class LifeSupervisor(
         status = str(getattr(outcome, "status", "error") if outcome else "error")
         rounds = int(getattr(outcome, "rounds", 0) or 0)
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
+        self._evolve_runtime_skills_after_mission(
+            success=success,
+            item_id=item.id,
+            mission_budget=mission_budget,
+        )
         usage_summary = cost_sink.usage_summary()
         usd = usage_summary.cost_usd
         known_usd = usage_summary.known_cost_usd
@@ -1197,35 +1196,6 @@ class LifeSupervisor(
             "final_submission_certified": final_submission_certified,
             "iteration": None,
         })
-
-        # Manager "janitor": when a mission completes successfully, review the
-        # Manager "janitor": when a mission completes successfully, review the
-        # runtime library's distilled skills and write each back into the argus
-        # SOURCE tree — a cross-domain capability → builtin_skills/, a
-        # domain-specific one → verticals/<v>/skills/ — then commit. Anything too
-        # specific is left in the runtime library. Fully fail-soft; never blocks
-        # completion.
-        if kind == "mission_complete" and _per_mission_distill_enabled():
-            try:
-                # Per-mission skill distillation: classify THIS mission's process
-                # data into a reusable skill (builtin / vertical) + commit, so the
-                # next mission inherits what was learned. OFF by default and gated
-                # on ARGUS_SKILL_PER_MISSION_DISTILL because it is an LLM classify +
-                # source write after EVERY mission across all live daemons (a real
-                # cost). When the gate is off, distillation happens only on clean
-                # daemon shutdown (see life_worker._distill_on_shutdown).
-                from ...manager.skill_tidy import tidy_after_mission
-
-                counts = tidy_after_mission(
-                    self._project_workdir(),
-                    self.runner,
-                    project_state_dir=getattr(self.memory, "project_root", None),
-                    on_event=self._emit,
-                )
-                if counts.get("to_builtin") or counts.get("to_vertical"):
-                    log.info("manager skill tidy-up after mission: %s", counts)
-            except Exception:  # noqa: BLE001 — tidy must never break completion
-                log.warning("manager skill tidy-up after mission failed", exc_info=True)
 
         return {
             "item_id": item.id,

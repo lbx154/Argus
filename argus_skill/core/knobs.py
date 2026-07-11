@@ -123,6 +123,9 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "let end-of-mission skill tidy-up git-commit distilled skills to the argus repo (default OFF — never auto-commits the operator's working tree)", "lifecycle"),
     Knob("ARGUS_SKILL_PER_MISSION_DISTILL", "off", "promote eligible runtime skills after EACH mission (default OFF)", "lifecycle"),
     Knob("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "off", "promote eligible runtime skills into the source tree on clean shutdown (explicit opt-in)", "lifecycle"),
+    Knob("ARGUS_SKILL_SKILL_OPS", "on", "apply reviewer-proposed create/update/archive operations to project skills", "lifecycle"),
+    Knob("ARGUS_SKILL_WIKI_OPS", "on", "apply reviewer-proposed project wiki operations after each mission", "lifecycle"),
+    Knob("ARGUS_SKILL_AUTO_INIT_WIKI", "on", "bootstrap a project wiki before the first SkillLoop mission", "lifecycle"),
     Knob("ARGUS_SKILL_AUTO_COMPACT", "off", "run LLM skill/wiki compaction after every mission (default OFF; use explicit maintenance)", "lifecycle"),
     Knob("ARGUS_SKILL_METRICS_MAX_BYTES", "16777216", "rotate metrics.jsonl after this many bytes", "telemetry"),
     Knob("ARGUS_SKILL_METRICS_RETENTION_DAYS", "7", "delete rotated metrics archives older than this many days", "telemetry"),
@@ -159,6 +162,9 @@ _EFFORT_KNOBS = frozenset(
 _TOGGLE_KNOBS = frozenset(
     {
         "ARGUS_SKILL_COST_CONTROL",
+        "ARGUS_SKILL_SKILL_OPS",
+        "ARGUS_SKILL_WIKI_OPS",
+        "ARGUS_SKILL_AUTO_INIT_WIKI",
         "ARGUS_SKILL_SAFE_MODE",
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",

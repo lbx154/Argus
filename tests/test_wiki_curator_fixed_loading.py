@@ -25,6 +25,22 @@ def test_returns_none_when_no_wiki(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert text is None
 
 
+def test_explicit_workdir_wins_over_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    process_cwd = tmp_path / "process"
+    project = tmp_path / "project"
+    process_cwd.mkdir()
+    project.mkdir()
+    monkeypatch.chdir(process_cwd)
+    init_wiki("demo", base=project)
+
+    text = _load_wiki_curator_skill_if_present(project)
+
+    assert text is not None
+
+
 def test_curator_not_loaded_for_uninitialized_wiki(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -59,3 +75,32 @@ def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
 
     assert "Wiki curator (fixed when a wiki exists" in prompt
     assert "wiki-curator" in prompt.lower() or "Wiki Curator" in prompt
+
+
+def test_reviewer_prompt_uses_configured_workdir_for_wiki(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    process_cwd = tmp_path / "process"
+    project = tmp_path / "project"
+    process_cwd.mkdir()
+    project.mkdir()
+    monkeypatch.chdir(process_cwd)
+    init_wiki("demo", base=project)
+    persist_vertical(project, "research")
+    reviewer = Reviewer(runner=object())
+
+    prompt = reviewer._build_prompt(
+        objective="diagnose a training failure",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=0,
+        session_id=None,
+        main_summary="summary",
+        main_error=None,
+        working_dir=project,
+    )
+
+    assert "Wiki curator (fixed when a wiki exists" in prompt

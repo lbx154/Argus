@@ -34,6 +34,7 @@ class EventCategory(StrEnum):
     RESEARCH = "research"
     SKILL = "skill"
     USAGE = "usage"
+    WIKI = "wiki"
 
 
 class EventType(StrEnum):
@@ -106,6 +107,10 @@ class EventType(StrEnum):
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
+    SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
+    WIKI_INITIALIZED = "wiki.initialized"
+    WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
+    WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
     OPERATOR_ALERT = "operator_alert"
 
 
@@ -130,6 +135,10 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_INITIALIZATION_FAILED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MANAGER_INTENT_STARTED,
@@ -210,6 +219,8 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.PLANNER
     if value.startswith("skill."):
         return EventCategory.SKILL
+    if value.startswith("wiki."):
+        return EventCategory.WIKI
     if value.startswith("idea."):
         return EventCategory.IDEA
     if value.startswith("research."):

@@ -346,6 +346,10 @@ def test_execute_uses_full_pipeline_on_real_task(
         reviewer_model: str | None = None
         max_rounds: int = 1
         skill_writeback: bool = True
+        skill_ops_enabled: bool = False
+        wiki_ops_enabled: bool = False
+        auto_init_wiki: bool = False
+        session_id: str | None = None
         dangerous_yolo: bool = True
         full_auto: bool = False
         skip_git_repo_check: bool = True
@@ -356,7 +360,11 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     runner._SkillLoopConfig = _StubConfig
 
-    out = runner.execute(objective="implement a binary tree in src/tree.py", sink=sink)
+    out = runner.execute(
+        objective="implement a binary tree in src/tree.py",
+        sink=sink,
+        mission_id="mission-tree",
+    )
 
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
@@ -370,6 +378,9 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert isinstance(layered, LayeredSkillStore)
     assert layered.project.skills_dir == tmp_path / "project-state" / "skills"
     assert layered.global_.skills_dir == tmp_path / "global-skills"
+    assert loop_kwargs[0]["config"].wiki_ops_enabled is True
+    assert loop_kwargs[0]["config"].auto_init_wiki is True
+    assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
     backend.calls.clear()
     planned_tasks.clear()

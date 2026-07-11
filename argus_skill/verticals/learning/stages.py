@@ -48,8 +48,8 @@ WIRING STATUS (be honest about what is live vs pending — no overselling):
 * LIVE: the SkillRouter protected/active floors, the WikiStore
   retire tombstone, AND (harness-level, every vertical including this one) the
   ``wiki_ops`` reviewer schema field + generic ``WikiRouter`` application at
-  mission end (``SkillLoop._apply_wiki_ops``, mirroring ``skill_ops`` /
-  ``_apply_skill_ops``) — a reviewer verdict on ANY mission can now propose
+  mission end (``wiki.lifecycle.evolve_wikis_after_mission``, mirroring
+  ``skills.evolution.evolve_skills_after_mission``) — a reviewer verdict on ANY mission can now propose
   ``create_page``/``update_page``/``retire_page`` and have it applied with the
   evidence-verbatim floor enforced, no separate activation needed.
 * PENDING (off the daemon hot path until reviewed): this vertical's OWN

@@ -353,6 +353,62 @@
         "text": {"type": "string"}
       }
     },
+    "skill.evolution.completed": {
+      "version": 1,
+      "required": ["ops_proposed", "created", "updated", "archived", "rejected"],
+      "properties": {
+        "ops_proposed": {"type": "integer", "minimum": 0},
+        "created": {"type": "integer", "minimum": 0},
+        "updated": {"type": "integer", "minimum": 0},
+        "archived": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0},
+        "compaction_clusters": {"type": "integer", "minimum": 0},
+        "compacted": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0},
+        "text": {"type": "string"}
+      }
+    },
+    "wiki.initialized": {
+      "version": 1,
+      "required": ["project", "path", "auto"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "auto": {"type": "boolean"},
+        "text": {"type": "string"}
+      }
+    },
+    "wiki.initialization.failed": {
+      "version": 1,
+      "required": ["workdir", "error"],
+      "properties": {
+        "workdir": {"type": "string", "minLength": 1},
+        "error": {"type": "string", "minLength": 1},
+        "text": {"type": "string"}
+      }
+    },
+    "wiki.evolution.completed": {
+      "version": 1,
+      "required": ["wiki_count", "ops_proposed"],
+      "properties": {
+        "wiki_count": {"type": "integer", "minimum": 0},
+        "ops_proposed": {"type": "integer", "minimum": 0},
+        "sources": {"type": "integer", "minimum": 0},
+        "scratch_pages": {"type": "integer", "minimum": 0},
+        "created": {"type": "integer", "minimum": 0},
+        "updated": {"type": "integer", "minimum": 0},
+        "retired": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0},
+        "promoted": {"type": "integer", "minimum": 0},
+        "demoted": {"type": "integer", "minimum": 0},
+        "compaction_clusters": {"type": "integer", "minimum": 0},
+        "compacted": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "text": {"type": "string"}
+      }
+    },
     "research.hypothesis.proposed": {
       "version": 1,
       "required": ["hypothesis_id", "title", "statement"],

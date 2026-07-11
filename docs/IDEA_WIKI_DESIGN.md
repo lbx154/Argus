@@ -47,7 +47,9 @@ The wiki is explicitly **not** a literature dump and **not** a replacement for
 
 ## Architecture — KernelWiki-shaped, per project
 
-Each project that opts into the wiki gets:
+The daemon runtime initializes this tree on the first SkillLoop mission by
+default (disable with `ARGUS_SKILL_AUTO_INIT_WIKI=0`). Direct library callers
+remain opt-in through `SkillLoopConfig.auto_init_wiki`.
 
 ```text
 .autors/<project>/wiki/
@@ -167,8 +169,11 @@ mission start
               5. Run scripts/index.py to regenerate queries/.
 ```
 
-Cost is zero beyond what the mission was already going to spend. The reviewer
-already runs once per mission; the wiki-curator step is appended to that pass.
+Bootstrap, source ingestion, scratch lift, index rebuild, and promotion are
+deterministic. Reviewer-authored `wiki_ops` ride the existing review verdict;
+an independence check for a new page in a non-empty wiki, or explicit automatic
+compaction, may issue an additional metered call. Those calls share the same
+mission ledger, atomic reservation, and provider fence as the core task.
 
 ## Data flow — active proposal (planner idle path)
 

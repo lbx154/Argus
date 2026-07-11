@@ -53,6 +53,7 @@ from ..core.copilot_usage import (
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
+from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -598,6 +599,9 @@ class AgentCliBackend:
                     provider=self._backend_name,
                     model=str(options.model or ""),
                     run_label=run_label,
+                    per_mission_cap_usd=mission_cap_from_guard(
+                        self._budget_reason_provider
+                    ),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {

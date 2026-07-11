@@ -353,8 +353,11 @@ argus_skill/
 │   └── new_auto_research_project.py
 ├── skills/
 │   ├── pipeline_contracts.py  # manifest/freshness artifact 构建-修复（不是质量 gate）
+│   ├── evolution.py       # Reviewer skill_ops + 可逆 compaction 收尾
 │   ├── stage_checklists.py    # reviewer 对照的 stage checklist（裁决在 reviewer）
 │   └── store.py               # skill 匹配器
+├── wiki/
+│   └── lifecycle.py       # 自动初始化 + sources/pages/index/promotion 收尾
 ├── engineer/
 │   └── runner.py          # L1 engineer 轮次循环
 ├── reviewer/
