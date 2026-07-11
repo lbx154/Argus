@@ -13,9 +13,9 @@ These tests pin the vertical-native API (the keyword classifier + old
 paper|optimize "pipeline mode" shims are gone — the Manager AGENT now decides
 the vertical; see tests/manager/):
 
-* ``resolve_vertical`` precedence — explicit non-default env
-  ``ARGUS_SKILL_VERTICAL`` > persisted data-domain under default env
-  ``"research"`` > persisted ``vertical`` > RAISE (fail-hard, no default).
+* ``resolve_vertical`` precedence — persisted Manager-authored data domain >
+  explicit non-default env ``ARGUS_SKILL_VERTICAL`` > persisted built-in
+  ``vertical`` > RAISE (fail-hard, no default).
 * ``persist_vertical`` / ``require_vertical`` reject unknown verticals (raise).
 * ``format_full_pipeline_checklist`` renders research's 8 stages by default and
   speedrun's 4 stages under ``ARGUS_SKILL_VERTICAL=speedrun``.

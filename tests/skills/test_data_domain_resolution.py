@@ -66,13 +66,15 @@ def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, mon
     assert "research.literature" not in body
 
 
-def test_explicit_non_default_env_override_still_wins(tmp_path, monkeypatch):
+def test_manager_persisted_data_domain_wins_over_bootstrap_builtin_env(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
     dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
     vs.persist_vertical(tmp_path, "robotics_sim")
 
-    assert vs.resolve_vertical(tmp_path) == "speedrun"
-    assert sc.current_stage(tmp_path) == "setup"
+    assert vs.resolve_vertical(tmp_path) == "robotics_sim"
+    assert sc.current_stage(tmp_path) == "scope"
 
 
 def test_store_override_shows_in_render(tmp_path, monkeypatch):
