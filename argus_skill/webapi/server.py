@@ -110,6 +110,15 @@ _JOURNAL_TAIL_CACHE: dict[
 _JOURNAL_TAIL_CACHE_LOCK = threading.Lock()
 
 
+def _web_cache_control(path: str) -> str:
+    """Return cache policy for the static SPA shell and hashed build assets."""
+    if path in {"/", "/index.html"}:
+        return "no-store"
+    if path.startswith("/assets/"):
+        return "public, max-age=31536000, immutable"
+    return ""
+
+
 def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
     result = dict(receipt.result)
     if receipt.status in {"failed", "rejected"}:
@@ -1085,6 +1094,9 @@ def create_app(
         response.headers["X-Argus-Release"] = str(
             api_meta["runtime"].get("release_id") or "unknown"
         )
+        cache_control = _web_cache_control(request.url.path)
+        if cache_control:
+            response.headers["Cache-Control"] = cache_control
         return response
 
     @app.on_event("shutdown")

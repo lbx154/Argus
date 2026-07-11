@@ -70,6 +70,15 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["runtime"]["release_matches_source"] is True
 
 
+def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> None:
+    assert server._web_cache_control("/") == "no-store"
+    assert server._web_cache_control("/index.html") == "no-store"
+    assert server._web_cache_control("/assets/App-deadbeef.js") == (
+        "public, max-age=31536000, immutable"
+    )
+    assert server._web_cache_control("/api/projects") == ""
+
+
 def test_frontend_protocol_constants_match_backend_contract() -> None:
     source = (
         Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts"
