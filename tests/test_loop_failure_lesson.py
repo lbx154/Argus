@@ -5,13 +5,13 @@ The contract:
 * The reviewer never mutates skills directly. It emits ``skill_ops`` in its
   verdict — ``create``/``update`` PROPOSALS (each carrying playbook markdown)
   and ``archive``/``delete`` requests.
-* ``SkillRouter`` owns the write path. A create/update must clear, in order:
-  (1) mechanical structure, (2) independence (not a near-duplicate). There is
-  NO Manager approval gate — the Reviewer is the sole authority.
+* ``SkillRouter`` owns the write path. Create/update require storage structure
+  and respect the protected-skill floor. There is no Manager approval or text
+  quality/duplicate judge gate — the Reviewer is the authoring authority.
   ``archive``/``delete`` are applied directly (the reviewer's direct
   authority; a protected/governing skill is refused).
-* Every stored change is a CANDIDATE (provisional) and is only confirmed when a
-  later round carrying it is effective.
+* Every stored change is active immediately; reviewed uses become evidence for
+  later update/archive decisions.
 """
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ from pathlib import Path
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 
-# A well-formed CAPABILITY playbook (passes the mechanical structure check:
-# a title, a description, a When-to-use and a How-to-solve, > 120 chars).
+# A reusable capability playbook used across the skill-op tests.
 SKILL_MD = (
     "## Title\nWrite a hello message\n\n"
     "## Description\nGenerate a friendly greeting for any user-facing context.\n\n"
@@ -65,12 +64,11 @@ def _match_hello() -> CannedResponse:
     }))
 
 
-def _seed_skill(skills_dir: Path, *, provisional: bool = False) -> SkillStore:
+def _seed_skill(skills_dir: Path) -> SkillStore:
     store = SkillStore(skills_dir)
     store.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=SKILL_MD,
-        provisional=provisional,
     )
     return store
 
@@ -97,12 +95,11 @@ def _queue_no_op_distill(backend: MemoryBackend) -> None:
 
 
 # ---------------------------------------------------------------------------
-# create — mechanical + independence checks (no Manager gate)
+# create — structural storage checks (no Manager or text-quality gate)
 # ---------------------------------------------------------------------------
 
-def test_reviewer_create_is_stored_as_provisional_no_manager_gate(tmp_path: Path) -> None:
-    """A well-formed, non-duplicate create clears mechanical + independence and
-    is stored directly — there is no Manager judge call in between."""
+def test_reviewer_create_is_stored_active_without_manager_gate(tmp_path: Path) -> None:
+    """A structurally valid create is active immediately in the project store."""
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
@@ -124,11 +121,11 @@ def test_reviewer_create_is_stored_as_provisional_no_manager_gate(tmp_path: Path
     created = next((s for s in store.list_summaries()
                     if s["name"] == "Write a hello message"), None)
     assert created is not None
-    assert store.load(created["path"]).provisional is True
+    assert "provisional" not in created
 
 
 def test_create_rejected_when_malformed(tmp_path: Path) -> None:
-    """A one-liner proposal fails the mechanical structure check."""
+    """A proposal without the required storage metadata is rejected."""
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
@@ -145,12 +142,8 @@ def test_create_rejected_when_malformed(tmp_path: Path) -> None:
     assert not SkillStore(skills_dir).list_summaries()
 
 
-def test_create_rejected_when_too_similar(tmp_path: Path) -> None:
-    """A near-duplicate of an existing skill fails the independence check.
-
-    Independence is judged ENTIRELY by an LLM (no lexical/scored fallback),
-    so this queues a duplicate-check verdict for the judge (the reviewer
-    backend, wired as SkillRouter's ``judge_runner``)."""
+def test_create_rejected_when_name_already_exists(tmp_path: Path) -> None:
+    """Stable skill identity still forbids two active files with one name."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)  # existing "Write a hello message"
     backend = MemoryBackend()
@@ -160,10 +153,6 @@ def test_create_rejected_when_too_similar(tmp_path: Path) -> None:
     backend.queue("reviewer", CannedResponse(
         message=_review_with_ops(skill_ops=[{"op": "create", "content": SKILL_MD,
                                              "why": "dup"}])))
-    backend.queue("skill.duplicate_check", CannedResponse(message=json.dumps({
-        "duplicate": True, "of": "Write a hello message", "why": "identical content",
-    })))
-
     events: list[dict] = []
     _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
 
@@ -196,12 +185,12 @@ def test_reviewer_archive_retires_skill(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# provisional lifecycle (unchanged) + disabled switch
+# reviewed use evidence + disabled switch
 # ---------------------------------------------------------------------------
 
-def test_provisional_confirmed_on_successful_reuse(tmp_path: Path) -> None:
+def test_successful_use_is_recorded_without_confirmation_gate(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
-    _seed_skill(skills_dir, provisional=True)
+    _seed_skill(skills_dir)
     backend = MemoryBackend()
     backend.queue("matcher", _match_hello())
     backend.queue("engineer-r1", CannedResponse(message="hello world"))
@@ -212,11 +201,10 @@ def test_provisional_confirmed_on_successful_reuse(tmp_path: Path) -> None:
     outcome = loop.run("greet Alice", workdir=tmp_path)
 
     assert outcome.status == "done"
-    assert any(e.get("type") == "skill.confirmed" for e in events)
+    assert any(e.get("type") == "skill.use.recorded" for e in events)
     store = SkillStore(skills_dir)
     s = next(x for x in store.list_summaries() if x["name"] == "Write a hello message")
     learned = store.load(s["path"])
-    assert learned.provisional is False
     assert learned.successful_reuses == 1
 
 
@@ -240,13 +228,10 @@ def _blocked_review() -> str:
     })
 
 
-def test_provisional_discarded_when_mission_ineffective(tmp_path: Path) -> None:
-    """Root-cause fix for the dead ``discard_provisional`` wire: a matched
-    provisional candidate that dragged through an INEFFECTIVE mission
-    (``max_rounds`` here) is closed out — discarded (fresh skill) rather than
-    lingering provisional where an unrelated later success could confirm it."""
+def test_ineffective_use_is_recorded_without_auto_discard(tmp_path: Path) -> None:
+    """One failed use is evidence for the Reviewer, not an automatic deletion."""
     skills_dir = tmp_path / "skills"
-    _seed_skill(skills_dir, provisional=True)
+    _seed_skill(skills_dir)
     backend = MemoryBackend()
     backend.queue("matcher", _match_hello())
     backend.queue("engineer-r1", CannedResponse(message="still trying"))
@@ -256,19 +241,20 @@ def test_provisional_discarded_when_mission_ineffective(tmp_path: Path) -> None:
     outcome = _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
 
     assert outcome.status == "max_rounds"
-    assert any(e.get("type") == "skill.discarded" for e in events), [
-        e.get("type") for e in events]
-    # the fresh candidate is archived out of the active library
-    assert not any(s["name"] == "Write a hello message"
-                   for s in SkillStore(skills_dir).list_summaries())
+    assert any(
+        e.get("type") == "skill.use.recorded" and e.get("success") is False
+        for e in events
+    )
+    store = SkillStore(skills_dir)
+    summary = next(s for s in store.list_summaries()
+                   if s["name"] == "Write a hello message")
+    assert store.load(summary["path"]).failed_reuses == 1
 
 
-def test_provisional_kept_when_mission_blocked(tmp_path: Path) -> None:
-    """A provisional candidate is NOT punished for an EXTERNAL abort: a mission
-    that ends ``blocked`` (GPU quota, backend down, ...) leaves the candidate
-    provisional so it can still prove itself on a later, unblocked mission."""
+def test_blocked_use_is_neutral_evidence(tmp_path: Path) -> None:
+    """An external block neither credits nor penalizes the active skill."""
     skills_dir = tmp_path / "skills"
-    _seed_skill(skills_dir, provisional=True)
+    _seed_skill(skills_dir)
     backend = MemoryBackend()
     backend.queue("matcher", _match_hello())
     backend.queue("engineer-r1", CannedResponse(message="attempted"))
@@ -278,11 +264,12 @@ def test_provisional_kept_when_mission_blocked(tmp_path: Path) -> None:
     outcome = _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
 
     assert outcome.status == "blocked"
-    assert not any(e.get("type") in ("skill.discarded", "skill.reverted")
-                   for e in events), [e.get("type") for e in events]
+    assert not any(e.get("type") == "skill.use.recorded" for e in events)
     store = SkillStore(skills_dir)
     s = next(x for x in store.list_summaries() if x["name"] == "Write a hello message")
-    assert store.load(s["path"]).provisional is True
+    learned = store.load(s["path"])
+    assert learned.successful_reuses == 0
+    assert learned.failed_reuses == 0
 
 
 def test_skill_ops_ignored_when_disabled(tmp_path: Path) -> None:

@@ -152,10 +152,9 @@ class ReviewDecision:
     checkpoint: dict[str, Any] = field(default_factory=dict)
     # Skill-memory operations the reviewer requests for THIS round (success or
     # failure). The reviewer is the SOLE authority — there is no Manager
-    # approval gate. ``create``/``update`` are stored as PROVISIONAL candidates
-    # (each carries a reusable capability playbook ``content`` markdown) once
-    # they clear the SkillRouter's mechanical + independence checks; a
-    # candidate only becomes confirmed by later proving effective in reuse.
+    # approval gate. ``create``/``update`` persist an immediately active,
+    # versioned project-layer capability playbook after structural validation;
+    # later task trajectories inform Reviewer-authored updates or retirement.
     # ``delete``/``archive`` retire a matched skill the reviewer found wrong or
     # harmful. Each item: ``{"op": "create|update|delete|archive", "name": str,
     # "content": str, "why": str}``. Empty list when this round warrants no

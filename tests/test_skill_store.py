@@ -44,6 +44,29 @@ def test_skill_parse_accepts_quoted_semver_frontmatter() -> None:
     assert skill.version == 2
 
 
+def test_legacy_provisional_frontmatter_loads_as_active(tmp_path: Path) -> None:
+    path = tmp_path / "skills" / "legacy.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: legacy skill\n"
+        "description: old candidate metadata\n"
+        "category: test\n"
+        "version: 1\n"
+        "provisional: true\n"
+        "---\n\n"
+        "Use the legacy method.\n",
+        encoding="utf-8",
+    )
+
+    store = SkillStore(path.parent)
+    skill = store.load(str(path))
+
+    assert "provisional" not in store.list_summaries()[0]
+    store.save(skill)
+    assert "provisional:" not in path.read_text(encoding="utf-8")
+
+
 def test_find_relevant_returns_high_fit_skill(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")

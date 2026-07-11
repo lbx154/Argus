@@ -1,9 +1,8 @@
 """Automatic (unattended) library housekeeping: ``SkillLoopConfig.auto_compact_enabled``.
 
-Near-duplicate skills/wiki-pages that slip past the create-time independence
-checks (pre-existing skills seeded before the check existed, or two
-concurrent missions each comparing against a library snapshot that doesn't
-yet contain the other's proposal) would otherwise accumulate forever in an
+Near-duplicate skills may be admitted immediately and wiki pages may slip past
+their create-time independence check; concurrent writers can also create
+duplicates from stale snapshots. These would otherwise accumulate forever in an
 unattended 7x24 daemon. This wires the LLM-judged batched clustering
 (``llm_plan_compaction`` / ``llm_cluster_wiki``) into the automatic
 post-mission flow — mirroring the wiki mechanical hooks' always-on cadence —
@@ -99,9 +98,7 @@ def _seed_page(store: WikiStore, *, id: str, status: str, title: str, body: str,
 
 
 def test_auto_compact_merges_preexisting_near_duplicate_skills(tmp_path: Path) -> None:
-    """Two near-duplicate skills that predate the create-time independence
-    check (seeded directly, not via SkillRouter) are merged automatically
-    after the NEXT ordinary mission closes — no operator action."""
+    """Two active near-duplicate skills are reversibly compacted later."""
     skills_dir = tmp_path / "skills"
     store = SkillStore(skills_dir)
     store.save_distilled(task_description="t1", raw_distill_output=_DEBUG_CUDA_OOM)

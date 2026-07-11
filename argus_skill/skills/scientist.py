@@ -1,9 +1,8 @@
 """Scientist / Distiller skill authoring.
 
 The Scientist is a role call used when the matcher finds no reusable engineer
-skill. It writes a provisional playbook for the current task; the Engineer uses
-that playbook immediately, and the Reviewer later proves or rejects it through
-the existing provisional skill lifecycle.
+skill. It writes an immediately active project-layer playbook; later real task
+trajectories and Reviewer-authored ops evolve or retire that version.
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class SkillScientist:
-    """Author one reusable skill candidate for a task."""
+    """Author one reusable skill for a task."""
 
     def __init__(
         self,
@@ -68,7 +67,7 @@ def _build_scientist_prompt(task: str) -> str:
     return (
         "You are the Scientist / Distiller role for argus-skill. The skill "
         "matcher found no reusable engineer playbook for the task below. Write "
-        "ONE provisional, reusable skill that can help the Engineer execute this "
+        "ONE reusable skill that can help the Engineer execute this "
         "task now and a FAMILY of similar future tasks.\n\n"
         "Rules:\n"
         "- Do not solve the task directly; write the playbook the Engineer should "

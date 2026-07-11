@@ -1395,11 +1395,26 @@ class _SkillLoopRunner:
             if inbox_life_dir is not None
             else None
         )
+        engineer_backend = getattr(self, "engineer_backend", None) or self._backend
+        global_skills_dir = Path(args.skills_dir)
+        skill_store = None
+        project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
+        if project_state_dir:
+            from ..skills.layered import LayeredSkillStore
+
+            skill_store = LayeredSkillStore(
+                project_dir=Path(project_state_dir) / "skills",
+                global_dir=global_skills_dir,
+                runner=engineer_backend,
+                matcher_model=config.resolved_matcher_model(),
+                matcher_reasoning_effort=config.matcher_reasoning_effort,
+            )
         loop = self._SkillLoop(
-            skills_dir=Path(args.skills_dir),
-            engineer_runner=getattr(self, "engineer_backend", None) or self._backend,
+            skills_dir=global_skills_dir,
+            engineer_runner=engineer_backend,
             reviewer_runner=getattr(self, "reviewer_backend", None) or self._backend,
             config=config,
+            skill_store=skill_store,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
         )

@@ -1455,7 +1455,13 @@ class LifeWorker:
         try:
             from ..manager.skill_tidy import tidy_after_mission
 
-            counts = tidy_after_mission(sup._project_workdir(), sup.runner)
+            counts = tidy_after_mission(
+                sup._project_workdir(),
+                sup.runner,
+                project_state_dir=getattr(
+                    getattr(sup, "memory", None), "project_root", None
+                ),
+            )
         except Exception:  # noqa: BLE001 — shutdown distillation is best-effort
             log.exception("daemon: shutdown distillation failed; non-critical")
             return

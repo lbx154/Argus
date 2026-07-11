@@ -108,8 +108,9 @@ def _knowledge_curation_review_gate(project_root: Path) -> tuple[bool, str, str]
 
     Data-domain curation missions do not produce paper artifacts. Their review
     gate is the curated library certification: evidence anchoring, wiki
-    source/index integrity, honest no-op/churn accounting, provisional skill
-    state, scratch wiki state, and an unchanged Manager-owned pipeline state.
+    source/index integrity, honest no-op/churn accounting, active project-layer
+    skill persistence, scratch wiki state, and an unchanged Manager-owned
+    pipeline state.
     """
     issues: list[str] = []
     facts: list[str] = []
@@ -217,18 +218,18 @@ def _knowledge_curation_review_gate(project_root: Path) -> tuple[bool, str, str]
     else:
         issues.append("[wiki_index] .autors/learning/wiki/queries/by-status.md missing")
 
-    if skill_path.exists():
-        skill_text = skill_path.read_text(encoding="utf-8")
-        require("provisional: true" in skill_text, "skill_provisional", f"{skill_path} remains provisional")
-    else:
-        issues.append(f"[skill_provisional] {skill_path} missing")
+    require(
+        skill_path.is_file() and skill_path.stat().st_size > 0,
+        "skill_active",
+        f"{skill_path} exists and is active in the project skill layer",
+    )
 
     for path in (wiki_card_path, material_path, source_note_path):
         require(path.exists(), "required_path", f"{path.relative_to(project_root) if path.is_relative_to(project_root) else path} exists")
 
     if issues:
         return False, f"{len(issues)} curation review issue(s)", "\n".join(issues)
-    return True, "curation review certification, wiki integrity, and library state verified", "\n".join(facts)
+    return True, "curation review certification, wiki integrity, and active library state verified", "\n".join(facts)
 
 
 def _certified_math_synth_setup_override(

@@ -16,8 +16,8 @@ project idea-wiki) per round; the loop applies both at mission end via
 
 End-to-end shape:
 
-    task → matcher → engineer round-loop (engineer turn → checks → reviewer)
-            done    → confirm a proven candidate, apply skill_ops/wiki_ops, success
+    task → matcher/Scientist → engineer round-loop (engineer turn → reviewer)
+            outcome → record skill use, apply skill_ops/wiki_ops
             continue → inject next_action, next round
             blocked → stop with reason; still apply skill_ops/wiki_ops
 """
@@ -40,15 +40,9 @@ from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
 
-# Terminal mission statuses on which a matched PROVISIONAL candidate is judged
-# UNPROVEN and closed out (reverted if it was a revision, discarded if fresh).
-# We fire ONLY on genuine ineffectiveness — the engineer held the candidate for
-# the whole mission and never reached an effective result. We deliberately do
-# NOT include ``blocked`` / ``error`` / ``budget_exhausted``: those are external
-# / infra / economic aborts (GPU quota, backend down, cap hit), not evidence
-# that the skill is bad — punishing a candidate for them would wrongly evict
-# skills on jitter.
-_INEFFECTIVE_PROVISIONAL_STATUSES: frozenset[str] = frozenset({"no_progress", "max_rounds"})
+# Reviewed ineffective uses are retained as evidence for later Reviewer-authored
+# update/archive decisions. External/economic aborts remain neutral.
+_INEFFECTIVE_SKILL_STATUSES: frozenset[str] = frozenset({"no_progress", "max_rounds"})
 
 
 @dataclass
@@ -82,13 +76,10 @@ class SkillLoopConfig:
     # project has no initialized wiki (see ``wiki.auto_hooks.discover_wikis``).
     # Off by default; the daemon enables it.
     wiki_ops_enabled: bool = False
-    # Automatic library housekeeping (explicit opt-in). Finds
-    # near-duplicate skills/wiki-pages that slipped past the CREATE-time
-    # independence checks (e.g. skills seeded before this check existed, or
-    # two concurrent missions that each passed their OWN check against a
-    # library snapshot that didn't yet contain the other's proposal) and
-    # merges each cluster down to one representative. Cheap when there is
-    # nothing to do (pure cosine similarity, no LLM calls); a no-op-safe,
+    # Automatic library housekeeping (explicit opt-in). Finds near-duplicate
+    # skills/wiki-pages accumulated across tasks or concurrent writers and
+    # merges each cluster down to one representative. LLM grouping sees compact
+    # summaries only; a no-op-safe,
     # REVERSIBLE archive/retire move, never a hard delete; a protected/
     # governing skill is never a merge candidate (self-governance floor).
     # Off by default; the daemon enables it.
@@ -159,7 +150,7 @@ class SkillLoop:
         engineer_runner: RunnerBackend,
         reviewer_runner: RunnerBackend | None = None,
         config: SkillLoopConfig | None = None,
-        skill_store: SkillStore | None = None,
+        skill_store: Any | None = None,
         on_event: Callable[[dict], None] | None = None,
         extra_guidance_provider: Callable[[], list[str]] | None = None,
     ) -> None:
@@ -184,19 +175,12 @@ class SkillLoop:
         )
         self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
         # The single front door to the skill library: selection (delegated to
-        # the role matcher) + validated CRUD (mechanical structure →
-        # independence/dedup → provisional-prove-later). The Reviewer is the
-        # sole authority — no role mutates skills directly, and there is no
-        # Manager approval gate. The independence check's ``judge_runner`` is
-        # an LLM duplicate JUDGE (progressive disclosure over summaries, same
-        # backend the reviewer already runs on) — the ONLY independence
-        # check; there is no lexical/scored fallback.
+        # the role matcher) plus structurally-safe CRUD. New versions are active
+        # immediately; the Reviewer uses real trajectories to update/archive,
+        # while protected skills retain a mechanical self-governance floor.
         self.skill_router = SkillRouter(
             skill_store=self.skill_store,
             matcher=self.engineer_mission,
-            judge_runner=self.reviewer_runner,
-            judge_model=self.config.resolved_reviewer_model(),
-            judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
         )
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
@@ -269,17 +253,15 @@ class SkillLoop:
         skill_distilled = False
         distill_result = None
 
-        # Scientist tool on miss: when no reusable engineer skill matches, ask the
-        # Scientist/Distiller role to author one provisional playbook, inject it
-        # into THIS mission, and let the Reviewer prove or reject it through the
-        # provisional lifecycle below.
+        # Scientist tool on miss: author one reusable playbook, persist it in the
+        # project layer immediately, and inject that exact version into this mission.
         if skill is None:
             try:
                 from .skills.scientist import SkillScientist
 
                 self._emit({
                     "type": "skill.scientist.started",
-                    "text": "no high-fit skill; asking Scientist to distill a candidate",
+                    "text": "no high-fit skill; asking Scientist to distill a reusable skill",
                 })
                 scientist = SkillScientist(
                     self.engineer_runner,
@@ -289,7 +271,7 @@ class SkillLoop:
                 raw_skill = scientist.distill(skill_task)
                 distill_result = scientist.last_result
                 if raw_skill:
-                    distilled = self.skill_router.create_candidate(
+                    distilled = self.skill_router.create_from_scientist(
                         raw_skill,
                         task=skill_task,
                         on_event=self._emit,
@@ -301,7 +283,7 @@ class SkillLoop:
                         skill_distilled = True
                         self._emit({
                             "type": "skill.scientist.created",
-                            "text": f"Scientist created provisional skill {distilled.name}",
+                            "text": f"Scientist created active skill {distilled.name}",
                         })
             except Exception:  # noqa: BLE001
                 log.debug("Scientist skill generation skipped", exc_info=True)
@@ -405,72 +387,55 @@ class SkillLoop:
         # skill library) and ``wiki_ops`` (create_page/update_page/retire_page
         # on the project wiki) per round — no Manager approval gate for
         # either. The loop only applies what the reviewer requested; there is
-        # no separate author. A matched CANDIDATE that just proved effective
-        # is confirmed ("入库"); an unproven one that dragged through an
-        # INEFFECTIVE mission is closed out (reverted/discarded) — the
-        # provisional lifecycle gates both ends.
+        # no separate author. Skills are active immediately; reviewed outcomes
+        # are recorded as use evidence, while later update/archive ops express
+        # the Reviewer's judgment about what to retain.
         if skill is not None:
             try:
-                if skill_distilled:
-                    # The creation mission is not independent proof. A failed
-                    # origin mission rejects the candidate; a successful one
-                    # leaves it provisional for two later independent reuses.
-                    if status in _INEFFECTIVE_PROVISIONAL_STATUSES:
-                        self.skill_store.discard_provisional(
-                            skill, on_event=self._emit,
-                        )
-                    elif status == "done":
-                        self._emit({
-                            "type": "skill.awaiting_reuse",
-                            "skill_id": getattr(skill, "skill_id", ""),
-                            "skill_name": skill.name,
-                            "text": (
-                                f"{skill.name} remains provisional; creation "
-                                "mission does not count as reuse proof"
-                            ),
-                        })
-                elif status == "done":
+                if status == "done":
                     self.skill_store.record_reuse(
                         skill,
                         task_desc=skill_task,
                         success=True,
                         on_event=self._emit,
                     )
-                elif status in _INEFFECTIVE_PROVISIONAL_STATUSES:
+                elif status in _INEFFECTIVE_SKILL_STATUSES:
                     self.skill_store.record_reuse(
                         skill,
                         task_desc=skill_task,
                         success=False,
                         on_event=self._emit,
                     )
-                    if getattr(skill, "provisional", False):
-                        # One independent ineffective use is sufficient to reject
-                        # a still-provisional candidate; external blocks neutral.
-                        self.skill_store.discard_provisional(
-                            skill, on_event=self._emit,
-                        )
             except Exception as exc:  # noqa: BLE001 — never break the loop
-                log.warning("provisional close-out failed (%s: %s)",
+                log.warning("skill use recording failed (%s: %s)",
                             type(exc).__name__, exc)
 
         if self.config.skill_ops_enabled:
             self._apply_skill_ops(rounds=rounds, skill_task=skill_task)
 
-        # Step 4b: automatic library housekeeping — merge near-duplicate
-        # skills that slipped past the create-time independence check (see
+        # Step 4b: automatic library housekeeping — reversibly merge
+        # near-duplicates accumulated across tasks or concurrent writers (see
         # ``SkillLoopConfig.auto_compact_enabled`` for the full rationale).
         # Separate try/except: housekeeping must never shadow (or be shadowed
         # by) the skill_ops apply above.
         if self.config.auto_compact_enabled:
             try:
                 from .skills.compaction import auto_compact_skills
-                auto_compact_skills(
-                    self.skills_dir,
-                    judge_runner=self.reviewer_runner,
-                    judge_model=self.config.resolved_reviewer_model(),
-                    judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
-                    on_event=self.on_event,
-                )
+                stores = [
+                    getattr(self.skill_store, name, None)
+                    for name in ("project", "global_")
+                ]
+                skill_dirs = [
+                    Path(store.skills_dir) for store in stores if store is not None
+                ] or [self.skills_dir]
+                for skill_dir in skill_dirs:
+                    auto_compact_skills(
+                        skill_dir,
+                        judge_runner=self.reviewer_runner,
+                        judge_model=self.config.resolved_reviewer_model(),
+                        judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
+                        on_event=self.on_event,
+                    )
             except Exception:  # noqa: BLE001 — housekeeping must never block
                 log.debug("auto_compact_skills raised", exc_info=True)
 
@@ -758,8 +723,7 @@ class SkillLoop:
         skill_task: str,
     ) -> None:
         """Hand the reviewer's per-round ``skill_ops`` (aggregated across the
-        mission) to the SkillRouter, which runs the validation pipeline
-        (mechanical structure → independence/dedup) and applies
+        mission) to the SkillRouter, which checks storage structure and applies
         create/update/archive — the Reviewer is the sole authority, no
         Manager gate. Protected/governing skills (frontmatter
         ``protected: true`` or an anti-cheat/guardrail/role-identity category)

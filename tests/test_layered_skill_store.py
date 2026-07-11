@@ -23,6 +23,7 @@ from argus_skill.skills.layered import (
     LAYER_PROJECT,
     LayeredSkillStore,
 )
+from argus_skill.skills.skill_router import SkillRouter
 from argus_skill.skills.store import Skill, SkillStore
 
 
@@ -152,14 +153,34 @@ def test_save_dispatches_to_existing_layer(tmp_path: Path) -> None:
     assert layered.layer_summaries(LAYER_PROJECT) == []
 
 
-def test_update_skill_dispatches_to_owning_layer(tmp_path: Path) -> None:
+def test_update_global_skill_forks_project_shadow(tmp_path: Path) -> None:
     layered = _layered(tmp_path)
     g = _write(layered.global_, "tweak-me")
-    layered.update_skill(g, "## Replaced\n- new\n", "tweaked it")
-    reloaded = layered.load(g.path)
-    assert "Replaced" in reloaded.content
-    assert reloaded.version == 2
-    assert layered.layer_for_path(reloaded.path) == LAYER_GLOBAL
+    updated = layered.update_skill(g, "## Replaced\n- new\n", "tweaked it")
+
+    assert layered.layer_for_skill(updated) == LAYER_PROJECT
+    assert updated.version == 2
+    assert "Replaced" in updated.content
+    assert "Replaced" not in layered.global_.load(g.path).content
+    visible = next(row for row in layered.list_summaries() if row["name"] == "tweak-me")
+    assert visible["layer"] == LAYER_PROJECT
+
+
+def test_archive_refuses_to_mutate_shared_global_skill(tmp_path: Path) -> None:
+    layered = _layered(tmp_path)
+    global_skill = _write(layered.global_, "shared")
+
+    assert layered.archive(global_skill) is None
+    assert Path(global_skill.path).is_file()
+
+    events: list[dict] = []
+    counts = SkillRouter(skill_store=layered).apply_ops(
+        [{"op": "archive", "name": "shared"}],
+        task="project task",
+        on_event=events.append,
+    )
+    assert counts["rejected"] == 1
+    assert any("shared global layer" in event.get("text", "") for event in events)
 
 
 # --- promotion ------------------------------------------------------------
@@ -228,6 +249,9 @@ def test_find_relevant_can_match_a_global_skill_when_project_empty(
         message=json.dumps({
             "matched": [{"name": "set-up-nginx", "fit": "high"}],
         }),
+        input_tokens=12,
+        cached_input_tokens=3,
+        output_tokens=4,
     ))
     layered = _layered(tmp_path, runner=backend, matcher_model="m")
     _write(layered.global_, "set-up-nginx", description="configure nginx")
@@ -235,6 +259,11 @@ def test_find_relevant_can_match_a_global_skill_when_project_empty(
     assert matched is not None and len(matched) == 1
     assert matched[0].name == "set-up-nginx"
     assert layered.layer_for_skill(matched[0]) == LAYER_GLOBAL
+    assert layered.role_for(matched[0]) == "general"
+    assert layered.last_match_input_tokens == 12
+    assert layered.last_match_cached_input_tokens == 3
+    assert layered.last_match_output_tokens == 4
+    assert layered.last_match_premium_requests == 0.0
 
 
 def test_find_relevant_prefers_project_when_names_collide(

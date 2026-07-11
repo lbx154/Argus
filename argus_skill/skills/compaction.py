@@ -18,7 +18,7 @@ one-call-per-batch shape: O(1) calls per batch, never O(n^2) pairwise calls):
   2. For each group of size >= 2, the harness (never the model) picks a
      representative — highest ``version`` x ``len(task_history)``
      (the most-reinforced) — since only the harness has that real
-     proven-usage data, and ``archive``s the rest via
+     observed-use data, and ``archive``s the rest via
      ``lifecycle.archive_skill``. A protected/governing skill is NEVER an
      archive candidate, regardless of what the model said.
 
@@ -162,7 +162,7 @@ def llm_plan_compaction(
     its strength, expressed as a plain grouping — never a similarity score);
     the harness decides which one in each group to KEEP via
     ``_representative``/``_build_plan_from_clusters`` — that pick reads real
-    proven-usage data (``version`` / ``task_history``) and the
+    observed-use data (``version`` / ``task_history``) and the
     protected-skill floor, neither of which the model saw in the prompt.
 
     Returns ``None`` when ``judge_runner`` is not configured, or EVERY batch

@@ -245,7 +245,7 @@
         "null"
       ],
       "maxItems": 8,
-      "description": "OPTIONAL — skill-memory operations warranted by THIS round (success OR failure). You are the SOLE authority — there is no Manager approval gate. create/update PROPOSE a reusable capability playbook (markdown), stored as a provisional candidate once it clears mechanical + independence checks; delete/archive retire a matched skill you found wrong or harmful. Omit or use [] when this round warrants no skill change.",
+      "description": "OPTIONAL — skill-memory operations warranted by THIS round (success OR failure). You are the SOLE authority — there is no Manager approval gate. create/update persist an immediately active, versioned project-layer capability playbook; delete/archive retire a matched skill you found wrong or harmful. Omit or use [] when this round warrants no skill change.",
       "items": {
         "type": "object",
         "additionalProperties": false,

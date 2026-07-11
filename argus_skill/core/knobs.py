@@ -120,7 +120,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PER_MISSION_DISTILL", "off", "promote eligible runtime skills after EACH mission (default OFF)", "lifecycle"),
     Knob("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "off", "promote eligible runtime skills into the source tree on clean shutdown (explicit opt-in)", "lifecycle"),
     Knob("ARGUS_SKILL_AUTO_COMPACT", "off", "run LLM skill/wiki compaction after every mission (default OFF; use explicit maintenance)", "lifecycle"),
-    Knob("ARGUS_SKILL_CONFIRM_REUSES", "1", "independent successful post-creation reuses required before a provisional skill is confirmed", "lifecycle"),
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner/subagent): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify on the box (network/cache/B200) before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_MEASURED_MODE", "off", "measured-mode evaluation gating", "lifecycle"),

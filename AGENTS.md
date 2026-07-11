@@ -4,7 +4,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、miss 时调用 Scientist 生成 provisional skill、L1 engineer 执行、L2 reviewer 验收并证明 skill 是否入库。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、miss 时调用 Scientist 生成并立即持久化 project-layer skill、L1 engineer 执行、L2 reviewer 验收并基于真实轨迹提出 skill 更新或归档。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
 
 主链路：
 
@@ -28,7 +28,7 @@ argus-skill / python -m argus_skill
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
-| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/scientist.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后由 Scientist 生成 provisional skill、Reviewer 用任务成功证明后 confirm、内置论文/research playbook |
+| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/scientist.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后由 Scientist 生成立即可用的 project-layer skill、Reviewer 根据真实使用轨迹 update/archive、内置论文/research playbook |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
 
 > **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`cli/roles_status.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 和三份 pitch 文档（商业计划书/项目介绍/一页纸概览）历史上都只画了三个角色（未包含 Manager），已于 2026-07-07 全部修正为四个角色。
@@ -70,10 +70,10 @@ argus-skill / python -m argus_skill
 
 ```text
 objective_for_skill -> SkillStore.find_relevant(...)
-  miss -> SkillScientist.distill(...) -> SkillStore.save_distilled(..., provisional=True)
+  miss -> SkillScientist.distill(...) -> SkillStore.save_distilled(...)
 skill_text + task -> SupervisedEngineer.run(...)
   round k: engineer -> Reviewer.evaluate(...)
-  done -> provisional skill confirm
+  outcome -> record distinct skill use; reviewer skill_ops may update/archive
   continue -> next_action 注入下一轮
   blocked/max_rounds -> 返回 outcome
 ```
@@ -216,10 +216,8 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 关键文件：
 
 - `argus_skill/skills/store.py`: markdown skill store、frontmatter parse、matcher、save/writeback。
-- `argus_skill/skills/scientist.py`: matcher miss 后让 Scientist/Distiller 生成 provisional skill。
-- 质量门：不再是独立的 `quality.py`（已删除，见 `638e074`）；不再对 skill 文本本身判质量
-  （判断 skill 文案比瞎猜还不准），改成 effect-gated：新蒸馏的 skill 一律 `provisional`，只有后续任务真的
-  靠它拿到有效 reviewer verdict 才会被 confirm，没起作用就丢弃。
+- `argus_skill/skills/scientist.py`: matcher miss 后让 Scientist/Distiller 生成立即可用、已版本化的 project-layer skill。
+- 不设 Skill 文本质量门、candidate/provisional 或 confirm 晋升状态。新建和更新默认有效；真实使用记录、Reviewer 反馈、版本历史和可逆 archive/compaction 为后续 update/split/merge/retire 提供证据。
 - `argus_skill/skills/lifecycle.py`: reinforce/distill/revise/retire 决策。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。

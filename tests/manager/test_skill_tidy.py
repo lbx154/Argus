@@ -10,6 +10,7 @@ commits. All source-writing tests isolate ``builtin_skill_source_path`` /
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -27,7 +28,7 @@ def _runner(message: str) -> MemoryBackend:
     return MemoryBackend(default=CannedResponse(message=message))
 
 
-def _skill(name: str, *, provisional: bool = False) -> Skill:
+def _skill(name: str) -> Skill:
     return Skill(
         name=name,
         description=f"do {name}",
@@ -35,7 +36,6 @@ def _skill(name: str, *, provisional: bool = False) -> Skill:
         content="## When to use\n- x tasks\n\n## How to solve\n- step 1\n",
         version=1,
         created_at="2026-05-03T00:00:00+00:00",
-        provisional=provisional,
     )
 
 
@@ -132,7 +132,7 @@ def test_write_skill_invalid_vertical_returns_none(isolated_source) -> None:
     ) is None
 
 
-# --- tidy_runtime_skills_to_source: route + skip factory/provisional --------
+# --- tidy_runtime_skills_to_source: route + skip factory --------------------
 
 
 def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatch) -> None:
@@ -144,7 +144,7 @@ def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatc
     runtime.save(_skill("gen one"))
     runtime.save(_skill("factor one"))
     runtime.save(_skill("factory-one"))            # already in source → skip
-    runtime.save(_skill("unproven", provisional=True))  # provisional → skip
+    runtime.save(_skill("project-active"))
 
     def classify(*, content, task):
         if "factor" in task:
@@ -152,13 +152,14 @@ def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatc
         return PlacementVerdict("global", "", "general")
 
     counts = skill_tidy.tidy_runtime_skills_to_source(runtime, classify)
-    assert counts["to_builtin"] == 1
+    assert counts["to_builtin"] == 2
     assert counts["to_vertical"] == 1
     assert counts["errors"] == 0
     assert (builtin / "gen-one.md").exists()
     assert (root / "verticals" / "quant" / "skills" / "factor-one.md").exists()
-    # factory + provisional were not written
+    # factory source duplicate was not written; active project skill was routed.
     assert not (builtin / "factory-one.md").exists()
+    assert (builtin / "project-active.md").exists()
     # a commit was produced with the two new files
     log = subprocess.run(
         ["git", "-C", str(root), "log", "--oneline"],
@@ -181,6 +182,25 @@ def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
     f = builtin / "x.md"
     f.write_text("x", encoding="utf-8")
     assert skill_tidy.commit_to_source([f], "msg") is False
+
+
+def test_tidy_after_mission_reads_project_layer(tmp_path, monkeypatch) -> None:
+    captured: dict[str, Path] = {}
+
+    def _fake_tidy(runtime, classify, *, on_event=None):  # noqa: ARG001
+        captured["skills_dir"] = runtime.skills_dir
+        return {"to_builtin": 0, "to_vertical": 0, "stayed": 0, "errors": 0}
+
+    monkeypatch.setattr(skill_tidy, "tidy_runtime_skills_to_source", _fake_tidy)
+    state = tmp_path / "state"
+
+    skill_tidy.tidy_after_mission(
+        tmp_path / "worktree",
+        object(),
+        project_state_dir=state,
+    )
+
+    assert captured["skills_dir"] == state / "skills"
 
 
 def test_tidy_after_mission_failsoft_empty(tmp_path, monkeypatch) -> None:

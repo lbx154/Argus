@@ -1607,6 +1607,7 @@ class LifeSupervisor:
                 counts = tidy_after_mission(
                     self._project_workdir(),
                     self.runner,
+                    project_state_dir=getattr(self.memory, "project_root", None),
                     on_event=self._emit,
                 )
                 if counts.get("to_builtin") or counts.get("to_vertical"):

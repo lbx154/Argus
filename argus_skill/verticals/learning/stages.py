@@ -153,7 +153,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Final gate: every committed skill/wiki change is evidence-anchored to the "
         "immutable material, non-redundant, non-regressive, correctly scoped; "
         "wiki indexes rebuilt with no dangling references. Confirm learned skills "
-        "landed provisional in the project layer (not promoted to global).",
+        "landed active in the project layer (not promoted to global).",
         ["learning/LIBRARY_DELTA.json", "learning/LIBRARY_DELTA.md"],
     ),
 }
@@ -211,12 +211,12 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="no-regression",
             statement="No existing skill/page was weakened; prior versions are "
             "retained for rollback.",
-            evidence_hint=".prev.md snapshot / page tombstone present",
+            evidence_hint="skill _history/<skill_id>/vN.md / page tombstone present",
         ),
         ChecklistItem(
-            id="provisional-project-layer",
-            statement="Learned skills landed provisional in the project layer, not "
-            "promoted to global.",
+            id="active-project-layer",
+            statement="Learned skills are active and versioned in the project layer, "
+            "not automatically promoted to global.",
             evidence_hint="skill.created events target the project layer",
         ),
     ),
@@ -275,7 +275,8 @@ def role_banner(role: str) -> str:
             "source), non-redundant, non-regressive, correctly scoped. Any op "
             "against a protected item or the skill governing this mission is a "
             "self-governance breach — refuse it. A justified no-op is a PASS; "
-            "learned skills stay provisional and are never promoted to global here. "
+            "learned skills become active in the project layer and are never "
+            "automatically promoted to global here. "
             "Follow the 'Learning Curation Review' skill."
         )
     return common

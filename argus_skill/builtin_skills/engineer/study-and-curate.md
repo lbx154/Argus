@@ -64,5 +64,6 @@ not a failure.
 - Do not build executable (fixture-backed) skills from untrusted material — a
   learned skill is a prose playbook, not a script to run.
 - Do not promote anything to the global layer here. Learned skills stay
-  provisional in the project layer until a real downstream mission proves them
-  effective; only then are they promoted.
+  active and versioned in the project layer; downstream trajectories determine
+  later update/archive decisions, while global promotion remains a separate
+  explicit placement decision.

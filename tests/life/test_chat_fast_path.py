@@ -218,7 +218,9 @@ def test_execute_dispatches_to_self_path_on_chinese_capability_question() -> Non
     assert "你有什么能力？" in prompt
 
 
-def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execute_uses_full_pipeline_on_real_task(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
     """A clear engineering task must NOT short-circuit. The model
     classifier answers TEAM, so the runner falls through to the
     SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
@@ -235,6 +237,8 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
         ),
     )
     runner = _make_runner(backend)
+    runner._args.skills_dir = str(tmp_path / "global-skills")
+    runner._args.project_state_dir = str(tmp_path / "project-state")
     runner.planner_backend = backend
     sink = _RecordingSink()
 
@@ -263,10 +267,12 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
         last_thread_id: str | None = None
 
     planned_tasks: list[str] = []
+    loop_kwargs: list[dict[str, Any]] = []
 
     class _StubLoop:
         def __init__(self, **kw: Any) -> None:
             self.kw = kw
+            loop_kwargs.append(kw)
         def run(self, *args: Any, **kw: Any) -> _StubLoopOutcome:
             planned_tasks.append(str(args[0]))
             return _StubLoopOutcome()
@@ -282,6 +288,10 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
         dangerous_yolo: bool = True
         full_auto: bool = False
         skip_git_repo_check: bool = True
+        matcher_reasoning_effort: str = "high"
+
+        def resolved_matcher_model(self) -> str:
+            return self.engineer_model
 
     runner._SkillLoopConfig = _StubConfig
 
@@ -293,6 +303,12 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
     assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
     assert "Check the premise" in planned_tasks[0]
     assert any(event.get("type") == "plan.completed" for event in sink.events)
+    from argus_skill.skills.layered import LayeredSkillStore
+
+    layered = loop_kwargs[0]["skill_store"]
+    assert isinstance(layered, LayeredSkillStore)
+    assert layered.project.skills_dir == tmp_path / "project-state" / "skills"
+    assert layered.global_.skills_dir == tmp_path / "global-skills"
 
     backend.calls.clear()
     planned_tasks.clear()

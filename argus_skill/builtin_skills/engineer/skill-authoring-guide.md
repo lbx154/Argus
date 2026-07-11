@@ -61,13 +61,12 @@ bloat — a winning skill stays tight.
 - Never weaken or restate the OUTCOME definition (metric / verifier / what counts as
   winning). Skills change how the agent works, never what counts as a win.
 
-## You are judged by EFFECT, not by prose
-Whatever you write is **provisional**. It is NOT banked yet. The loop will carry it
-into the next round, and the **reviewer judges that round's result**. If carrying your
-skill made the round measurably better, it is banked; if not, it is discarded (and an
-optimized skill reverts to its last proven version). So do not optimize for sounding
-good — optimize for a skill that **actually makes the next attempt succeed**. Judging
-skill text is worse than chance; only the demonstrated effect counts.
+## Evolve by EFFECT, not by prose
+Whatever you write is versioned, persisted, and available immediately. Later task
+trajectories and Reviewer feedback determine whether it should be revised, split,
+merged, or archived. So do not optimize for sounding good — optimize for a skill
+that actually helps future work, and preserve the evidence needed to revise it
+honestly. Judging skill text in isolation is not an admission gate.
 
 ## Output
 Return ONLY the skill markdown (frontmatter + body). For OPTIMIZE, return the full

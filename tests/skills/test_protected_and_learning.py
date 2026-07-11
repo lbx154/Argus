@@ -122,7 +122,7 @@ def test_protected_update_is_rejected(tmp_path):
 
 
 def test_ordinary_update_not_gated_by_diff_aware(tmp_path):
-    """A plain, non-protected update is accepted as a provisional candidate."""
+    """A plain, non-protected update becomes an active version immediately."""
     store = _store(tmp_path)
     store.save(Skill(name="Plain Skill", description="d", category="c",
                      content=_content(name="Plain Skill")))

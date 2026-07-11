@@ -68,7 +68,7 @@ skill_ops commit at mission close through the existing `SkillRouter`, wiki throu
 + `SkillStore` CRUD, `LayeredSkillStore` (project→global promotion), `WikiStore`
 read/write, `index.rebuild_indexes` / `promotion` / `auto_hooks`, the vertical
 contract + injection (`verticals/_base.py`), `RunnerOptions.output_schema_path`
-structured output, `role_context` read-only skill loading, provisional lifecycle,
+structured output, `role_context` read-only skill loading, immediate project-layer activation,
 `skill_tidy` source promotion.
 
 **Net-new:** the `learning` vertical package, 2 seed skills, `WikiRouter` +
@@ -89,9 +89,9 @@ update gate, the `learn` CLI + ingest, and the verification harness.
    `{source_id, locator, quote}`; the harness mechanically verifies the quote is
    verbatim in the immutable source (anti-fabrication). Sufficiency is the
    reviewer's judgment.
-4. **no default-global pollution**: learned skills land in the project/quarantine
-   layer (`LayeredSkillStore`, provisional) and are promoted to global only after a
-   real downstream mission proves them effective. [wiring PENDING]
+4. **no default-global pollution**: learned skills land active and versioned in
+   the project layer (`LayeredSkillStore`); global promotion remains a separate
+   explicit placement decision. [wired into the real SkillLoop]
 5. **`learn --once` is dry-run by default**: the harness-shortcut path renders the
    plan/diffs and writes nothing until `--apply`. [PENDING]
 6. **no-op with reason is success**: an honest "the material added nothing" passes;
@@ -119,14 +119,14 @@ skills, anti-cheat, role-identity playbooks) — the operator's #1 concern.
 
 - **archive/delete of a protected skill → refused** (mechanical, no judge).
 - **update of a protected skill → refused by the runtime skill path**. Runtime
-  Scientist/Reviewer skill candidates may create/update ordinary provisional
+  Scientist/Reviewer skill ops may create/update ordinary active project-layer
   skills, but protected / governing skills require an explicit source-code review
   rather than an automatic runtime update.
 - **a `create` cannot shadow a protected skill** by reusing its name (a top-level
   shadow would win the matcher's last-wins resolution and neutralize the protected
   playbook without touching it) → refused.
 - **removals are reversible**: skill archive → `skills/_archive/`; skill update
-  snapshots `.<stem>.prev.md`; wiki retire → `pages/_retired/` tombstone (never
+  history → `skills/_history/<skill_id>/vN.md`; wiki retire → `pages/_retired/` tombstone (never
   overwrites a prior tombstone). Ultimate rollback: seed skills are git-tracked, so
   the runtime is disposable and re-seedable from the golden master.
 - **deferred effect**: skills load at mission *start*; `skill_ops` apply at mission
@@ -191,17 +191,18 @@ argus_skill/skills/vertical_select.py               "learning" registered
 - **P1 safety foundation** — protected floor, seed skills, vertical package, diff-aware
   update, create-shadow refusal. **DONE.**
 - **P2 wiki first-class** — `WikiRouter`, `retire_page`, provenance. **DONE (standalone).**
-- **P3 activation** — `learn` CLI/ingest, `wiki_ops` schema + curate-stage wiring,
-  LayeredSkillStore isolation, query_pack fix. **NEXT.**
+- **P3 activation** — LayeredSkillStore isolation is live in the real SkillLoop;
+  `learn` CLI/ingest and remaining curate-stage UX are still pending. **PARTIAL.**
 - **P4 verify & promote** — Copilot end-to-end use-test, earned global promotion,
   churn probe.
 
 ## 9. Decisions (resolved)
 
-- **A** learned skills land in the project/quarantine layer, earn global by proven
-  downstream use (not default-global).
+- **A** learned skills land active in the project layer; global placement remains
+  explicit (not default-global).
 - **B** learning wiki lives in a fixed learning workdir (per-project wiki reused).
-- **C** learned skills stay provisional; no auto-confirm on review.
+- **C** learned skills have no provisional/confirmation state; real use evidence
+  drives later revision, merge, or retirement.
 - **D** first-class vertical is the backbone; `learn --once` is a dry-run-by-default
   shortcut.
 - **E** material formats: md/txt/PDF/URL, behind the §4.7 safety guardrails.

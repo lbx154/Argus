@@ -14,8 +14,8 @@ correctly diagnosed and patched it — a genuine self-repair, landed here proper
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -149,7 +149,6 @@ def test_stage_check_knowledge_curation_review_uses_curation_gate(
         "name: grpo-practical-tricks\n"
         "description: GRPO practical tricks\n"
         "category: learning\n"
-        "provisional: true\n"
         "---\n",
         encoding="utf-8",
     )

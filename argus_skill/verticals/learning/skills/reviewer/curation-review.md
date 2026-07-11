@@ -51,6 +51,6 @@ and pass ONLY what clears every relevant one:
 ## When NOT to use
 - Not for reviewing ordinary engineering missions — this rubric is specific to
   library-CRUD proposals. Use the vertical's normal stage checklist for those.
-- Do not confirm learned skills as proven here — approval only lets a change land
-  as a provisional candidate; effectiveness is proven later, by a real downstream
-  mission that carries it and succeeds.
+- A valid learned skill lands active and versioned in the project layer. Use real
+  downstream trajectories to propose later updates or retirement; do not invent a
+  separate confirmation or promotion gate.

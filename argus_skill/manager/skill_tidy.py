@@ -184,7 +184,7 @@ def tidy_runtime_skills_to_source(
     *,
     on_event: Any = None,
 ) -> dict[str, int]:
-    """Route the runtime library's NEW (non-factory, non-provisional) skills into
+    """Route the runtime library's new non-factory skills into
     the argus source tree, then commit the batch.
 
     ``classify(content=, task=)`` returns a ``PlacementVerdict``
@@ -203,8 +203,6 @@ def tidy_runtime_skills_to_source(
     written: list[Path] = []
 
     for summ in summaries:
-        if summ.get("provisional"):
-            continue  # only tidy proven, confirmed skills
         name = (summ.get("name") or "").strip()
         if not name or name.casefold() in source_names:
             continue  # factory skill already in source → skip
@@ -263,17 +261,25 @@ def tidy_after_mission(
     project_root: Path | str,
     runner: Any,
     *,
+    project_state_dir: Path | str | None = None,
     on_event: Any = None,
 ) -> dict[str, int]:
-    """End-of-mission entry: route the runtime library's distilled skills into
-    the argus source tree (builtin / vertical) and commit. Never raises — a
-    setup error logs and returns zeros, so mission completion is never blocked."""
+    """Route this project's active runtime skills into source when opted in.
+
+    ``project_state_dir`` selects the real project-layer store; the global path
+    fallback exists only for legacy direct callers. Never raises.
+    """
     try:
         from ..core.paths import skills_global_root
         from ..skills.store import SkillStore
         from ._core import Manager
 
-        runtime = SkillStore(skills_global_root())
+        runtime_dir = (
+            Path(project_state_dir) / "skills"
+            if project_state_dir is not None
+            else skills_global_root()
+        )
+        runtime = SkillStore(runtime_dir)
         manager = Manager(Path(project_root), runner)
         counts = tidy_runtime_skills_to_source(
             runtime, manager.classify_skill_placement, on_event=on_event

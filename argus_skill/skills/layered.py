@@ -4,7 +4,7 @@ Phase 2 (p2-layered-skills) of the unified-argus-skill refactor: the
 single-directory :class:`~argus_skill.skills.store.SkillStore` is no
 longer enough. Each project gets its own
 ``~/.argus-skill/projects/<fp>/skills/`` directory that holds its
-proven playbooks; the user-global library lives at
+active, versioned playbooks; the user-global library lives at
 ``~/.argus-skill/skills/`` and is shared across all projects.
 
 Design choices
@@ -173,6 +173,9 @@ class LayeredSkillStore:
             return self.project.load(path)
         return self.store_for_layer(layer).load(path)
 
+    def role_for(self, skill: Skill) -> str:
+        return self.store_for_skill(skill).role_for(skill)
+
     # ------------------------------------------------------------------
     # Writes — default to project, dispatch when layer is known
     # ------------------------------------------------------------------
@@ -189,33 +192,56 @@ class LayeredSkillStore:
         task_description: str,
         raw_distill_output: str,
         on_event: Callable[[dict], None] | None = None,
-        provisional: bool = False,
     ) -> Skill | None:
-        # Skill quality is proven by effect: candidates start in the project layer
-        # and survive only after an effective reviewed use.
+        # New skills are immediately active in the project layer. Promotion to
+        # global remains a separate placement decision.
         return self.project.save_distilled(
             task_description=task_description,
             raw_distill_output=raw_distill_output,
             on_event=on_event,
-            provisional=provisional,
         )
 
     def update_skill(
         self, skill: Skill, new_content: str, task_desc: str
     ) -> Skill:
-        return self.store_for_skill(skill).update_skill(
-            skill, new_content, task_desc
+        target = (
+            self.import_global_skill_into_project(skill)
+            if self.layer_for_skill(skill) == LAYER_GLOBAL
+            else skill
+        )
+        updated = self.project.update_skill_content(
+            target, new_content, task_desc=task_desc
+        )
+        if updated is None:
+            raise ValueError("update_skill: revised content is empty")
+        return updated
+
+    def update_skill_content(
+        self,
+        skill: Skill,
+        new_markdown: str,
+        *,
+        task_desc: str = "",
+        on_event: Callable[[dict], None] | None = None,
+    ) -> Skill | None:
+        """Update a project skill, or fork a global skill into a project shadow."""
+        target = (
+            self.import_global_skill_into_project(skill)
+            if self.layer_for_skill(skill) == LAYER_GLOBAL
+            else skill
+        )
+        return self.project.update_skill_content(
+            target,
+            new_markdown,
+            task_desc=task_desc,
+            on_event=on_event,
         )
 
-    def confirm_provisional(self, skill: Skill) -> bool:
-        return self.store_for_skill(skill).confirm_provisional(skill)
-
-    def discard_provisional(
-        self, skill: Skill, *, on_event: Callable[[dict], None] | None = None,
-    ) -> str:
-        return self.store_for_skill(skill).discard_provisional(
-            skill, on_event=on_event,
-        )
+    def archive(self, skill: Skill) -> Path | None:
+        """Archive project-local skills; never mutate the shared global layer."""
+        if self.layer_for_skill(skill) != LAYER_PROJECT:
+            return None
+        return self.project.archive(skill)
 
     def record_reuse(
         self,
@@ -346,6 +372,10 @@ class LayeredSkillStore:
         # Build the merged view ourselves so we can match across layers.
         merged_summaries = self.list_summaries()
         if not merged_summaries:
+            self.project._last_match_input_tokens = 0
+            self.project._last_match_cached_input_tokens = 0
+            self.project._last_match_output_tokens = 0
+            self.project._last_match_premium_requests = 0.0
             if on_event:
                 on_event({
                     "type": "match.info",
@@ -381,6 +411,22 @@ class LayeredSkillStore:
         finally:
             ps_any.list_summaries = original_list
             ps_any.load = original_load
+
+    @property
+    def last_match_input_tokens(self) -> int:
+        return self.project.last_match_input_tokens
+
+    @property
+    def last_match_cached_input_tokens(self) -> int:
+        return self.project.last_match_cached_input_tokens
+
+    @property
+    def last_match_output_tokens(self) -> int:
+        return self.project.last_match_output_tokens
+
+    @property
+    def last_match_premium_requests(self) -> float:
+        return self.project.last_match_premium_requests
 
 
 __all__ = [

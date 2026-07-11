@@ -144,7 +144,7 @@ FrontierMath 私有 holdout 审计争议、LMArena "Leaderboard Illusion" 刷榜
 | 持久任务队列 | `backlog.jsonl`:pending→running→done/failed，配合 `events.jsonl` 的 cost_usd / iteration 数字形成 agent 自律证明；session artifact root 隔离防跨项目污染 | `life/memory.py` |
 | 实时遥测 | `telemetry.jsonl` 每 10s 心跳 + 子进程 / 文件增量(mtime / size_delta / new_lines),命令行脱敏防 token 泄露,可绘"artifacts 增长曲线"证明没空转 | `life/telemetry.py:1-648` |
 | 蒸馏知识库 | wiki pages(techniques / conflicts / patterns)带 frontmatter + related_runs + confidence;confidence 不是 LLM 猜的,是"在 N 个真实 mission 试过"的统计 | `wiki/schema.py`;`wiki/promotion.py:1-298` |
-| 技能生命周期 | 每个 skill 自带 distill 过程 + provisional 标记,reviewer validate 后才入库;task_history = 显式 training signal | `skills/store.py`;`skills/lifecycle.py:1-250` |
+| 技能生命周期 | 新建/更新 skill 立即版本化并在 project layer 可用；task_history、真实使用结果和 reviewer feedback 驱动后续 update/archive/compaction，不设 provisional 晋升门 | `skills/store.py`;`skills/skill_router.py`;`skills/lifecycle.py` |
 | 全文检索索引 | `trajectory_index.sqlite` FTS5/BM25,可秒级回溯"这个 agent 之前怎么处理 XXX" | `tools/trajectory_index.py:1-436` |
 | 防造假护栏 | ground_truth mandate 硬要求 re-verify、不信摘要;数据 immutable;遥测脱敏(目前 spot-check) | `skills/ground_truth.py:1-113` |
 

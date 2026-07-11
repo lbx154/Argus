@@ -64,10 +64,8 @@ def build_duplicate_check_prompt(
 ) -> str:
     """Ask a small model whether a NEW page proposal duplicates an EXISTING
     one — semantic judgment over compact summaries (title + card_type + a
-    short body excerpt), the wiki-page counterpart to
-    ``skills.skill_prompts.Prompts.skill_duplicate_check`` (same
-    progressive-disclosure shape: summaries only, never every existing page's
-    full body in one prompt beyond a short excerpt).
+    short body excerpt), using progressive disclosure: summaries only, never
+    every existing page's full body beyond a short excerpt.
 
     Catches paraphrased duplicates a lexical/cosine comparison misses (e.g.
     two missions that each distill the SAME technique under a different

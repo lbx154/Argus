@@ -5,12 +5,12 @@ key refactor: ``find_relevant`` no longer imports ``codex_exec`` directly.
 It now takes a ``RunnerBackend`` (and the model name to use) explicitly,
 so the same store works against codex, claude-code, or the test stub.
 
-Skills are markdown files with a YAML-style frontmatter block. The
-``Skill`` dataclass + parse/render helpers are unchanged. ``SkillStore``
-indexes the directory and asks a small model to pick the best match for a
-task. There is NO lexical/keyword fallback: on matcher failure or an
-unusable matcher response we surface the failure and return ``None`` so the
-caller takes the full expensive path rather than silently guessing a match.
+Skills are markdown files with a YAML-style frontmatter block. ``SkillStore``
+persists version/use metadata, retains prior versions under ``_history/``, and
+asks a small model to pick the best match for a task. There is NO
+lexical/keyword fallback: on matcher failure or an unusable matcher response we
+surface the failure and return ``None`` so the caller takes the full expensive
+path rather than silently guessing a match.
 """
 from __future__ import annotations
 
@@ -78,7 +78,6 @@ def role_of_path(path: str, skills_dir: Path) -> str:
 
 TASK_HISTORY_MAX_ITEMS = 32
 TASK_HISTORY_MAX_ITEM_LEN = 200
-SKILL_CONFIRM_REUSES_DEFAULT = 1
 
 
 def task_fingerprint(task_desc: str) -> str:
@@ -156,14 +155,6 @@ class Skill:
     successful_reuses: int = 0
     failed_reuses: int = 0
     reuse_fingerprints: list[str] = field(default_factory=list)
-    # Provisional = a CANDIDATE skill change (a newly-created skill, or a fresh
-    # revision of an existing one) that is NOT yet proven. It is kept ("入库")
-    # only when a LATER round that carries it gets an effective reviewer verdict
-    # (``confirm_provisional``); an ineffective one is discarded — a fresh skill
-    # deleted, a revision reverted to its last-confirmed snapshot. The judgment
-    # is the reviewer's verdict on the ROUND, never a judge of the skill text.
-    # Absent in legacy frontmatter -> ``False`` (confirmed).
-    provisional: bool = False
     # Protected = a GOVERNING skill (a vertical's seed skill, an anti-cheat /
     # guardrail playbook, a role-identity skill) that a self-modifying mission
     # must not be able to remove or blindly overwrite. SkillRouter refuses to
@@ -181,7 +172,6 @@ class Skill:
                 for t in self.task_history[-10:]
             )
             history = f"task_history:\n{items}\n"
-        provisional_lines = "provisional: true\n" if self.provisional else ""
         protected_lines = "protected: true\n" if self.protected else ""
         reuse_history = ""
         if self.reuse_fingerprints:
@@ -201,7 +191,6 @@ class Skill:
             f"successful_reuses: {int(self.successful_reuses)}\n"
             f"failed_reuses: {int(self.failed_reuses)}\n"
             f"{protected_lines}"
-            f"{provisional_lines}"
             f"{history}"
             f"{reuse_history}"
             f"---\n\n"
@@ -263,8 +252,6 @@ class Skill:
             successful_reuses=_get_int("successful_reuses"),
             failed_reuses=_get_int("failed_reuses"),
             reuse_fingerprints=reuse_fingerprints,
-            provisional=_get("provisional").strip().strip('"').strip("'").lower()
-            in {"true", "yes", "1"},
             protected=_get("protected").strip().strip('"').strip("'").lower()
             in {"true", "yes", "1"},
         )
@@ -344,7 +331,8 @@ class SkillStore:
             # Skip dotfiles AND the archive tree — archived (pruned/retired)
             # skills must never re-enter the matcher candidate pool.
             if any(
-                part.startswith(".") or part == "_archive" for part in rel.parts
+                part.startswith(".") or part in {"_archive", "_history"}
+                for part in rel.parts
             ):
                 continue
             key = str(p)
@@ -381,7 +369,6 @@ class SkillStore:
                 "task_history": skill.task_history[:5],
                 "path": str(p),
                 "role": skill_role,
-                "provisional": skill.provisional,
                 "protected": skill.protected,
                 "version": skill.version,
                 "skill_id": skill.skill_id,
@@ -400,12 +387,11 @@ class SkillStore:
         # the redundant files.
         selected: dict[tuple[str, str], dict] = {}
 
-        def _rank(summary: dict) -> tuple[int, int, int, int, int, int, str]:
+        def _rank(summary: dict) -> tuple[int, int, int, int, int, str]:
             filename = Path(str(summary.get("path") or "")).stem
             numbered = bool(re.search(r"-\d+$", filename))
             return (
                 int(bool(summary.get("protected"))),
-                int(not bool(summary.get("provisional"))),
                 int(summary.get("successful_reuses") or 0),
                 len(summary.get("task_history") or []),
                 int(summary.get("version") or 1),
@@ -465,15 +451,12 @@ class SkillStore:
         task_description: str,
         raw_distill_output: str,
         on_event: "Callable[[dict], None] | None" = None,
-        provisional: bool = False,
     ) -> "Skill | None":
         """Parse the reviewer-authored skill markdown and persist it.
 
-        We do NOT gate on the skill TEXT: judging a skill's prose is worse than
-        chance (SkillLens), so quality is proven by EFFECT instead — a freshly
-        created skill is born ``provisional`` and is only confirmed (kept) when
-        a later round that carries it gets an effective reviewer verdict; an
-        ineffective one is discarded.
+        A structurally valid skill is immediately active in this store. Quality
+        evolves from real task trajectories and reviewer-authored update/archive
+        ops; there is no candidate or promotion state.
         """
         name, description, category, content = Prompts.parse_skill_output(raw_distill_output)
         if not (content or "").strip():
@@ -494,7 +477,6 @@ class SkillStore:
             task_history=[],
             skill_id=uuid.uuid4().hex,
             created_for_task=task_fingerprint(task_description),
-            provisional=bool(provisional),
         )
         append_task_history(skill, task_description)
         if any(
@@ -518,33 +500,33 @@ class SkillStore:
         task_desc: str = "",
         on_event: "Callable[[dict], None] | None" = None,
     ) -> "Skill | None":
-        """Replace a skill's body with reviewer-authored revised markdown (NO LLM
-        call). The revision is a CANDIDATE: snapshot the last-confirmed version so
-        an ineffective revision can be reverted, bump the version, and re-mark
-        ``provisional`` so it must prove effective again. Returns the updated
-        skill, or ``None`` on a malformed/empty proposal."""
+        """Replace a skill body and retain the previous version for rollback."""
         if not skill.path:
             return None
         _name, description, _category, content = Prompts.parse_skill_output(new_markdown)
         content = content if (content or "").strip() else (new_markdown or "")
-        if len(content.strip()) < 100:
+        if not content.strip():
             return None
-        snap = self._prev_snapshot_path(skill)
-        if snap is not None and not skill.provisional and not snap.exists():
-            try:
-                snap.write_text(skill.render(), encoding="utf-8")
-            except OSError as snap_exc:
-                log.warning("update: cannot write revert snapshot (%s); aborting "
-                            "to protect the confirmed skill", snap_exc)
-                return None
+        snapshot = self._version_snapshot_path(skill)
+        if snapshot is None:
+            return None
+        try:
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            if not snapshot.exists():
+                snapshot.write_text(skill.render(), encoding="utf-8")
+        except OSError as snap_exc:
+            log.warning(
+                "update: cannot preserve skill version (%s); aborting", snap_exc
+            )
+            return None
         self.update_skill(skill, content, task_desc)
         if description.strip():
             skill.description = description.strip()
-        skill.provisional = True
         self.save(skill)
         if on_event is not None:
             on_event({"type": "skill.revised", "skill": skill.name,
                       "version": skill.version,
+                      "previous_version_path": str(snapshot),
                       "text": f"{skill.name} → v{skill.version} (reviewer update)"})
         return skill
 
@@ -561,32 +543,16 @@ class SkillStore:
         return archived
 
     # ------------------------------------------------------------------
-    # Provisional (candidate) lifecycle — a skill change is proven by EFFECT:
-    # confirmed (入库) when a round carrying it is effective, else discarded.
+    # Version/use history — skills are active immediately; real reviewed uses
+    # supply evidence for later update/archive decisions.
     # ------------------------------------------------------------------
 
-    def _prev_snapshot_path(self, skill: Skill) -> "Path | None":
+    def _version_snapshot_path(self, skill: Skill) -> "Path | None":
         if not skill.path:
             return None
         p = Path(skill.path)
-        return p.parent / f".{p.stem}.prev.md"
-
-    def confirm_provisional(self, skill: Skill) -> bool:
-        """Promote a candidate to confirmed (入库) after it proved effective.
-        Drops the revert snapshot. No-op for already-confirmed skills."""
-        if not skill.path or not skill.provisional:
-            return False
-        skill.provisional = False
-        self.save(skill)
-        snap = self._prev_snapshot_path(skill)
-        if snap is not None:
-            try:
-                snap.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError:
-                log.debug("confirm: prev-snapshot unlink failed", exc_info=True)
-        return True
+        stable_id = skill.skill_id or _slugify(skill.name) or p.stem
+        return p.parent / "_history" / stable_id / f"v{skill.version}.md"
 
     def record_reuse(
         self,
@@ -596,20 +562,12 @@ class SkillStore:
         success: bool,
         on_event: "Callable[[dict], None] | None" = None,
     ) -> str:
-        """Record one independent post-creation use of ``skill``.
-
-        The creation mission never counts as proof. A repeated identical task
-        fingerprint counts once, preventing retries of the creation task from
-        confirming a candidate. One later successful independent reuse confirms
-        by default; operators may raise ``ARGUS_SKILL_CONFIRM_REUSES``.
-        """
+        """Record one distinct reviewed use of ``skill`` for evolution evidence."""
         if not skill.path:
             return "noop"
         fingerprint = task_fingerprint(task_desc)
         if not fingerprint:
             return "noop"
-        if skill.created_for_task and fingerprint == skill.created_for_task:
-            return "origin"
         if fingerprint in skill.reuse_fingerprints:
             return "duplicate"
         skill.reuse_fingerprints.append(fingerprint)
@@ -620,78 +578,18 @@ class SkillStore:
         else:
             skill.failed_reuses += 1
         self.save(skill)
-
-        try:
-            threshold = max(
-                1,
-                int(os.environ.get(
-                    "ARGUS_SKILL_CONFIRM_REUSES",
-                    str(SKILL_CONFIRM_REUSES_DEFAULT),
-                ) or SKILL_CONFIRM_REUSES_DEFAULT),
-            )
-        except ValueError:
-            threshold = SKILL_CONFIRM_REUSES_DEFAULT
-        if skill.provisional and success and skill.successful_reuses >= threshold:
-            if self.confirm_provisional(skill):
-                if on_event is not None:
-                    on_event({
-                        "type": "skill.confirmed",
-                        "skill_id": skill.skill_id,
-                        "skill_name": skill.name,
-                        "successful_reuses": skill.successful_reuses,
-                        "text": (
-                            f"confirmed {skill.name} after "
-                            f"{skill.successful_reuses} independent successful reuses"
-                        ),
-                    })
-                return "confirmed"
+        if on_event is not None:
+            on_event({
+                "type": "skill.use.recorded",
+                "skill_id": skill.skill_id,
+                "skill_name": skill.name,
+                "task_fingerprint": fingerprint,
+                "success": bool(success),
+                "successful_uses": skill.successful_reuses,
+                "failed_uses": skill.failed_reuses,
+                "text": f"recorded {'successful' if success else 'ineffective'} use of {skill.name}",
+            })
         return "recorded"
-
-    def discard_provisional(
-        self,
-        skill: Skill,
-        *,
-        on_event: "Callable[[dict], None] | None" = None,
-    ) -> str:
-        """An unproven candidate that was carried into a round and still did NOT
-        produce an effective result is dropped. If a revert snapshot exists (the
-        candidate was a REVISION of a confirmed skill), restore that last-confirmed
-        version; otherwise the candidate was a fresh skill, so archive it. Returns
-        ``"reverted"``, ``"discarded"`` or ``"noop"``. Best-effort; never raises."""
-        if not skill.path or not skill.provisional:
-            return "noop"
-        snap = self._prev_snapshot_path(skill)
-        try:
-            if snap is not None and snap.exists():
-                prior = Skill.parse(snap.read_text(encoding="utf-8"), path=skill.path)
-                skill.content = prior.content
-                skill.version = prior.version
-                skill.description = prior.description or skill.description
-                skill.provisional = False
-                self.save(skill)
-                try:
-                    snap.unlink()
-                except OSError:
-                    pass
-                self._summary_cache.pop(str(skill.path), None)
-                self._match_cache.clear()
-                if on_event is not None:
-                    on_event({"type": "skill.reverted", "skill_name": skill.name,
-                              "text": f"reverted unproven revision of {skill.name} "
-                                      f"to its last confirmed version"})
-                return "reverted"
-            from .lifecycle import archive_skill  # local import: avoid cycle
-            archived = archive_skill(skill.path)
-            self._summary_cache.pop(str(skill.path), None)
-            self._match_cache.clear()
-            if on_event is not None:
-                on_event({"type": "skill.discarded", "skill_name": skill.name,
-                          "text": f"discarded unproven skill {skill.name} (never "
-                                  f"effective)" + (f" -> {archived}" if archived else "")})
-            return "discarded"
-        except Exception as exc:  # noqa: BLE001 — best-effort
-            log.warning("discard_provisional failed (%s: %s)", type(exc).__name__, exc)
-            return "noop"
 
 
     # ------------------------------------------------------------------

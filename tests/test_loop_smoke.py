@@ -3,10 +3,8 @@
 Verifies the integration: matcher hit → skill injected → 2 engineer rounds
 (continue → done) → skill written back. This is the single most
 important test in argus-skill — if it fails, the loop is broken at the
-top level. Skill creation is no longer proactive on a matcher miss (that
-minted a throwaway playbook for every trivial task); a missed match just
-runs the engineer without a skill, and authoring is reviewer-gated
-(see test_loop_failure_lesson).
+top level. On a matcher miss the Scientist may author an immediately active
+project-layer skill, and the loop records the reviewed use for later evolution.
 """
 from __future__ import annotations
 
@@ -69,12 +67,11 @@ def _done_review() -> str:
     })
 
 
-def _seed_skill(skills_dir: Path, *, provisional: bool = False) -> None:
+def _seed_skill(skills_dir: Path) -> None:
     store = SkillStore(skills_dir)
     store.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=SKILL_MD,
-        provisional=provisional,
     )
 
 
@@ -173,9 +170,8 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
-def test_skill_loop_scientist_distills_candidate_on_miss(tmp_path: Path) -> None:
-    """A matcher miss authors a web-enabled provisional skill; the creation
-    mission may use it but cannot self-confirm it."""
+def test_skill_loop_scientist_distills_active_skill_on_miss(tmp_path: Path) -> None:
+    """A matcher miss authors an active skill and records its reviewed use."""
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("scientist.skill_distill", CannedResponse(message="""# Solve Trivial Task
@@ -215,8 +211,8 @@ general
     assert outcome.skill_distilled is True
     summaries = SkillStore(tmp_path / "skills").list_summaries()
     assert [s["name"] for s in summaries] == ["Solve Trivial Task"]
-    assert summaries[0]["provisional"] is True
-    assert any(event.get("type") == "skill.awaiting_reuse" for event in loop_events)
+    assert summaries[0]["successful_reuses"] == 1
+    assert any(event.get("type") == "skill.use.recorded" for event in loop_events)
     scientist_options = next(
         options for label, _prompt, options in backend.history
         if label == "scientist.skill_distill"
