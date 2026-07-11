@@ -58,6 +58,7 @@ from ..daemon.life_worker import (
     _max_active_daemons,
     read_continuous_state,
     read_daemon_status,
+    resolve_effective_budget,
     spawn_detached_daemon,
     stop_daemon,
     write_continuous_config,
@@ -164,15 +165,16 @@ def project_life_dir(sid: str, *, global_root: Path | str | None = None) -> Path
 
 
 def _daemon_dict(st: DaemonStatus) -> dict[str, Any]:
+    budget = resolve_effective_budget(st)
     return {
         "alive": bool(st.alive),
         "pid": st.pid,
         "started_at_iso": st.started_at_iso,
         "uptime_seconds": st.uptime_seconds,
         "backend": st.backend,
-        "per_mission_cap_usd": st.per_mission_cap_usd,
-        "daily_cap_usd": st.daily_cap_usd,
-        "global_daily_cap_usd": st.global_daily_cap_usd,
+        "per_mission_cap_usd": budget.per_mission_cap_usd,
+        "daily_cap_usd": budget.daily_cap_usd,
+        "global_daily_cap_usd": budget.global_daily_cap_usd,
     }
 
 

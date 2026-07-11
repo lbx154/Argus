@@ -209,6 +209,29 @@ test('partial usage never renders as a zero-dollar cumulative cost', async () =>
   assert.doesNotMatch(output, /\$0\.00/);
 });
 
+test('fresh project renders zero cumulative cost and configured daily budget', async () => {
+  const output = await renderNode(
+    React.createElement(CostGauge, {
+      spend: { total: 0, missions: 0, last: 0 },
+      settledUsd: null,
+      spendStatus: 'empty',
+      daemon: {
+        alive: false,
+        pid: null,
+        uptime_seconds: null,
+        backend: 'copilot',
+        per_mission_cap_usd: 7.5,
+        daily_cap_usd: 19.25,
+        global_daily_cap_usd: 55,
+      },
+      width: 120,
+    }),
+    120,
+  );
+  assert.match(output, /cumulative cost \$0\.00/);
+  assert.match(output, /daily cap \$19/);
+});
+
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
   for (const width of [40, 60]) {
     const output = await renderNode(

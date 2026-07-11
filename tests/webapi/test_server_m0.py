@@ -45,20 +45,31 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     assert server.project_life_dir("s-nope", global_root=tmp_path) is None
 
 
-def test_build_snapshot_shape_and_failsoft(tmp_path: Path) -> None:
+def test_build_snapshot_shape_and_failsoft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "7.5")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "19.25")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "55")
     _make_project(tmp_path)
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
     assert set(snap) == {
         "session", "daemon", "roles", "backlog", "recent_events", "spend_usd",
-        "request_usage",
+        "spend_status", "usage_summary", "request_usage",
     }
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
     assert snap["backlog"][0]["title"] == "do X"
     assert snap["daemon"]["alive"] is False  # no daemon running
-    assert isinstance(snap["spend_usd"], (int, float))  # authoritative settled spend
+    assert snap["daemon"]["per_mission_cap_usd"] == 7.5
+    assert snap["daemon"]["daily_cap_usd"] == 19.25
+    assert snap["daemon"]["global_daily_cap_usd"] == 55.0
+    assert snap["spend_usd"] is None
+    assert snap["spend_status"] == "empty"
+    assert snap["usage_summary"]["call_count"] == 0
     # unknown project → None (not an exception)
     assert server.build_snapshot("s-nope", global_root=tmp_path) is None
 
