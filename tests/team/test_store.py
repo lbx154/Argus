@@ -3,6 +3,8 @@ from __future__ import annotations
 import multiprocessing as mp
 from pathlib import Path
 
+import pytest
+
 from argus_skill.team import _store
 
 
@@ -35,6 +37,7 @@ def _locked_incr(lock: str, counter: str) -> None:
             s.atomic_write_json(P(counter), cur)
 
 
+@pytest.mark.integration
 def test_locked_serializes_concurrent_writers(tmp_path: Path) -> None:
     lock = str(tmp_path / ".lock")
     counter = str(tmp_path / "counter.json")

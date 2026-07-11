@@ -1046,6 +1046,24 @@ def _write_events(life_dir: Path, events: list[dict[str, Any]]) -> None:
             fh.write(_json.dumps(ev) + "\n")
 
 
+@pytest.fixture()
+def instant_tail_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _AdvancingTime:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def sleep(self, seconds: float) -> None:
+            self.now += max(0.0, seconds)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(time, name)
+
+    monkeypatch.setattr(manager_repl, "time", _AdvancingTime())
+
+
 def test_tail_mission_events_renders_unlabelled_progress(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1095,7 +1113,10 @@ def test_tail_mission_events_returns_completed(
     assert "mission complete" in out
 
 
-def test_tail_mission_events_ignores_other_items(tmp_path: Path) -> None:
+def test_tail_mission_events_ignores_other_items(
+    tmp_path: Path,
+    instant_tail_timeout: None,
+) -> None:
     """Events for a different item_id must not be returned for ours."""
     _write_events(
         tmp_path,
@@ -1113,6 +1134,7 @@ def test_tail_mission_events_ignores_other_items(tmp_path: Path) -> None:
 
 def test_tail_mission_events_timeout_returns_none_without_completed(
     tmp_path: Path,
+    instant_tail_timeout: None,
 ) -> None:
     """Started but never completed within a short timeout → None, no raise."""
     _write_events(
@@ -1123,7 +1145,10 @@ def test_tail_mission_events_timeout_returns_none_without_completed(
     assert final is None
 
 
-def test_tail_mission_events_missing_file_returns_none(tmp_path: Path) -> None:
+def test_tail_mission_events_missing_file_returns_none(
+    tmp_path: Path,
+    instant_tail_timeout: None,
+) -> None:
     """No events.jsonl yet → tolerate FileNotFound and return None on timeout."""
     final = manager_repl.tail_mission_events(
         tmp_path / "nope", "whatever", timeout=0.3

@@ -19,41 +19,33 @@ from argus_skill.cli.live_status import (
 )
 from argus_skill.cli.theme import Theme
 
-
 # ── enable / disable gating ──────────────────────────────────────────────
+
+class _TTY(io.StringIO):
+    def isatty(self):
+        return True
+
 
 def test_disabled_when_stream_not_a_tty():
     ls = LiveStatus("x", stream=io.StringIO())
     assert ls.enabled is False
 
 
-def test_disabled_respects_no_color(monkeypatch):
-    class _TTY(io.StringIO):
-        def isatty(self):  # noqa: D401
-            return True
-
-    monkeypatch.setenv("NO_COLOR", "1")
-    assert _spinner_enabled(_TTY()) is False
-
-
-def test_disabled_respects_opt_out_env(monkeypatch):
-    class _TTY(io.StringIO):
-        def isatty(self):
-            return True
-
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.setenv("ARGUS_SKILL_NO_SPINNER", "1")
-    assert _spinner_enabled(_TTY()) is False
-
-
-def test_enabled_on_real_tty(monkeypatch):
-    class _TTY(io.StringIO):
-        def isatty(self):
-            return True
-
+@pytest.mark.parametrize(
+    ("opt_out_env", "expected"),
+    [
+        ("NO_COLOR", False),
+        ("ARGUS_SKILL_NO_SPINNER", False),
+        (None, True),
+    ],
+    ids=["no-color", "argus-opt-out", "enabled"],
+)
+def test_spinner_env_gating(monkeypatch, opt_out_env, expected):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_NO_SPINNER", raising=False)
-    assert _spinner_enabled(_TTY()) is True
+    if opt_out_env is not None:
+        monkeypatch.setenv(opt_out_env, "1")
+    assert _spinner_enabled(_TTY()) is expected
 
 
 def test_disabled_context_writes_nothing():
