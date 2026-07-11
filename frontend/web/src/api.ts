@@ -12,9 +12,13 @@ import type {
   ProjectRow,
   RequestUsage,
   Role,
-  Snapshot,
 } from '../../core/src/types';
 import { ensureResponseOk } from '../../core/src/http';
+import {
+  requireCompatibleApiMeta,
+  requireSnapshotContract,
+  type ApiMeta,
+} from '../../core/src/protocol';
 
 export type {
   ArtifactInfo,
@@ -114,6 +118,26 @@ async function getBlob(path: string): Promise<Blob> {
 }
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
+let apiMetaPromise: Promise<ApiMeta> | undefined;
+
+export function compatibleApiMeta(): Promise<ApiMeta> {
+  if (!apiMetaPromise) {
+    const request = (async () => {
+      const path = '/api/meta';
+      const r = await fetch(path, { headers: authHeaders() });
+      if (r.status === 404) {
+        throw new Error('incompatible Argus API: service does not expose /api/meta');
+      }
+      await ensureResponseOk(r, 'GET', path);
+      return requireCompatibleApiMeta(await r.json());
+    })();
+    apiMetaPromise = request;
+    void request.catch(() => {
+      if (apiMetaPromise === request) apiMetaPromise = undefined;
+    });
+  }
+  return apiMetaPromise;
+}
 
 /** One decoded SSE frame from the streaming Manager endpoint. */
 export interface SSEFrame {
@@ -155,11 +179,19 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 }
 
 export const api = {
-  listProjects: () => getJson<{ projects: ProjectRow[] }>('/api/projects').then((r) => r.projects),
+  meta: compatibleApiMeta,
+  listProjects: async () => {
+    await compatibleApiMeta();
+    return getJson<{ projects: ProjectRow[] }>('/api/projects').then((r) => r.projects);
+  },
   /** Create a brand-new daemon armed with an objective, and spawn it. */
   createDaemon: (objective: string, name = '') =>
     postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', { objective, name }),
-  snapshot: (sid: string) => getJson<Snapshot>(P(sid, '/snapshot?compact=true&events_limit=1')),
+  snapshot: async (sid: string) => {
+    await compatibleApiMeta();
+    const value = await getJson<unknown>(P(sid, '/snapshot?compact=true&events_limit=1'));
+    return requireSnapshotContract(value);
+  },
   status: (sid: string) => getJson<StatusView>(P(sid, '/status')),
   journal: (sid: string, n = 20) =>
     getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`)).then((r) => r.journal),

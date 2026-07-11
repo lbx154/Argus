@@ -71,6 +71,14 @@ export function TopBar({
           <span className="hidden text-[11px] text-ink-faint lg:inline">
             {d.alive ? `daemon up ${uptime(d.uptime_seconds)}` : 'daemon off'} · {streamOk ? '● live' : '○ reconnecting'}
             {snapshotStale ? <span className="text-warn"> · snapshot stale</span> : null}
+            {snap.partial ? (
+              <span
+                className="text-err"
+                title={(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`).join('\n')}
+              >
+                {' · snapshot partial'}
+              </span>
+            ) : null}
           </span>
         </div>
         <p className="mt-0.5 truncate text-xs text-ink-faint">

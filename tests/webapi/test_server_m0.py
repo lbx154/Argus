@@ -7,12 +7,20 @@ Skips cleanly if the ``[web]`` extra (fastapi) is not installed.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 import pytest
 
 from argus_skill.webapi import server
+from argus_skill.webapi.protocol import (
+    API_CAPABILITIES,
+    API_PROTOCOL_MAJOR,
+    API_PROTOCOL_NAME,
+    SNAPSHOT_SCHEMA_VERSION,
+    build_api_meta,
+)
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -45,6 +53,33 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     assert server.project_life_dir("s-nope", global_root=tmp_path) is None
 
 
+def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None:
+    meta = build_api_meta()
+    assert meta["service"] == "argus-skill-webapi"
+    assert meta["protocol"] == {
+        "name": API_PROTOCOL_NAME,
+        "major": API_PROTOCOL_MAJOR,
+        "minor": 0,
+    }
+    assert meta["snapshot_schema_version"] == SNAPSHOT_SCHEMA_VERSION
+    assert meta["capabilities"] == list(API_CAPABILITIES)
+    assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
+    assert meta["runtime"]["pid"] > 0
+
+
+def test_frontend_protocol_constants_match_backend_contract() -> None:
+    source = (
+        Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts"
+    ).read_text(encoding="utf-8")
+    assert f"name: '{API_PROTOCOL_NAME}'" in source
+    assert f"major: {API_PROTOCOL_MAJOR}" in source
+    assert f"SNAPSHOT_SCHEMA_VERSION = {SNAPSHOT_SCHEMA_VERSION}" in source
+    capabilities_block = source.split(
+        "REQUIRED_API_CAPABILITIES = [", 1
+    )[1].split("] as const", 1)[0]
+    assert tuple(re.findall(r"'([^']+)'", capabilities_block)) == API_CAPABILITIES
+
+
 def test_build_snapshot_shape_and_failsoft(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -56,9 +91,13 @@ def test_build_snapshot_shape_and_failsoft(
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
     assert set(snap) == {
-        "session", "daemon", "roles", "backlog", "recent_events", "spend_usd",
-        "spend_status", "usage_summary", "request_usage",
+        "schema_version", "session", "daemon", "roles", "backlog",
+        "recent_events", "spend_usd", "spend_status", "usage_summary",
+        "request_usage", "partial", "diagnostics",
     }
+    assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
+    assert snap["partial"] is False
+    assert snap["diagnostics"] == []
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
@@ -72,6 +111,55 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["usage_summary"]["call_count"] == 0
     # unknown project → None (not an exception)
     assert server.build_snapshot("s-nope", global_root=tmp_path) is None
+
+
+def test_build_snapshot_marks_failsoft_sections_partial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path)
+
+    def broken_status(_life_dir: Path):
+        raise RuntimeError("status sidecar is unreadable")
+
+    monkeypatch.setattr(server, "read_daemon_status", broken_status)
+    snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
+    assert snap is not None
+    assert snap["partial"] is True
+    assert snap["daemon"]["read_status"] == "error"
+    assert snap["daemon"]["read_error"] == "status sidecar is unreadable"
+    assert "daily_cap_usd" in snap["daemon"]
+    assert snap["diagnostics"] == [{
+        "section": "daemon",
+        "error_type": "RuntimeError",
+        "message": "status sidecar is unreadable",
+    }]
+
+
+def test_build_snapshot_marks_running_legacy_daemon_incompatible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    life = _make_project(tmp_path)
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _life_dir: server.DaemonStatus(
+            alive=True,
+            pid=123,
+            started_at_iso=None,
+            uptime_seconds=5.0,
+            life_dir=life,
+        ),
+    )
+
+    snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
+
+    assert snap is not None
+    assert snap["partial"] is True
+    assert snap["daemon"]["protocol_compatible"] is False
+    assert "no protocol metadata" in snap["daemon"]["protocol_error"]
+    assert snap["diagnostics"][0]["section"] == "daemon_protocol"
 
 
 def test_daemon_backend_follows_engineer_role_not_stale_status(tmp_path: Path, monkeypatch) -> None:
@@ -137,6 +225,22 @@ def test_get_projects(client: TestClient) -> None:
     r = client.get("/api/projects")
     assert r.status_code == 200
     assert any(p["id"] == "s-testaaaa" for p in r.json()["projects"])
+
+
+def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
+    app = server.create_app(global_root=tmp_path, auth_token="secret")
+    with TestClient(app) as client:
+        r = client.get("/api/meta")
+        authenticated = client.get(
+            "/api/meta",
+            headers={"Authorization": "Bearer secret"},
+        )
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["x-argus-protocol"] == "argus.webapi/1.0"
+    assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
+    assert r.json()["runtime"]["source_root"] == "<redacted>"
+    assert authenticated.json()["runtime"]["source_root"] != "<redacted>"
 
 
 def test_get_projects_limit_param(client: TestClient) -> None:

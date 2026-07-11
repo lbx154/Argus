@@ -1860,6 +1860,8 @@ def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> 
         backend = normalize_runner_backend(resolve_role_backend("engineer"))
     except Exception:  # noqa: BLE001
         backend = config.backend
+    from .protocol import daemon_protocol_metadata
+
     return {
         "pid": os.getpid(),
         "started_at_iso": started_at_iso,
@@ -1868,6 +1870,7 @@ def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> 
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
         "global_daily_cap_usd": config.global_daily_cap_usd,
+        **daemon_protocol_metadata(),
     }
 
 
@@ -1882,6 +1885,12 @@ class DaemonStatus:
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
     global_daily_cap_usd: float | None = None
+    protocol_name: str = ""
+    protocol_major: int | None = None
+    protocol_minor: int | None = None
+    capabilities: tuple[str, ...] = ()
+    runtime: dict[str, Any] | None = None
+    status_read_error: str = ""
     pid_path: Path | None = None
 
 
@@ -1991,6 +2000,12 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
     global_daily_cap_usd: float | None = None
+    protocol_name = ""
+    protocol_major: int | None = None
+    protocol_minor: int | None = None
+    capabilities: tuple[str, ...] = ()
+    runtime: dict[str, Any] | None = None
+    status_read_error = ""
     uptime: float | None = None
     sidecar = _daemon_status_path(life_dir)
     if sidecar.exists():
@@ -2007,11 +2022,26 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
                 daily_cap_usd = float(raw_daily)
             if raw_global_daily is not None:
                 global_daily_cap_usd = float(raw_global_daily)
+            protocol = data.get("protocol")
+            if isinstance(protocol, dict):
+                protocol_name = str(protocol.get("name") or "")
+                raw_major = protocol.get("major")
+                raw_minor = protocol.get("minor")
+                protocol_major = int(raw_major) if raw_major is not None else None
+                protocol_minor = int(raw_minor) if raw_minor is not None else None
+            raw_capabilities = data.get("capabilities")
+            if isinstance(raw_capabilities, list):
+                capabilities = tuple(
+                    str(item) for item in raw_capabilities if isinstance(item, str)
+                )
+            raw_runtime = data.get("runtime")
+            if isinstance(raw_runtime, dict):
+                runtime = dict(raw_runtime)
             if started_iso:
                 started_dt = datetime.fromisoformat(started_iso)
                 uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
-        except Exception:  # noqa: BLE001
-            pass
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            status_read_error = f"{type(exc).__name__}: {exc}"[:500]
     return DaemonStatus(
         alive=alive,
         pid=pid if alive else None,
@@ -2022,6 +2052,12 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
         global_daily_cap_usd=global_daily_cap_usd,
+        protocol_name=protocol_name,
+        protocol_major=protocol_major,
+        protocol_minor=protocol_minor,
+        capabilities=capabilities,
+        runtime=runtime,
+        status_read_error=status_read_error,
         pid_path=pid_path,
     )
 

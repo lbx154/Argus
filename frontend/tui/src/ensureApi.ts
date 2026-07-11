@@ -2,6 +2,11 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  describeApiRuntime,
+  inspectApiMeta,
+  type ApiMeta,
+} from '../../core/src/protocol.js';
 
 /**
  * Make `argus` a true one-command launch: if the backend API isn't up, start
@@ -25,14 +30,47 @@ function resolveBin(): string {
   return 'argus-skill';
 }
 
-async function ping(host: string, port: number, token?: string): Promise<boolean> {
+export interface ApiProbeResult {
+  state: 'compatible' | 'incompatible' | 'unreachable';
+  message: string;
+  meta?: ApiMeta;
+}
+
+export async function probeApi(
+  host: string,
+  port: number,
+  token?: string,
+): Promise<ApiProbeResult> {
   try {
     const ctrl = AbortSignal.timeout(1200);
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    const r = await fetch(`http://${host}:${port}/api/projects`, { signal: ctrl, headers });
-    return r.ok || r.status === 401; // 401 = up but needs token — still "reachable"
-  } catch {
-    return false;
+    const r = await fetch(`http://${host}:${port}/api/meta`, { signal: ctrl, headers });
+    if (!r.ok) {
+      const suffix = r.status === 404
+        ? 'service does not expose /api/meta; it is an older Argus checkout or another process'
+        : `GET /api/meta returned HTTP ${r.status}`;
+      return { state: 'incompatible', message: suffix };
+    }
+    let body: unknown;
+    try {
+      body = await r.json();
+    } catch {
+      return { state: 'incompatible', message: 'backend returned malformed /api/meta JSON' };
+    }
+    const compatibility = inspectApiMeta(body);
+    if (!compatibility.compatible || !compatibility.meta) {
+      return { state: 'incompatible', message: compatibility.reason };
+    }
+    return {
+      state: 'compatible',
+      message: describeApiRuntime(compatibility.meta),
+      meta: compatibility.meta,
+    };
+  } catch (error) {
+    return {
+      state: 'unreachable',
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -51,8 +89,16 @@ export async function ensureApi(opts: {
 }): Promise<EnsureResult> {
   const { host, port, token, autostart = true, onStatus } = opts;
 
-  if (await ping(host, port, token)) {
-    return { reachable: true, spawned: false, message: 'api up' };
+  const initial = await probeApi(host, port, token);
+  if (initial.state === 'compatible') {
+    return { reachable: true, spawned: false, message: `api up · ${initial.message}` };
+  }
+  if (initial.state === 'incompatible') {
+    return {
+      reachable: false,
+      spawned: false,
+      message: `incompatible Argus API at ${host}:${port}: ${initial.message}. Stop that WebAPI or choose another port.`,
+    };
   }
   // Only auto-start a LOCAL API — never try to launch a daemon on a remote host.
   const local = host === '127.0.0.1' || host === 'localhost' || host === '::1';
@@ -85,8 +131,16 @@ export async function ensureApi(opts: {
   // poll up to ~10s for it to come online
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    if (await ping(host, port, token)) {
-      return { reachable: true, spawned: true, message: 'api started' };
+    const probe = await probeApi(host, port, token);
+    if (probe.state === 'compatible') {
+      return { reachable: true, spawned: true, message: `api started · ${probe.message}` };
+    }
+    if (probe.state === 'incompatible') {
+      return {
+        reachable: false,
+        spawned: true,
+        message: `port ${port} is occupied by an incompatible Argus API: ${probe.message}`,
+      };
     }
     onStatus?.(`starting backend api… ${i + 1}`);
   }

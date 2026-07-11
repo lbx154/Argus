@@ -26,6 +26,13 @@ export interface Daemon {
   per_mission_cap_usd: number | null;
   daily_cap_usd: number | null;
   global_daily_cap_usd: number | null;
+  read_status?: 'ok' | 'error';
+  read_error?: string;
+  protocol?: { name: string; major: number | null; minor: number | null };
+  capabilities?: string[];
+  runtime?: Record<string, unknown> | null;
+  protocol_compatible?: boolean | null;
+  protocol_error?: string;
 }
 
 export interface BacklogItem {
@@ -111,6 +118,7 @@ export interface UsageSummary {
 }
 
 export interface Snapshot {
+  schema_version?: number;
   session: {
     id: string;
     display_name: string;
@@ -131,6 +139,12 @@ export interface Snapshot {
   continuous?: ContinuousState;
   /** Present on compact UI snapshots. */
   pending_questions?: Array<Record<string, unknown>>;
+  partial?: boolean;
+  diagnostics?: Array<{
+    section: string;
+    error_type: string;
+    message: string;
+  }>;
 }
 
 export interface ProjectRow {

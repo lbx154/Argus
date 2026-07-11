@@ -63,8 +63,14 @@ from ..daemon.life_worker import (
     stop_daemon,
     write_continuous_config,
 )
+from ..daemon.protocol import daemon_protocol_compatibility
 from ..life.memory import LifeMemory, _read_jsonl_tail_history
 from ..tools.doctor import run_diagnostics
+from .protocol import (
+    SNAPSHOT_SCHEMA_VERSION,
+    build_api_meta,
+    protocol_header,
+)
 
 __all__ = [
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
@@ -166,6 +172,7 @@ def project_life_dir(sid: str, *, global_root: Path | str | None = None) -> Path
 
 def _daemon_dict(st: DaemonStatus) -> dict[str, Any]:
     budget = resolve_effective_budget(st)
+    protocol_compatible, protocol_error = daemon_protocol_compatibility(st)
     return {
         "alive": bool(st.alive),
         "pid": st.pid,
@@ -175,6 +182,52 @@ def _daemon_dict(st: DaemonStatus) -> dict[str, Any]:
         "per_mission_cap_usd": budget.per_mission_cap_usd,
         "daily_cap_usd": budget.daily_cap_usd,
         "global_daily_cap_usd": budget.global_daily_cap_usd,
+        "read_status": "error" if st.status_read_error else "ok",
+        "read_error": st.status_read_error,
+        "protocol": {
+            "name": st.protocol_name,
+            "major": st.protocol_major,
+            "minor": st.protocol_minor,
+        },
+        "capabilities": list(st.capabilities),
+        "runtime": st.runtime,
+        "protocol_compatible": protocol_compatible,
+        "protocol_error": protocol_error,
+    }
+
+
+def _diagnostic(section: str, exc: BaseException) -> dict[str, str]:
+    return {
+        "section": section,
+        "error_type": type(exc).__name__,
+        "message": str(exc or type(exc).__name__)[:500],
+    }
+
+
+def _daemon_error_dict(exc: BaseException) -> dict[str, Any]:
+    try:
+        budget = resolve_effective_budget(None)
+        per_mission = budget.per_mission_cap_usd
+        daily = budget.daily_cap_usd
+        global_daily = budget.global_daily_cap_usd
+    except Exception:  # noqa: BLE001 — original diagnostic remains authoritative
+        per_mission = daily = global_daily = None
+    return {
+        "alive": False,
+        "pid": None,
+        "started_at_iso": None,
+        "uptime_seconds": None,
+        "backend": None,
+        "per_mission_cap_usd": per_mission,
+        "daily_cap_usd": daily,
+        "global_daily_cap_usd": global_daily,
+        "read_status": "error",
+        "read_error": str(exc or type(exc).__name__)[:500],
+        "protocol": {"name": "", "major": None, "minor": None},
+        "capabilities": [],
+        "runtime": None,
+        "protocol_compatible": None,
+        "protocol_error": "",
     }
 
 
@@ -294,17 +347,32 @@ def build_snapshot(
     if life_dir is None:
         return None
     root = _global_root(global_root)
+    diagnostics: list[dict[str, str]] = []
 
     try:
         st = read_daemon_status(life_dir)
         daemon = _daemon_dict(st)
-    except Exception:  # noqa: BLE001 — snapshot must never raise
-        daemon = {"alive": False, "pid": None}
+        if daemon["read_status"] == "error":
+            diagnostics.append({
+                "section": "daemon",
+                "error_type": "StatusReadError",
+                "message": str(daemon["read_error"]),
+            })
+        if daemon["protocol_compatible"] is False:
+            diagnostics.append({
+                "section": "daemon_protocol",
+                "error_type": "ProtocolMismatch",
+                "message": str(daemon["protocol_error"]),
+            })
+    except Exception as exc:  # noqa: BLE001 — return explicit partial state
+        daemon = _daemon_error_dict(exc)
+        diagnostics.append(_diagnostic("daemon", exc))
 
     try:
         roles = _roles_list(resolve_all_roles(env=os.environ), role_activity(life_dir))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         roles = []
+        diagnostics.append(_diagnostic("roles", exc))
 
     # The daemon's persisted status.json ``backend`` is stamped once at boot and
     # goes stale — a daemon started before a backend switch keeps reporting the
@@ -325,9 +393,10 @@ def build_snapshot(
             [_compact_backlog_item(it) for it in items]
             if compact else [it.to_jsonable() for it in items]
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         backlog = []
         mem = None
+        diagnostics.append(_diagnostic("backlog", exc))
 
     # Authoritative call-level spend for this project. Legacy event/journal
     # aggregates are migrated once; live totals come only from usage.jsonl.
@@ -335,10 +404,12 @@ def build_snapshot(
 
     try:
         recent = _read_recent_project_events(life_dir, limit=events_limit)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         recent = []
+        diagnostics.append(_diagnostic("recent_events", exc))
 
-    snapshot = {
+    snapshot: dict[str, Any] = {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "session": _session_dict(read_session_meta(root, sid), sid),
         "daemon": daemon,
         "roles": roles,
@@ -355,8 +426,9 @@ def build_snapshot(
     if compact:
         try:
             cont = read_continuous_state(life_dir)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             cont = None
+            diagnostics.append(_diagnostic("continuous", exc))
         snapshot["continuous"] = (
             {
                 "enabled": cont.enabled,
@@ -370,6 +442,8 @@ def build_snapshot(
             _compact_backlog_item(it) for it in items
             if getattr(it, "pending_question", "")
         ]
+    snapshot["partial"] = bool(diagnostics)
+    snapshot["diagnostics"] = diagnostics
     return snapshot
 
 
@@ -1473,7 +1547,20 @@ def create_app(
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
 
-    app = FastAPI(title="argus-skill web API", version="0.1.0")
+    api_meta = build_api_meta()
+    app = FastAPI(
+        title="argus-skill web API",
+        version=str(api_meta["runtime"]["package_version"]),
+    )
+
+    @app.middleware("http")
+    async def _add_protocol_headers(request, call_next):  # noqa: ANN001
+        response = await call_next(request)
+        response.headers["X-Argus-Protocol"] = protocol_header()
+        revision = api_meta["runtime"].get("revision")
+        if revision:
+            response.headers["X-Argus-Revision"] = str(revision)
+        return response
 
     @app.on_event("shutdown")
     def _shutdown_warm_manager_clients() -> None:
@@ -1568,6 +1655,23 @@ def create_app(
         op: str = "done"  # done | skip | rm
 
     # ── read endpoints (M0) ───────────────────────────────────────────────
+
+    @app.get("/api/meta")
+    def _meta(
+        response: Response,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        if not token or authorization == f"Bearer {token}":
+            return api_meta
+        runtime = {
+            **api_meta["runtime"],
+            "source_root": "<redacted>",
+            "configured_source_root": None,
+            "source_root_matches_config": None,
+            "executable": "<redacted>",
+        }
+        return {**api_meta, "runtime": runtime}
 
     @app.get("/api/projects")
     def _projects(

@@ -1054,8 +1054,13 @@ export function App({
         Math.max(0, (Date.now() - startedAt) / 1000),
       )
     : eventRoles;
+  const partialDetail = snap?.partial
+    ? (snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`).join(' · ')
+    : '';
   const healthNotice = snapshotError
     ? `snapshot refresh failed · ${snapshotError}`
+    : snap?.partial
+    ? `snapshot partial · ${partialDetail || 'backend reported incomplete state'}`
     : streamError && !connected
     ? `event stream reconnecting · ${streamError}`
     : '';

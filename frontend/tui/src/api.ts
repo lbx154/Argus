@@ -12,6 +12,11 @@ import type {
   UsageSummary,
 } from '../../core/src/types.js';
 import { ensureResponseOk } from '../../core/src/http.js';
+import {
+  requireCompatibleApiMeta,
+  requireSnapshotContract,
+  type ApiMeta,
+} from '../../core/src/protocol.js';
 
 export type {
   ArtifactInfo,
@@ -179,6 +184,7 @@ export class ApiClient {
   readonly wsBase: string;
   readonly project: string;
   private readonly token?: string;
+  private metaPromise?: Promise<ApiMeta>;
 
   constructor(opts: ApiOptions) {
     this.httpBase = `http://${opts.host}:${opts.port}`;
@@ -195,8 +201,28 @@ export class ApiClient {
     return `${this.httpBase}/api/projects/${encodeURIComponent(this.project)}${path}`;
   }
 
+  meta(): Promise<ApiMeta> {
+    if (!this.metaPromise) {
+      const request = (async () => {
+        const path = '/api/meta';
+        const r = await fetch(`${this.httpBase}${path}`, { headers: this.authHeaders() });
+        if (r.status === 404) {
+          throw new Error('incompatible Argus API: service does not expose /api/meta');
+        }
+        await ensureResponseOk(r, 'GET', path);
+        return requireCompatibleApiMeta(await r.json());
+      })();
+      this.metaPromise = request;
+      void request.catch(() => {
+        if (this.metaPromise === request) this.metaPromise = undefined;
+      });
+    }
+    return this.metaPromise;
+  }
+
   async listProjects(): Promise<ProjectRow[]> {
-    const r = await fetch(`${this.httpBase}/api/projects`);
+    await this.meta();
+    const r = await fetch(`${this.httpBase}/api/projects`, { headers: this.authHeaders() });
     await ensureResponseOk(r, 'GET', '/api/projects');
     return ((await r.json()) as { projects: ProjectRow[] }).projects;
   }
@@ -231,9 +257,10 @@ export class ApiClient {
   }
 
   async snapshot(eventsLimit = 1): Promise<Snapshot> {
+    await this.meta();
     const r = await fetch(this.p(`/snapshot?compact=true&events_limit=${eventsLimit}`));
     await ensureResponseOk(r, 'GET', '/snapshot');
-    return (await r.json()) as Snapshot;
+    return requireSnapshotContract(await r.json());
   }
 
   async postTask(text: string): Promise<BacklogItem> {

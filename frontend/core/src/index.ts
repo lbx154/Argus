@@ -7,3 +7,4 @@ export * from './guardian.js';
 export * from './http.js';
 export * from './backlog.js';
 export * from './activity.js';
+export * from './protocol.js';
