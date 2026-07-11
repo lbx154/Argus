@@ -276,7 +276,7 @@ class SkillLoop:
                 from .skills.scientist import SkillScientist
 
                 self._emit({
-                    "type": "skill.scientist.started",
+                    "type": EventType.SKILL_SCIENTIST_STARTED,
                     "text": "no high-fit skill; asking Scientist to distill a reusable skill",
                 })
                 scientist = SkillScientist(
@@ -298,7 +298,11 @@ class SkillLoop:
                         skill_name = distilled.name
                         skill_distilled = True
                         self._emit({
-                            "type": "skill.scientist.created",
+                            "type": EventType.SKILL_SCIENTIST_CREATED,
+                            "skill_id": distilled.skill_id,
+                            "name": distilled.name,
+                            "version": distilled.version,
+                            "path": str(distilled.path or ""),
                             "text": f"Scientist created active skill {distilled.name}",
                         })
             except Exception:  # noqa: BLE001
@@ -567,7 +571,7 @@ class SkillLoop:
                 "reasoning_output_tokens": distiller_reasoning_output_tokens,
             }
             self._emit({
-                "type": "skill.cost.completed",
+                "type": EventType.SKILL_COST_COMPLETED,
                 "agent_layer": "scientist",
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
@@ -603,7 +607,7 @@ class SkillLoop:
                 "usage_scope": "delta",
             })
             self._emit({
-                "type": "skill.outcome",
+                "type": EventType.SKILL_OUTCOME,
                 "skill_name": skill_name or "",
                 "skill_hit": bool(skill_name) and not skill_distilled,
                 "skill_distilled": bool(skill_distilled),

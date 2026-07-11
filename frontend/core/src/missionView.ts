@@ -50,6 +50,7 @@ export function emptyMissionView(): MissionView {
     timeline: [],
     artifacts: [],
     learned_skills: [],
+    learned_wiki_pages: [],
     storage: {
       project_skill_dir: '',
       global_skill_dir: '',
@@ -349,6 +350,36 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       S(event, 'path'),
     ].filter(Boolean);
     view.storage.wiki_paths = [...new Set([...view.storage.wiki_paths, ...candidates])];
+  } else if ([EVENT_TYPES.WIKI_CREATED, EVENT_TYPES.WIKI_UPDATED].includes(type as never)) {
+    const id = S(event, 'page_id');
+    if (id) {
+      upsert(view.learned_wiki_pages, 'id', id, {
+        id,
+        title: S(event, 'title') || id,
+        card_type: S(event, 'card_type'),
+        status: S(event, 'status') || 'scratch',
+        path: S(event, 'path'),
+        updated_at: ts,
+      });
+      addTimeline(view, event, 'reviewer', type === EVENT_TYPES.WIKI_CREATED ? 'Knowledge captured' : 'Knowledge refined', S(event, 'title') || id, 'skill');
+    }
+  } else if (type === EVENT_TYPES.WIKI_RETIRED) {
+    const id = S(event, 'page_id');
+    if (id) {
+      const existing = view.learned_wiki_pages.find((page) => page.id === id);
+      if (existing) Object.assign(existing, { status: 'retired', updated_at: ts });
+      else upsert(view.learned_wiki_pages, 'id', id, { id, title: id, card_type: S(event, 'card_type'), status: 'retired', path: '', updated_at: ts });
+      addTimeline(view, event, 'reviewer', 'Knowledge retired', id, 'error');
+    }
+  } else if ([EVENT_TYPES.WIKI_PROMOTION_PROMOTED, EVENT_TYPES.WIKI_PROMOTION_DEMOTED].includes(type as never)) {
+    const id = S(event, 'page_id');
+    if (id) {
+      const existing = view.learned_wiki_pages.find((page) => page.id === id);
+      if (existing) Object.assign(existing, { status: S(event, 'to_status'), updated_at: ts });
+      else upsert(view.learned_wiki_pages, 'id', id, { id, title: id, card_type: S(event, 'card_type'), status: S(event, 'to_status'), path: '', updated_at: ts });
+      const promoted = type === EVENT_TYPES.WIKI_PROMOTION_PROMOTED;
+      addTimeline(view, event, 'reviewer', promoted ? 'Knowledge promoted' : 'Knowledge demoted', `${id} → ${S(event, 'to_status')}`, promoted ? 'success' : 'neutral');
+    }
   } else if (type === EVENT_TYPES.RESEARCH_ACHIEVEMENT_CERTIFIED) {
     view.achievement = {
       id: S(event, 'achievement_id'),
@@ -448,6 +479,7 @@ export function projectMissionView(
 ): MissionView {
   const view = snapshot.mission_view ? copyView(snapshot.mission_view) : emptyMissionView();
   view.storage ??= emptyMissionView().storage;
+  view.learned_wiki_pages ??= [];
   const seedTs = view.last_event_ts;
   events
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)

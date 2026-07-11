@@ -60,6 +60,7 @@ from pathlib import Path
 
 import yaml
 
+from ..core.event_catalog import EventType
 from .store import WikiStore
 
 log = logging.getLogger(__name__)
@@ -278,7 +279,18 @@ def mechanical_promote(
                             if emit is not None:
                                 try:
                                     emit({
-                                        "type": f"wiki.promotion.{direction}",
+                                        "type": (
+                                            EventType.WIKI_PROMOTION_PROMOTED
+                                            if direction == "promoted"
+                                            else EventType.WIKI_PROMOTION_DEMOTED
+                                        ),
+                                        "card_type": kind_dir,
+                                        "page_id": slug,
+                                        "from_status": cur,
+                                        "to_status": new,
+                                        "references": n_refs,
+                                        "successful_references": n_success,
+                                        "failed_references": n_failure,
                                         "text": f"{kind_dir}/{slug}: {note}",
                                     })
                                 except Exception:  # noqa: BLE001

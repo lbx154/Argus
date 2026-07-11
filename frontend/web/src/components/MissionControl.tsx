@@ -187,6 +187,14 @@ export function MissionControl({
               </div>
             </div>
           ) : null}
+          {view.learned_wiki_pages.some((page) => page.status !== 'retired') ? (
+            <div className="mt-4 border-t border-line/50 pt-3">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-blue-sky">Knowledge retained</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {view.learned_wiki_pages.filter((page) => page.status !== 'retired').slice(-6).map((page) => <span key={String(page.id)} className="rounded border border-blue/35 bg-blue/5 px-2 py-1 text-[10px] text-blue-sky">{String(page.title || page.id)}</span>)}
+              </div>
+            </div>
+          ) : null}
           {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length) ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Self-evolution storage</div>

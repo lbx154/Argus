@@ -273,6 +273,7 @@ export interface MissionView {
   timeline: MissionTimelineItem[];
   artifacts: Array<Record<string, unknown>>;
   learned_skills: Array<Record<string, unknown>>;
+  learned_wiki_pages: Array<Record<string, unknown>>;
   storage: MissionStorageView;
   achievement: MissionAchievement | null;
   review: { status: string; reason: string; rejected_attempts: number };

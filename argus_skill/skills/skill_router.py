@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
 from .skill_prompts import Prompts
 from .store import role_of_path
 
@@ -110,8 +111,12 @@ class SkillRouter:
                         counts["rejected"] += 1
             except Exception as exc:  # noqa: BLE001 — one bad op never breaks the rest
                 log.warning("skill_op %s failed (%s: %s)", kind, type(exc).__name__, exc)
-                self._emit(on_event, {"type": "skill.op.error",
-                                      "text": f"{kind} failed: {type(exc).__name__}"})
+                self._emit(on_event, {
+                    "type": EventType.SKILL_OP_ERROR,
+                    "operation": kind,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "text": f"{kind} failed: {type(exc).__name__}",
+                })
         return counts
 
     def create_from_scientist(
@@ -158,8 +163,13 @@ class SkillRouter:
         if kind == "update":
             target = self._find_skill_by_name(op.get("name", ""))
             if target is None:
-                self._emit(on_event, {"type": "skill.op.error",
-                                      "text": f"update: skill '{op.get('name')}' not found"})
+                self._emit(on_event, {
+                    "type": EventType.SKILL_OP_ERROR,
+                    "operation": "update",
+                    "name": str(op.get("name") or ""),
+                    "error": "skill not found",
+                    "text": f"update: skill '{op.get('name')}' not found",
+                })
                 return False
             # A PROTECTED (governing) skill is not updated by the ordinary
             # Scientist/Reviewer skill-generation path. Strengthening protected
@@ -172,7 +182,7 @@ class SkillRouter:
                 target, content, task_desc=task, on_event=on_event)
             if updated is not None:
                 self._emit(on_event, {
-                    "type": "skill.updated",
+                    "type": EventType.SKILL_UPDATED,
                     "skill_id": updated.skill_id,
                     "name": updated.name,
                     "version": updated.version,
@@ -190,7 +200,7 @@ class SkillRouter:
         if new_skill is not None:
             self._last_created_skill = new_skill
             self._emit(on_event, {
-                "type": "skill.created",
+                "type": EventType.SKILL_CREATED,
                 "skill_id": new_skill.skill_id,
                 "name": new_skill.name,
                 "version": new_skill.version,
@@ -209,8 +219,13 @@ class SkillRouter:
         name = (op.get("name") or "").strip()
         target = self._find_skill_by_name(name)
         if target is None:
-            self._emit(on_event, {"type": "skill.op.error",
-                                  "text": f"archive: skill '{name}' not found"})
+            self._emit(on_event, {
+                "type": EventType.SKILL_OP_ERROR,
+                "operation": "archive",
+                "name": name,
+                "error": "skill not found",
+                "text": f"archive: skill '{name}' not found",
+            })
             return False
         # Self-governance floor (mechanical, always on): a governing/protected
         # skill may be strengthened but never removed. Ordinary skills the mission
@@ -223,7 +238,10 @@ class SkillRouter:
         layer_for_skill = getattr(self.skill_store, "layer_for_skill", None)
         if callable(layer_for_skill) and layer_for_skill(target) == "global":
             self._emit(on_event, {
-                "type": "skill.op.refused",
+                "type": EventType.SKILL_OP_REFUSED,
+                "operation": "archive",
+                "name": name,
+                "reason": "project reviewer cannot mutate shared global layer",
                 "text": (
                     f"archive '{name}' refused: a project reviewer cannot mutate "
                     "the shared global layer; fork/update it locally or use an "
@@ -236,7 +254,7 @@ class SkillRouter:
             return False
         why = (op.get("why") or "").strip()
         self._emit(on_event, {
-            "type": "skill.archived",
+            "type": EventType.SKILL_ARCHIVED,
             "skill_id": target.skill_id,
             "name": target.name,
             "version": target.version,
@@ -251,8 +269,13 @@ class SkillRouter:
                                 name: str, reason: str) -> None:
         """Refuse (and audit) a destructive op that targets a protected skill or
         the skill governing the current mission."""
-        self._emit(on_event, {"type": "skill.op.refused",
-                              "text": f"{kind} '{name}' refused: {reason}"})
+        self._emit(on_event, {
+            "type": EventType.SKILL_OP_REFUSED,
+            "operation": str(kind or ""),
+            "name": name,
+            "reason": reason,
+            "text": f"{kind} '{name}' refused: {reason}",
+        })
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -279,8 +302,12 @@ class SkillRouter:
         return None
 
     def _reject(self, on_event: EventSink | None, kind: str, why: str) -> None:
-        self._emit(on_event, {"type": "skill.proposal.rejected",
-                              "text": f"rejected {kind}: {why}"})
+        self._emit(on_event, {
+            "type": EventType.SKILL_PROPOSAL_REJECTED,
+            "operation": str(kind or ""),
+            "reason": why,
+            "text": f"rejected {kind}: {why}",
+        })
 
     @staticmethod
     def _emit(on_event: EventSink | None, event: dict) -> None:

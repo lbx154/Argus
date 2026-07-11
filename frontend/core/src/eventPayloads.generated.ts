@@ -325,6 +325,131 @@ export interface SkillArchivedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface SkillCostCompletedEvent extends EventMsg {
+  type: "skill.cost.completed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "matcher_model"?: string;
+  "distiller_model"?: string;
+  "matcher": Record<string, unknown>;
+  "distiller": Record<string, unknown>;
+  "input_tokens"?: number;
+  "cached_input_tokens"?: number;
+  "output_tokens"?: number;
+  "reasoning_output_tokens"?: number;
+  "premium_requests"?: number;
+  "usage_scope": "delta" | "cumulative";
+}
+
+export interface SkillOutcomeEvent extends EventMsg {
+  type: "skill.outcome";
+  payload_schema_version?: 1;
+  "skill_name"?: string;
+  "skill_hit": boolean;
+  "skill_distilled": boolean;
+  "matcher_model"?: string;
+  "distiller_model"?: string;
+  "matcher_tokens"?: number;
+  "distiller_tokens"?: number;
+  "rounds": number;
+  "status": string;
+  "success": boolean;
+}
+
+export interface SkillScientistStartedEvent extends EventMsg {
+  type: "skill.scientist.started";
+  payload_schema_version?: 1;
+  "text"?: string;
+}
+
+export interface SkillScientistCreatedEvent extends EventMsg {
+  type: "skill.scientist.created";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name": string;
+  "version"?: number;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillTidiedEvent extends EventMsg {
+  type: "skill.tidied";
+  payload_schema_version?: 1;
+  "text": string;
+}
+
+export interface SkillCompactedEvent extends EventMsg {
+  type: "skill.compacted";
+  payload_schema_version?: 1;
+  "source_skill": string;
+  "target_skill": string;
+  "text"?: string;
+}
+
+export interface SkillCompactErrorEvent extends EventMsg {
+  type: "skill.compact.error";
+  payload_schema_version?: 1;
+  "error": string;
+  "text"?: string;
+}
+
+export interface SkillOpErrorEvent extends EventMsg {
+  type: "skill.op.error";
+  payload_schema_version?: 1;
+  "operation": string;
+  "name"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface SkillOpRefusedEvent extends EventMsg {
+  type: "skill.op.refused";
+  payload_schema_version?: 1;
+  "operation": string;
+  "name"?: string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillProposalRejectedEvent extends EventMsg {
+  type: "skill.proposal.rejected";
+  payload_schema_version?: 1;
+  "operation": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillDistillRejectedEvent extends EventMsg {
+  type: "skill.distill.rejected";
+  payload_schema_version?: 1;
+  "name"?: string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillRevisedEvent extends EventMsg {
+  type: "skill.revised";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "skill": string;
+  "version": number;
+  "path"?: string;
+  "previous_version_path": string;
+  "text"?: string;
+}
+
+export interface SkillUseRecordedEvent extends EventMsg {
+  type: "skill.use.recorded";
+  payload_schema_version?: 1;
+  "skill_id": string;
+  "skill_name": string;
+  "task_fingerprint": string;
+  "success": boolean;
+  "successful_uses"?: number;
+  "failed_uses"?: number;
+  "text"?: string;
+}
+
 export interface SkillEvolutionCompletedEvent extends EventMsg {
   type: "skill.evolution.completed";
   payload_schema_version?: 1;
@@ -357,6 +482,133 @@ export interface WikiInitializationFailedEvent extends EventMsg {
   payload_schema_version?: 1;
   "workdir": string;
   "error": string;
+  "text"?: string;
+}
+
+export interface WikiHookOkEvent extends EventMsg {
+  type: "wiki.hook.ok";
+  payload_schema_version?: 1;
+  "project": string;
+  "path": string;
+  "sources_written": number;
+  "scratch_written": number;
+  "text"?: string;
+}
+
+export interface WikiHookWarningEvent extends EventMsg {
+  type: "wiki.hook.warning";
+  payload_schema_version?: 1;
+  "operation": string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiCompactedEvent extends EventMsg {
+  type: "wiki.compacted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "target_id": string;
+  "text"?: string;
+}
+
+export interface WikiCompactErrorEvent extends EventMsg {
+  type: "wiki.compact.error";
+  payload_schema_version?: 1;
+  "card_type"?: string;
+  "page_id"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiOpErrorEvent extends EventMsg {
+  type: "wiki.op.error";
+  payload_schema_version?: 1;
+  "operation": string;
+  "page_id"?: string;
+  "card_type"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiOpRejectedEvent extends EventMsg {
+  type: "wiki.op.rejected";
+  payload_schema_version?: 1;
+  "operation": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface WikiCreatedEvent extends EventMsg {
+  type: "wiki.created";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "title"?: string;
+  "status"?: string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiUpdatedEvent extends EventMsg {
+  type: "wiki.updated";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "title"?: string;
+  "status"?: string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiRetiredEvent extends EventMsg {
+  type: "wiki.retired";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "reason"?: string;
+  "text"?: string;
+}
+
+export interface WikiSourceCreatedEvent extends EventMsg {
+  type: "wiki.source.created";
+  payload_schema_version?: 1;
+  "source_id": string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiSourceSkippedEvent extends EventMsg {
+  type: "wiki.source.skipped";
+  payload_schema_version?: 1;
+  "source_id": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface WikiPromotionPromotedEvent extends EventMsg {
+  type: "wiki.promotion.promoted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "from_status": string;
+  "to_status": string;
+  "references"?: number;
+  "successful_references"?: number;
+  "failed_references"?: number;
+  "text"?: string;
+}
+
+export interface WikiPromotionDemotedEvent extends EventMsg {
+  type: "wiki.promotion.demoted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "from_status": string;
+  "to_status": string;
+  "references"?: number;
+  "successful_references"?: number;
+  "failed_references"?: number;
   "text"?: string;
 }
 
@@ -534,9 +786,35 @@ export interface EventPayloadByType {
   "skill.created": SkillCreatedEvent;
   "skill.updated": SkillUpdatedEvent;
   "skill.archived": SkillArchivedEvent;
+  "skill.cost.completed": SkillCostCompletedEvent;
+  "skill.outcome": SkillOutcomeEvent;
+  "skill.scientist.started": SkillScientistStartedEvent;
+  "skill.scientist.created": SkillScientistCreatedEvent;
+  "skill.tidied": SkillTidiedEvent;
+  "skill.compacted": SkillCompactedEvent;
+  "skill.compact.error": SkillCompactErrorEvent;
+  "skill.op.error": SkillOpErrorEvent;
+  "skill.op.refused": SkillOpRefusedEvent;
+  "skill.proposal.rejected": SkillProposalRejectedEvent;
+  "skill.distill.rejected": SkillDistillRejectedEvent;
+  "skill.revised": SkillRevisedEvent;
+  "skill.use.recorded": SkillUseRecordedEvent;
   "skill.evolution.completed": SkillEvolutionCompletedEvent;
   "wiki.initialized": WikiInitializedEvent;
   "wiki.initialization.failed": WikiInitializationFailedEvent;
+  "wiki.hook.ok": WikiHookOkEvent;
+  "wiki.hook.warning": WikiHookWarningEvent;
+  "wiki.compacted": WikiCompactedEvent;
+  "wiki.compact.error": WikiCompactErrorEvent;
+  "wiki.op.error": WikiOpErrorEvent;
+  "wiki.op.rejected": WikiOpRejectedEvent;
+  "wiki.created": WikiCreatedEvent;
+  "wiki.updated": WikiUpdatedEvent;
+  "wiki.retired": WikiRetiredEvent;
+  "wiki.source.created": WikiSourceCreatedEvent;
+  "wiki.source.skipped": WikiSourceSkippedEvent;
+  "wiki.promotion.promoted": WikiPromotionPromotedEvent;
+  "wiki.promotion.demoted": WikiPromotionDemotedEvent;
   "wiki.evolution.completed": WikiEvolutionCompletedEvent;
   "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
   "research.experiment.started": ResearchExperimentStartedEvent;

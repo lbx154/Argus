@@ -29,6 +29,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
+
 log = logging.getLogger(__name__)
 
 _ROLE_SUBDIRS = ("engineer", "reviewer")
@@ -305,7 +307,7 @@ def tidy_after_mission(
 def _emit(on_event: Any, text: str) -> None:
     if callable(on_event):
         try:
-            on_event({"type": "skill.tidied", "text": text})
+            on_event({"type": EventType.SKILL_TIDIED, "text": text})
         except Exception:  # noqa: BLE001 — event sink must never break tidy
             pass
 

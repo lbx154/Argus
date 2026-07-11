@@ -88,8 +88,27 @@ test('evolution events expose skill and wiki storage locations', () => {
     ts: 2,
     path: '/workspace/.autors/demo/wiki',
   });
+  view = reduceMissionViewEvent(view, {
+    type: 'wiki.created',
+    ts: 3,
+    page_id: 'retry-pattern',
+    card_type: 'pattern',
+    title: 'Bounded retry pattern',
+    status: 'scratch',
+    path: '/workspace/.autors/demo/wiki/pages/patterns/retry-pattern.md',
+  });
+  view = reduceMissionViewEvent(view, {
+    type: 'wiki.promotion.promoted',
+    ts: 4,
+    page_id: 'retry-pattern',
+    card_type: 'patterns',
+    from_status: 'scratch',
+    to_status: 'candidate',
+  });
 
   assert.equal(view.storage.project_skill_count, 2);
   assert.equal(view.storage.global_skill_dir, '/state/global/skills');
   assert.deepEqual(view.storage.wiki_paths, ['/workspace/.autors/demo/wiki']);
+  assert.equal(view.learned_wiki_pages[0]?.title, 'Bounded retry pattern');
+  assert.equal(view.learned_wiki_pages[0]?.status, 'candidate');
 });

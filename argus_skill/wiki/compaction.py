@@ -35,6 +35,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 
@@ -314,7 +315,10 @@ def auto_compact_wiki(
                     if callable(on_event):
                         try:
                             on_event({
-                                "type": "wiki.compacted",
+                                "type": EventType.WIKI_COMPACTED,
+                                "card_type": str(getattr(page, "type", "") or ""),
+                                "page_id": str(getattr(page, "id", "") or ""),
+                                "target_id": str(getattr(rep, "id", "") or ""),
                                 "text": (
                                     f"auto-compacted {page.type}/{page.id} into "
                                     f"{rep.type}/{rep.id} (near-duplicate)"
@@ -327,7 +331,10 @@ def auto_compact_wiki(
                     if callable(on_event):
                         try:
                             on_event({
-                                "type": "wiki.compact.error",
+                                "type": EventType.WIKI_COMPACT_ERROR,
+                                "card_type": str(getattr(page, "type", "") or ""),
+                                "page_id": str(getattr(page, "id", "") or ""),
+                                "error": f"{type(exc).__name__}: {exc}",
                                 "text": f"{page.type}/{page.id}: {type(exc).__name__}: {exc}",
                             })
                         except Exception:  # noqa: BLE001

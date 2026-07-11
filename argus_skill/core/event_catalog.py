@@ -107,9 +107,34 @@ class EventType(StrEnum):
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
+    SKILL_OUTCOME = "skill.outcome"
+    SKILL_SCIENTIST_STARTED = "skill.scientist.started"
+    SKILL_SCIENTIST_CREATED = "skill.scientist.created"
+    SKILL_TIDIED = "skill.tidied"
+    SKILL_COMPACTED = "skill.compacted"
+    SKILL_COMPACT_ERROR = "skill.compact.error"
+    SKILL_OP_ERROR = "skill.op.error"
+    SKILL_OP_REFUSED = "skill.op.refused"
+    SKILL_PROPOSAL_REJECTED = "skill.proposal.rejected"
+    SKILL_DISTILL_REJECTED = "skill.distill.rejected"
+    SKILL_REVISED = "skill.revised"
+    SKILL_USE_RECORDED = "skill.use.recorded"
     SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
     WIKI_INITIALIZED = "wiki.initialized"
     WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
+    WIKI_HOOK_OK = "wiki.hook.ok"
+    WIKI_HOOK_WARNING = "wiki.hook.warning"
+    WIKI_COMPACTED = "wiki.compacted"
+    WIKI_COMPACT_ERROR = "wiki.compact.error"
+    WIKI_OP_ERROR = "wiki.op.error"
+    WIKI_OP_REJECTED = "wiki.op.rejected"
+    WIKI_CREATED = "wiki.created"
+    WIKI_UPDATED = "wiki.updated"
+    WIKI_RETIRED = "wiki.retired"
+    WIKI_SOURCE_CREATED = "wiki.source.created"
+    WIKI_SOURCE_SKIPPED = "wiki.source.skipped"
+    WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
+    WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
     WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
     OPERATOR_ALERT = "operator_alert"
 
@@ -135,9 +160,34 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_OUTCOME,
+    EventType.SKILL_SCIENTIST_STARTED,
+    EventType.SKILL_SCIENTIST_CREATED,
+    EventType.SKILL_TIDIED,
+    EventType.SKILL_COMPACTED,
+    EventType.SKILL_COMPACT_ERROR,
+    EventType.SKILL_OP_ERROR,
+    EventType.SKILL_OP_REFUSED,
+    EventType.SKILL_PROPOSAL_REJECTED,
+    EventType.SKILL_DISTILL_REJECTED,
+    EventType.SKILL_REVISED,
+    EventType.SKILL_USE_RECORDED,
     EventType.SKILL_EVOLUTION_COMPLETED,
     EventType.WIKI_INITIALIZED,
     EventType.WIKI_INITIALIZATION_FAILED,
+    EventType.WIKI_HOOK_OK,
+    EventType.WIKI_HOOK_WARNING,
+    EventType.WIKI_COMPACTED,
+    EventType.WIKI_COMPACT_ERROR,
+    EventType.WIKI_OP_ERROR,
+    EventType.WIKI_OP_REJECTED,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_SOURCE_CREATED,
+    EventType.WIKI_SOURCE_SKIPPED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
     EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,

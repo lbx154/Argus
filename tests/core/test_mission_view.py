@@ -215,6 +215,25 @@ def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None
         ops_proposed=1,
         paths=["/workspace/.autors/demo/wiki"],
     )
+    emit(
+        tmp_path,
+        "wiki.created",
+        3,
+        page_id="retry-pattern",
+        card_type="pattern",
+        title="Bounded retry pattern",
+        status="scratch",
+        path="/workspace/.autors/demo/wiki/pages/patterns/retry-pattern.md",
+    )
+    view = emit(
+        tmp_path,
+        "wiki.promotion.promoted",
+        4,
+        page_id="retry-pattern",
+        card_type="patterns",
+        from_status="scratch",
+        to_status="candidate",
+    )
 
     assert view["storage"] == {
         "project_skill_dir": "/state/project/skills",
@@ -223,3 +242,6 @@ def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None
         "global_skill_count": 20,
         "wiki_paths": ["/workspace/.autors/demo/wiki"],
     }
+    assert view["learned_wiki_pages"][0]["title"] == "Bounded retry pattern"
+    assert view["learned_wiki_pages"][0]["status"] == "candidate"
+    assert view["timeline"][-1]["title"] == "Knowledge promoted"

@@ -62,6 +62,7 @@ def empty_mission_view() -> dict[str, Any]:
         "timeline": [],
         "artifacts": [],
         "learned_skills": [],
+        "learned_wiki_pages": [],
         "storage": {
             "project_skill_dir": "",
             "global_skill_dir": "",
@@ -112,6 +113,7 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         "global_skill_count": 0,
         "wiki_paths": [],
     })
+    payload.setdefault("learned_wiki_pages", [])
     return payload
 
 
@@ -168,6 +170,11 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.SKILL_EVOLUTION_COMPLETED,
     EventType.WIKI_INITIALIZED,
     EventType.WIKI_EVOLUTION_COMPLETED,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
 })
 
 
@@ -545,6 +552,84 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             if value and value not in paths:
                 paths.append(value)
         storage["wiki_paths"] = paths
+
+    elif event_type in {EventType.WIKI_CREATED, EventType.WIKI_UPDATED}:
+        page_id = _text(event, "page_id")
+        if page_id:
+            _upsert(view.setdefault("learned_wiki_pages", []), "id", page_id, {
+                "id": page_id,
+                "title": _text(event, "title", 240) or page_id,
+                "card_type": _text(event, "card_type"),
+                "status": _text(event, "status") or "scratch",
+                "path": _text(event, "path", 1000),
+                "updated_at": ts,
+            })
+            _timeline(
+                view,
+                event,
+                role="reviewer",
+                title=(
+                    "Knowledge captured"
+                    if event_type == EventType.WIKI_CREATED
+                    else "Knowledge refined"
+                ),
+                detail=_text(event, "title", 240) or page_id,
+                tone="skill",
+            )
+
+    elif event_type == EventType.WIKI_RETIRED:
+        page_id = _text(event, "page_id")
+        if page_id:
+            pages = view.setdefault("learned_wiki_pages", [])
+            existing = next((page for page in pages if page.get("id") == page_id), None)
+            if existing is not None:
+                existing.update({"status": "retired", "updated_at": ts})
+            else:
+                pages.append({
+                    "id": page_id,
+                    "title": page_id,
+                    "card_type": _text(event, "card_type"),
+                    "status": "retired",
+                    "path": "",
+                    "updated_at": ts,
+                })
+            _timeline(
+                view,
+                event,
+                role="reviewer",
+                title="Knowledge retired",
+                detail=page_id,
+                tone="error",
+            )
+
+    elif event_type in {
+        EventType.WIKI_PROMOTION_PROMOTED,
+        EventType.WIKI_PROMOTION_DEMOTED,
+    }:
+        page_id = _text(event, "page_id")
+        if page_id:
+            pages = view.setdefault("learned_wiki_pages", [])
+            existing = next((page for page in pages if page.get("id") == page_id), None)
+            patch = {"status": _text(event, "to_status"), "updated_at": ts}
+            if existing is not None:
+                existing.update(patch)
+            else:
+                pages.append({
+                    "id": page_id,
+                    "title": page_id,
+                    "card_type": _text(event, "card_type"),
+                    "path": "",
+                    **patch,
+                })
+            promoted = event_type == EventType.WIKI_PROMOTION_PROMOTED
+            _timeline(
+                view,
+                event,
+                role="reviewer",
+                title="Knowledge promoted" if promoted else "Knowledge demoted",
+                detail=f"{page_id} → {_text(event, 'to_status')}",
+                tone="success" if promoted else "neutral",
+            )
 
     elif event_type == EventType.RESEARCH_ACHIEVEMENT_CERTIFIED:
         view["achievement"] = {
