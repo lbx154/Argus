@@ -823,6 +823,13 @@ def _review_prompt(
     venue: VenueProfile,
 ) -> str:
     source_context = _review_source_context(source_text_by_path)
+    if venue.key == "FRONTIERS_SLEEP":
+        return _frontiers_sleep_review_prompt(
+            source_context=source_context,
+            deterministic=deterministic,
+            threshold=threshold,
+            venue=venue,
+        )
     # Venue-local strings, all derived from the resolved profile so neither
     # venue gets a hardcoded special path. EMNLP's profile fields reproduce the
     # exact original tokens ("EMNLP long paper", the ACL/EMNLP hard-floor
@@ -842,7 +849,11 @@ def _review_prompt(
             f"Apply this ACL/{venue.reviewer_persona} standard: abstracts under "
             f"{venue.abstract_word_floor} words are too thin. "
         )
-        body_budget_phrase = f"{_spell_small_number(venue.body_page_limit)}-page body budget"
+        body_budget_phrase = (
+            f"{_spell_small_number(venue.body_page_limit)}-page body budget"
+            if venue.has_fixed_page_budget
+            else venue.page_budget_line()
+        )
     else:
         persona_label = f"{venue.reviewer_persona} paper"
         abstract_standard = (
@@ -850,7 +861,11 @@ def _review_prompt(
             "word target as advisory only and judge the abstract on whether it states problem, gap, "
             "method, result, and implication rather than on a fixed minimum length. "
         )
-        body_budget_phrase = f"{venue.body_page_limit}-page body budget"
+        body_budget_phrase = (
+            f"{venue.body_page_limit}-page body budget"
+            if venue.has_fixed_page_budget
+            else venue.page_budget_line()
+        )
     return (
         f"You are the final academic-language reviewer for an {persona_label}. "
         "Reject papers that read like generic agent output: template LLM openings, "
@@ -943,6 +958,63 @@ def _review_prompt(
         "preamble lines, table syntax, `\\begin`/`\\end`, `\\includegraphics`, "
         "or source comments.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
+        f"Reviewer source context:\n{source_context}"
+    )
+
+
+def _frontiers_sleep_review_prompt(
+    *,
+    source_context: str,
+    deterministic: dict[str, Any],
+    threshold: float,
+    venue: VenueProfile,
+) -> str:
+    """Frontiers-native language rubric for Hypothesis and Theory articles."""
+
+    return (
+        f"You are the final academic-language reviewer for a {venue.display_name} "
+        "Hypothesis and Theory article. Judge it as a biomedical sleep-science "
+        "manuscript, not as an ML conference systems paper. Do not require agent "
+        "controllers, benchmark families, model backends, decoding budgets, baselines, "
+        "or a cross-benchmark results matrix unless the manuscript itself makes such "
+        "claims.\n\n"
+        "Require a single-paragraph abstract that clearly states the scientific problem, "
+        "the literature gap, the proposed testable hypothesis or model, the status and "
+        "uncertainty of any executed evidence, the proposed discriminating test, and the "
+        "bounded implication. The Introduction must ground the gap in specific cited "
+        "sleep/circadian literature before presenting the conceptual synthesis. The body "
+        "must accurately distinguish inherited theory, original analysis, interpretation, "
+        "planned work, alternative explanations, falsifiers, and clinical limits. A "
+        "Hypothesis and Theory article may contain an unimplemented protocol, but planned "
+        "sample sizes and anticipated outcomes must never read as recruited participants "
+        "or observed results. Null or crossed-zero uncertainty must be stated without spin.\n\n"
+        f"Enforce the live venue contract: {venue.page_budget_line()}, international-"
+        "standard English, Frontiers Harvard author-date references, reader-facing "
+        "section titles, and a public generative-AI disclosure when AI assisted text or "
+        "figures. The disclosure should identify the technology name, version, model, and "
+        "source at the appropriate public abstraction, while omitting private routes, "
+        "credentials, daemons, internal reviewer/engineer orchestration, and local artifact "
+        "paths. Reject unsupported efficacy, treatment, generalization, priority, or "
+        "causal claims. Do not ask the authors to paste validation vocabulary, source "
+        "paths, evidence quotes, or defensive audit prose into the manuscript.\n\n"
+        "Calibrate severity tightly. Blocking/major issues and revision directives are "
+        "only for defects that prevent publication-quality language or honest scientific "
+        "interpretation. At most one directive per section/action pair; give a coherent "
+        "paragraph-level repair plan rather than oscillating micro-edits. If the score is "
+        f"at least {threshold:g}, all required checks pass, evidence spans are present, "
+        "and no unsupported headline claim remains, set pass_or_revise to pass and leave "
+        "blocking_issues, major_issues, and revision_directives empty.\n\n"
+        "Return strict JSON only with keys: score_1_to_5 (number), section_scores "
+        f"object containing exactly {list(SECTION_SCORE_KEYS)}, required_checks object "
+        f"containing exactly {list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at "
+        "least one entry for each section score (source_path, line, quote, why, section), "
+        "blocking_issues list, major_issues list, revision_directives list with "
+        "action/target/rationale/expected_effect, and pass_or_revise as pass or revise. "
+        f"A score below {threshold:g}, any missing evidence span, or any unsupported "
+        "headline claim means revise. Quote reader-facing source text verbatim, not "
+        "LaTeX boilerplate or comments.\n\n"
+        f"Deterministic signals:\n"
+        f"{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
         f"Reviewer source context:\n{source_context}"
     )
 

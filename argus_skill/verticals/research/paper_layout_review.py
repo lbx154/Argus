@@ -48,9 +48,14 @@ DEFAULT_DPI = 120
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_RESEARCH_MD_OVERFULL_HBOX_PT = 5.0
 LAYOUT_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
+LAYOUT_TOP_LEVEL_NUMBER_PREFIX = r"(?:(?:\d{1,5}\.?)\s+){0,2}"
+LAYOUT_CONCLUSION_HEADING_PATTERN = (
+    rf"(?im)(?:^[ \t]*|[ \t]{{6,}}){LAYOUT_TOP_LEVEL_NUMBER_PREFIX}"
+    r"Conclusion(?=[ \t]{6,}|[ \t]*$)"
+)
 LAYOUT_REFERENCES_HEADING_PATTERN = (
-    rf"(?m)(?:^\s*|\s{{6,}}){LAYOUT_HEADING_LINE_NUMBER_PREFIX}"
-    r"(?:References|Bibliography)\b"
+    rf"(?im)(?:^[ \t]*|[ \t]{{6,}}){LAYOUT_TOP_LEVEL_NUMBER_PREFIX}"
+    r"(?:References|Bibliography)(?=[ \t]{6,}|[ \t]*$)"
 )
 
 ALLOWED_DIRECTIVE_ACTIONS = {
@@ -573,7 +578,7 @@ def _deterministic_assessment(
             )
         )
 
-    if _forced_break_before_conclusion(tex_text):
+    if venue.has_fixed_page_budget and _forced_break_before_conclusion(tex_text):
         penalty += 1.0
         issues.append(
             _issue(
@@ -648,8 +653,14 @@ def _deterministic_assessment(
         )
 
     layout_pages = _layout_pages(layout_text)
-    conclusion_page = _first_layout_page_matching(layout_pages, r"\bConclusion\b")
-    if conclusion_page is not None and conclusion_page < venue.conclusion_underfill_page:
+    conclusion_page = _first_layout_page_matching(
+        layout_pages, LAYOUT_CONCLUSION_HEADING_PATTERN
+    )
+    if (
+        venue.has_fixed_page_budget
+        and conclusion_page is not None
+        and conclusion_page < venue.conclusion_underfill_page
+    ):
         penalty += 0.7
         issues.append(
             _issue(
@@ -667,7 +678,11 @@ def _deterministic_assessment(
                 target=f"page {conclusion_page} early Conclusion",
             )
         )
-    elif conclusion_page is not None and conclusion_page > venue.conclusion_max_page:
+    elif (
+        venue.has_fixed_page_budget
+        and conclusion_page is not None
+        and conclusion_page > venue.conclusion_max_page
+    ):
         penalty += 0.7
         issues.append(
             _issue(
@@ -691,8 +706,18 @@ def _deterministic_assessment(
     )
     appendix_page = _first_layout_page_matching(
         layout_pages,
-        rf"(?m)(?:^\s*|\s{{6,}}){LAYOUT_HEADING_LINE_NUMBER_PREFIX}"
-        r"(?:Reproducibility\s+Appendix|Appendix)\b",
+        rf"(?im)^[ \t]*{LAYOUT_TOP_LEVEL_NUMBER_PREFIX}"
+        r"(?:Reproducibility\s+Appendix|Appendix)[ \t]*$",
+    )
+    conclusion_within_budget = (
+        True
+        if not venue.has_fixed_page_budget
+        else conclusion_page is None or conclusion_page <= venue.conclusion_max_page
+    )
+    references_after_body = (
+        True
+        if not venue.has_fixed_page_budget
+        else references_page is None or references_page >= venue.references_min_page
     )
     # NOTE: the dict keys ``conclusion_by_page_8`` / ``references_on_or_after_page_9``
     # are read by name downstream (advisory/whitespace helpers); their names are
@@ -703,13 +728,24 @@ def _deterministic_assessment(
         "conclusion_page": conclusion_page,
         "references_page": references_page,
         "appendix_page": appendix_page,
-        "conclusion_by_page_8": conclusion_page is None or conclusion_page <= venue.conclusion_max_page,
-        "references_on_or_after_page_9": references_page is None or references_page >= venue.references_min_page,
+        "conclusion_by_page_8": conclusion_within_budget,
+        "references_on_or_after_page_9": references_after_body,
         "post_body_pages_uncapped": True,
     }
+    # Keep the historical EMNLP deterministic payload byte-compatible. New
+    # venue metadata is needed only by non-EMNLP prompts.
+    if venue.key != "EMNLP":
+        page_flow_contract.update(
+            {
+                "fixed_page_budget_enforced": venue.has_fixed_page_budget,
+                "main_text_word_limit": venue.main_text_word_limit,
+            }
+        )
     if references_page is not None:
         reference_page_text = layout_pages[references_page - 1]
-        has_conclusion_on_reference_page = bool(re.search(r"\bConclusion\b", reference_page_text))
+        has_conclusion_on_reference_page = bool(
+            re.search(LAYOUT_CONCLUSION_HEADING_PATTERN, reference_page_text)
+        )
         end_matter_pattern = venue.end_matter_boundary_pattern()
         has_body_end_matter_on_reference_page = bool(
             end_matter_pattern and re.search(end_matter_pattern, reference_page_text)
@@ -718,7 +754,10 @@ def _deterministic_assessment(
             page_flow_contract["conclusion_by_page_8"]
             and page_flow_contract["references_on_or_after_page_9"]
         )
-        if has_conclusion_on_reference_page or (
+        if (
+            venue.has_fixed_page_budget
+            and has_conclusion_on_reference_page
+        ) or (
             has_body_end_matter_on_reference_page and not formal_boundary_passes
         ):
             penalty += 0.9
@@ -730,8 +769,12 @@ def _deterministic_assessment(
                         "References begin on the same rendered page as body end matter; "
                         "fix the body/reference boundary without generic shortening. "
                         "Do not hard-separate post-conclusion end matter from References "
-                        f"when Conclusion is by page {venue.conclusion_max_page} and "
-                        f"References start on page {venue.references_min_page} or later"
+                        + (
+                            f"when Conclusion is by page {venue.conclusion_max_page} and "
+                            f"References start on page {venue.references_min_page} or later"
+                            if venue.has_fixed_page_budget
+                            else "for a venue with no fixed body-page boundary"
+                        )
                     ),
                     page=references_page,
                     hard_gate=True,
@@ -739,7 +782,10 @@ def _deterministic_assessment(
                     target=f"page {references_page} References boundary",
                 )
             )
-        elif references_page < venue.references_min_page:
+        elif (
+            venue.has_fixed_page_budget
+            and references_page < venue.references_min_page
+        ):
             penalty += 0.7
             issues.append(
                 _issue(
@@ -757,7 +803,7 @@ def _deterministic_assessment(
                     target=f"page {references_page} early References",
                 )
             )
-    if _forced_break_before_references(tex_text) and (
+    if venue.has_fixed_page_budget and _forced_break_before_references(tex_text) and (
         (references_page is not None and references_page < venue.references_min_page)
         or (conclusion_page is not None and conclusion_page < venue.conclusion_underfill_page)
     ):
@@ -996,6 +1042,40 @@ def _vision_prompt(
     # is not self-contradictory with the venue page numbers in the prose.
     deterministic = _venue_neutral_signals(deterministic)
     vn = venue.display_name
+    if not venue.has_fixed_page_budget:
+        word_limit = (
+            f"{venue.main_text_word_limit:,}-word main-text limit"
+            if venue.main_text_word_limit is not None
+            else "main-text word limit"
+        )
+        return (
+            f"Role: You are an independent visual reviewer for a {vn} paper. "
+            f"Judge the rendered screenshots as a polished {venue.layout_format_persona}, "
+            "not as a two-column conference paper.\n\n"
+            f"Venue contract: there is no fixed body-page limit. Enforce the {word_limit}, "
+            "single spacing, page numbers, review line numbers, readable editable tables, "
+            "real single-anonymized author metadata, journal-compliant public AI disclosure, "
+            "and distinct alt text for every figure. Do not manufacture an underfill or "
+            "overflow defect from the Conclusion or References page number. Still report their "
+            "actual pages and flag genuine clipping, overlap, unreadable typography, forced "
+            "blank pages, detached captions, or poor visual flow.\n\n"
+            "Figure policy: data plots must be generated from canonical data. Every non-data "
+            "overview/method/conceptual figure must remain an actual image-2 raster recorded in "
+            "IMAGE2_FIGURES.json, fact-checked, captioned, and supplied with alt text; never "
+            "recommend a self-drawn substitute merely to satisfy the slot.\n\n"
+            "Every blocking or major issue must name the page, target, visual evidence, root "
+            "cause, concrete source edits, visual goal, and verification steps. Do not ask the "
+            "author to pad the manuscript to resemble an exemplar or to move References to an "
+            "arbitrary page.\n\n"
+            "Return strict JSON only with score_1_to_5, criteria_scores, blocking_issues, "
+            "major_issues, revision_directives, and pass_or_revise. Issue objects must include "
+            "issue, page, target, visual_evidence, action, and guidance; guidance must include "
+            "root_cause, source_targets, specific_edits, visual_goal, and verification. "
+            f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any "
+            "major visual defect means revise.\n\n"
+            f"Deterministic layout signals:\n"
+            f"{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
+        )
     cmax = venue.conclusion_max_page         # Conclusion must land by this page
     cmin = venue.conclusion_underfill_page   # before this => underfilled body
     rmin = venue.references_min_page          # References on/after this page

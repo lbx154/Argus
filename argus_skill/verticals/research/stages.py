@@ -325,11 +325,69 @@ REVIEWER_CHECKLISTS_AAAI: dict[str, tuple[str, str, list[str]]] = {
     **_AAAI_STAGE_OVERRIDES,
 }
 
+_FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
+    "run": (
+        "reviewer/experiment-results-review.md",
+        "Evaluate the evidence used by this Frontiers in Sleep Hypothesis and Theory article:\n"
+        "1. Executed evidence — is every original analysis, if present, produced from authentic records with uncertainty?\n"
+        "2. Planned evidence — is every proposed or unimplemented study labeled as a plan, never a result?\n"
+        "3. Claim boundary — are prior evidence, original analysis, interpretation, and proposed direct tests kept distinct?\n"
+        "4. Statistical integrity — are null, uncertain, or crossed-zero findings reported without spin?\n"
+        "5. Reproducibility — can every original analysis and planning calculation used by the article be recomputed, or is the item explicitly N/A?\n"
+        "Block any fabricated participant, outcome, registration, efficacy claim, or success-shaped fallback.",
+        [
+            "paper/artifacts/results_summary.tsv",
+            "paper/artifacts/claims_evidence.tsv",
+            "experiments/",
+            "research/EXPERIMENT_PLAN.md",
+        ],
+    ),
+    "review": (
+        "reviewer/academic-paper-peer-review-benchmark.md",
+        "Evaluate the final Frontiers in Sleep review artifacts:\n"
+        "1. Academic language — international-standard English, bounded hypothesis framing, no internal workflow prose.\n"
+        "2. Layout — official Frontiers Harvard basis, single spacing, page and line numbers; Frontiers has NO fixed page limit, so judge readability rather than conference page quotas.\n"
+        "3. Authorship — single-anonymized review requires real author names, affiliations, corresponding email, CRediT contributions, conflicts, and funding.\n"
+        "4. AI disclosure — public, journal-compliant disclosure of technology name/version/model/source; no internal routes, daemons, or orchestration details.\n"
+        "5. Figures — every figure is authentic, reviewed, and has distinct alt text; the core overview is recorded in IMAGE2_FIGURES.json.\n"
+        "6. Evidence — every numerical or headline claim traces to current canonical evidence; executed and planned evidence remain distinct.\n"
+        "Block if any review artifact is stale, unavailable, or has unresolved major issues.",
+        [
+            "paper/main.tex",
+            "paper/LAYOUT_REVIEW.json",
+            "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+            "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
+            "paper/figures/IMAGE2_FIGURES.json",
+        ],
+    ),
+    "submission": (
+        "reviewer/academic-paper-peer-review-benchmark.md",
+        "FINAL submission gate — be STRICT, evaluate as an actual Frontiers in Sleep reviewer.\n"
+        "All must pass: article-type fit; testable theoretical contribution; honest claim-evidence alignment; international-standard English; Frontiers Harvard source/PDF; main text ≤12,000 words with no fixed page quota; single spacing; page and line numbers; real single-anonymized author metadata; ethics/funding/conflict/CRediT/data/AI declarations; reviewed figures with alt text; reproducibility of any original analysis; and explicit operator approval for submission/APC exposure.\n"
+        "An explicitly proposed study may remain unimplemented for a Hypothesis and Theory article, but its implementation status and every planning value must remain explicit. Do not pass until SUBMISSION_ASSURANCE.json and every upstream checklist are current and passing.",
+        [
+            "paper/main.tex",
+            "paper/main.pdf",
+            "paper/SUBMISSION_ASSURANCE.json",
+            "paper/FORMAT_PREFLIGHT.md",
+            "paper/artifacts/claims_evidence.tsv",
+        ],
+    ),
+}
+
+REVIEWER_CHECKLISTS_FRONTIERS_SLEEP: dict[
+    str, tuple[str, str, list[str]]
+] = {
+    **REVIEWER_CHECKLISTS_EMNLP,
+    **_FRONTIERS_SLEEP_STAGE_OVERRIDES,
+}
+
 #: Registry: venue key -> that venue's full native reviewer checklists. Both
 #: venues are peers; add an entry here to onboard a new venue.
 REVIEWER_CHECKLISTS_BY_VENUE: dict[str, dict[str, tuple[str, str, list[str]]]] = {
     "EMNLP": REVIEWER_CHECKLISTS_EMNLP,
     "AAAI": REVIEWER_CHECKLISTS_AAAI,
+    "FRONTIERS_SLEEP": REVIEWER_CHECKLISTS_FRONTIERS_SLEEP,
 }
 
 #: Back-compat alias for importers predating the per-venue split (EMNLP
@@ -408,7 +466,8 @@ def build_reviewer_checklists(
 def reviewer_checklists_for(venue: object) -> dict[str, tuple[str, str, list[str]]]:
     """Return the reviewer checklists for ``venue``.
 
-    - A built-in venue key ("EMNLP"/"AAAI") -> its hand-written NATIVE dict.
+    - A built-in venue key ("EMNLP"/"AAAI"/"FRONTIERS_SLEEP") -> its
+      hand-written NATIVE dict.
     - A dynamic :class:`VenueProfile` (a researched venue not in the registry)
       -> checklists generated from the profile by :func:`build_reviewer_checklists`.
     - A bare unknown venue-key string with no profile -> raises, so a new venue

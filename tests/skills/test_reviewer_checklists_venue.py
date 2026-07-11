@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.skills.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
+from argus_skill.skills.venue_profiles import (
+    AAAI_PROFILE,
+    EMNLP_PROFILE,
+    FRONTIERS_SLEEP_PROFILE,
+)
 from argus_skill.verticals.research.stages import (
     REVIEWER_CHECKLISTS,
     REVIEWER_CHECKLISTS_BY_VENUE,
@@ -16,7 +20,11 @@ from argus_skill.tools.stage_check import _reviewer_checklist_for
 
 
 def test_both_venues_registered_as_peers():
-    assert set(REVIEWER_CHECKLISTS_BY_VENUE) == {"EMNLP", "AAAI"}
+    assert set(REVIEWER_CHECKLISTS_BY_VENUE) == {
+        "EMNLP",
+        "AAAI",
+        "FRONTIERS_SLEEP",
+    }
     # Back-compat alias defaults to EMNLP.
     assert REVIEWER_CHECKLISTS is REVIEWER_CHECKLISTS_BY_VENUE["EMNLP"]
 
@@ -63,3 +71,13 @@ def test_unknown_venue_raises_not_silent_emnlp():
 
 def test_completion_gate_is_venue_neutral():
     assert completion_gate == "full_paper"
+
+
+def test_frontiers_review_checklist_is_native_and_page_limit_free():
+    skill, instructions, _files = reviewer_checklists_for(
+        FRONTIERS_SLEEP_PROFILE
+    )["review"]
+    assert skill == "reviewer/academic-paper-peer-review-benchmark.md"
+    assert "Frontiers in Sleep" in instructions
+    assert "NO fixed page limit" in instructions
+    assert "EMNLP" not in instructions

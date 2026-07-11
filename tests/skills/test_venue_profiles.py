@@ -9,6 +9,7 @@ from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     DEFAULT_VENUE_KEY,
     EMNLP_PROFILE,
+    FRONTIERS_SLEEP_PROFILE,
     cross_venue_excluded_skill_files,
     get_venue_profile,
     resolve_venue_profile,
@@ -34,9 +35,11 @@ def test_aaai_variant_tokens_resolve_to_aaai() -> None:
     # grade an AAAI paper by EMNLP rules -- the exact failure this seam exists to stop).
     for token in ("AAAI", "aaai", "aaai2026", "AAAI 2026", "AAAI-26", "AAAI2026", "aaai-2026"):
         assert get_venue_profile(token).key == AAAI_PROFILE.key, token
-    # EMNLP variants still resolve to EMNLP; an unknown/empty venue falls back.
+    # EMNLP variants still resolve to EMNLP; empty preserves the historical
+    # default while unknown non-empty values fail closed.
     assert get_venue_profile("EMNLP 2026").key == EMNLP_PROFILE.key
-    assert get_venue_profile("NeurIPS").key == DEFAULT_VENUE_KEY
+    with pytest.raises(KeyError):
+        get_venue_profile("NeurIPS")
     assert get_venue_profile("").key == DEFAULT_VENUE_KEY
 
 
@@ -66,9 +69,10 @@ def test_get_venue_profile_is_case_and_alias_insensitive() -> None:
     assert get_venue_profile("emnlp") is EMNLP_PROFILE
     assert get_venue_profile("acl") is EMNLP_PROFILE  # alias
     assert get_venue_profile("ARR") is EMNLP_PROFILE  # alias
-    # unknown / empty -> default
+    # Empty -> default; unknown non-empty -> fail closed.
     assert get_venue_profile(None).key == DEFAULT_VENUE_KEY
-    assert get_venue_profile("nope").key == DEFAULT_VENUE_KEY
+    with pytest.raises(KeyError):
+        get_venue_profile("nope")
 
 
 def _write_state(root: Path, payload: dict) -> None:
@@ -133,7 +137,7 @@ def test_venue_skill_files_resolve_to_real_builtin_skills() -> None:
     from argus_skill.skills.builtins import iter_builtin_skill_texts
 
     on_disk = {Path(p).name for p, _ in iter_builtin_skill_texts()}
-    for profile in (EMNLP_PROFILE, AAAI_PROFILE):
+    for profile in (EMNLP_PROFILE, AAAI_PROFILE, FRONTIERS_SLEEP_PROFILE):
         for fname in profile.venue_skill_files:
             assert fname in on_disk, (
                 f"{profile.key} venue_skill_files lists {fname!r} but no such "

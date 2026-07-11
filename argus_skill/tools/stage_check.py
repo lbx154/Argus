@@ -59,11 +59,9 @@ def _reviewer_checklist_for(
     """
     checklists = REVIEWER_CHECKLISTS
     if venue is not None:
-        try:
-            from ..verticals.research.stages import reviewer_checklists_for
-            checklists = reviewer_checklists_for(venue)
-        except Exception:  # noqa: BLE001 — fall back to the neutral checklists
-            checklists = REVIEWER_CHECKLISTS
+        from ..verticals.research.stages import reviewer_checklists_for
+
+        checklists = reviewer_checklists_for(venue)
     return checklists.get(stage)
 
 

@@ -1,5 +1,5 @@
 """Venue profile — the single seam for paper-format facts that differ by
-publication venue (EMNLP/ACL vs AAAI).
+publication venue (EMNLP/ACL, AAAI, and Frontiers in Sleep).
 
 Why this exists
 ---------------
@@ -60,18 +60,18 @@ class VenueProfile:
     """
 
     # ---- identity -------------------------------------------------------
-    key: str                      # canonical key: "EMNLP" | "AAAI"
-    display_name: str             # human label: "EMNLP 2026" | "AAAI 2026"
+    key: str
+    display_name: str
 
     # ---- body page geometry (the load-bearing layout numbers) -----------
     # Conclusion appearing before ``conclusion_underfill_page`` => the body
     # is underfilled. Conclusion after ``conclusion_max_page`` => overflow.
     # References must begin on ``references_min_page`` or later. Material
     # after References (appendix / reproducibility checklist) is uncapped.
-    body_page_limit: int
-    conclusion_underfill_page: int
-    conclusion_max_page: int
-    references_min_page: int
+    body_page_limit: int | None
+    conclusion_underfill_page: int | None
+    conclusion_max_page: int | None
+    references_min_page: int | None
 
     # ---- end-matter contract -------------------------------------------
     # Sections that MUST appear after Conclusion (ACL: Limitations + Ethics;
@@ -100,6 +100,16 @@ class VenueProfile:
     forbids_nocopyright: bool = False           # \nocopyright forbidden
     forbids_thanks_in_titleblock: bool = False  # \thanks in title forbidden
     requires_reproducibility_checklist: bool = False
+
+    # ---- journal-wide manuscript requirements ---------------------------
+    main_text_word_limit: int | None = None
+    requires_single_spacing: bool = False
+    requires_line_numbers: bool = False
+    review_model: str = "double-anonymized"
+    requires_real_author_metadata: bool = False
+    requires_ai_disclosure: bool = False
+    requires_figure_alt_text: bool = False
+    layout_format_persona: str = "two-column conference paper"
 
     # ---- review rubric / persona ---------------------------------------
     academic_language_rubric_id: str = "emnlp-academic-language-v2"
@@ -130,8 +140,29 @@ class VenueProfile:
     # studio, audits) are NOT listed here and stay matchable for both.
     venue_skill_files: tuple[str, ...] = ()
 
+    @property
+    def has_fixed_page_budget(self) -> bool:
+        """Whether this venue enforces a numbered main-body page boundary."""
+
+        return all(
+            value is not None
+            for value in (
+                self.body_page_limit,
+                self.conclusion_underfill_page,
+                self.conclusion_max_page,
+                self.references_min_page,
+            )
+        )
+
     def page_budget_line(self) -> str:
         """One-line page-budget description for agent-facing prose."""
+        if not self.has_fixed_page_budget:
+            if self.main_text_word_limit is not None:
+                return (
+                    f"no fixed page limit; main text ≤{self.main_text_word_limit:,} "
+                    "words (pagination judged for readability)"
+                )
+            return "no fixed page limit (pagination judged for readability)"
         return (
             f"body ≤{self.body_page_limit} pages, Conclusion by page "
             f"{self.conclusion_max_page}, References start on page "
@@ -168,6 +199,11 @@ class VenueProfile:
 
     def review_linenumber_prose(self) -> str:
         """Describe the venue's legitimate anonymous-review line-number artifact."""
+        if self.requires_line_numbers:
+            return (
+                f"Review line numbers from `{self.review_mode_macro}` are required "
+                "submission artifacts and must not be treated as debug gutters."
+            )
         return (
             f"Anonymous review-mode line numbers from `{self.review_mode_macro}` are "
             "acceptable submission artifacts and must not be treated as debug gutters."
@@ -345,12 +381,54 @@ AAAI_PROFILE = VenueProfile(
     ),
 )
 
+FRONTIERS_SLEEP_PROFILE = VenueProfile(
+    key="FRONTIERS_SLEEP",
+    display_name="Frontiers in Sleep",
+    # Frontiers Hypothesis and Theory uses a word limit, not a numbered body-page
+    # boundary. ``None`` is deliberate: do not emulate "unlimited" with a large
+    # integer, because that reintroduces false underfill/overflow verdicts.
+    body_page_limit=None,
+    conclusion_underfill_page=None,
+    conclusion_max_page=None,
+    references_min_page=None,
+    mandatory_end_sections=(),
+    post_reference_sections=("Supplementary Material",),
+    documentclass=r"\documentclass[utf8]{FrontiersinHarvard}",
+    style_package="FrontiersinHarvard",
+    review_option="",
+    review_mode_macro=r"\linenumbers",
+    style_clone_url="https://www.frontiersin.org/design/zip/Frontiers_LaTeX_Templates.zip",
+    style_files=("FrontiersinHarvard.cls", "Frontiers-Harvard.bst"),
+    anon_author_string="Real author metadata required",
+    bib_style="Frontiers-Harvard",
+    emit_bibliographystyle=True,
+    main_text_word_limit=12_000,
+    requires_single_spacing=True,
+    requires_line_numbers=True,
+    review_model="single-anonymized",
+    requires_real_author_metadata=True,
+    requires_ai_disclosure=True,
+    requires_figure_alt_text=True,
+    layout_format_persona="single-column biomedical journal manuscript",
+    academic_language_rubric_id="frontiers-sleep-academic-language-v1",
+    reviewer_persona="Frontiers in Sleep",
+    review_skill_path="reviewer/academic-paper-peer-review-benchmark.md",
+    figure_style_persona="Frontiers biomedical journal",
+    abstract_word_floor=150,
+    abstract_word_floor_is_hard=False,
+    min_verified_bib_entries=15,
+    min_cited_keys=15,
+    aliases=("FRONTIERS", "FRONTIERS IN SLEEP", "FRSLE"),
+    venue_skill_files=(),
+)
+
 
 # Registry keyed by canonical key. Lookups are case-insensitive and also
 # honor each profile's aliases (so "ACL"/"ARR" -> EMNLP).
 VENUE_PROFILES: dict[str, VenueProfile] = {
     EMNLP_PROFILE.key: EMNLP_PROFILE,
     AAAI_PROFILE.key: AAAI_PROFILE,
+    FRONTIERS_SLEEP_PROFILE.key: FRONTIERS_SLEEP_PROFILE,
 }
 
 DEFAULT_VENUE_KEY = "EMNLP"
@@ -363,8 +441,10 @@ def _alias_index() -> dict[str, VenueProfile]:
     index: dict[str, VenueProfile] = {}
     for profile in VENUE_PROFILES.values():
         index[profile.key.upper()] = profile
+        index[_normalize_venue_key(profile.key)] = profile
         for alias in profile.aliases:
             index[alias.upper()] = profile
+            index[_normalize_venue_key(alias)] = profile
     return index
 
 
@@ -379,11 +459,10 @@ def _normalize_venue_key(key: str) -> str:
 def get_venue_profile(key: str | None) -> VenueProfile:
     """Return the profile for ``key`` (case-insensitive, alias- and variant-aware).
 
-    Tolerates the natural venue tokens a planner writes — ``aaai2026``,
-    ``AAAI 2026``, ``AAAI-26`` all resolve to AAAI, not the EMNLP default. An empty
-    key returns the EMNLP default silently; a NON-empty key that STILL matches
-    nothing is logged loudly before falling back (a silently-misgraded paper is far
-    worse than a noisy log), so callers never have to guard against ``None``.
+    Tolerates natural planner tokens (for example ``aaai2026`` and
+    ``Frontiers in Sleep``). An empty key preserves the historical EMNLP default.
+    A non-empty unknown key raises ``KeyError``: silently grading it as EMNLP would
+    be a false venue certification.
     """
     if not key:
         return VENUE_PROFILES[DEFAULT_VENUE_KEY]
@@ -392,11 +471,10 @@ def get_venue_profile(key: str | None) -> VenueProfile:
     profile = index.get(raw) or index.get(_normalize_venue_key(raw))
     if profile is not None:
         return profile
-    log.warning(
-        "venue %r matched no known profile (%s); grading against the %s default",
-        key, ", ".join(sorted(index)), DEFAULT_VENUE_KEY,
+    raise KeyError(
+        f"venue {key!r} matched no known profile; known venues/aliases: "
+        f"{', '.join(sorted(index))}"
     )
-    return VENUE_PROFILES[DEFAULT_VENUE_KEY]
 
 
 def _venue_key_from_pipeline_state(project_root: Path) -> str | None:
@@ -498,14 +576,34 @@ def cross_venue_excluded_skill_files(active: VenueProfile) -> set[str]:
 
 def venue_excluded_skill_files(project_root: Path) -> set[str]:
     """Convenience: resolve the venue for ``project_root`` and return the
-    cross-venue skill-file exclusion set for the matcher."""
-    return cross_venue_excluded_skill_files(resolve_venue_profile(project_root))
+    cross-venue skill-file exclusion set for the matcher.
+
+    Skill matching is not a venue-certification gate. If a non-empty venue is
+    unknown, exclude *all* venue-specific skills instead of crashing the whole
+    agent loop or silently selecting EMNLP. The actual checklist/review resolver
+    still raises ``KeyError`` and therefore fails closed.
+    """
+    try:
+        active = resolve_venue_profile(project_root)
+    except KeyError:
+        log.error(
+            "unknown venue for %s; excluding all venue-specific skills until "
+            "the venue is corrected",
+            project_root,
+        )
+        return {
+            filename
+            for profile in VENUE_PROFILES.values()
+            for filename in profile.venue_skill_files
+        }
+    return cross_venue_excluded_skill_files(active)
 
 
 __all__ = [
     "VenueProfile",
     "EMNLP_PROFILE",
     "AAAI_PROFILE",
+    "FRONTIERS_SLEEP_PROFILE",
     "VENUE_PROFILES",
     "DEFAULT_VENUE_KEY",
     "get_venue_profile",

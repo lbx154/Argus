@@ -1164,18 +1164,15 @@ def _resolve_checklist_venue(project_root) -> VenueProfile:
     """Resolve the venue profile for checklist rendering.
 
     ``project_root`` may be None (resolved from env/cwd, matching how the
-    overlay locates the project). resolve_venue_profile fails open to EMNLP
-    when no PIPELINE_STATE/target_venue is present, so EMNLP renders the
-    floor byte-identically.
+    overlay locates the project). A missing target venue keeps the historical
+    EMNLP default; an unknown non-empty venue propagates ``KeyError`` so it
+    cannot be silently certified against the wrong rules.
     """
     import os
 
     if project_root is None:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
-    try:
-        return resolve_venue_profile(Path(project_root))
-    except Exception:  # noqa: BLE001 - venue resolution must never break prompts
-        return get_venue_profile(None)
+    return resolve_venue_profile(Path(project_root))
 
 
 def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
@@ -1188,13 +1185,141 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
     """
     if venue.key == "EMNLP":
         return body
+    if venue.key == "FRONTIERS_SLEEP":
+        replacements = {
+            (
+                "paper/main.tex exists with the EMNLP/ACL long-paper sections in "
+                "the standard order (Abstract, Introduction, Related Work, Method, "
+                "Experimental Setup, Results, Analysis / Ablation, Failure Cases, "
+                "Conclusion, Limitations, Ethics, Reproducibility appendix)."
+            ): (
+                "paper/main.tex exists with the Frontiers in Sleep Hypothesis and "
+                "Theory sections in a coherent order: one-paragraph Abstract, "
+                "Introduction, subject-relevant evidence and theory subsections, "
+                "discriminating tests or proposed study, Discussion, Conclusion, "
+                "required declarations, and References."
+            ),
+            (
+                "Every BibTeX entry is verified through a scholarly source (arXiv, "
+                "ACL Anthology, DBLP, CrossRef, Semantic Scholar) — none invented "
+                "or auto-completed."
+            ): (
+                "Every BibTeX entry is verified through a scholarly or canonical "
+                "data source (for example PubMed, Crossref, DOI resolver, or the "
+                "official repository); none is invented or auto-completed."
+            ),
+            (
+                "Paper prose contains no local paths (/root/, /home/), no Argus / "
+                "Codex / daemon route names, no capability vault references, no "
+                "device IDs, no API keys — the manuscript is publication-clean."
+            ): (
+                "Paper prose contains no local paths, credentials, capability-vault "
+                "references, device IDs, private routes, daemons, or internal "
+                "reviewer/engineer workflow labels. Any generative-AI use is "
+                "disclosed only in the public Frontiers-required form (technology "
+                "name, version, model, source, use, and author responsibility)."
+            ),
+            (
+                "Tables follow the style guide (footnotesize, tabcolsep 3-4pt, "
+                "arraystretch 1.15, bold winning values) and the body has one main "
+                "cross-benchmark results table (table*) covering every family × "
+                "method cell."
+            ): (
+                "Tables are editable, readable at normal review zoom, use concise "
+                "headings and self-contained captions, and keep executed evidence, "
+                "uncertainty, interpretation limits, and planned work distinct. No "
+                "cross-benchmark or winner-highlighting table is required unless "
+                "the manuscript actually makes comparative benchmark claims."
+            ),
+            (
+                "Each related-work paragraph cites the specific papers it discusses; "
+                "no mega-paragraphs dumping all citations, no citations buried in "
+                "the bibliography with no local discussion."
+            ): (
+                "Each evidence or prior-theory paragraph cites the specific papers "
+                "it discusses; no citation dumping and no bibliography entries "
+                "without a reader-facing role in the manuscript."
+            ),
+            (
+                "Academic prose reads like a real EMNLP paper, not generic agent "
+                "output: the Abstract states problem, gap, method, evidence, and "
+                "implication (no result-first opening, no validator-checklist "
+                "phrasing); the Introduction grounds the gap in cited prior work, "
+                "then gives the method insight, a quantified result preview, and a "
+                "contribution roadmap before Related Work; the Method/Setup lets an "
+                "outside reviewer identify the evaluated system, baselines, task "
+                "source, metrics, evaluated model/backend, and budget; every headline "
+                "claim is tied to reported evidence; no unsupported hype, template "
+                "LLM openings, or repeated not-X-but-Y caveats. The model-backed "
+                "reviewer (academic_language_review) is advisory input — this "
+                "checklist, judged by the reviewer agent, is the source of truth."
+            ): (
+                "Academic prose reads like a real Frontiers in Sleep Hypothesis and "
+                "Theory article: the single-paragraph Abstract states the problem, "
+                "gap, testable hypothesis, status and uncertainty of evidence, "
+                "discriminating test, and bounded implication; the Introduction "
+                "grounds the gap in cited sleep/circadian work; the body separates "
+                "prior theory, original analysis, interpretation, alternatives, "
+                "falsifiers, and planned work; every headline claim is evidence-bound; "
+                "and no unsupported efficacy, causal, priority, or treatment claim "
+                "appears. The model-backed language review is advisory input; the L2 "
+                "reviewer decides against this checklist."
+            ),
+            (
+                "Final PDF, BibTeX, supplementary material, and (if required) "
+                "anonymous submission packaging are present and consistent."
+            ): (
+                "Final PDF, TEX/BibTeX sources, figures with alt text, supplementary "
+                "audit material, and required single-anonymized author/declaration "
+                "metadata are present and mutually consistent."
+            ),
+            "paper/references.bib + verification log": (
+                "paper/refs.bib (or declared bibliography source) + verification log"
+            ),
+            "paper/main.tex table* envs + caption": (
+                "paper/main.tex table environments + captions + canonical evidence"
+            ),
+            "paper/main.tex Related Work section": (
+                "paper/main.tex evidence/prior-theory sections"
+            ),
+            "paper/main.tex Abstract/Introduction/Method + "
+            "paper/ACADEMIC_LANGUAGE_REVIEW.json (advisory)": (
+                "paper/main.tex Abstract/Introduction/theory/evidence/Discussion + "
+                "paper/ACADEMIC_LANGUAGE_REVIEW.json (advisory)"
+            ),
+        }
+        for old, new in replacements.items():
+            body = body.replace(old, new)
+    if venue.requires_real_author_metadata:
+        body = body.replace(
+            "The compiled PDF uses the anonymous EMNLP/ACL author block (no "
+            "real author names, affiliations, or self-deanonymizing strings).",
+            "The compiled PDF and source use the real author names, affiliations, "
+            "corresponding-author email, and required contribution metadata for "
+            f"{venue.review_model} {venue.display_name} review; no anonymous "
+            "placeholder remains.",
+        )
+        body = body.replace(
+            "grep paper/main.tex for 'Anonymous EMNLP Submission' + acl review mode",
+            "paper/main.tex author/address/correspondence/contribution fields + "
+            "compiled PDF metadata",
+        )
     persona = venue.reviewer_persona
     page_phrase = (
-        f"up to {venue.body_page_limit} pages, References starts on "
-        f"page {venue.references_min_page} or later"
+        (
+            f"up to {venue.body_page_limit} pages, References starts on "
+            f"page {venue.references_min_page} or later"
+        )
+        if venue.has_fixed_page_budget
+        else venue.page_budget_line()
+    )
+    section_label = (
+        f"{venue.display_name} two-column paper sections"
+        if venue.layout_format_persona.startswith("two-column")
+        else f"{venue.display_name} journal-article sections"
     )
     substitutions = {
-        "EMNLP/ACL long-paper sections": f"{venue.display_name} two-column paper sections",
+        "EMNLP/ACL long-paper sections": section_label,
         "Conclusion, Limitations, Ethics, Reproducibility appendix": venue.draft_section_tail(),
         "7.5-8.0 pages, References starts on page 9 or later": page_phrase,
         "reads like a real EMNLP paper": f"reads like a real {persona} paper",
