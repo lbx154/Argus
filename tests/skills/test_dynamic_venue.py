@@ -97,9 +97,10 @@ def test_local_profile_beats_target_venue(tmp_path):
     assert resolved.key == "NEURIPS" and resolved.body_page_limit == 9
 
 
-def test_unknown_venue_without_profile_falls_back_to_emnlp(tmp_path):
+def test_unknown_venue_without_profile_fails_closed(tmp_path):
     root = _project(tmp_path, "NeurIPS")  # no VENUE_PROFILE.json
-    assert resolve_venue_profile(root).key == "EMNLP"
+    with pytest.raises(KeyError, match="matched no known profile"):
+        resolve_venue_profile(root)
 
 
 # ---- dynamic reviewer checklists ------------------------------------------
