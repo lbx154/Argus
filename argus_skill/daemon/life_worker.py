@@ -54,6 +54,7 @@ from ..life.supervisor import (
     LifeSupervisorConfig,
     global_daily_spend,
 )
+from .process import run_foreground_process, spawn_detached_process
 from .state import (
     ContinuousConfigState,
     DaemonStatus,
@@ -105,6 +106,8 @@ __all__ = [
     "read_continuous_state",
     "read_continuous_config",
     "write_continuous_config",
+    "_process_alive",
+    "_redirect_std_to_log",
 ]
 
 
@@ -1808,235 +1811,16 @@ def _release_daemon_spawn_lock(fd: int | None, *, unlock: bool = True) -> None:
 
 
 def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> int:
-    """Fork a detached background process running the worker, then exit.
-
-    Returns 0 on successful spawn, 2 if a daemon is already running.
-
-    Uses the standard double-fork idiom to fully detach from the
-    controlling terminal and become a session leader. The grandchild
-    inherits no fds we care about, redirects std{in,out,err} to the
-    log file, acquires the daemon pid lock, writes the status sidecar,
-    and finally enters :meth:`LifeWorker.run_forever`.
-    """
-    spawn_lock_fd = _acquire_daemon_spawn_lock(config)
-    try:
-        # Count and fork while holding one host-wide admission lock. A second
-        # launcher cannot observe the same pre-start count before this child has
-        # published its pid/status sidecars.
-        existing = read_daemon_status(config.life_dir)
-        if existing.alive and existing.pid is not None:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: daemon already running for this life-dir "
-                    f"(pid={existing.pid}, lock={existing.pid_path}).\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        daemon_limit = _max_active_daemons(config)
-        active_count = _active_daemon_count(config)
-        if daemon_limit > 0 and active_count >= daemon_limit:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: refusing to start another daemon: host-wide "
-                    f"active-daemon cap {daemon_limit} reached ({active_count} live). "
-                    "Stop an existing project or raise "
-                    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS explicitly.\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        config.life_dir.mkdir(parents=True, exist_ok=True)
-        boot_id = _new_boot_id()
-        log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-        _point_active_daemon_log(config.life_dir, log_path)
-        pid_path = _daemon_pid_path(config.life_dir)
-        status_path = _daemon_status_path(config.life_dir)
-        pid = os.fork()
-    except Exception:
-        _release_daemon_spawn_lock(spawn_lock_fd)
-        raise
-    if pid > 0:
-        try:
-            # Parent waits briefly so the admission lock covers pid publication.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if pid_path.exists() and status_path.exists():
-                    try:
-                        written_pid = int(pid_path.read_text().strip())
-                    except (OSError, ValueError):
-                        written_pid = 0
-                    if written_pid and _process_alive(written_pid):
-                        if not quiet:
-                            sys.stdout.write(
-                                f"argus-skill: daemon started (pid {written_pid}, "
-                                f"life_dir={config.life_dir}, log={log_path}).\n"
-                            )
-                        return 0
-                time.sleep(0.1)
-            if not quiet:
-                sys.stderr.write(
-                    "argus-skill: daemon fork succeeded but child did not write its "
-                    f"pid file within 5s. Check {log_path} for errors.\n"
-                )
-            return 2
-        finally:
-            _release_daemon_spawn_lock(spawn_lock_fd)
-
-    # The parent owns admission. Close only this inherited descriptor copy;
-    # unlocking here would release the parent's lock before pid publication.
-    _release_daemon_spawn_lock(spawn_lock_fd, unlock=False)
-
-    # First child — become session leader.
-    try:
-        os.setsid()
-    except OSError:
-        pass
-
-    # Second fork — guarantee no controlling TTY can be reacquired.
-    try:
-        pid2 = os.fork()
-    except OSError:
-        pid2 = -1
-    if pid2 > 0:
-        os._exit(0)
-
-    # Grandchild: this is the daemon. Redirect std fds to the log file.
-    os.chdir("/")
-    os.umask(0o077)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.dup2(log_fd, sys.stdout.fileno())
-    os.dup2(log_fd, sys.stderr.fileno())
-    os.close(log_fd)
-    devnull_fd = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(devnull_fd, sys.stdin.fileno())
-    os.close(devnull_fd)
-
-    # Close every inherited fd beyond std{in,out,err}. ``os.fork`` (unlike
-    # ``subprocess(close_fds=True)``) inherits the WHOLE fd table of whoever
-    # called ``spawn_detached_daemon`` — which is often the web server
-    # (``argus-skill --web``), whose LISTENING SOCKET would otherwise be kept
-    # open here and wedge that port after the web restarts (a real fd leak:
-    # connections queue to a daemon that never accepts). The daemon opens every
-    # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
-    # so dropping the inherited table is safe and correct daemonisation.
-    try:
-        _keep = {0, 1, 2}
-        for _name in os.listdir("/proc/self/fd"):
-            try:
-                _fd = int(_name)
-            except ValueError:
-                continue
-            if _fd not in _keep:
-                try:
-                    os.close(_fd)
-                except OSError:
-                    pass
-    except FileNotFoundError:  # /proc unavailable — bounded fallback
-        os.closerange(3, 4096)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
+    return spawn_detached_process(
+        config,
+        worker_factory=LifeWorker,
+        acquire_spawn_lock=_acquire_daemon_spawn_lock,
+        release_spawn_lock=_release_daemon_spawn_lock,
+        max_active_daemons=_max_active_daemons,
+        active_daemon_count=_active_daemon_count,
+        quiet=quiet,
     )
-
-    # Acquire the daemon pid lock. If a competing daemon raced us and
-    # got it first we exit cleanly — the parent's pre-flight is just
-    # an optimization, the lock is the real guarantee.
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        log.error("daemon: another daemon already holds the lock (pid=%s)", exc.pid)
-        os._exit(2)
-
-    # Write the status sidecar so ``read_daemon_status`` knows when we
-    # started + which backend we're on.
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        rc = worker.run_forever()
-    except Exception:  # noqa: BLE001
-        log.exception("daemon: fatal error")
-        rc = 1
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
-
-    os._exit(rc)
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:
-    """Run the worker in the foreground (for systemd / debugging).
-
-    Same lock + status sidecar as the detached path, but logs go to
-    stderr and SIGINT/SIGTERM stop the process directly.
-    """
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        sys.stderr.write(
-            f"argus-skill: daemon already running for this life-dir "
-            f"(pid={exc.pid}, lock={exc.lock_path}).\n"
-        )
-        return 2
-
-    # We own the daemon — segment THIS boot's output into its own per-boot log
-    # (fixes --daemon-fg previously writing no file); the daemon.log symlink
-    # points here. keep_console tees Python logs to the original stderr (terminal
-    # / journald) so an interactive fg run still shows progress.
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    _point_active_daemon_log(config.life_dir, log_path)
-    saved_console = _redirect_std_to_log(log_path, keep_console=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    if saved_console is not None:
-        try:
-            _console = os.fdopen(saved_console, "w", buffering=1)
-            _handler = logging.StreamHandler(_console)
-            _handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            )
-            logging.getLogger().addHandler(_handler)
-        except OSError:
-            pass
-
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon-fg: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        return worker.run_forever()
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon-fg: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
+    return run_foreground_process(config, worker_factory=LifeWorker)
