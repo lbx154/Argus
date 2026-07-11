@@ -336,6 +336,10 @@ export interface SkillEvolutionCompletedEvent extends EventMsg {
   "compaction_clusters"?: number;
   "compacted"?: number;
   "errors"?: number;
+  "project_skill_dir"?: string;
+  "global_skill_dir"?: string;
+  "project_skill_count"?: number;
+  "global_skill_count"?: number;
   "text"?: string;
 }
 

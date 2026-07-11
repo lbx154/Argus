@@ -50,6 +50,13 @@ export function emptyMissionView(): MissionView {
     timeline: [],
     artifacts: [],
     learned_skills: [],
+    storage: {
+      project_skill_dir: '',
+      global_skill_dir: '',
+      project_skill_count: 0,
+      global_skill_count: 0,
+      wiki_paths: [],
+    },
     achievement: null,
     review: { status: '', reason: '', rejected_attempts: 0 },
     last_event_ts: 0,
@@ -331,6 +338,17 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       });
       addTimeline(view, event, 'reviewer', type === EVENT_TYPES.SKILL_CREATED ? 'Capability unlocked' : 'Capability upgraded', S(event, 'name'), 'skill');
     }
+  } else if (type === EVENT_TYPES.SKILL_EVOLUTION_COMPLETED) {
+    view.storage.project_skill_dir = S(event, 'project_skill_dir') || view.storage.project_skill_dir;
+    view.storage.global_skill_dir = S(event, 'global_skill_dir') || view.storage.global_skill_dir;
+    view.storage.project_skill_count = N(event, 'project_skill_count') ?? view.storage.project_skill_count;
+    view.storage.global_skill_count = N(event, 'global_skill_count') ?? view.storage.global_skill_count;
+  } else if ([EVENT_TYPES.WIKI_INITIALIZED, EVENT_TYPES.WIKI_EVOLUTION_COMPLETED].includes(type as never)) {
+    const candidates = [
+      ...((Array.isArray(event.paths) ? event.paths : []).map((path) => String(path))),
+      S(event, 'path'),
+    ].filter(Boolean);
+    view.storage.wiki_paths = [...new Set([...view.storage.wiki_paths, ...candidates])];
   } else if (type === EVENT_TYPES.RESEARCH_ACHIEVEMENT_CERTIFIED) {
     view.achievement = {
       id: S(event, 'achievement_id'),
@@ -429,6 +447,7 @@ export function projectMissionView(
   artifacts: ArtifactInfo[] = [],
 ): MissionView {
   const view = snapshot.mission_view ? copyView(snapshot.mission_view) : emptyMissionView();
+  view.storage ??= emptyMissionView().storage;
   const seedTs = view.last_event_ts;
   events
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)

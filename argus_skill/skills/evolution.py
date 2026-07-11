@@ -54,6 +54,32 @@ def apply_skill_ops(
     return skill_router.apply_ops(ops, task=task, on_event=on_event)
 
 
+def _store_snapshot(skill_store: Any) -> dict[str, Any]:
+    project = getattr(skill_store, "project", None)
+    global_store = getattr(skill_store, "global_", None)
+    if project is None and global_store is None:
+        project = skill_store
+
+    def _path(store: Any) -> str:
+        value = getattr(store, "skills_dir", None) if store is not None else None
+        return str(Path(value)) if value else ""
+
+    def _count(store: Any) -> int:
+        if store is None or not callable(getattr(store, "list_summaries", None)):
+            return 0
+        try:
+            return len(store.list_summaries())
+        except Exception:  # noqa: BLE001 - observability must not break evolution
+            return 0
+
+    return {
+        "project_skill_dir": _path(project),
+        "global_skill_dir": _path(global_store),
+        "project_skill_count": _count(project),
+        "global_skill_count": _count(global_store),
+    }
+
+
 def evolve_skills_after_mission(
     *,
     skill_store: Any,
@@ -99,6 +125,7 @@ def evolve_skills_after_mission(
         "compaction_clusters": compact["clusters"],
         "compacted": compact["archived"],
         "errors": compact["errors"],
+        **_store_snapshot(skill_store),
     }
     _emit(
         on_event,

@@ -62,6 +62,13 @@ def empty_mission_view() -> dict[str, Any]:
         "timeline": [],
         "artifacts": [],
         "learned_skills": [],
+        "storage": {
+            "project_skill_dir": "",
+            "global_skill_dir": "",
+            "project_skill_count": 0,
+            "global_skill_count": 0,
+            "wiki_paths": [],
+        },
         "achievement": None,
         "review": {"status": "", "reason": "", "rejected_attempts": 0},
         "last_event_ts": 0.0,
@@ -98,6 +105,13 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         return empty_mission_view()
     if not isinstance(payload, dict) or payload.get("schema_version") != MISSION_VIEW_SCHEMA_VERSION:
         return empty_mission_view()
+    payload.setdefault("storage", {
+        "project_skill_dir": "",
+        "global_skill_dir": "",
+        "project_skill_count": 0,
+        "global_skill_count": 0,
+        "wiki_paths": [],
+    })
     return payload
 
 
@@ -151,6 +165,9 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
 })
 
 
@@ -503,6 +520,31 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         for skill in view.setdefault("learned_skills", []):
             if skill.get("id") == skill_id:
                 skill.update({"status": "archived", "updated_at": ts})
+
+    elif event_type == EventType.SKILL_EVOLUTION_COMPLETED:
+        storage = view.setdefault("storage", {})
+        for key in ("project_skill_dir", "global_skill_dir"):
+            value = _text(event, key, 1000)
+            if value:
+                storage[key] = value
+        for key in ("project_skill_count", "global_skill_count"):
+            storage[key] = _integer(event, key)
+
+    elif event_type in {
+        EventType.WIKI_INITIALIZED,
+        EventType.WIKI_EVOLUTION_COMPLETED,
+    }:
+        storage = view.setdefault("storage", {})
+        paths = [str(path) for path in storage.setdefault("wiki_paths", []) if path]
+        candidates = list(event.get("paths") or [])
+        path = _text(event, "path", 1000)
+        if path:
+            candidates.append(path)
+        for candidate in candidates:
+            value = str(candidate or "").strip()
+            if value and value not in paths:
+                paths.append(value)
+        storage["wiki_paths"] = paths
 
     elif event_type == EventType.RESEARCH_ACHIEVEMENT_CERTIFIED:
         view["achievement"] = {

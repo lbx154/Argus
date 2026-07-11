@@ -179,6 +179,7 @@ function OperationsPanel({
   }
   const activities = activityHistory(events, 8);
   const slo = snap.observability?.slo;
+  const storage = snap.mission_view?.storage;
   return (
     <Frame title="Operations" hint="Ctrl+O close · /status and /doctor for details">
       <Row k="daemon" v={snap.daemon.alive ? `● pid ${snap.daemon.pid ?? '—'} · ${Math.floor((snap.daemon.uptime_seconds ?? 0) / 60)}m` : '○ stopped'} c={snap.daemon.alive ? theme.success : 'gray'} />
@@ -203,6 +204,15 @@ function OperationsPanel({
           <Text dimColor>{`${role.backend_label || role.backend} · ${role.model || '—'} · ${role.effort || 'default'}`}</Text>
         </Text>
       ))}
+      {storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length) ? (
+        <>
+          <Text> </Text>
+          <Text dimColor>self-evolution storage</Text>
+          {storage.project_skill_dir ? <Row k="project skills" v={`${storage.project_skill_count} · ${storage.project_skill_dir}`} /> : null}
+          {storage.global_skill_dir ? <Row k="global skills" v={`${storage.global_skill_count} · ${storage.global_skill_dir}`} /> : null}
+          {storage.wiki_paths.map((path, index) => <Row key={path} k={index ? "" : "project wiki"} v={path} />)}
+        </>
+      ) : null}
       {slo?.status === 'degraded' ? (
         <>
           <Text> </Text>

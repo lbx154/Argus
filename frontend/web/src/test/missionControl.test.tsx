@@ -21,6 +21,9 @@ describe('MissionControl', () => {
     }];
     view.primary_metric = view.metrics[0];
     view.learned_skills = [{ id: 'skill-1', name: 'fused epilogue', status: 'active' }];
+    view.storage.project_skill_dir = '/state/project/skills';
+    view.storage.project_skill_count = 1;
+    view.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
     view.timeline = [{
       id: 'event-1', ts: 1, type: 'research.metric.reported', role: 'engineer',
       title: 'Metric reported', detail: '61.8%', tone: 'metric',
@@ -42,6 +45,9 @@ describe('MissionControl', () => {
     expect(markup).toContain('Research DAG');
     expect(markup).toContain('61.8%');
     expect(markup).toContain('Capabilities unlocked');
+    expect(markup).toContain('Self-evolution storage');
+    expect(markup).toContain('/state/project/skills');
+    expect(markup).toContain('/workspace/.autors/demo/wiki');
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('Git changes · main');
   });

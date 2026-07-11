@@ -365,6 +365,10 @@
         "compaction_clusters": {"type": "integer", "minimum": 0},
         "compacted": {"type": "integer", "minimum": 0},
         "errors": {"type": "integer", "minimum": 0},
+        "project_skill_dir": {"type": "string"},
+        "global_skill_dir": {"type": "string"},
+        "project_skill_count": {"type": "integer", "minimum": 0},
+        "global_skill_count": {"type": "integer", "minimum": 0},
         "text": {"type": "string"}
       }
     },

@@ -48,4 +48,5 @@ def test_skill_evolution_applies_ops_and_emits_summary(tmp_path) -> None:
     assert router.ops == [op]
     assert summary["ops_proposed"] == 1
     assert summary["created"] == 1
+    assert summary["project_skill_dir"] == str(tmp_path)
     assert events[-1]["type"] == "skill.evolution.completed"

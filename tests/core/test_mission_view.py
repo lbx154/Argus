@@ -190,3 +190,36 @@ def test_snapshot_hides_stale_pipeline_stage_without_a_mission(tmp_path: Path) -
 
     assert view["mission"]["status"] == "idle"
     assert view["stage"] == {"id": "", "label": ""}
+
+
+def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "skill.evolution.completed",
+        1,
+        ops_proposed=1,
+        created=1,
+        updated=0,
+        archived=0,
+        rejected=0,
+        project_skill_dir="/state/project/skills",
+        global_skill_dir="/state/global/skills",
+        project_skill_count=3,
+        global_skill_count=20,
+    )
+    view = emit(
+        tmp_path,
+        "wiki.evolution.completed",
+        2,
+        wiki_count=1,
+        ops_proposed=1,
+        paths=["/workspace/.autors/demo/wiki"],
+    )
+
+    assert view["storage"] == {
+        "project_skill_dir": "/state/project/skills",
+        "global_skill_dir": "/state/global/skills",
+        "project_skill_count": 3,
+        "global_skill_count": 20,
+        "wiki_paths": ["/workspace/.autors/demo/wiki"],
+    }

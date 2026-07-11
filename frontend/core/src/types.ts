@@ -241,6 +241,14 @@ export interface MissionAchievement {
   certified_at?: number | null;
 }
 
+export interface MissionStorageView {
+  project_skill_dir: string;
+  global_skill_dir: string;
+  project_skill_count: number;
+  global_skill_count: number;
+  wiki_paths: string[];
+}
+
 export interface MissionView {
   schema_version: 1;
   bootstrapped?: boolean;
@@ -265,6 +273,7 @@ export interface MissionView {
   timeline: MissionTimelineItem[];
   artifacts: Array<Record<string, unknown>>;
   learned_skills: Array<Record<string, unknown>>;
+  storage: MissionStorageView;
   achievement: MissionAchievement | null;
   review: { status: string; reason: string; rejected_attempts: number };
   last_event_ts: number;

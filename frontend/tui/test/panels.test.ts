@@ -149,6 +149,10 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
 });
 
 test('operations panel owns cost, quota, pid, backend, and model details', async () => {
+  const missionView = emptyMissionView();
+  missionView.storage.project_skill_dir = '/state/project/skills';
+  missionView.storage.project_skill_count = 3;
+  missionView.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
   const snap = {
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
@@ -166,14 +170,18 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
       codex: { provider: 'codex', day: '2026-07-11', daily_calls: 9, daily_cap: 300, remaining: 291 },
       copilot: { provider: 'copilot', day: '2026-07-11', daily_calls: 403, daily_cap: 1000, remaining: 597, premium_requests: 551, premium_cap: 1000 },
     },
-    mission_view: null,
+    mission_view: missionView,
   } as Snapshot;
-  const output = await renderPanel({ kind: 'operations' }, 100, { snap });
+  const output = await renderPanel({ kind: 'operations' }, 60, { snap });
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
   assert.match(output, /cumulative cost/);
   assert.match(output, /403\/1000/);
+  assert.match(output, /self-evolution storage/);
+  assert.match(output, /\/state\/project\/skills/);
+  assert.match(output, /\.autors\/demo\/wiki/);
+  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
 test('daemon replacement picker shows running work and state-preservation promise', async () => {

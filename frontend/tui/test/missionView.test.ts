@@ -5,6 +5,7 @@ import {
   emptyMissionView,
   missionMetricGain,
   projectMissionView,
+  reduceMissionViewEvent,
 } from '../../core/src/missionView.js';
 import type { EventMsg, Snapshot } from '../../core/src/types.js';
 
@@ -70,4 +71,25 @@ test('natural-language progress never invents a metric or review verdict', () =>
   }]);
   assert.equal(view.primary_metric, null);
   assert.equal(view.review.status, '');
+});
+
+test('evolution events expose skill and wiki storage locations', () => {
+  let view = emptyMissionView();
+  view = reduceMissionViewEvent(view, {
+    type: 'skill.evolution.completed',
+    ts: 1,
+    project_skill_dir: '/state/project/skills',
+    global_skill_dir: '/state/global/skills',
+    project_skill_count: 2,
+    global_skill_count: 10,
+  });
+  view = reduceMissionViewEvent(view, {
+    type: 'wiki.initialized',
+    ts: 2,
+    path: '/workspace/.autors/demo/wiki',
+  });
+
+  assert.equal(view.storage.project_skill_count, 2);
+  assert.equal(view.storage.global_skill_dir, '/state/global/skills');
+  assert.deepEqual(view.storage.wiki_paths, ['/workspace/.autors/demo/wiki']);
 });
