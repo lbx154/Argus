@@ -58,6 +58,7 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
+    assert meta.origin == "web"
 
 
 def test_web_context_defaults_launch_cwd_and_reports_it(
@@ -75,6 +76,7 @@ def test_web_context_defaults_launch_cwd_and_reports_it(
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
     assert index["local_cwd"] == str(launch.resolve())
+    assert created["sid"] in {row["id"] for row in index["projects"]}
 
 
 def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:

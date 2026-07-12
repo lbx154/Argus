@@ -600,6 +600,7 @@ def create_daemon(
             id=sid, display_name=(name or "").strip(),
             created=now, last_active=now, cwd=str(life_dir), objective=obj,
             launch_cwd=effective_launch_cwd,
+            origin="web",
         ),
     )
     life_dir.mkdir(parents=True, exist_ok=True)
