@@ -224,3 +224,69 @@ def test_missing_draft_outline_is_advisory_when_bounded(
     assert "draft outline:" in out
     assert "Advisory paper-pipeline state" in out
     assert "0 fail-closed state finding(s)" in out
+
+
+def test_undecided_venue_does_not_block_plan_stage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _seed_plan_files(tmp_path)
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "plan",
+            "target_venue": "Undecided pending contribution strength",
+            "status": "active",
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "stage-check",
+            "--project-root",
+            str(tmp_path),
+            "--stage",
+            "plan",
+            "--bounded",
+        ],
+    )
+
+    status = stage_check.main()
+    captured = capsys.readouterr()
+
+    assert status == 0
+    assert "Venue profile unresolved" not in captured.err
+
+
+def test_undecided_venue_fails_closed_at_draft_stage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "draft",
+            "target_venue": "Undecided pending contribution strength",
+            "status": "active",
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "stage-check",
+            "--project-root",
+            str(tmp_path),
+            "--stage",
+            "draft",
+        ],
+    )
+
+    status = stage_check.main()
+    captured = capsys.readouterr()
+
+    assert status == 1
+    assert "Venue profile unresolved" in captured.err

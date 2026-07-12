@@ -634,10 +634,17 @@ def main() -> int:
     STAGE_ORDER = vmod.STAGE_ORDER
     REVIEWER_CHECKLISTS = vmod.REVIEWER_CHECKLISTS
 
-    # venue_profiles is research-vertical-specific; skip it for other verticals.
-    if vertical_name == "research":
+    # Venue format is irrelevant before drafting. In particular, an intentionally
+    # undecided venue must not prevent research/plan/benchmark review.
+    from argus_skill.skills.stage_checklists import VENUE_DEPENDENT_STAGES
+
+    if vertical_name == "research" and stage in VENUE_DEPENDENT_STAGES:
         from argus_skill.skills.venue_profiles import resolve_venue_profile
-        venue = resolve_venue_profile(root)
+        try:
+            venue = resolve_venue_profile(root)
+        except KeyError as exc:
+            print(f"❌ Venue profile unresolved: {exc}", file=sys.stderr)
+            return 1
     else:
         venue = None
 

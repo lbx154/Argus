@@ -58,8 +58,13 @@ def test_unknown_nonempty_venue_fails_closed(tmp_path: Path) -> None:
     _write_state(tmp_path, "Unknown Journal")
     with pytest.raises(KeyError):
         resolve_venue_profile(tmp_path)
-    with pytest.raises(KeyError):
-        format_stage_checklist("review", role="reviewer", project_root=tmp_path)
+    checklist = format_stage_checklist(
+        "review", role="reviewer", project_root=tmp_path
+    )
+    assert "`venue.profile`" in checklist
+    assert "Unknown Journal" in checklist
+    assert "do not return `done`" in checklist
+    assert "reads like a real EMNLP paper" not in checklist
 
 
 def test_unknown_venue_skill_matcher_excludes_all_venue_skills(

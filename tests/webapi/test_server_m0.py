@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
@@ -52,6 +53,146 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     # traversal + missing → None (never escapes projects/)
     assert server.project_life_dir("../../etc", global_root=tmp_path) is None
     assert server.project_life_dir("s-nope", global_root=tmp_path) is None
+
+
+def test_project_index_and_routes_span_machine_session_roots(
+    tmp_path: Path,
+) -> None:
+    primary = tmp_path / "private"
+    machine = tmp_path / "machine"
+    _make_project(primary, "s-private1")
+    _make_project(machine, "s-machine1")
+    write_session_meta(
+        primary,
+        SessionMeta(
+            id="s-private1",
+            display_name="Private",
+            last_active=10,
+            launch_cwd="/workspace/private",
+        ),
+    )
+    write_session_meta(
+        machine,
+        SessionMeta(
+            id="s-machine1",
+            display_name="Machine",
+            last_active=20,
+            launch_cwd="/workspace/machine",
+        ),
+    )
+
+    client = TestClient(
+        server.create_app(
+            global_root=primary,
+            session_roots=[machine],
+        )
+    )
+
+    index = client.get("/api/projects").json()
+    assert [project["id"] for project in index["projects"]] == [
+        "s-machine1",
+        "s-private1",
+    ]
+    assert client.get("/api/projects/s-machine1/snapshot").status_code == 200
+    assert client.get("/api/projects/s-machine1/events?view=ui").status_code == 200
+
+    renamed = client.patch(
+        "/api/projects/s-machine1",
+        json={"name": "Renamed machine session"},
+    )
+    assert renamed.status_code == 200
+    assert json.loads(
+        (machine / "projects" / "s-machine1" / "session.json").read_text(
+            encoding="utf-8"
+        )
+    )["display_name"] == "Renamed machine session"
+
+
+def test_primary_duplicate_owns_listing_and_routes(tmp_path: Path) -> None:
+    primary = tmp_path / "private"
+    machine = tmp_path / "machine"
+    (primary / "projects" / "s-duplicate").mkdir(parents=True)
+    _make_project(machine, "s-duplicate")
+    write_session_meta(
+        machine,
+        SessionMeta(
+            id="s-duplicate",
+            display_name="Machine copy",
+            last_active=20,
+        ),
+    )
+    client = TestClient(
+        server.create_app(
+            global_root=primary,
+            session_roots=[machine],
+        )
+    )
+
+    assert client.get("/api/projects").json()["projects"] == []
+    assert client.get("/api/projects/s-duplicate/events").json() == {"events": []}
+
+
+def test_project_limit_backfills_sessions_shadowed_by_primary_root(
+    tmp_path: Path,
+) -> None:
+    primary = tmp_path / "private"
+    machine = tmp_path / "machine"
+    for index in range(3):
+        sid = f"s-duplicate{index}"
+        (primary / "projects" / sid).mkdir(parents=True)
+        _make_project(machine, sid)
+        write_session_meta(
+            machine,
+            SessionMeta(
+                id=sid,
+                display_name=f"Shadowed {index}",
+                last_active=100 - index,
+            ),
+        )
+    for index in range(2):
+        sid = f"s-unique{index}"
+        _make_project(machine, sid)
+        write_session_meta(
+            machine,
+            SessionMeta(
+                id=sid,
+                display_name=f"Unique {index}",
+                last_active=90 - index,
+            ),
+        )
+    client = TestClient(
+        server.create_app(
+            global_root=primary,
+            session_roots=[machine],
+        )
+    )
+
+    ids = [
+        project["id"]
+        for project in client.get("/api/projects?limit=2").json()["projects"]
+    ]
+    assert ids == ["s-unique0", "s-unique1"]
+
+
+def test_isolated_home_does_not_implicitly_include_user_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated = tmp_path / "isolated"
+    user_home = tmp_path / "home"
+    _make_project(isolated, "s-isolated")
+    _make_project(user_home / ".argus-skill", "s-userhome")
+    monkeypatch.setenv("HOME", str(user_home))
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(isolated))
+    monkeypatch.delenv("ARGUS_SKILL_WEB_SESSION_ROOTS", raising=False)
+
+    client = TestClient(server.create_app())
+
+    ids = {
+        project["id"]
+        for project in client.get("/api/projects").json()["projects"]
+    }
+    assert ids == {"s-isolated"}
 
 
 def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None:
@@ -453,6 +594,26 @@ def test_get_events_ui_view_filters_raw_transport_frames(
         "round.review.completed",
         "ui.argus",
     ]
+
+
+def test_get_events_ui_view_scans_past_large_raw_tail(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    events = tmp_path / "projects" / "s-testaaaa" / "events.jsonl"
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "ui.operator", "text": "persistent turn"}) + "\n")
+        for index in range(40):
+            handle.write(json.dumps({
+                "type": "agent.io.stream",
+                "line": f"{index}:" + ("x" * 10_000),
+            }) + "\n")
+
+    body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
+
+    assert any(
+        event.get("type") == "ui.operator" and event.get("text") == "persistent turn"
+        for event in body["events"]
+    )
 
 
 def test_unknown_project_404(client: TestClient) -> None:

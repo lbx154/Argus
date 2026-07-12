@@ -8,6 +8,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
+import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
 import { TAGLINE } from './lib/soul';
 import { rankProjects, resolveProjectSelection } from '../../core/src/projects';
@@ -23,6 +24,7 @@ import { SplitHandle } from './components/SplitHandle';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
+import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -142,6 +144,7 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
@@ -304,6 +307,7 @@ export default function App() {
   const artifactsQ = useArtifacts(loadedSid, true);
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
   const { events, connected } = useEventStream(loadedSid);
+  const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   const activityEvents = useMemo(() => {
@@ -400,6 +404,21 @@ export default function App() {
       return false;
     }
   };
+  const requestManageSession = useCallback((projectId: string) => {
+    setDaemonManageOpen(false);
+    if (projectId === activeSid && snap?.session.id === projectId) {
+      setManageTargetSid(null);
+      setDaemonManageOpen(true);
+      return;
+    }
+    setManageTargetSid(projectId);
+    selectProject(projectId);
+  }, [activeSid, selectProject, snap?.session.id]);
+  useEffect(() => {
+    if (!manageTargetSid || activeSid !== manageTargetSid || snap?.session.id !== manageTargetSid) return;
+    setManageTargetSid(null);
+    setDaemonManageOpen(true);
+  }, [activeSid, manageTargetSid, snap?.session.id]);
   const requestDispose = (id: string, op: 'done' | 'skip' | 'rm') =>
     actions.disposeBacklog.mutate(
       { id, op },
@@ -666,6 +685,7 @@ export default function App() {
             setSidebarOpen(false);
           }}
           onPrefetch={prefetchProject}
+          onManage={requestManageSession}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}
@@ -715,6 +735,7 @@ export default function App() {
                 <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : null}
               </div>
+              <GuardianBanner alert={guardianAlert} />
               {workspaceView === 'mission' && missionView ? (
                 <MissionControl view={missionView} gitDiff={gitDiffQ.data} onOpenArtifact={setArtifactPath} />
               ) : (

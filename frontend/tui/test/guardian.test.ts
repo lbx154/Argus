@@ -47,3 +47,30 @@ test('the LATEST unresolved alert wins', () => {
   assert.equal(a?.tone, 'warn');
   assert.ok(a?.text.includes('daily cap'));
 });
+
+test('a denied cost reservation raises a budget alarm', () => {
+  const a = activeGuardianAlert([
+    ev({
+      type: 'budget.reservation.denied',
+      reason: 'global daily budget exhausted',
+    }),
+  ]);
+  assert.equal(a?.tone, 'block');
+  assert.equal(a?.kind, 'budget');
+  assert.ok(a?.text.includes('global daily budget exhausted'));
+  assert.equal(activeGuardianAlert([
+    ev({
+      type: 'budget.reservation.denied',
+      reason: 'global daily budget exhausted',
+    }),
+    ev({ type: 'ui.operator', text: 'retry' }),
+    ev({ type: 'round.start' }),
+  ])?.kind, 'budget');
+  assert.equal(activeGuardianAlert([
+    ev({
+      type: 'budget.reservation.denied',
+      reason: 'global daily budget exhausted',
+    }),
+    ev({ type: 'provider.request.started' }),
+  ]), null);
+});

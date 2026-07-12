@@ -169,6 +169,11 @@ describe('shared frontend core', () => {
       ...artifacts[1],
       source: 'research_registered' as const,
     }])).toBeNull();
+    expect(selectPreferredLiveArtifact([artifacts[2]])).toBeNull();
+    expect(selectPreferredLiveArtifact([
+      { ...artifacts[0], exists: false },
+      artifacts[2],
+    ])).toBeNull();
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {

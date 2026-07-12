@@ -7,9 +7,12 @@ import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 
+export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
+  return (artifacts ?? []).filter((item) => item.source === 'manager_live');
+}
+
 export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
-  const live = (artifacts ?? []).filter((item) =>
-    item.source === 'manager_live' && item.exists);
+  const live = selectLiveArtifacts(artifacts).filter((item) => item.exists);
   return live.find((item) => item.kind === 'pdf')
     ?? live.find((item) => item.kind === 'image')
     ?? live[0]
@@ -39,8 +42,7 @@ export function ResearchCanvas({
   onCollapse?: () => void;
 }) {
   const live = useMemo(
-    () => (artifacts ?? []).filter((item) =>
-      item.source === 'manager_live'),
+    () => selectLiveArtifacts(artifacts),
     [artifacts],
   );
   const preferred = useMemo(() => selectPreferredLiveArtifact(artifacts), [artifacts]);
