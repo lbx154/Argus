@@ -4,12 +4,32 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
 MANIFEST_FILE = "release_manifest.json"
 MANIFEST_SCHEMA_VERSION = 1
+
+
+def _git_tracked_files(root: Path) -> set[str] | None:
+    """Return repo-relative tracked paths, or None outside a Git checkout."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            check=False,
+            capture_output=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return {
+        item.decode("utf-8", errors="surrogateescape")
+        for item in result.stdout.split(b"\0")
+        if item
+    }
 
 
 def _source_files(root: Path) -> Iterable[Path]:
@@ -26,6 +46,7 @@ def _source_files(root: Path) -> Iterable[Path]:
         "scripts/generate_release_manifest.py",
         "pyproject.toml",
     )
+    tracked = _git_tracked_files(root)
     seen: set[Path] = set()
     for pattern in patterns:
         for path in root.glob(pattern):
@@ -34,6 +55,9 @@ def _source_files(root: Path) -> Iterable[Path]:
                 or path.name == MANIFEST_FILE
                 or path.name.endswith(".generated.ts")
             ):
+                continue
+            relative = path.resolve().relative_to(root.resolve()).as_posix()
+            if tracked is not None and relative not in tracked:
                 continue
             resolved = path.resolve()
             if resolved in seen:

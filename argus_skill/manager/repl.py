@@ -54,6 +54,7 @@ from .config_intent import (
     _maybe_handle_config_intent as _maybe_handle_config_intent_impl,
 )
 from .front_door import (
+    _DO_NOT_RUN_SAFE_REPLY,
     _MANAGER_RUNNER_UNAVAILABLE,
     _accepts_keyword,
     _derive_session_name,
@@ -63,6 +64,7 @@ from .front_door import (
     _life_dir_for,
     _maybe_name_session,
     _with_manager_spinner,
+    looks_like_do_not_run_request,
 )
 from .front_door import (
     _manager_divide_user_task as _manager_divide_user_task_impl,
@@ -170,12 +172,14 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "SLASH_COMMANDS",
+    "_DO_NOT_RUN_SAFE_REPLY",
     "_build_slash_completer",
     "_drain_available_bytes",
     "_get_prompt_session",
     "_split_readline_safe_prompt",
     "_visual_row_delta",
     "dispatch_command",
+    "looks_like_do_not_run_request",
     "run_manager_repl",
 ]
 

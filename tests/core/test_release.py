@@ -35,3 +35,14 @@ def test_release_generated_frontend_contract_is_current() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_untracked_runtime_skill_does_not_change_release_identity() -> None:
+    root = Path(__file__).parents[2]
+    generated = root / "argus_skill" / "builtin_skills" / "_release-test-untracked.md"
+    before = compute_source_digest(root)
+    try:
+        generated.write_text("# Runtime-generated skill\n", encoding="utf-8")
+        assert compute_source_digest(root) == before
+    finally:
+        generated.unlink(missing_ok=True)

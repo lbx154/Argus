@@ -100,6 +100,122 @@ def _compact_agent_io(run_label: str) -> bool:
     return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
 
 
+def resolve_pricing_model(
+    response_model: str | None,
+    request_model: str | None,
+    configured_default: str | None,
+) -> tuple[str, str]:
+    """Pick the model id to record for pricing, with a traceable fallback source.
+
+    Returns ``(model, fallback_source)``.  ``fallback_source`` is ``""`` when the
+    model came straight from the provider response (no fallback needed); it names
+    where the value was recovered from otherwise: ``"request"`` (the caller's
+    configured ``options.model``), ``"configured_default"`` (the backend's
+    resolved default model), or ``"none"`` (nothing usable — recorded empty so
+    pricing still, honestly, marks the call ``unpriced`` and the cost gate can
+    block).
+
+    The bug this fixes: a codex call that does not pin a model — e.g. every
+    ``Manager`` classify call, which builds ``RunnerOptions(...)`` with no
+    ``model=`` — gets no ``model`` echoed back in the codex response, so the
+    usage record used to be written with an empty model.  An empty model is
+    ``unpriced``, and one unresolved ``unpriced`` call trips ``cost_control``'s
+    block guard, freezing every subsequent provider call on the whole root.
+    Falling back to the configured/canonical model prices the call truthfully
+    (it IS the model codex used) instead of silently wedging the gate.
+    """
+    resp = str(response_model or "").strip()
+    if resp:
+        return resp, ""
+    req = str(request_model or "").strip()
+    if req:
+        return req, "request"
+    default = str(configured_default or "").strip()
+    if default:
+        return default, "configured_default"
+    return "", "none"
+
+
+def _normalize_codex_selection_args(
+    args: list[str] | None,
+) -> tuple[list[str], str, str, str, bool]:
+    """Remove model selectors while preserving unrelated Codex CLI args."""
+    cleaned: list[str] = []
+    direct_model = ""
+    config_model = ""
+    profile = ""
+    ignore_user_config = False
+    values = list(args or [])
+    index = 0
+    while index < len(values):
+        value = str(values[index] or "").strip()
+        if value in {"-m", "--model"} and index + 1 < len(values):
+            direct_model = str(values[index + 1] or "").strip()
+            index += 2
+            continue
+        if value.startswith("--model="):
+            direct_model = value.partition("=")[2].strip()
+            index += 1
+            continue
+        if value in {"-c", "--config"} and index + 1 < len(values):
+            payload = str(values[index + 1] or "")
+            key, sep, raw = payload.partition("=")
+            if sep and key.strip() == "model":
+                config_model = raw.strip().strip("\"'")
+            else:
+                cleaned.extend([value, payload])
+            index += 2
+            continue
+        if value.startswith("--config="):
+            payload = value.partition("=")[2]
+            key, sep, raw = payload.partition("=")
+            if sep and key.strip() == "model":
+                config_model = raw.strip().strip("\"'")
+            else:
+                cleaned.append(value)
+            index += 1
+            continue
+        if value in {"-p", "--profile"} and index + 1 < len(values):
+            profile = str(values[index + 1] or "").strip()
+            index += 2
+            continue
+        if value.startswith("--profile="):
+            profile = value.partition("=")[2].strip()
+            index += 1
+            continue
+        if value == "--ignore-user-config":
+            ignore_user_config = True
+        cleaned.append(values[index])
+        index += 1
+    return cleaned, direct_model, config_model, profile, ignore_user_config
+
+
+def resolve_codex_execution_model(
+    request_model: str | None,
+    configured_model: str | None,
+    default_extra_args: list[str] | None = None,
+    call_extra_args: list[str] | None = None,
+) -> str:
+    """Resolve one model using Codex CLI's direct/config/file precedence."""
+    _cleaned, default_direct, default_config, _profile, _ignore = (
+        _normalize_codex_selection_args(default_extra_args)
+    )
+    _cleaned, call_direct, call_config, _profile, _ignore = (
+        _normalize_codex_selection_args(call_extra_args)
+    )
+    direct = (
+        str(request_model or "").strip()
+        or call_direct
+        or default_direct
+    )
+    return (
+        direct
+        or call_config
+        or default_config
+        or str(configured_model or "").strip()
+    )
+
+
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
     """Return True iff any stderr line matches a known auth-failure pattern.
 
@@ -318,13 +434,21 @@ class AgentCliBackend:
         self._external_event_callback = event_callback
         self._io_log_lock = threading.Lock()
         self._io_context = threading.local()
+        raw_default_extra_args = list(default_extra_args or [])
+        codex_backend = chosen == deps["BACKEND_CODEX"]
+        normalized_default_extra_args = (
+            _normalize_codex_selection_args(raw_default_extra_args)[0]
+            if codex_backend
+            else raw_default_extra_args
+        )
         self._argus_runner = deps["AgentCliRunner"](
             agent_bin=runner_bin,
             backend=chosen,
             event_callback=self._stream_event_callback,
-            default_extra_args=default_extra_args,
+            default_extra_args=normalized_default_extra_args,
             before_exec=before_exec,
         )
+        self._default_extra_args = raw_default_extra_args
         self._backend_name = chosen
         self._is_codex = chosen == deps["BACKEND_CODEX"]
         self._is_copilot = chosen == deps["BACKEND_COPILOT"]
@@ -385,6 +509,54 @@ class AgentCliBackend:
         with self._usage_context_lock:
             return self._usage_project_root, self._usage_mission_id
 
+    def _configured_pricing_model(self, *, profile: str = "") -> str:
+        """Read the implicit model from Codex's own config, never another route."""
+        if not self._is_codex:
+            return ""
+        try:
+            from ..tools.capability_vault import read_codex_default_model
+
+            return read_codex_default_model(os.environ, profile=profile)
+        except Exception:  # noqa: BLE001 — accounting must never break a call
+            return ""
+
+    def _resolve_execution_options(self, options: RunnerOptions) -> RunnerOptions:
+        if not self._is_codex:
+            return options
+        normalized_call_args, _direct, _config, call_profile, call_ignore = (
+            _normalize_codex_selection_args(options.extra_args)
+        )
+        (
+            _normalized_defaults,
+            _default_direct,
+            _default_config,
+            default_profile,
+            default_ignore,
+        ) = _normalize_codex_selection_args(self._default_extra_args)
+        effective_profile = call_profile or default_profile
+        configured_model = (
+            ""
+            if call_ignore or default_ignore
+            else self._configured_pricing_model(
+                profile=effective_profile,
+            )
+        )
+        model = resolve_codex_execution_model(
+            options.model,
+            configured_model,
+            self._default_extra_args,
+            options.extra_args,
+        )
+        return replace(
+            options,
+            model=model or None,
+            extra_args=(
+                [*(["--profile", effective_profile] if effective_profile else []),
+                 *normalized_call_args]
+                or None
+            ),
+        )
+
     # --- RunnerBackend.run_exec ------------------------------------------
 
     def run_exec(
@@ -395,6 +567,10 @@ class AgentCliBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
+        # Pin Codex's implicit config model before any accounting or execution.
+        # The generated command, reservation, and settled usage record therefore
+        # share one model id instead of independently guessing after the call.
+        options = self._resolve_execution_options(options)
         # Reset per-call: the flag is checked AFTER this call completes,
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
@@ -464,12 +640,28 @@ class AgentCliBackend:
                         usage_recorded_event,
                     )
 
+                    pricing_model, model_fallback_source = resolve_pricing_model(
+                        result.usage_model,
+                        options.model,
+                        None,
+                    )
+                    if model_fallback_source == "configured_default":
+                        # Traceability without spamming the durable event tape:
+                        # the provider response AND the request both lacked a
+                        # model, so the call was priced via the configured
+                        # default rather than a model the provider named.
+                        log.debug(
+                            "codex model id empty for %s (call %s); pricing via "
+                            "configured default %s "
+                            "(raw_model_empty=True, model_fallback_source=%s)",
+                            run_label, call_id, pricing_model, model_fallback_source,
+                        )
                     record = build_usage_record(
                         call_id=call_id,
                         project_root=usage_project_root,
                         mission_id=usage_mission_id,
                         provider=self._backend_name,
-                        model=result.usage_model or str(options.model or ""),
+                        model=pricing_model,
                         run_label=run_label,
                         started_at=started_at,
                         completed_at=completed_at,
@@ -588,6 +780,13 @@ class AgentCliBackend:
             self._io_context.current = None
             return result
 
+        # Reservation happens before the provider responds, so there is no
+        # response model yet — attribute it to the request model, falling back to
+        # the configured default (same rule as the settled usage record) so the
+        # reservation ledger and its events never carry an empty codex model.
+        reservation_model = resolve_pricing_model(
+            None, options.model, None,
+        )[0]
         try:
             from ..core.cost_control import (
                 cost_control_enabled,
@@ -601,7 +800,7 @@ class AgentCliBackend:
                     project_root=usage_project_root,
                     mission_id=usage_mission_id,
                     provider=self._backend_name,
-                    model=str(options.model or ""),
+                    model=reservation_model,
                     run_label=run_label,
                     per_mission_cap_usd=mission_cap_from_guard(
                         self._budget_reason_provider
@@ -613,7 +812,7 @@ class AgentCliBackend:
                         "type": EventType.BUDGET_RESERVATION_DENIED,
                         "call_id": call_id,
                         "provider": self._backend_name,
-                        "model": str(options.model or ""),
+                        "model": reservation_model,
                         "run_label": run_label,
                         "reason": reserve_reason,
                     })
@@ -631,7 +830,7 @@ class AgentCliBackend:
                     "reservation_id": cost_reservation.reservation_id,
                     "call_id": call_id,
                     "provider": self._backend_name,
-                    "model": str(options.model or ""),
+                    "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
                     **cost_reservation.provider_fence.event_fields(),
@@ -642,7 +841,7 @@ class AgentCliBackend:
                 "type": EventType.BUDGET_RESERVATION_DENIED,
                 "call_id": call_id,
                 "provider": self._backend_name,
-                "model": str(options.model or ""),
+                "model": reservation_model,
                 "run_label": run_label,
                 "reason": reason,
             })

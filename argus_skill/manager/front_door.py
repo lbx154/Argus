@@ -296,6 +296,53 @@ def _manager_divide_user_task(
         _emit_manager_event(mem, payload)
 
 
+_DO_NOT_RUN_MARKERS: tuple[str, ...] = (
+    # Chinese (simplified + a few traditional variants)
+    "不要运行", "不要執行", "不要执行", "不要启动", "不要啟動",
+    "别运行", "別運行", "别启动", "別啟動", "不要跑", "不要派发", "不要分派",
+    "不要运行任务", "只做状态检查", "只检查状态", "只看状态", "只查状态",
+    "状态检查", "狀態檢查", "请回复状态正常", "請回復狀態正常",
+    # English
+    "do not run", "don't run", "dont run",
+    "do not execute", "don't execute", "dont execute",
+    "do not start", "don't start", "dont start",
+    "do not launch", "don't launch", "do not dispatch", "do not spawn",
+    "status check only", "status-only", "status only",
+    "just check status", "only check status",
+)
+
+
+def looks_like_do_not_run_request(text: str) -> bool:
+    """True iff ``text`` explicitly forbids running / asks for status only.
+
+    Used ONLY to make the triage-failure fallback safe (see
+    :func:`manager_triage`): when the Manager's classify call ERRORS, the front
+    door normally biases to "task" ("never drop work to a bad classify"), but if
+    the operator explicitly said "do not run / status only" then creating a real
+    mission on a *failed* classify is the wrong default — that is exactly how a
+    Chinese "请只做状态检查，不要运行任务" message got dispatched to the team on
+    2026-07-11 (the Manager's classify call had been blocked by the cost gate, so
+    triage raised and the message was treated as work). This never overrides a
+    SUCCESSFUL classify decision, so it cannot silently drop genuine work.
+    """
+    if not text:
+        return False
+    raw = str(text)
+    low = raw.lower()
+    for marker in _DO_NOT_RUN_MARKERS:
+        if marker in raw or marker.lower() in low:
+            return True
+    return False
+
+
+_DO_NOT_RUN_SAFE_REPLY = (
+    "[not dispatched] The Manager could not classify this request and your "
+    "message asks not to run anything (status-only / do-not-run), so no task was "
+    "queued. Use /status for pipeline state or /doctor to diagnose; rephrase "
+    "without the do-not-run constraint if you actually want to queue work."
+)
+
+
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
                    route: str | None = None,
@@ -437,9 +484,16 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
                 return captured[0] if captured else "(no reply)"
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — triage failure
+            if looks_like_do_not_run_request(body):
+                return _DO_NOT_RUN_SAFE_REPLY
             return None
-    except Exception:  # noqa: BLE001 — triage failure → treat as a task
+    except Exception:  # noqa: BLE001 — triage failure: bias to task ("never drop
+        # work to a bad classify") UNLESS the operator explicitly forbade running
+        # (status-only / do-not-run). Dispatching a real mission on a classify we
+        # could not even complete is how a status request reached the Engineer.
+        if looks_like_do_not_run_request(body):
+            return _DO_NOT_RUN_SAFE_REPLY
         return None
     return None
 
@@ -458,6 +512,7 @@ def _extract_chat_reply_text(msg: str) -> str:
     return msg
 
 __all__ = [
+    "_DO_NOT_RUN_SAFE_REPLY",
     "_accepts_keyword",
     "_MANAGER_RUNNER_UNAVAILABLE",
     "_derive_session_name",
@@ -468,5 +523,6 @@ __all__ = [
     "_manager_divide_user_task",
     "_maybe_name_session",
     "_with_manager_spinner",
+    "looks_like_do_not_run_request",
     "manager_triage",
 ]
