@@ -339,7 +339,7 @@ class SkillLoop:
             from .skills.scientist import SkillScientist
 
             self._emit({
-                "type": "skill.scientist.adaptation_started",
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
                 "text": f"{interval} reviewer rejections; seeking a different playbook",
             })
             scientist = SkillScientist(
@@ -361,7 +361,7 @@ class SkillLoop:
             skill_name = distilled.name
             skill_distilled = True
             self._emit({
-                "type": "skill.scientist.adaptation_created",
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
                 "text": f"Scientist created alternative skill {distilled.name}",
             })
             return adaptive_text
