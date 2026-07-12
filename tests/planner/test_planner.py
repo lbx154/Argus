@@ -494,7 +494,10 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     plain flat batch (key/deps optional)."""
     import jsonschema
 
-    from argus_skill.planner.planner import PLANNER_SCHEMA_PATH
+    from argus_skill.planner.planner import (
+        MIN_PLANNER_IMPACT_SCORE,
+        PLANNER_SCHEMA_PATH,
+    )
 
     with open(PLANNER_SCHEMA_PATH, encoding="utf-8") as fh:
         schema = json.load(fh)
@@ -542,3 +545,15 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     seven = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(7)])
     with __import__("pytest").raises(jsonschema.ValidationError):
         jsonschema.validate(seven, schema)
+
+    # Structured output must enforce the same minimum as the host parser.
+    impact_schema = schema["properties"]["new_tasks"]["items"]["properties"][
+        "impact_score"
+    ]
+    assert impact_schema["minimum"] == MIN_PLANNER_IMPACT_SCORE
+    too_low = dict(
+        base,
+        new_tasks=[_task(impact_score=MIN_PLANNER_IMPACT_SCORE - 1)],
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(too_low, schema)
