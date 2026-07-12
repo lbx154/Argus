@@ -95,6 +95,27 @@ def test_persisted_bounded_data_domain_disables_emnlp_gate(
     )
 
 
+def test_non_paper_planner_task_normalizes_final_submission_scope(
+    tmp_path: Path,
+) -> None:
+    sup, _consulted = _supervisor(effective_gate=False, tmp_path=tmp_path)
+    task = SimpleNamespace(scope="final_submission")
+
+    assert sup._planner_task_tags(task) == ["planner", "scope:bounded"]
+
+
+def test_paper_planner_task_preserves_final_submission_scope(
+    tmp_path: Path,
+) -> None:
+    sup, _consulted = _supervisor(effective_gate=True, tmp_path=tmp_path)
+    task = SimpleNamespace(scope="final_submission")
+
+    assert sup._planner_task_tags(task) == [
+        "planner",
+        "scope:final_submission",
+    ]
+
+
 def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     tmp_path: Path,
     monkeypatch,

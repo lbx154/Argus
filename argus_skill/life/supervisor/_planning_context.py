@@ -32,6 +32,16 @@ log = logging.getLogger(__name__)
 class PlanningContextMixin:
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
+        if (
+            scope == PLANNER_SCOPE_FINAL_SUBMISSION
+            and not self._effective_full_paper_gate(self._artifact_root())
+        ):
+            # ``final_submission`` is a paper-only transport scope. A Planner
+            # may still choose it for another vertical's terminal review task,
+            # but persisting that tag makes ``tick()`` retire the task as stale
+            # and re-plan it forever. Normalize at the enqueue boundary; the
+            # old skip path remains as migration support for persisted rows.
+            scope = PLANNER_SCOPE_BOUNDED
         return ["planner", f"scope:{scope}"]
 
     @staticmethod
