@@ -43,7 +43,7 @@ export function ResultSummary({
     : '';
 
   return (
-    <section className="card mb-3 shrink-0 border-l-2 border-l-ok px-4 py-3">
+    <section className="card mb-3 shrink-0 border-ok/40 px-4 py-3">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
           {certified ? 'Certified result' : 'Latest result'}

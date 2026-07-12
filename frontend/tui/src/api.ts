@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
 import type {
   ArtifactInfo,
   BacklogItem,
@@ -107,6 +108,9 @@ export interface CreatedDaemon {
   daemon: Daemon;
   objective: string;
   start?: DaemonStartResult;
+  command_id?: string;
+  command_status?: string;
+  command_revision?: number;
 }
 
 export interface PlanPreview {
@@ -126,6 +130,9 @@ export interface DaemonStartResult extends Partial<DaemonAdmission> {
   running_daemons?: ProjectRow[];
   parked_session?: string;
   parked_state?: string;
+  command_id?: string;
+  command_status?: string;
+  command_revision?: number;
 }
 
 /** One decoded SSE frame from the streaming Manager endpoint. */
@@ -228,21 +235,40 @@ export class ApiClient {
     return ((await r.json()) as { projects: ProjectRow[] }).projects;
   }
 
-  async createDaemon(objective = '', name = '', launchCwd = process.cwd()): Promise<CreatedDaemon> {
+  async createDaemon(
+    objective = '',
+    name = '',
+    launchCwd = process.cwd(),
+    expectedRevision?: number,
+    commandId = randomUUID(),
+  ): Promise<CreatedDaemon> {
     const path = '/api/daemons';
     const r = await fetch(`${this.httpBase}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ objective, name, launch_cwd: launchCwd }),
+      body: JSON.stringify({
+        objective,
+        name,
+        launch_cwd: launchCwd,
+        command_id: commandId,
+        expected_revision: expectedRevision,
+      }),
     });
     await ensureResponseOk(r, 'POST', path);
     return (await r.json()) as CreatedDaemon;
   }
 
-  async replaceDaemon(victimSid: string, resumeContinuous = false): Promise<DaemonStartResult> {
+  async replaceDaemon(
+    victimSid: string,
+    resumeContinuous = false,
+    expectedRevision?: number,
+    commandId = randomUUID(),
+  ): Promise<DaemonStartResult> {
     const result = await this.post('/daemon/replace', {
       victim_sid: victimSid,
       resume_continuous: resumeContinuous,
+      command_id: commandId,
+      expected_revision: expectedRevision,
     });
     return result as unknown as DaemonStartResult;
   }

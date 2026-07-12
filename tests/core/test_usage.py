@@ -100,6 +100,62 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
 
 
+def test_stale_copilot_resume_error_is_read_as_not_billed() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "stale-resume",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "Error: No session, task, or name matched 'old-thread'.",
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.pricing_tier == "not_started"
+    assert record.cost_usd == 0.0
+
+
+def test_daemon_stop_before_provider_start_is_read_as_not_billed() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "stopped-before-start",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "refused before start: daemon stop requested",
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.cost_usd == 0.0
+
+
+def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "billed-resume",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "premium_requests": 1.0,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "Error: No session, task, or name matched 'old-thread'.",
+    })
+
+    assert record.pricing_status == "partial"
+    assert record.cost_usd is None
+
+
 def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     record = build_usage_record(
@@ -117,6 +173,8 @@ def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
         total_nano_aiu=2_000_000_000,
         thread_id="thread-1",
         model_usage=[{
+            "usage_event_id": 7,
+            "session_id": "thread-1",
             "model": "gpt-5.6-sol",
             "turn_index": 0,
             "input_tokens": 100,
@@ -142,6 +200,51 @@ def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
     assert stored.thread_id == "thread-1"
     assert stored.duration_ms == 1250
     assert stored.model_usage[0]["total_nano_aiu"] == 2_000_000_000
+    assert stored.model_usage[0]["usage_event_id"] == 7
+    assert stored.model_usage[0]["session_id"] == "thread-1"
+
+
+def test_summary_deduplicates_copilot_usage_event_across_calls(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    usage = {
+        "usage_event_id": 42,
+        "session_id": "session-1",
+        "model": "gpt-5.6-sol",
+        "input_tokens": 100,
+        "cached_input_tokens": 20,
+        "output_tokens": 10,
+        "reasoning_output_tokens": 2,
+        "total_nano_aiu": 1_000_000_000,
+        "cost_usd": 0.01,
+    }
+    for call_id in ("call-1", "call-2"):
+        ledger.append(build_usage_record(
+            call_id=call_id,
+            project_root=project,
+            mission_id="mission-1",
+            provider="copilot",
+            model="gpt-5.6-sol",
+            run_label=call_id,
+            started_at=1.0,
+            completed_at=2.0,
+            status="completed",
+            token_usage=_known_usage(input_tokens=100, output_tokens=10),
+            total_nano_aiu=1_000_000_000,
+            model_usage=[usage],
+        ))
+
+    summary = ledger.summary(mission_id="mission-1")
+
+    assert summary.call_count == 2
+    assert summary.input_tokens == 100
+    assert summary.cached_input_tokens == 20
+    assert summary.output_tokens == 10
+    assert summary.reasoning_output_tokens == 2
+    assert summary.total_nano_aiu == 1_000_000_000
+    assert summary.cost_usd == pytest.approx(0.01)
 
 
 def test_legacy_worktree_events_migrate_once_without_call_duplicates(

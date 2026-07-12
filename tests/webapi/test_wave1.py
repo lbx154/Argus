@@ -5,14 +5,17 @@ and /done /skip /rm /stop). Real temp project; no daemon needed."""
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import server
+from argus_skill.manager import front_door
+from argus_skill.webapi import artifacts, manager_bridge, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -57,6 +60,25 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
+    assert meta.origin == "web"
+
+
+def test_web_context_defaults_launch_cwd_and_reports_it(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    launch = tmp_path / "web-workspace"
+    launch.mkdir()
+    monkeypatch.chdir(launch)
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    created = client.post("/api/daemons", json={}).json()
+    meta = read_session_meta(tmp_path, created["sid"])
+    index = client.get("/api/projects").json()
+
+    assert meta is not None
+    assert meta.launch_cwd == str(launch.resolve())
+    assert index["local_cwd"] == str(launch.resolve())
+    assert created["sid"] in {row["id"] for row in index["projects"]}
 
 
 def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:
@@ -132,8 +154,24 @@ def test_projects_enriched_with_label_and_uptime(ctx) -> None:
     assert "label" in p and "uptime_seconds" in p
 
 
-def test_project_picker_uses_campaign_objective_before_greeting(ctx) -> None:
+def test_project_picker_uses_campaign_objective_before_greeting(
+    ctx, monkeypatch,
+) -> None:
     root, sid, _, client = ctx
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=text)
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
     assert server.set_continuous(
         sid, enabled=True, objective="Write the CO2 paper", global_root=root,
     ) is True
@@ -179,11 +217,10 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
 
     rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
     assert [row["path"] for row in rows] == [
-        "paper/result.md", "paper/missing.json", ".review-note",
+        "paper/result.md", "paper/missing.json",
     ]
     assert rows[0]["exists"] is True
     assert rows[1]["exists"] is False
-    assert rows[2]["exists"] is True
     assert client.get(f"/api/projects/{sid}/artifacts").headers["cache-control"] == "private, no-store"
 
     info = client.get(
@@ -191,7 +228,7 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     )
     assert info.status_code == 200
     assert info.json()["preview"].startswith("# Certified")
-    assert info.json()["kind"] == "text"
+    assert info.json()["kind"] == "markdown"
     assert info.headers["cache-control"] == "private, no-store"
 
     raw = client.get(
@@ -221,8 +258,37 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     hidden = client.get(
         f"/api/projects/{sid}/artifact", params={"path": ".review-note"},
     )
-    assert hidden.status_code == 200
-    assert hidden.json()["path"] == ".review-note"
+    assert hidden.status_code == 404
+
+
+def test_artifacts_use_session_workspace_instead_of_launch_directory(ctx) -> None:
+    root, sid, life, client = ctx
+    launch = root / "launch"
+    (launch / "paper").mkdir(parents=True)
+    (launch / "paper" / "result.md").write_text("wrong project\n", encoding="utf-8")
+    (life / "paper").mkdir()
+    (life / "paper" / "result.md").write_text("current session\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
+    )
+    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "isolated-result",
+            "success": True,
+            "ts": time.time(),
+            "planner_report": {
+                "evidence_files": [{"path": "paper/result.md", "why": "final"}],
+            },
+        }) + "\n")
+
+    preview = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "paper/result.md"},
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["preview"] == "current session\n"
 
 
 def test_artifact_allowlist_is_replaced_by_newest_result(ctx) -> None:
@@ -283,6 +349,97 @@ def test_manager_live_view_is_available_during_active_work(ctx) -> None:
     assert preview.json()["preview"].startswith("# Live progress")
 
 
+def test_artifacts_prefer_executor_cwd_over_launch_metadata(ctx) -> None:
+    root, sid, life, client = ctx
+    launch = root / "launch-context"
+    launch.mkdir()
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Current output",
+            "reason": "Written by the isolated Web executor.",
+            "paths": ["result.md"],
+        }),
+        encoding="utf-8",
+    )
+    (life / "result.md").write_text("# Real executor output\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
+    )
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows[0]["path"] == "result.md"
+    assert rows[0]["exists"] is True
+    assert rows[0]["source"] == "manager_live"
+    assert rows[0]["group_title"] == "Current output"
+
+
+def test_manager_live_symlink_cannot_expose_sensitive_workspace_file(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / ".env").write_text("SECRET=do-not-serve\n", encoding="utf-8")
+    live = life / ".argus" / "live"
+    live.mkdir(parents=True)
+    (live / "current.md").symlink_to(life / ".env")
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Unsafe",
+            "reason": "Must be rejected after symlink resolution.",
+            "paths": [".argus/live/current.md"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
+def test_sensitive_symlink_alias_is_rejected_even_with_safe_target(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / "public.md").write_text("not secret\n", encoding="utf-8")
+    (life / "credentials.json").symlink_to(life / "public.md")
+    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "sensitive-alias",
+            "success": True,
+            "ts": time.time() + 1,
+            "planner_report": {
+                "evidence_files": [{"path": "credentials.json"}],
+            },
+        }) + "\n")
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
+def test_manager_live_cannot_select_common_credential_file(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / ".npmrc").write_text("//registry/:_authToken=secret\n", encoding="utf-8")
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Unsafe",
+            "reason": "Credential files are never renderable.",
+            "paths": [".npmrc"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
 def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> None:
     root, sid, life, client = ctx
     workspace = _seed_result_artifacts(root, sid, life)
@@ -305,10 +462,54 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
 
     html = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "report.html"})
     svg = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "figure.svg"})
-    for response in (html, svg):
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/plain")
-        assert response.headers["x-content-type-options"] == "nosniff"
+    html_info = client.get(
+        f"/api/projects/{sid}/artifact",
+        params={"path": "report.html"},
+    )
+    assert html_info.status_code == 200
+    assert html_info.json()["kind"] == "html"
+    assert html_info.json()["preview"] == "<script>alert(1)</script>"
+    assert html.status_code == 200
+    assert html.headers["content-type"].startswith("text/plain")
+    assert html.headers["x-content-type-options"] == "nosniff"
+    assert svg.status_code == 404
+
+
+def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None:
+    expected = {
+        "view.md": "markdown",
+        "data.json": "json",
+        "events.jsonl": "json",
+        "table.csv": "table",
+        "table.tsv": "table",
+        "sound.mp3": "audio",
+        "clip.mp4": "video",
+        "image.png": "image",
+        "paper.pdf": "pdf",
+    }
+    for name, kind in expected.items():
+        (tmp_path / name).write_bytes(b"x")
+        row = artifacts.artifact_metadata(tmp_path, name, preview_bytes=1024)
+        assert row is not None and row["kind"] == kind
+
+
+def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = _seed_result_artifacts(root, sid, life)
+    subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+    subprocess.run(["git", "-C", str(workspace), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "add", "paper/result.md"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
+    (workspace / "paper" / "result.md").write_text("# Certified\nupdated result\n", encoding="utf-8")
+
+    response = client.get(f"/api/projects/{sid}/git-diff")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is True
+    assert "paper/result.md" in payload["status"]
+    assert "updated result" in payload["diff"]
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 # ── write side ───────────────────────────────────────────────────────────

@@ -10,8 +10,10 @@ from argus_skill.tools.capability_vault import (
     ModelApiGrant,
     ModelApiRoute,
     bootstrap_model_api_vault,
+    default_codex_config_path,
     load_model_api_grant,
     load_model_api_route,
+    read_codex_default_model,
     save_model_api_grant,
     save_model_api_routes,
     status_payload,
@@ -26,6 +28,7 @@ def _clear_model_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARGUS_SKILL_CAPABILITY_VAULT",
         "ARGUS_SKILL_MODEL_API_AUTH_JSON",
         "ARGUS_SKILL_CODEX_CONFIG",
+        "CODEX_HOME",
         "ARGUS_SKILL_MODEL_API_BASE_URL",
         "ARGUS_SKILL_TEXT_MODELS",
         "ARGUS_SKILL_IMAGE_MODEL",
@@ -45,6 +48,45 @@ def _clear_model_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARGUS_SKILL_IMAGE_REVIEW_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+def test_codex_config_model_uses_codex_home_and_active_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "gpt-5.5"\n',
+        encoding="utf-8",
+    )
+    (codex_home / "research.config.toml").write_text(
+        'model = "gpt-5.6-sol"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    assert default_codex_config_path() == codex_home / "config.toml"
+    assert read_codex_default_model() == "gpt-5.5"
+    assert read_codex_default_model(profile="research") == "gpt-5.6-sol"
+
+
+def test_codex_default_model_ignores_argus_inspection_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "gpt-5.6-sol"\n',
+        encoding="utf-8",
+    )
+    inspection = tmp_path / "inspection.toml"
+    inspection.write_text('model = "claude-sonnet-5"\n', encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_CONFIG", str(inspection))
+
+    assert read_codex_default_model() == "gpt-5.6-sol"
 
 
 def test_save_and_load_model_api_grant_uses_private_vault(tmp_path: Path) -> None:

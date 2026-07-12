@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
-from threading import Event, Thread
+from threading import Barrier, Event, Thread
 
 import pytest
 
@@ -40,14 +40,19 @@ def _paper(paper_id: str = "papers/2406.12345", *, body: str = "abstract") -> So
     )
 
 
-def _card(card_id: str = "tech-x", *, body: str = "") -> PageCard:
+def _card(
+    card_id: str = "tech-x",
+    *,
+    body: str = "",
+    sources: list[str] | None = None,
+) -> PageCard:
     return PageCard(
         id=card_id,
         type="technique",
         status="scratch",
         title="x",
         tags=[],
-        sources=[],
+        sources=list(sources or []),
         related_runs=[],
         related_projects=[],
         revisit_after=None,
@@ -135,3 +140,58 @@ def test_concurrent_page_write_and_read(tmp_path: Path):
     stop.set()
     t2.join()
     assert errors == []
+
+
+def test_conditional_retire_requires_active_representative(tmp_path: Path) -> None:
+    root = _wiki_root(tmp_path)
+    store = WikiStore(root)
+    store.write_page(_card("duplicate", sources=["paper-1"]))
+
+    retired = store.retire_page_if_peer_active(
+        "technique",
+        "duplicate",
+        peer_card_type="technique",
+        peer_card_id="missing-representative",
+        reason="duplicate",
+        retired_by="test",
+    )
+
+    assert retired is None
+    assert (root / "pages" / "techniques" / "duplicate.md").exists()
+
+
+def test_concurrent_conditional_retire_is_idempotent_and_preserves_evidence(
+    tmp_path: Path,
+) -> None:
+    root = _wiki_root(tmp_path)
+    WikiStore(root).write_page(_card("representative"))
+    WikiStore(root).write_page(
+        _card("duplicate", body="evidence-backed body", sources=["paper-1"])
+    )
+    barrier = Barrier(2)
+    results = []
+
+    def retire() -> None:
+        barrier.wait()
+        results.append(WikiStore(root).retire_page_if_peer_active(
+            "technique",
+            "duplicate",
+            peer_card_type="technique",
+            peer_card_id="representative",
+            reason="duplicate",
+            retired_by="test",
+        ))
+
+    threads = [Thread(target=retire) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    retired = [path for path in results if path is not None]
+    assert len(retired) == 1
+    assert (root / "pages" / "techniques" / "representative.md").exists()
+    assert not (root / "pages" / "techniques" / "duplicate.md").exists()
+    tombstone = retired[0].read_text(encoding="utf-8")
+    assert "paper-1" in tombstone
+    assert "evidence-backed body" in tombstone

@@ -93,6 +93,8 @@ def test_reads_exact_rows_added_after_cursor(tmp_path: Path, monkeypatch) -> Non
     usage = read_copilot_usage_since(cursor, session_id="session-1")
     assert usage is not None
     assert usage.model == "gpt-5.6-sol"
+    assert usage.model_usage[0]["usage_event_id"] == 2
+    assert usage.model_usage[0]["session_id"] == "session-1"
     assert usage.input_tokens == 12_935
     assert usage.output_tokens == 5
     assert usage.cache_read_tokens == 200
@@ -153,7 +155,10 @@ def test_sums_multiple_model_calls_in_one_run(tmp_path: Path, monkeypatch) -> No
         "claude-haiku-4.5",
     ]
     assert usage.model_usage[0]["input_tokens"] == 100
+    assert usage.model_usage[0]["usage_event_id"] == 1
+    assert usage.model_usage[0]["session_id"] == "session-1"
     assert usage.model_usage[0]["cost_usd"] == pytest.approx(0.02)
+    assert usage.model_usage[1]["usage_event_id"] == 2
     assert usage.model_usage[1]["cost_usd"] == pytest.approx(0.01)
 
 

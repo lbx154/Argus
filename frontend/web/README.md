@@ -1,10 +1,12 @@
 # argus web cockpit
 
 A React web frontend for the argus-skill autonomous-research daemon — a **client of
-the argus-skill webapi** (`argus_skill/webapi/server.py`). It renders the same
-mission-control surface as the terminal cockpit (`frontend/tui/`) from the same
-data, so **web == terminal** with zero drift: event identity, cost accounting,
-mission state, Guardian alerts, and project ranking live in `frontend/core/`.
+the argus-skill webapi** (`argus_skill/webapi/server.py`). It shares the same
+durable Mission View and event semantics as the terminal cockpit
+(`frontend/tui/`) while using a denser Mission Control layout for DAGs,
+metrics, replay, artifacts, and Git changes. State stays drift-free because
+event identity, mission projection, cost accounting, Guardian alerts, and
+project ranking live in `frontend/core/`.
 
 ## What it shows
 

@@ -50,6 +50,16 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     for _ in range(4):
         r = manager_bridge.manager_message("s-rot00001", "hi", global_root=tmp_path)
         assert r["kind"] == "chat"
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "projects" / "s-rot00001" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert [event["type"] for event in events if event["type"].startswith("ui.")] == [
+        event_type
+        for _ in range(4)
+        for event_type in ("ui.operator", "ui.argus")
+    ]
     assert all("SESSION HANDOFF" not in b for b in seen)
     st = manager_bridge._STATES["s-rot00001"]
     assert st["last_thread_id"] == "thread-xyz"
@@ -129,7 +139,7 @@ def test_manager_stream_announces_classification_before_model_call(
     manager_bridge._STATES.clear()
     fragments: list[tuple[str, dict]] = []
 
-    def _classify(mem, text, chat_state):
+    def _classify(mem, text, chat_state, *, root_task_id=None):
         assert fragments == [
             (
                 "phase",
@@ -167,7 +177,7 @@ def test_web_process_restart_seeds_one_startup_handoff(
     seen: list[str] = []
     classified: list[str] = []
 
-    def _classify(mem, text, chat_state):
+    def _classify(mem, text, chat_state, *, root_task_id=None):
         classified.append(text)
         return None, "simple"
 
@@ -211,7 +221,7 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
 
     triaged: list[str] = []
 
-    def _fake_front_door(mem, text, chat_state):
+    def _fake_front_door(mem, text, chat_state, *, root_task_id=None):
         # config request → non-None intent (apply path); else None + route.
         return (object() if "xhigh" in text else None), "simple"
 

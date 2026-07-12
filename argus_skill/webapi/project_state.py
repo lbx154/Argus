@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +18,12 @@ from ..apps.cli._follow import _read_recent_project_events
 from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role_activity
 from ..core import paths as core_paths
 from ..core.cost_control import cost_control_snapshot
+from ..core.metrics import metrics_snapshot
+from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
-from ..core.transcript import first_operator_text
 from ..core.usage import UsageSummary, project_usage_summary
+from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
     read_continuous_state,
@@ -35,10 +38,26 @@ DAEMON_ADMISSION_FILE = "daemon.admission.json"
 
 _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
+_METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_METRICS_CACHE_LOCK = threading.Lock()
+_METRICS_CACHE_TTL_SECONDS = 5.0
 
 
 def resolve_global_root(value: Path | str | None) -> Path:
     return Path(value) if value is not None else core_paths.global_root()
+
+
+def _cached_metrics_snapshot(root: Path) -> dict[str, Any]:
+    """Reuse the host-wide metrics projection across rapid project switches."""
+    key = str(root.resolve())
+    now = time.monotonic()
+    with _METRICS_CACHE_LOCK:
+        cached = _METRICS_CACHE.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        value = metrics_snapshot(root=root)
+        _METRICS_CACHE[key] = (now + _METRICS_CACHE_TTL_SECONDS, value)
+        return value
 
 
 def project_life_dir(
@@ -173,7 +192,32 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "max_cost_usd": float(getattr(item, "max_cost_usd", 0.0)),
         "iterate": bool(getattr(item, "iterate", False)),
         "pending_question": str(getattr(item, "pending_question", "") or "")[:500],
+        "started_ts": getattr(item, "started_ts", None),
+        "finished_ts": getattr(item, "finished_ts", None),
+        "deps": [str(dep) for dep in (getattr(item, "deps", None) or [])],
+        "iteration_max_cycles": int(getattr(item, "iteration_max_cycles", 0) or 0),
+        "iteration_cycles_done": int(getattr(item, "iteration_cycles_done", 0) or 0),
     }
+
+
+def current_stage_for_session(
+    session: dict[str, Any],
+    life_dir: Path,
+) -> str:
+    from ..skills.stage_checklists import current_stage
+
+    candidates = [session.get("launch_cwd"), session.get("cwd"), life_dir]
+    for raw in candidates:
+        if not raw:
+            continue
+        root = Path(str(raw)).expanduser()
+        if not (root / "research" / "PIPELINE_STATE.json").exists():
+            continue
+        try:
+            return str(current_stage(root) or "")
+        except Exception:  # noqa: BLE001 - snapshot remains available
+            continue
+    return ""
 
 
 def _empty_usage_summary() -> UsageSummary:
@@ -330,6 +374,32 @@ def build_snapshot(
         diagnostics.append(diagnostic("session", exc))
 
     try:
+        continuous_state = read_continuous_state(life_dir)
+        continuous_payload = {
+            "enabled": continuous_state.enabled,
+            "objective": continuous_state.objective,
+            "done_reason": continuous_state.done_reason,
+            "done_at": continuous_state.done_at,
+        }
+    except Exception as exc:  # noqa: BLE001
+        continuous_payload = {"enabled": False, "objective": ""}
+        diagnostics.append(diagnostic("continuous", exc))
+
+    try:
+        mission_view = snapshot_mission_view(
+            life_dir,
+            session=session,
+            daemon=daemon,
+            roles=roles,
+            backlog=backlog,
+            continuous=continuous_payload,
+            current_stage=current_stage_for_session(session, life_dir),
+        )
+    except Exception as exc:  # noqa: BLE001
+        mission_view = None
+        diagnostics.append(diagnostic("mission_view", exc))
+
+    try:
         request_usage = provider_usage_snapshot(root=root)
     except Exception as exc:  # noqa: BLE001
         request_usage = None
@@ -340,6 +410,18 @@ def build_snapshot(
     except Exception as exc:  # noqa: BLE001
         cost_control = None
         diagnostics.append(diagnostic("cost_control", exc))
+
+    try:
+        daemon_commands = daemon_command_snapshot(life_dir)
+    except Exception as exc:  # noqa: BLE001
+        daemon_commands = None
+        diagnostics.append(diagnostic("daemon_commands", exc))
+
+    try:
+        observability = _cached_metrics_snapshot(root)
+    except Exception as exc:  # noqa: BLE001
+        observability = None
+        diagnostics.append(diagnostic("observability", exc))
 
     snapshot: dict[str, Any] = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
@@ -353,26 +435,15 @@ def build_snapshot(
         "usage_summary": spend.to_jsonable(),
         "request_usage": request_usage,
         "cost_control": cost_control,
+        "daemon_commands": daemon_commands,
+        "observability": observability,
+        "mission_view": mission_view,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:
         snapshot["daemon_admission"] = admission
     if compact:
-        try:
-            continuous = read_continuous_state(life_dir)
-        except Exception as exc:  # noqa: BLE001
-            continuous = None
-            diagnostics.append(diagnostic("continuous", exc))
-        snapshot["continuous"] = (
-            {
-                "enabled": continuous.enabled,
-                "objective": continuous.objective,
-                "done_reason": continuous.done_reason,
-                "done_at": continuous.done_at,
-            }
-            if continuous is not None
-            else {"enabled": False, "objective": ""}
-        )
+        snapshot["continuous"] = continuous_payload
         snapshot["pending_questions"] = [
             compact_backlog_item(item)
             for item in items
@@ -411,11 +482,6 @@ def list_projects(
         if not item.get("objective") and campaign_objective:
             item["objective"] = campaign_objective
         label = item.get("display_name") or item.get("objective") or ""
-        if not label:
-            try:
-                label = first_operator_text(life_dir)[:60]
-            except Exception:  # noqa: BLE001
-                label = ""
         item["label"] = label or meta.id
         out.append(item)
         if limit and len(out) >= limit:

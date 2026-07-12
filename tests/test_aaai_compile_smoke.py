@@ -19,12 +19,12 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.skills.venue_profiles import AAAI_PROFILE
 from argus_skill.verticals.research.paper_structural_minimums import (
     StructuralReport,
     _append_venue_compliance_issues,
     _strip_comments,
 )
-from argus_skill.skills.venue_profiles import AAAI_PROFILE
 
 _KIT_CANDIDATES = [
     os.environ.get("ARGUS_SKILL_AAAI_KIT", ""),
@@ -81,10 +81,13 @@ def _find_kit() -> Path | None:
     return None
 
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("pdflatex") is None or _find_kit() is None,
-    reason="pdflatex and/or the AAAI 2026 kit (aaai2026.sty/.bst) are unavailable",
-)
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        shutil.which("pdflatex") is None or _find_kit() is None,
+        reason="pdflatex and/or the AAAI 2026 kit (aaai2026.sty/.bst) are unavailable",
+    ),
+]
 
 
 def test_minimal_aaai_paper_compiles_and_passes_structural_checks(tmp_path: Path) -> None:

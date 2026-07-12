@@ -19,6 +19,7 @@ from typing import Any
 
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
@@ -61,14 +62,17 @@ def _load_academic_paper_review_skill() -> str:
     return load_builtin_skill_text("academic-paper-peer-review-benchmark.md")
 
 
-def _load_wiki_curator_skill_if_present() -> str | None:
+def _load_wiki_curator_skill_if_present(
+    working_dir: str | Path | None = None,
+) -> str | None:
     """Return wiki-curator skill text when the current project has a wiki.
 
     The adaptive reviewer matcher has empirically missed this skill for
     diagnostic/debugging objectives, so wiki-curator is fixed context whenever
     `.autors/*/wiki/` exists in the current project.
     """
-    autors = Path.cwd() / ".autors"
+    project_root = Path(working_dir).expanduser() if working_dir else Path.cwd()
+    autors = project_root / ".autors"
     if not autors.exists():
         return None
     from ..wiki.bootstrap import is_initialized_wiki
@@ -321,6 +325,7 @@ class Reviewer:
             background_context=background_context,
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
+            working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
         new_fp = hashlib.sha256(static.encode("utf-8")).hexdigest()
@@ -335,7 +340,8 @@ class Reviewer:
         delta = (_REEVALUATE_HEADER + delta_base) if resume else delta_base
         prompt = delta if resume else static + delta
         try:
-            result = self.runner.run_exec(
+            result = gateway_run_exec(
+                self.runner,
                 prompt=prompt,
                 resume_thread_id=resume,
                 options=RunnerOptions(
@@ -479,6 +485,7 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
+        working_dir: str | Path | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -503,13 +510,26 @@ class Reviewer:
         # role/handoff/academic blocks above. The three fixed reviewer skills
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
+        from ..skills.harness_overlay import resolve_project_root
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+            vertical_role_banner,
+            vertical_search_altitude,
+            vertical_workflow_mode,
+        )
+
+        _proot = resolve_project_root(working_dir)
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
+        _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
         matched_review_skill_block = ""
-        if self.skill_store is not None:
-            from ..skills.harness_overlay import resolve_project_root as _rpr
+        if self.skill_store is not None and not _direct_workflow:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(
-                objective, extra_exclude=venue_excluded_skill_files(_rpr())
+                objective,
+                extra_exclude=venue_excluded_skill_files(_proot),
             )
             if review_match.block:
                 matched_review_skill_block = (
@@ -517,22 +537,12 @@ class Reviewer:
                     "(read first; apply the relevant one(s)):\n"
                     f"{review_match.block}\n\n"
                 )
-        from ..skills.harness_overlay import resolve_project_root
         from ..skills.stage_checklists import (
             CANONICAL_STAGE_ORDER,
             current_stage,
             format_full_pipeline_checklist,
             format_stage_checklist,
         )
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import (
-            load_vertical,
-            vertical_completion_gate,
-            vertical_role_banner,
-            vertical_search_altitude,
-        )
-
-        _proot = resolve_project_root()
         stage = current_stage(_proot)
         import os as _os
         _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
@@ -542,7 +552,6 @@ class Reviewer:
         # "full_paper"); for any other vertical (e.g. speedrun) those blocks are
         # suppressed and the vertical's banner is prepended so the reviewer judges
         # only that vertical's metric instead of paper-pipeline artifacts.
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
@@ -605,7 +614,7 @@ class Reviewer:
         paper_review_skill_block = _format_academic_paper_review_skill_block(
             include=is_final_submission or stage in {"review", "submission"},
         )
-        wiki_curator_text = _load_wiki_curator_skill_if_present()
+        wiki_curator_text = _load_wiki_curator_skill_if_present(working_dir)
         wiki_curator_skill_block = (
             "## Wiki curator (fixed when a wiki exists -- run as part of this verdict)\n\n"
             f"{wiki_curator_text}\n\n"
@@ -819,7 +828,10 @@ class Reviewer:
         # resume). ``search_altitude_block`` and the per-round checkpoint/
         # escalation/log-audit blocks were REORDERED out of here into the delta.
         static = (
-            ground_truth_mandate("reviewer")
+            ground_truth_mandate(
+                "reviewer",
+                workflow_mode=vertical_workflow_mode(_vmod),
+            )
             + optimize_banner
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
@@ -1064,11 +1076,13 @@ class Reviewer:
             "   concrete artifacts in the summary — the agent has no ground-truth\n"
             "   signal, so your job is to demand evidence. But once the evidence is\n"
             "   in front of you (rule 1a), stop.\n"
-            "3) On `continue`, `next_action` is a concrete instruction. If the round\n"
-            "   genuinely LACKS the evidence to judge, ask for the SPECIFIC\n"
-            "   verification command; but when honest evidence is already in hand, do\n"
-            "   NOT re-request it — instead point the engineer at\n"
-            "   the specific NEXT work or unexplored direction.\n"
+            "3) On `continue`, state the missing outcome/evidence and any hard\n"
+            "   constraints, then leave implementation and tool choice to the\n"
+            "   Engineer. Be step-by-step only when a deterministic failed check\n"
+            "   already identifies an exact repair. If evidence is missing, ask for\n"
+            "   the specific verification command; when honest evidence is already\n"
+            "   in hand, do NOT re-request it — point to the specific NEXT work or "
+            "unexplored direction instead.\n"
             "4) `blocked` ONLY when user input is strictly required for ANY further\n"
             "   progress (missing credentials, a spec only the user can clarify,\n"
             "   hardware the agent cannot reach). A failing test / runtime error /\n"

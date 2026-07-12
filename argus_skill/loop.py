@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, RoundRecord
+from .core.models import LoopOutcome
 from .core.ports import RunnerBackend
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .reviewer import Reviewer, ReviewerConfig
@@ -77,6 +77,10 @@ class SkillLoopConfig:
     # project has no initialized wiki (see ``wiki.auto_hooks.discover_wikis``).
     # Off by default; the daemon enables it.
     wiki_ops_enabled: bool = False
+    # Bootstrap one project wiki before the first mission so every vertical can
+    # use reviewer-owned wiki_ops without a separate learning-only setup step.
+    # Library callers remain opt-in; the daemon runtime enables this by default.
+    auto_init_wiki: bool = False
     # Automatic library housekeeping (explicit opt-in). Finds near-duplicate
     # skills/wiki-pages accumulated across tasks or concurrent writers and
     # merges each cluster down to one representative. LLM grouping sees compact
@@ -90,6 +94,9 @@ class SkillLoopConfig:
     dangerous_yolo: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
+    # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
+    # deliverable; the Engineer and Reviewer still run normally.
+    workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
     # submission task. When True the engineer prompt carries the
     # long-horizon paper execution contract. Replaces the old keyword-based
@@ -227,6 +234,15 @@ class SkillLoop:
         Falls back to ``task`` when not supplied for back-compat.
         """
         workdir = Path(workdir) if workdir else Path.cwd()
+        direct_workflow = self.config.workflow_mode == "direct"
+        if self.config.wiki_ops_enabled and not direct_workflow:
+            from .wiki.lifecycle import ensure_project_wiki
+
+            ensure_project_wiki(
+                workdir,
+                enabled=self.config.auto_init_wiki,
+                on_event=self.on_event,
+            )
         skill_task = (objective_for_skill or task).strip() or task
         request_anchor = (original_objective or objective_for_skill or task).strip() or task
         self._emit({
@@ -241,9 +257,14 @@ class SkillLoop:
         # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        match = self.skill_router.select(
-            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
-        )
+        if direct_workflow:
+            from .skills.role_match import RoleSkillMatch
+
+            match = RoleSkillMatch(role="engineer")
+        else:
+            match = self.skill_router.select(
+                skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+            )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
@@ -259,12 +280,12 @@ class SkillLoop:
 
         # Scientist tool on miss: author one reusable playbook, persist it in the
         # project layer immediately, and inject that exact version into this mission.
-        if skill is None:
+        if skill is None and not direct_workflow:
             try:
                 from .skills.scientist import SkillScientist
 
                 self._emit({
-                    "type": "skill.scientist.started",
+                    "type": EventType.SKILL_SCIENTIST_STARTED,
                     "text": "no high-fit skill; asking Scientist to distill a reusable skill",
                 })
                 scientist = SkillScientist(
@@ -286,7 +307,11 @@ class SkillLoop:
                         skill_name = distilled.name
                         skill_distilled = True
                         self._emit({
-                            "type": "skill.scientist.created",
+                            "type": EventType.SKILL_SCIENTIST_CREATED,
+                            "skill_id": distilled.skill_id,
+                            "name": distilled.name,
+                            "version": distilled.version,
+                            "path": str(distilled.path or ""),
                             "text": f"Scientist created active skill {distilled.name}",
                         })
             except Exception:  # noqa: BLE001
@@ -457,34 +482,26 @@ class SkillLoop:
                 log.warning("skill use recording failed (%s: %s)",
                             type(exc).__name__, exc)
 
-        if self.config.skill_ops_enabled:
-            self._apply_skill_ops(rounds=rounds, skill_task=skill_task)
+        try:
+            from .skills.evolution import evolve_skills_after_mission
 
-        # Step 4b: automatic library housekeeping — reversibly merge
-        # near-duplicates accumulated across tasks or concurrent writers (see
-        # ``SkillLoopConfig.auto_compact_enabled`` for the full rationale).
-        # Separate try/except: housekeeping must never shadow (or be shadowed
-        # by) the skill_ops apply above.
-        if self.config.auto_compact_enabled:
-            try:
-                from .skills.compaction import auto_compact_skills
-                stores = [
-                    getattr(self.skill_store, name, None)
-                    for name in ("project", "global_")
-                ]
-                skill_dirs = [
-                    Path(store.skills_dir) for store in stores if store is not None
-                ] or [self.skills_dir]
-                for skill_dir in skill_dirs:
-                    auto_compact_skills(
-                        skill_dir,
-                        judge_runner=self.reviewer_runner,
-                        judge_model=self.config.resolved_reviewer_model(),
-                        judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
-                        on_event=self.on_event,
-                    )
-            except Exception:  # noqa: BLE001 — housekeeping must never block
-                log.debug("auto_compact_skills raised", exc_info=True)
+            evolve_skills_after_mission(
+                skill_store=self.skill_store,
+                skill_router=self.skill_router,
+                reviewer_runner=self.reviewer_runner,
+                reviewer_model=self.config.resolved_reviewer_model(),
+                reviewer_reasoning_effort=(
+                    self.config.matcher_reasoning_effort or "high"
+                ),
+                rounds=rounds,
+                task=skill_task,
+                apply_ops_enabled=self.config.skill_ops_enabled,
+                auto_compact_enabled=self.config.auto_compact_enabled,
+                fallback_skills_dir=self.skills_dir,
+                on_event=self.on_event,
+            )
+        except Exception:  # noqa: BLE001 - evolution must never shadow the verdict
+            log.debug("skill evolution raised", exc_info=True)
 
         outcome = LoopOutcome(
             status=status,
@@ -496,62 +513,33 @@ class SkillLoop:
             workdir=str(workdir),
             last_thread_id=last_thread_id,
         )
-        # Step 4c: wiki harness hooks — back-fill sources, mechanically
-        # lift unjudged sources/papers/* into scratch pages/techniques/*,
-        # rebuild queries indexes, then run mechanical promotion based on
-        # cross-RunCard references. See argus_skill/wiki/auto_hooks.py
-        # for the diagnosis and design references (SkillEvolBench,
-        # EverOS, mem0 v3). Fail-open: NEVER blocks a verdict.
+        # Step 4c: project-wiki evolution. The lifecycle module owns mechanical
+        # source ingestion, scratch lift, reviewer wiki_ops, promotion and optional
+        # reversible compaction so this main loop stays orchestration-only.
         try:
-            from .wiki.auto_hooks import run_post_mission_hooks
-            from .wiki.promotion import mechanical_promote
-            mission_id = (
-                self.config.session_id
-                or (last_thread_id or "")[:12]
-                or "unknown"
-            )
-            hook_summary = run_post_mission_hooks(
-                workdir,
-                mission_id=mission_id,
+            from .wiki.lifecycle import evolve_wikis_after_mission
+
+            evolve_wikis_after_mission(
+                rounds=rounds,
+                workdir=workdir,
+                task=skill_task,
+                mission_id=(
+                    self.config.session_id
+                    or (last_thread_id or "")[:12]
+                    or "unknown"
+                ),
                 success=(status == "done"),
-                emit=self.on_event,
+                reviewer_runner=self.reviewer_runner,
+                reviewer_model=self.config.resolved_reviewer_model(),
+                reviewer_reasoning_effort=(
+                    self.config.matcher_reasoning_effort or "high"
+                ),
+                apply_ops_enabled=self.config.wiki_ops_enabled,
+                auto_compact_enabled=self.config.auto_compact_enabled,
+                on_event=self.on_event,
             )
-            for wiki_path in hook_summary.keys():
-                mechanical_promote(Path(wiki_path), emit=self.on_event)
-        except Exception:  # noqa: BLE001 — wiki maintenance must never block
-            log.debug("wiki post-mission hooks raised", exc_info=True)
-
-        # Step 4d: the reviewer's own PROPOSED wiki_ops (create_page/
-        # update_page/retire_page) — runs AFTER the mechanical hooks above so
-        # any source ingested THIS mission is already visible to the
-        # evidence-verbatim check. Separate try/except: a WikiRouter/discover
-        # failure must not shadow a mechanical-hooks failure or vice versa.
-        if self.config.wiki_ops_enabled:
-            try:
-                self._apply_wiki_ops(rounds=rounds, workdir=workdir, wiki_task=skill_task)
-            except Exception:  # noqa: BLE001 — wiki maintenance must never block
-                log.debug("wiki_ops apply raised", exc_info=True)
-
-        # Step 4e: automatic wiki-page housekeeping — the wiki's counterpart
-        # to the skill auto-compaction above (same
-        # ``SkillLoopConfig.auto_compact_enabled`` flag, same rationale:
-        # merge near-duplicate PAGES that slipped past the create-time
-        # independence check). Runs LAST so it sees any page ``wiki_ops`` just
-        # wrote this mission.
-        if self.config.auto_compact_enabled:
-            try:
-                from .wiki.auto_hooks import discover_wikis
-                from .wiki.compaction import auto_compact_wiki
-                for wiki_root in discover_wikis(workdir):
-                    auto_compact_wiki(
-                        wiki_root,
-                        judge_runner=self.reviewer_runner,
-                        judge_model=self.config.resolved_reviewer_model(),
-                        judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
-                        on_event=self.on_event,
-                    )
-            except Exception:  # noqa: BLE001 — housekeeping must never block
-                log.debug("auto_compact_wiki raised", exc_info=True)
+        except Exception:  # noqa: BLE001 - wiki evolution must never block
+            log.debug("wiki evolution raised", exc_info=True)
         # Effectiveness telemetry — one structured event per mission so
         # operators can compute hit-rate, mean-rounds-with-skill, and
         # mean-rounds-without-skill from events.jsonl alone.
@@ -592,7 +580,7 @@ class SkillLoop:
                 "reasoning_output_tokens": distiller_reasoning_output_tokens,
             }
             self._emit({
-                "type": "skill.cost.completed",
+                "type": EventType.SKILL_COST_COMPLETED,
                 "agent_layer": "scientist",
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
@@ -628,7 +616,7 @@ class SkillLoop:
                 "usage_scope": "delta",
             })
             self._emit({
-                "type": "skill.outcome",
+                "type": EventType.SKILL_OUTCOME,
                 "skill_name": skill_name or "",
                 "skill_hit": bool(skill_name) and not skill_distilled,
                 "skill_distilled": bool(skill_distilled),
@@ -717,6 +705,16 @@ class SkillLoop:
             "the open blocker, and the next step across turns, so you lose\n"
             "nothing by stopping. Treat ~30-40 tool calls as a soft ceiling\n"
             "for one turn.\n\n"
+            "Use the lightest useful handoff. Normally, stop and let the\n"
+            "Reviewer judge the increment. If you have landed real work, the\n"
+            "next local execution step is already obvious, and an independent\n"
+            "review right now would only repeat your own plan, you may request\n"
+            "ONE additional Engineer turn by making the final non-empty line:\n"
+            "`CONTINUE_WORK: <specific next step>`\n"
+            "The following turn is reviewed normally. Do not use this when you\n"
+            "think the mission is done, need acceptance criteria interpreted,\n"
+            "need a strategy pivot, are uncertain about evidence, or are\n"
+            "blocked.\n\n"
             "Every turn MUST land a concrete, checkpoint-worthy increment with\n"
             "verification output below. A turn that ships and MEASURES a change\n"
             "— even one that scores temporarily WORSE — or that makes a real\n"
@@ -750,98 +748,5 @@ class SkillLoop:
             return static_text + ("\n\n" + delta_text if delta_text else "")
         # Resume send: DELTA only (may be "" when nothing changed this round).
         return delta_text
-
-    # ------------------------------------------------------------------
-    # Reviewer-owned skill memory (applied at mission end from per-round ops)
-    # ------------------------------------------------------------------
-    def _apply_skill_ops(
-        self,
-        *,
-        rounds: list[RoundRecord],
-        skill_task: str,
-    ) -> None:
-        """Hand the reviewer's per-round ``skill_ops`` (aggregated across the
-        mission) to the SkillRouter, which checks storage structure and applies
-        create/update/archive — the Reviewer is the sole authority, no
-        Manager gate. Protected/governing skills (frontmatter
-        ``protected: true`` or an anti-cheat/guardrail/role-identity category)
-        are refused for removal AND update inside the router (strengthening one
-        requires an explicit source-code change, never a runtime skill_op).
-        Best-effort — the router never raises."""
-        ops = self._collect_skill_ops(rounds)
-        if not ops:
-            return
-        self.skill_router.apply_ops(ops, task=skill_task, on_event=self.on_event)
-
-    @staticmethod
-    def _collect_skill_ops(rounds: list[RoundRecord]) -> list[dict]:
-        """Aggregate ``skill_ops`` across all rounds, de-duplicating identical
-        (op, name, content-prefix) requests the reviewer may repeat round to
-        round."""
-        seen: set[tuple] = set()
-        ops: list[dict] = []
-        for rec in rounds or []:
-            review = getattr(rec, "review", None)
-            for op in (getattr(review, "skill_ops", None) or []):
-                if not isinstance(op, dict):
-                    continue
-                key = (op.get("op"), op.get("name", ""),
-                       (op.get("content", "") or "")[:200])
-                if key in seen:
-                    continue
-                seen.add(key)
-                ops.append(op)
-        return ops
-
-    # ------------------------------------------------------------------
-    # Reviewer-owned wiki memory (applied at mission end from per-round ops)
-    # ------------------------------------------------------------------
-    def _apply_wiki_ops(
-        self,
-        *,
-        rounds: list[RoundRecord],
-        workdir: Path,
-        wiki_task: str,
-    ) -> None:
-        """Hand the reviewer's per-round ``wiki_ops`` (aggregated across the
-        mission) to a ``WikiRouter`` for every initialized wiki under
-        ``workdir`` — symmetric to ``_apply_skill_ops`` above, also with no
-        Manager gate. A no-op when the reviewer proposed nothing OR the
-        project has no initialized wiki (``discover_wikis`` returns []); the
-        router never raises (each op fails soft on its own)."""
-        ops = self._collect_wiki_ops(rounds)
-        if not ops:
-            return
-        from .wiki.auto_hooks import discover_wikis
-        from .wiki.router import WikiRouter
-
-        for wiki_root in discover_wikis(workdir):
-            WikiRouter(
-                wiki_root,
-                judge_runner=self.reviewer_runner,
-                judge_model=self.config.resolved_reviewer_model(),
-                judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
-            ).apply_ops(ops, task=wiki_task, on_event=self.on_event)
-
-    @staticmethod
-    def _collect_wiki_ops(rounds: list[RoundRecord]) -> list[dict]:
-        """Aggregate ``wiki_ops`` across all rounds, de-duplicating identical
-        (op, id, body-prefix) requests the reviewer may repeat round to
-        round — mirrors ``_collect_skill_ops``."""
-        seen: set[tuple] = set()
-        ops: list[dict] = []
-        for rec in rounds or []:
-            review = getattr(rec, "review", None)
-            for op in (getattr(review, "wiki_ops", None) or []):
-                if not isinstance(op, dict):
-                    continue
-                key = (op.get("op"), op.get("id", ""),
-                       (op.get("body", "") or "")[:200])
-                if key in seen:
-                    continue
-                seen.add(key)
-                ops.append(op)
-        return ops
-
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

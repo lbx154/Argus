@@ -188,6 +188,8 @@ class _CommandRouter:
             "config": dict(_LIFE_CONFIG_DEFAULTS),
             "continuous_objective": "",
             "last_thread_id": None,
+            "session_id": self.life_dir.name,
+            "global_root": str(self.life_dir.parent.parent),
         }
 
     def _reply(self, text: str) -> None:
@@ -237,7 +239,11 @@ class _CommandRouter:
         elif text.startswith("/"):
             self._reply(f"❓ 未知命令: {cmd_raw}\n使用 /help 查看可用命令")
         else:
-            self._cmd_free_text(text)
+            try:
+                self._cmd_free_text(text)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("telegram free-text dispatch failed")
+                self._reply(f"❌ 任务未派发: {exc}")
 
     # -- individual commands -----------------------------------------------
 
@@ -280,19 +286,37 @@ class _CommandRouter:
             title = body[:60].strip()
             objective = body.strip()
 
-        from .memory import LifeMemory
+        from ..manager.front_door import manager_bounded_handoff
+        from .memory import BacklogItem, MemoryBundle
 
-        mem = LifeMemory.open(self.life_dir)
-        item = add_backlog_item(
+        mem = MemoryBundle.for_cwd(
+            fingerprint=self.life_dir.name,
+            global_root=self.life_dir.parent.parent,
+        )
+        item_id = BacklogItem.new_id()
+        item = manager_bounded_handoff(
             mem,
             objective,
-            iterate=iterate,
-            iteration_max_cycles=cycles,
-            iteration_budget_usd=budget,
+            self._state,
+            lambda execution_task, division: add_backlog_item(
+                mem,
+                execution_task,
+                item_id=item_id,
+                iterate=iterate,
+                iteration_max_cycles=cycles,
+                iteration_budget_usd=budget,
+            ),
+            root_task_id=item_id,
         )
-        if title != item.title or objective != item.objective:
-            mem.backlog.update(item.id, title=title, objective=objective)
-        return _QueuedTask(id=item.id, title=title, objective=objective)
+        execution_task = item.objective
+        clean_title = execution_task.splitlines()[0][:60].strip()
+        if clean_title and clean_title != item.title:
+            mem.backlog.update(item.id, title=clean_title)
+        return _QueuedTask(
+            id=item.id,
+            title=clean_title or item.title,
+            objective=execution_task,
+        )
 
     def _cmd_add(self, arg: str) -> None:
         if not arg:
@@ -484,16 +508,17 @@ class _CommandRouter:
     def _cmd_continuous(self, arg: str) -> None:
         from ..daemon.life_worker import (
             continuous_mode_error,
+            disable_continuous_config,
             read_continuous_config,
             read_daemon_status,
-            write_continuous_config,
         )
 
         tokens = shlex.split(arg) if arg else []
         sub = tokens[0].lower() if tokens else "status"
         if sub in {"start", "on", "enable"}:
             _, current_obj = read_continuous_config(self.life_dir)
-            objective = " ".join(tokens[1:]).strip() or current_obj
+            requested_objective = " ".join(tokens[1:]).strip()
+            objective = requested_objective or current_obj
             backend = (
                 read_daemon_status(self.life_dir).backend
                 or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
@@ -502,15 +527,26 @@ class _CommandRouter:
             if error:
                 self._reply(f"❌ {error}")
                 return
-            write_continuous_config(self.life_dir, enabled=True, objective=objective)
+            from ..manager.front_door import manager_continuous_handoff
+            from .memory import MemoryBundle
+
+            mem = MemoryBundle.for_cwd(
+                fingerprint=self.life_dir.name,
+                global_root=self.life_dir.parent.parent,
+            )
+            objective = manager_continuous_handoff(
+                mem,
+                requested_objective,
+                self._state,
+            )
+            self._state["continuous_objective"] = objective
             self._reply(
                 f"▶️ 持续模式已开启\n"
                 f"🎯 目标: {_esc(objective[:200]) if objective else '(沿用上次目标)'}"
             )
             return
         if sub in {"stop", "off", "pause"}:
-            _, objective = read_continuous_config(self.life_dir)
-            write_continuous_config(self.life_dir, enabled=False, objective=objective)
+            disable_continuous_config(self.life_dir)
             self._reply("⏸️ 持续模式已暂停\n当前任务执行完毕后将停止")
             return
         enabled, objective = read_continuous_config(self.life_dir)

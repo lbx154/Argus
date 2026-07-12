@@ -43,11 +43,13 @@ _NEW_DOMAIN_DECISION = {
     "stages": ["scope", "simulate", "measure", "report"],
     "rationale": "novel",
     "confidence": 0.8,
+    "execution_task": "Build and evaluate the MuJoCo controller.",
 }
 _EXISTING_RESEARCH_DECISION = {
     "choice": "existing",
     "vertical": "research",
     "rationale": "the task is a paper with a literature review and submission",
+    "execution_task": "Write the paper and prepare it for submission.",
 }
 # A task carrying NO preset (research/optimize/quant) signal → novel domain.
 _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
@@ -80,6 +82,7 @@ def test_ask_mode_defers_write(tmp_path, monkeypatch):
     # Operator confirms.
     committed = mgr.commit_domain(div.task, div.proposed_domain)
     assert committed.vertical == "robotics_sim"
+    assert committed.execution_task == "Build and evaluate the MuJoCo controller."
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
 
 
@@ -98,6 +101,39 @@ def test_no_runner_raises(tmp_path, monkeypatch):
         Manager(project_root=tmp_path).divide(_NOVEL_TASK)
 
 
+def test_backend_failure_preserves_actionable_reason(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+
+    class _FailedRunner:
+        def run_exec(self, **kwargs):
+            result = _FakeResult("")
+            result.exit_code = -1
+            result.fatal_error = (
+                "refused before start: unresolved provider cost blocks new calls"
+            )
+            return result
+
+    with pytest.raises(
+        VerticalDecisionError,
+        match="unresolved provider cost blocks new calls",
+    ):
+        Manager(project_root=tmp_path, runner=_FailedRunner()).divide(_NOVEL_TASK)
+
+
+def test_zero_exit_fatal_error_preserves_actionable_reason(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+
+    class _FailedRunner:
+        def run_exec(self, **kwargs):
+            result = _FakeResult("")
+            result.exit_code = 0
+            result.fatal_error = "provider policy denied this turn"
+            return result
+
+    with pytest.raises(VerticalDecisionError, match="provider policy denied"):
+        Manager(project_root=tmp_path, runner=_FailedRunner()).divide(_NOVEL_TASK)
+
+
 def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     """Regression: the vertical decision must give the Manager real repo access
     (pinned working_dir + dangerous_yolo/full_auto matching the codebase's
@@ -111,7 +147,8 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
     opts = call["options"]
     assert opts.working_dir == str(tmp_path)
-    assert opts.dangerous_yolo is True
+    assert opts.sandbox_mode == "read-only"
+    assert opts.dangerous_yolo is False
     assert opts.full_auto is False
     assert "shell access" in call["prompt"].lower()
     assert "investigate" in call["prompt"].lower()
@@ -126,5 +163,6 @@ def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
 
     call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
     opts = call["options"]
+    assert opts.sandbox_mode == "read-only"
     assert opts.dangerous_yolo is False
-    assert opts.full_auto is True
+    assert opts.full_auto is False

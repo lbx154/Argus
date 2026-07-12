@@ -322,12 +322,16 @@ def _team_member_activity(life_dir: Path) -> dict:
         if rnd is None and isinstance(e.get("round_index"), int):
             rnd = e["round_index"]
         if role is None:
-            if t.startswith("round.review") or t.startswith("reviewer"):
+            if t == "round.review.deferred":
+                role = "engineer"
+            elif t.startswith("round.review") or t.startswith("reviewer"):
                 role = "reviewer"
             elif t.startswith("engineer") or t.startswith("round.engineer"):
                 role = "engineer"
         if activity is None:
-            if t.startswith("round.review") or t.startswith("reviewer"):
+            if t == "round.review.deferred":
+                activity = "coding"
+            elif t.startswith("round.review") or t.startswith("reviewer"):
                 activity = "reviewing"
             elif kind == "command_execution":
                 if "eval_solution" in low or "result problem=" in low or re.search(r":(?:226\d|910\d)\b", low):

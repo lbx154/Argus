@@ -3,7 +3,45 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
+  --bg: 249 250 251;
+  --surface: 255 255 255;
+  --panel: 252 252 253;
+  --panel-raised: 255 255 255;
+  --line: 214 216 220;
+  --ink: 17 24 39;
+  --ink-dim: 107 114 128;
+  --ink-faint: 156 163 175;
+  --blue: 79 70 229;
+  --blue-deep: 67 56 202;
+  --blue-sky: 67 56 202;
+  --role-manager: 37 99 235;
+  --role-planner: 126 34 206;
+  --role-engineer: 21 128 61;
+  --role-reviewer: 161 98 7;
+  --conversation-user: 243 244 246;
+  --conversation-argus: 238 242 255;
+}
+
+:root[data-theme='dark'] {
   color-scheme: dark;
+  --bg: 13 14 18;
+  --surface: 20 22 28;
+  --panel: 20 22 28;
+  --panel-raised: 26 28 35;
+  --line: 71 82 100;
+  --ink: 249 250 251;
+  --ink-dim: 156 163 175;
+  --ink-faint: 107 114 128;
+  --blue: 129 140 248;
+  --blue-deep: 79 70 229;
+  --blue-sky: 165 180 252;
+  --role-manager: 147 197 253;
+  --role-planner: 216 180 254;
+  --role-engineer: 134 239 172;
+  --role-reviewer: 253 230 138;
+  --conversation-user: 31 41 55;
+  --conversation-argus: 30 27 75;
   font-synthesis: none;
 }
 
@@ -15,11 +53,88 @@ body,
 
 body {
   margin: 0;
+  overflow: hidden;
   background: theme('colors.bg');
   color: theme('colors.ink.DEFAULT');
+  /* impeccable-disable-next-line design-system-font: Tailwind resolves this to the documented Geist/Noto stack */
   font-family: theme('fontFamily.sans');
+  font-optical-sizing: auto;
+  font-feature-settings: 'ss01' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+@keyframes argus-web-splash-exit {
+  0%, 68% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes argus-web-splash-color {
+  from { background-position: 0% 50%; }
+  to { background-position: 180% 50%; }
+}
+
+.argus-web-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgb(var(--bg));
+  animation: argus-web-splash-exit 650ms ease-out forwards;
+  will-change: opacity;
+}
+
+.argus-web-splash-logo {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1rem;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    #3b6fd4,
+    #72b4f0,
+    #89dceb,
+    #cba6f7,
+    #e6b450,
+    #3b6fd4
+  );
+  background-size: 180% 100%;
+  background-clip: text;
+  font-family: theme('fontFamily.mono');
+  font-size: clamp(6px, 1.05vw, 13px);
+  font-weight: 600;
+  line-height: 1.08;
+  user-select: none;
+  animation: argus-web-splash-color 650ms linear;
+  will-change: background-position;
+}
+
+.argus-web-splash-logo-full {
+  display: none;
+}
+
+.argus-web-splash-logo-compact {
+  display: block;
+}
+
+@media (min-width: 780px) {
+  .argus-web-splash-logo-full {
+    display: block;
+  }
+
+  .argus-web-splash-logo-compact {
+    display: none;
+  }
+}
+
+::selection {
+  background: rgb(63 111 159 / 55%);
+  color: theme('colors.ink.DEFAULT');
 }
 
 button,
@@ -45,29 +160,38 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .scroll-smooth {
+    scroll-behavior: auto !important;
+  }
 }
 
 /* thin, unobtrusive scrollbars in event/log surfaces */
 .scroll-thin::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
+}
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--ink-faint) / 45%) transparent;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: theme('colors.line');
-  border-radius: 3px;
+  background: rgb(var(--ink-faint) / 38%);
+  border: 1px solid rgb(var(--panel) / 80%);
+  border-radius: 9999px;
 }
 .scroll-thin::-webkit-scrollbar-thumb:hover {
-  background: theme('colors.ink.faint');
+  background: rgb(var(--ink-faint) / 65%);
 }
 .scroll-thin::-webkit-scrollbar-track {
   background: transparent;
+  border-radius: 9999px;
 }
 
 @layer components {
   .card {
-    @apply rounded-md border border-line bg-panel;
+    @apply rounded-lg border border-line/80 bg-panel;
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[11px];
+    @apply inline-flex items-center gap-1 rounded-md border border-line/80 px-1.5 py-0.5 text-xs;
   }
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,23 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     assert "unresolved provider cost" in reason
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 
+    control, reason = reserve_call_budget(
+        call_id="control-1",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert control is not None and reason == ""
+    assert control.amount_usd == pytest.approx(1.0)
+    control.release(reason="test")
+
     usage_path = project / "usage.jsonl"
     row = json.loads(usage_path.read_text().splitlines()[0])
     row.update({
@@ -203,3 +221,199 @@ def test_threads_cannot_both_reserve_the_last_budget(tmp_path: Path) -> None:
     assert len(allowed) == 1
     assert len(denied) == 1 and "budget exhausted" in denied[0]
     allowed[0].release(reason="test")
+
+
+def test_many_threads_share_global_budget_without_overselling(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    barrier = threading.Barrier(32)
+    results = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        barrier.wait()
+        result = reserve_call_budget(
+            call_id=f"stress-{index}",
+            project_root=project,
+            mission_id=f"mission-{index}",
+            provider="codex",
+            model="gpt-5.6-sol",
+            run_label="engineer-r1",
+            global_root=tmp_path,
+            per_mission_cap_usd=10.0,
+            project_daily_cap_usd=100.0,
+            global_daily_cap_usd=10.0,
+            per_call_cap_usd=1.0,
+        )
+        with lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(32)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    allowed = [reservation for reservation, _reason in results if reservation]
+    assert len(allowed) == 10
+    assert sum(reservation.amount_usd for reservation in allowed) == pytest.approx(10.0)
+    assert cost_control_snapshot(global_root=tmp_path)["reserved_usd"] == pytest.approx(10.0)
+    for reservation in allowed:
+        reservation.release(reason="test")
+
+
+def test_concurrent_calls_respect_each_mission_cap_independently(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    barrier = threading.Barrier(6)
+    results = []
+    lock = threading.Lock()
+
+    def worker(mission_id: str, index: int) -> None:
+        barrier.wait()
+        reservation, reason = reserve_call_budget(
+            call_id=f"{mission_id}-{index}",
+            project_root=project,
+            mission_id=mission_id,
+            provider="codex",
+            model="gpt-5.6-sol",
+            run_label="engineer-r1",
+            global_root=tmp_path,
+            per_mission_cap_usd=2.0,
+            project_daily_cap_usd=100.0,
+            global_daily_cap_usd=10.0,
+            per_call_cap_usd=1.0,
+        )
+        with lock:
+            results.append((mission_id, reservation, reason))
+
+    threads = [
+        threading.Thread(target=worker, args=(mission_id, index))
+        for mission_id in ("m1", "m2")
+        for index in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    for mission_id in ("m1", "m2"):
+        rows = [row for row in results if row[0] == mission_id]
+        allowed = [reservation for _mid, reservation, _reason in rows if reservation]
+        denied = [reason for _mid, reservation, reason in rows if reservation is None]
+        assert len(allowed) == 2
+        assert len(denied) == 1 and "mission budget exhausted" in denied[0]
+        for reservation in allowed:
+            reservation.release(reason="test")
+
+
+def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_FENCE_BREACH_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="overrun",
+        project_root=project,
+        mission_id="mission-1",
+        provider="codex",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert reservation is not None and reason == ""
+    record = replace(_record(project, "overrun"), cost_usd=1.25)
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["fence_breach_calls"] == 1
+    assert snapshot["fence_breaches"][0]["overrun_usd"] == pytest.approx(0.25)
+    assert 0 < snapshot["fence_breach_remaining_seconds"] <= 900
+    assert snapshot["fence_breach_next_recovery_at"] is not None
+
+    blocked, reason = _reserve(tmp_path, project, "codex-after-breach")
+    assert blocked is None
+    assert "cooling down after budget fence breach" in reason
+
+    copilot, reason = reserve_call_budget(
+        call_id="copilot-still-allowed",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert copilot is not None and reason == ""
+    copilot.release(reason="test")
+
+    recovered, reason = reserve_call_budget(
+        call_id="codex-after-cooldown",
+        project_root=project,
+        mission_id="mission-3",
+        provider="codex",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+        now=time.time() + 901,
+    )
+    assert recovered is not None and reason == ""
+    recovered.release(reason="test")
+    assert cost_control_snapshot(
+        global_root=tmp_path,
+        now=time.time() + 901,
+    )["fence_breach_remaining_seconds"] == 0
+
+    audit = [
+        json.loads(line)
+        for line in (tmp_path / COST_CONTROL_AUDIT_FILE).read_text().splitlines()
+    ]
+    assert "budget.fence_breach.blocked" in {row["type"] for row in audit}
+
+
+def test_fence_breach_policy_can_explicitly_allow_follow_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_FENCE_BREACH_POLICY", "allow")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, _ = reserve_call_budget(
+        call_id="overrun",
+        project_root=project,
+        mission_id="mission-1",
+        provider="codex",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert reservation is not None
+    record = replace(_record(project, "overrun"), cost_usd=1.25)
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    follow_up, reason = _reserve(tmp_path, project, "allowed-after-breach")
+    assert follow_up is not None and reason == ""
+    follow_up.release(reason="test")

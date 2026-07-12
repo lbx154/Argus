@@ -70,6 +70,8 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
+from ..core.event_catalog import EventType
+
 log = logging.getLogger(__name__)
 
 EventSink = Callable[[dict], None] | None
@@ -112,7 +114,9 @@ def _safe(fn: Callable[[], object], *, what: str, emit: EventSink) -> object | N
         if emit is not None:
             try:
                 emit({
-                    "type": "wiki.hook.warning",
+                    "type": EventType.WIKI_HOOK_WARNING,
+                    "operation": what,
+                    "error": f"{type(exc).__name__}: {exc}",
                     "text": f"{what}: {type(exc).__name__}: {exc}",
                 })
             except Exception:  # noqa: BLE001
@@ -266,7 +270,11 @@ def run_post_mission_hooks(
         if emit is not None and (s_written or t_written):
             try:
                 emit({
-                    "type": "wiki.hook.ok",
+                    "type": EventType.WIKI_HOOK_OK,
+                    "project": wiki_root.parent.name,
+                    "path": str(wiki_root),
+                    "sources_written": s_written,
+                    "scratch_written": t_written,
                     "text": (
                         f"{wiki_root.parent.name}: "
                         f"+{s_written} sources, +{t_written} scratch cards"

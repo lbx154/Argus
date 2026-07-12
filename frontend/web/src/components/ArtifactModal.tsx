@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
+import { HtmlPreview } from './HtmlPreview';
+import { JsonPreview, TablePreview } from './DataPreview';
+import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 
@@ -24,10 +27,11 @@ export function ArtifactModal({
   useEffect(() => {
     setPreviewUrl(null);
     setPreviewError('');
-    if (!sid || !path || !info || !['image', 'pdf'].includes(info.kind)) return;
+    if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     let alive = true;
     let objectUrl = '';
-    api.artifactBlob(sid, path).then(
+    const controller = new AbortController();
+    api.artifactBlob(sid, path, false, controller.signal).then(
       (blob) => {
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -37,6 +41,7 @@ export function ArtifactModal({
     );
     return () => {
       alive = false;
+      controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [sid, path, info?.kind]);
@@ -81,6 +86,16 @@ export function ArtifactModal({
         >
           {downloading ? 'Downloading…' : 'Download'}
         </button>
+        {info?.kind === 'pdf' && previewUrl ? (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-dim transition-colors hover:border-ink-faint hover:bg-surface hover:text-ink"
+          >
+            Open
+          </a>
+        ) : null}
         <button
           type="button"
           aria-label="close artifact preview"
@@ -91,7 +106,7 @@ export function ArtifactModal({
         </button>
       </div>
 
-      <div className="flex min-h-64 max-h-[72vh] flex-col overflow-auto bg-bg/40 p-3 scroll-thin sm:p-4">
+      <div className="flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4">
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">preview unavailable · {(artifactQ.error as Error).message}</div>
@@ -102,10 +117,29 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'text' ? (
-          <pre className="min-h-52 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
+          <pre className="min-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… preview truncated · download to inspect the complete file' : ''}
           </pre>
+        ) : null}
+        {info?.kind === 'markdown' ? (
+          <div className="min-h-52 overflow-auto rounded-lg border border-line bg-bg p-4 text-sm text-ink-dim scroll-thin">
+            <MarkdownContent>{info.preview || '(empty file)'}</MarkdownContent>
+          </div>
+        ) : null}
+        {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
+        {info?.kind === 'table' ? (
+          <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
+        ) : null}
+        {info?.kind === 'html' && !info.truncated ? (
+          <div className="flex min-h-[60vh] overflow-hidden rounded-lg border border-line">
+            <HtmlPreview html={info.preview || ''} title={`HTML preview: ${info.name}`} />
+          </div>
+        ) : null}
+        {info?.kind === 'html' && info.truncated ? (
+          <div className="m-auto text-sm text-warn">
+            HTML preview is too large to render safely. Download the complete file.
+          </div>
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
@@ -113,15 +147,29 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
-          <iframe
-            src={previewUrl}
-            title={`PDF preview: ${info.name}`}
-            sandbox=""
-            referrerPolicy="no-referrer"
+          <object
+            data={`${previewUrl}#toolbar=1&navpanes=0&view=FitH`}
+            type="application/pdf"
+            aria-label={`PDF preview: ${info.name}`}
             className="h-[62vh] w-full rounded-lg border border-line bg-white"
-          />
+          >
+            <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-ink-dim">
+              <span>Inline PDF preview is disabled by this browser.</span>
+              <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue underline underline-offset-2">Open PDF</a>
+            </div>
+          </object>
         ) : null}
-        {info && ['image', 'pdf'].includes(info.kind) && !previewUrl && !previewError ? (
+        {info?.kind === 'audio' && previewUrl ? (
+          <div className="m-auto w-full max-w-xl">
+            <audio controls preload="metadata" src={previewUrl} className="w-full" />
+          </div>
+        ) : null}
+        {info?.kind === 'video' && previewUrl ? (
+          <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-black">
+            <video controls playsInline preload="metadata" src={previewUrl} className="max-h-[62vh] max-w-full" />
+          </div>
+        ) : null}
+        {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
         ) : null}
         {info?.kind === 'binary' ? (

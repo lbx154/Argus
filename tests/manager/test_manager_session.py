@@ -68,6 +68,35 @@ def test_session_resumes_and_persists_thread_id(tmp_path):
     assert sess.thread_id == "t2"
 
 
+def test_session_retries_fresh_when_persisted_resume_target_is_missing(tmp_path):
+    (tmp_path / _SESSION_FILE).write_text(
+        json.dumps({"thread_id": "stale-thread"}), encoding="utf-8"
+    )
+
+    class _MissingThenFreshRunner(_RecordingRunner):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.resumes.append(resume_thread_id)
+            if resume_thread_id:
+                result = _Result(thread_id=resume_thread_id)
+                result.exit_code = 1
+                result.fatal_error = (
+                    "Error: No session, task, or name matched 'stale-thread'."
+                )
+                return result
+            return _Result(thread_id="fresh-thread")
+
+    fake = _MissingThenFreshRunner()
+    result = _ManagerSession(fake, tmp_path).run_exec(
+        prompt="a", options=None, run_label="x"
+    )
+
+    assert fake.resumes == ["stale-thread", None]
+    assert result.thread_id == "fresh-thread"
+    assert json.loads(
+        (tmp_path / _SESSION_FILE).read_text(encoding="utf-8")
+    )["thread_id"] == "fresh-thread"
+
+
 def test_manager_session_root_is_independent_from_project_root(tmp_path):
     project_root = tmp_path / "same-workdir"
     session_root = tmp_path / "sessions" / "s-1"
@@ -100,35 +129,23 @@ def test_session_resumes_stripped_persisted_thread_id_and_persists_next(tmp_path
 
 
 @pytest.mark.parametrize(
-    "payload",
+    "raw",
     [
-        {},
-        {"thread_id": ""},
-        {"thread_id": "   \t  "},
-        {"thread_id": 123},
-        {"thread_id": ["t1"]},
-        {"thread_id": {"id": "t1"}},
-        ["t1"],
-        123,
-        "t1",
-        None,
+        pytest.param(json.dumps({}), id="missing-thread-id"),
+        pytest.param(json.dumps({"thread_id": ""}), id="empty"),
+        pytest.param(json.dumps({"thread_id": "   \t  "}), id="whitespace"),
+        pytest.param(json.dumps({"thread_id": 123}), id="number"),
+        pytest.param(json.dumps({"thread_id": ["t1"]}), id="list"),
+        pytest.param(json.dumps({"thread_id": {"id": "t1"}}), id="mapping"),
+        pytest.param(json.dumps(["t1"]), id="root-list"),
+        pytest.param(json.dumps(123), id="root-number"),
+        pytest.param(json.dumps("t1"), id="root-string"),
+        pytest.param(json.dumps(None), id="root-null"),
+        pytest.param("{not valid json", id="invalid-json"),
     ],
 )
-def test_session_ignores_malformed_persisted_thread_id(tmp_path, payload):
-    (tmp_path / _SESSION_FILE).write_text(json.dumps(payload), encoding="utf-8")
-    fake = _RecordingRunner()
-    sess = _ManagerSession(fake, tmp_path)
-
-    result = sess.run_exec(prompt="a", options=None, run_label="x")
-
-    assert fake.resumes == [None]
-    assert result.thread_id == "t1"
-    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t1"
-    assert sess.thread_id == "t1"
-
-
-def test_session_ignores_corrupt_persisted_thread_id(tmp_path):
-    (tmp_path / _SESSION_FILE).write_text("{not valid json", encoding="utf-8")
+def test_session_ignores_invalid_persisted_thread_id(tmp_path, raw):
+    (tmp_path / _SESSION_FILE).write_text(raw, encoding="utf-8")
     fake = _RecordingRunner()
     sess = _ManagerSession(fake, tmp_path)
 
@@ -175,6 +192,7 @@ class _SlowRunner:
         return _Result(thread_id=f"t{n}")
 
 
+@pytest.mark.integration
 def test_two_sessions_same_root_do_not_interleave(tmp_path):
     # Two independent _ManagerSession objects over the SAME project_root model
     # the REPL front-end and the daemon: flock on .manager_session.lock must
@@ -195,6 +213,7 @@ def test_two_sessions_same_root_do_not_interleave(tmp_path):
     assert runner.max_concurrent == 1
 
 
+@pytest.mark.integration
 def test_lock_is_held_during_a_turn(tmp_path):
     # Directly observe that the lock file is non-blockingly un-acquirable while a
     # turn is in flight (proves the flock is actually held cross-process-style).
@@ -287,7 +306,12 @@ def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
 # 7. Manager wiring — Manager LLM calls flow through the shared session
 # ---------------------------------------------------------------------------
 def test_manager_calls_flow_through_one_session(tmp_path):
-    fake = _RecordingRunner(reply='{"choice": "existing", "vertical": "research"}')
+    fake = _RecordingRunner(
+        reply=(
+            '{"choice": "existing", "vertical": "research", '
+            '"execution_task": "write the paper"}'
+        )
+    )
     mgr = Manager(project_root=tmp_path, runner=fake)
 
     # is_conversational → manager-converse turn (first → resume None).

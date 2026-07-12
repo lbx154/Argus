@@ -5,6 +5,7 @@ export type AlertTone = 'block' | 'warn';
 export interface GuardianAlert {
   tone: AlertTone;
   text: string;
+  kind?: 'budget';
 }
 
 const ALERT_TYPES: Record<string, AlertTone> = {
@@ -15,6 +16,11 @@ const ALERT_TYPES: Record<string, AlertTone> = {
   [EVENT_TYPES.ROUND_ESCALATED]: 'warn',
   [EVENT_TYPES.LIFE_PLANNER_STALL_ESCALATION]: 'warn',
 };
+const BUDGET_ALARM_TYPES = new Set<string>([
+  EVENT_TYPES.BUDGET_RESERVATION_DENIED,
+  EVENT_TYPES.BUDGET_UNPRICED_BLOCKED,
+  EVENT_TYPES.BUDGET_FENCE_BREACH_BLOCKED,
+]);
 
 const RESOLVING_TYPES = new Set([
   EVENT_TYPES.LIFE_MISSION_STARTED,
@@ -24,6 +30,10 @@ const RESOLVING_TYPES = new Set([
   EVENT_TYPES.ROUND_START,
   'ui.operator',
 ]);
+const BUDGET_RESOLVING_TYPES = new Set<string>([
+  EVENT_TYPES.BUDGET_RESERVATION_CREATED,
+  EVENT_TYPES.PROVIDER_REQUEST_STARTED,
+]);
 
 function alertOf(event: EventMsg): GuardianAlert | null {
   const type = canonicalEventType(event.canonical_type ?? event.type);
@@ -31,6 +41,14 @@ function alertOf(event: EventMsg): GuardianAlert | null {
     return {
       tone: 'warn',
       text: `invalid event ${type || 'unknown'}: ${event.event_validation.errors.join('; ')}`,
+    };
+  }
+  if (BUDGET_ALARM_TYPES.has(type)) {
+    const reason = String(event.reason ?? event.text ?? type).trim();
+    return {
+      tone: 'block',
+      kind: 'budget',
+      text: `Budget exhausted or blocked — ${reason}`,
     };
   }
   const tone = event.operator_alert === true ? 'block' : ALERT_TYPES[type];
@@ -44,11 +62,17 @@ function alertOf(event: EventMsg): GuardianAlert | null {
 export function activeGuardianAlert(events: EventMsg[]): GuardianAlert | null {
   let alert: GuardianAlert | null = null;
   for (const event of events) {
+    const type = canonicalEventType(event.canonical_type ?? event.type);
     const next = alertOf(event);
     if (next) alert = next;
     else if (
+      alert?.kind === 'budget'
+      && BUDGET_RESOLVING_TYPES.has(type)
+    ) alert = null;
+    else if (
       alert
-      && RESOLVING_TYPES.has(canonicalEventType(event.canonical_type ?? event.type))
+      && alert.kind !== 'budget'
+      && RESOLVING_TYPES.has(type)
     ) alert = null;
   }
   return alert;

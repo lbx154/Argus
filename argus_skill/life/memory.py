@@ -182,9 +182,10 @@ def _jsonl_history_paths(path: Path) -> list[Path]:
             recent = candidate
         elif index >= 2:
             older.append((index, candidate))
-    # Higher generation numbers are older: .1 is the newest rollover, .2 the
-    # previous one, and so on.
-    paths = [candidate for _index, candidate in sorted(older, reverse=True)]
+    # ``JsonlEventSink`` moves the current .1 to the next free generation on
+    # each rollover. Therefore .2 is oldest, followed by .3, .4, ...; .1 is
+    # always the newest completed generation.
+    paths = [candidate for _index, candidate in sorted(older)]
     if recent is not None:
         paths.append(recent)
     if path.is_file():
@@ -598,11 +599,16 @@ class BacklogItem:
     deps: list[str] = field(default_factory=list)
 
     @classmethod
+    def new_id(cls) -> str:
+        return uuid.uuid4().hex[:12]
+
+    @classmethod
     def new(
         cls,
         *,
         title: str,
         objective: str,
+        item_id: str | None = None,
         priority: int = 100,
         max_cost_usd: float = 30.0,
         tags: list[str] | None = None,
@@ -614,7 +620,7 @@ class BacklogItem:
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
-            id=uuid.uuid4().hex[:12],
+            id=str(item_id or cls.new_id()),
             ts=time.time(),
             title=title.strip(),
             objective=objective,
@@ -818,6 +824,36 @@ class Backlog:
             if out is not None:
                 self._save(items)
             return out
+
+    def continue_with_operator_reply(
+        self,
+        item_id: str,
+        answer: str,
+    ) -> tuple[BacklogItem | None, BacklogItem | None]:
+        """Atomically consume one pending question and enqueue its continuation."""
+        with self._locked():
+            items = self._load()
+            blocked = next((item for item in items if item.id == item_id), None)
+            if blocked is None or not str(blocked.pending_question or "").strip():
+                return blocked, None
+            continuation = BacklogItem.new(
+                title=blocked.title,
+                objective=(
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator reply to blocked question:\n{answer.strip()}"
+                ),
+                priority=blocked.priority,
+                max_cost_usd=blocked.max_cost_usd,
+                tags=[*blocked.tags, "operator-reply"],
+                notes=f"Continues blocked item {blocked.id}.",
+                iterate=blocked.iterate,
+                iteration_max_cycles=blocked.iteration_max_cycles,
+                iteration_budget_usd=blocked.iteration_budget_usd,
+            )
+            blocked.pending_question = ""
+            items.append(continuation)
+            self._save(items)
+            return blocked, continuation
 
     def claim_next(self) -> BacklogItem | None:
         """Atomically pick the head *ready* pending item and flip it to ``running``.

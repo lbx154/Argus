@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ class SkillScientist:
         self.last_result = None
         prompt = _build_scientist_prompt(task)
         try:
-            result = self.runner.run_exec(
+            result = gateway_run_exec(
+                self.runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.model or None,

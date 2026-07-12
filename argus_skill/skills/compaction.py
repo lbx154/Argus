@@ -36,7 +36,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -193,7 +195,8 @@ def llm_plan_compaction(
             continue
         prompt = Prompts.skill_compaction_batch([_summary_of(s) for s in batch])
         try:
-            result = judge_runner.run_exec(
+            result = gateway_run_exec(
+                judge_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=judge_model or None,
@@ -327,7 +330,9 @@ def auto_compact_skills(
                         continue
                     try:
                         on_event({
-                            "type": "skill.compacted",
+                            "type": EventType.SKILL_COMPACTED,
+                            "source_skill": str(getattr(s, "name", "") or ""),
+                            "target_skill": str(getattr(rep, "name", "") or ""),
                             "text": (
                                 f"auto-compacted '{getattr(s, 'name', '?')}' "
                                 f"into '{getattr(rep, 'name', '?')}' (near-duplicate)"
@@ -337,7 +342,11 @@ def auto_compact_skills(
                         log.debug("skill.compacted emit failed", exc_info=True)
             for err in result["errors"]:
                 try:
-                    on_event({"type": "skill.compact.error", "text": err})
+                    on_event({
+                        "type": EventType.SKILL_COMPACT_ERROR,
+                        "error": err,
+                        "text": err,
+                    })
                 except Exception:  # noqa: BLE001
                     log.debug("skill.compact.error emit failed", exc_info=True)
     except Exception as exc:  # noqa: BLE001 — auto-compaction must never block a mission

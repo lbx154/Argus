@@ -6,10 +6,12 @@ fake runner returning the decision JSON (no real LLM).
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 import pytest
 
 from argus_skill.manager import Division, Manager
+from argus_skill.manager.domain_author import VerticalDecision, parse_vertical_decision
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
@@ -25,13 +27,19 @@ class _DecisionRunner:
 
     def __init__(self, decision: dict) -> None:
         self._decision = decision
+        self.last_options = None
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.last_options = options
         return _DecisionResult(json.dumps(self._decision))
 
 
 def _existing(vertical: str) -> _DecisionRunner:
-    return _DecisionRunner({"choice": "existing", "vertical": vertical})
+    return _DecisionRunner({
+        "choice": "existing",
+        "vertical": vertical,
+        "execution_task": "perform the requested task",
+    })
 
 
 def test_triage_existing_research():
@@ -101,6 +109,39 @@ def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
     assert state["vertical"] == "nanochat"
 
 
+def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_path):
+    mgr = Manager(project_root=tmp_path, runner=_existing("research"))
+
+    decision = mgr.decide_vertical("draft the paper")
+
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    division = mgr.commit_vertical_decision("draft the paper", decision)
+    assert division.execution_task == "perform the requested task"
+    state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
+    assert state["vertical"] == "research"
+
+
+def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
+    manager = Manager(project_root=tmp_path, runner=_existing("research"))
+    manager.divide("seed the research pipeline")
+    pipeline_state = tmp_path / "research" / "PIPELINE_STATE.json"
+    before = pipeline_state.read_bytes()
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="nanochat",
+        execution_task="run nanochat",
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager._core.vertical_select.reset_stage_for_new_intent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="reset failed"):
+        manager.commit_vertical_decision("run nanochat", decision)
+
+    assert pipeline_state.read_bytes() == before
+
+
 def test_divide_research_persists_and_lists_8_stages(tmp_path):
     d = Manager(project_root=tmp_path, runner=_existing("research")).divide(
         "draft a paper for EMNLP submission"
@@ -112,24 +153,154 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     assert state["vertical"] == "research"
 
 
+def test_root_task_id_scopes_manager_vertical_call(tmp_path):
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    manager = Manager(
+        project_root=tmp_path,
+        runner=_existing("research"),
+        usage_context=usage_context,
+    )
+
+    manager.divide("write a paper", root_task_id="root-task-1")
+
+    assert transitions == [
+        ("enter", "root-task-1"),
+        ("exit", "root-task-1"),
+    ]
+
+
+def test_root_task_id_scopes_manager_front_door_call(tmp_path):
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    manager = Manager(
+        project_root=tmp_path,
+        runner=_DecisionRunner({}),
+        usage_context=usage_context,
+    )
+
+    manager.classify_front_door("build it", root_task_id="root-task-2")
+
+    assert transitions == [
+        ("enter", "root-task-2"),
+        ("exit", "root-task-2"),
+    ]
+
+
+def test_root_task_id_scopes_manager_stage_call(tmp_path):
+    from argus_skill.core.models import ReviewDecision
+
+    transitions: list[tuple[str, str]] = []
+
+    @contextmanager
+    def usage_context(root_task_id: str):
+        transitions.append(("enter", root_task_id))
+        try:
+            yield
+        finally:
+            transitions.append(("exit", root_task_id))
+
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "current_stage": "research"}),
+        encoding="utf-8",
+    )
+    review = ReviewDecision(
+        status="continue",
+        reason="more evidence needed",
+        next_action="continue",
+        checklist=[],
+        planner_report={"headline": "continue", "forward_progress": True},
+    )
+    manager = Manager(
+        project_root=tmp_path,
+        usage_context=usage_context,
+    )
+
+    manager.decide_stage_transition(
+        review=review,
+        project_root=tmp_path,
+        run_exec=lambda prompt: _DecisionResult(json.dumps({
+            "action": "hold",
+            "target_stage": "research",
+            "reason": "continue",
+        })),
+        root_task_id="root-task-3",
+    )
+
+    assert transitions == [
+        ("enter", "root-task-3"),
+        ("exit", "root-task-3"),
+    ]
+
+
 def test_vertical_decision_persists_manager_live_view(tmp_path):
     runner = _DecisionRunner({
         "choice": "existing",
         "vertical": "research",
+        "execution_task": "Write the substantive manuscript.",
         "live_view": {
             "title": "Live manuscript",
             "reason": "The operator should see the paper evolve.",
-            "paths": ["paper/main.tex", "paper/main.pdf"],
+            "paths": [".argus/live/current.md"],
         },
+        "presentations": [{
+            "path": ".argus/live/current.md",
+            "content": "# Current manuscript status\n",
+        }],
     })
 
-    Manager(project_root=tmp_path, runner=runner).divide("write the paper")
+    division = Manager(project_root=tmp_path, runner=runner).divide("write the paper")
 
     payload = json.loads(
         (tmp_path / ".argus" / "live-view.json").read_text(encoding="utf-8")
     )
     assert payload["title"] == "Live manuscript"
-    assert payload["paths"] == ["paper/main.tex", "paper/main.pdf"]
+    assert payload["paths"] == [".argus/live/current.md"]
+    assert (tmp_path / ".argus" / "live" / "current.md").exists()
+    assert division.execution_task == "Write the substantive manuscript."
+    assert runner.last_options.sandbox_mode == "read-only"
+    assert runner.last_options.dangerous_yolo is False
+
+
+def test_execution_task_parser_is_string_only_and_lossless() -> None:
+    malformed = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "execution_task": {"bad": True},
+        }),
+        known_verticals=["research"],
+    )
+    assert malformed is None
+
+    long_task = "x" * 9000
+    parsed = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "execution_task": long_task,
+        }),
+        known_verticals=["research"],
+    )
+    assert parsed is not None
+    assert parsed.execution_task == long_task
 
 
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):

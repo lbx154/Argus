@@ -98,8 +98,8 @@ def test_event_journal_cost_includes_every_retained_rollover(tmp_path: Path) -> 
 def test_event_journal_reads_every_rollover_in_chronological_order(tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
     for target, title in (
-        (path.with_suffix(".jsonl.3"), "oldest"),
-        (path.with_suffix(".jsonl.2"), "older"),
+        (path.with_suffix(".jsonl.2"), "oldest"),
+        (path.with_suffix(".jsonl.3"), "older"),
         (path.with_suffix(".jsonl.1"), "recent"),
         (path, "live"),
     ):

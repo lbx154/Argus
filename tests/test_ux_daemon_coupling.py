@@ -11,11 +11,29 @@ from __future__ import annotations
 import argparse
 import json
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from argus_skill.life import MemoryBundle
 from argus_skill.life.memory import LifeMemory
 from argus_skill.manager import repl as manager_repl
+
+
+@pytest.fixture(autouse=True)
+def _manager_returns_execution_handoff(monkeypatch):
+    class _Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(execution_task=body)
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
+
 
 # ---- T1: auto-spawn targets the session project, not the cwd -------------
 
@@ -265,6 +283,12 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
     mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-user001")
     mem.init()
     monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
+    named_from = []
+    monkeypatch.setattr(
+        manager_repl,
+        "_maybe_name_session",
+        lambda chat_state, objective: named_from.append(objective),
+    )
 
     # The Manager decides the vertical via ONE grounded agent call (no keyword
     # fallback); in real cockpit use there is always an LLM runner. Inject a
@@ -279,7 +303,11 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
 
     class _DecisionRunner:
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            return _DecisionResult('{"choice": "existing", "vertical": "research"}')
+            return _DecisionResult(json.dumps({
+                "choice": "existing",
+                "vertical": "research",
+                "execution_task": "write a research report",
+            }))
 
     class _RunnerWithManager:
         def __init__(self, project_root):
@@ -293,7 +321,7 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
 
     item, _alive, _pid = manager_repl.enqueue_mission(
         mem,
-        "write a research report",
+        "write a research report; Manager owns the right sidebar",
         {"backend": "memory", "config": {"continuous": False}},
     )
 
@@ -308,8 +336,111 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
     ]
     assert events[-1]["agent_layer"] == "manager"
     assert events[-1]["vertical"] == "research"
-    assert events[-1]["objective"] == "write a research report"
+    assert events[-1]["objective"] == (
+        "write a research report; Manager owns the right sidebar"
+    )
+    assert events[-1]["execution_task"] == "write a research report"
     assert events[-1]["reason"]
+    assert named_from == ["write a research report"]
+
+
+def test_missing_manager_execution_task_fails_closed(tmp_path, monkeypatch):
+    from argus_skill.manager.front_door import ManagerHandoffError
+
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-failclosed")
+    mem.init()
+
+    class _Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(execution_task="")
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            raise AssertionError("invalid decision must not commit")
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem_: SimpleNamespace(manager=_Manager()),
+    )
+
+    raw = "write the paper; Manager owns the right sidebar"
+    with pytest.raises(ManagerHandoffError, match="task was not dispatched"):
+        manager_repl.enqueue_mission(
+            mem,
+            raw,
+            {"backend": "codex", "config": {"continuous": False}},
+        )
+
+    assert mem.backlog.all() == []
+    events = [
+        json.loads(line)
+        for line in (mem.project.root / "events.jsonl").read_text().splitlines()
+    ]
+    assert [event["type"] for event in events] == [
+        "life.manager.intent.started",
+        "life.manager.intent.failed",
+    ]
+    assert raw not in (mem.project.root / "backlog.jsonl").read_text()
+
+
+def test_continuous_handoff_waits_for_mission_boundary(tmp_path):
+    import threading
+
+    from argus_skill.manager import Manager
+    from argus_skill.manager.front_door import manager_continuous_handoff
+
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-boundary")
+    mem.init()
+    decision_ready = threading.Event()
+
+    class _Result:
+        last_agent_message = json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "execution_task": "write the paper",
+        })
+        agent_messages = [last_agent_message]
+        thread_id = "thread-1"
+
+    class _Runner:
+        def run_exec(self, **kwargs):
+            decision_ready.set()
+            return _Result()
+
+    manager = Manager(
+        project_root=mem.project_root,
+        runner=_Runner(),
+        manager_session_root=mem.project_root,
+    )
+    errors = []
+
+    def run_handoff():
+        try:
+            manager_continuous_handoff(
+                mem,
+                "write the paper",
+                {"backend": "codex"},
+                ensure_runner=lambda state, memory: SimpleNamespace(manager=manager),
+            )
+        except Exception as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    with manager.pipeline_lock():
+        thread = threading.Thread(target=run_handoff)
+        thread.start()
+        assert decision_ready.wait(timeout=2)
+        assert thread.is_alive()
+        assert not (mem.project.root / "continuous.json").exists()
+        assert not (mem.project.root / "research" / "PIPELINE_STATE.json").exists()
+
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert errors == []
+    assert json.loads(
+        (mem.project.root / "continuous.json").read_text()
+    )["objective"] == "write the paper"
 
 
 def test_continuous_user_task_arms_planner_not_direct_engineer_item(
@@ -319,10 +450,35 @@ def test_continuous_user_task_arms_planner_not_direct_engineer_item(
     mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-plan001")
     mem.init()
     monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
+    from argus_skill.manager import Manager
+
+    class _DecisionResult:
+        def __init__(self) -> None:
+            self.last_agent_message = json.dumps({
+                "choice": "existing",
+                "vertical": "research",
+                "execution_task": "build an autonomous research report",
+            })
+            self.agent_messages = [self.last_agent_message]
+            self.thread_id = "t1"
+
+    class _DecisionRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            return _DecisionResult()
+
+    class _RunnerWithManager:
+        def __init__(self, project_root):
+            self.manager = Manager(project_root=project_root, runner=_DecisionRunner())
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem_: _RunnerWithManager(mem_.project.root),
+    )
 
     item, _alive, _pid = manager_repl.enqueue_mission(
         mem,
-        "build an autonomous research report",
+        "build an autonomous research report; Manager owns the right sidebar",
         {
             "backend": "memory",
             "config": {"continuous": True},
@@ -334,6 +490,108 @@ def test_continuous_user_task_arms_planner_not_direct_engineer_item(
     continuous = json.loads((mem.project.root / "continuous.json").read_text())
     assert continuous["enabled"] is True
     assert continuous["objective"] == "build an autonomous research report"
+
+
+def test_repl_continuous_command_persists_only_manager_execution_task(
+    tmp_path, monkeypatch,
+) -> None:
+    from argus_skill.manager import front_door, repl_ops
+
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-cont001")
+    mem.init()
+    raw = "study MRAM continuously; Manager decides the right sidebar"
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task="study MRAM continuously")
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem_: SimpleNamespace(manager=_Manager()),
+    )
+
+    repl_ops._continuous_cmd(
+        mem,
+        f"start {raw}",
+        {"backend": "codex"},
+    )
+
+    continuous = json.loads((mem.project.root / "continuous.json").read_text())
+    assert continuous["objective"] == "study MRAM continuously"
+    assert raw not in (mem.project.root / "continuous.json").read_text()
+
+
+def test_repl_continuous_reenable_cleans_stored_legacy_objective(
+    tmp_path, monkeypatch,
+) -> None:
+    from argus_skill.daemon.life_worker import write_continuous_config
+    from argus_skill.manager import front_door, repl_ops
+
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-cont002")
+    mem.init()
+    raw = "study MRAM; Manager owns the sidebar"
+    write_continuous_config(mem.project.root, enabled=False, objective=raw)
+    seen = {}
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            seen["text"] = text
+            return SimpleNamespace(execution_task="study MRAM")
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem_: SimpleNamespace(manager=_Manager()),
+    )
+    repl_ops._continuous_cmd(mem, "start", {"backend": "codex"})
+
+    continuous = json.loads((mem.project.root / "continuous.json").read_text())
+    assert seen["text"] == raw
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == "study MRAM"
+
+
+def test_repl_pause_preserves_latest_disk_objective(
+    tmp_path, monkeypatch,
+) -> None:
+    from argus_skill.daemon.life_worker import (
+        ContinuousConfigState,
+        read_continuous_state,
+        write_continuous_config,
+    )
+    from argus_skill.manager import repl_ops
+
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-cont003")
+    mem.init()
+    write_continuous_config(
+        mem.project.root,
+        enabled=True,
+        objective="new Web objective",
+    )
+    stale = ContinuousConfigState(
+        enabled=True,
+        objective="stale REPL objective",
+    )
+
+    repl_ops._continuous_cmd(
+        mem,
+        "stop",
+        {"backend": "codex", "continuous_state": stale},
+    )
+
+    current = read_continuous_state(mem.project.root)
+    assert current.enabled is False
+    assert current.objective == "new Web objective"
 
 
 # ---- T3: Manager auto-judges BOUNDED vs STANDING so the operator never has
@@ -364,10 +622,8 @@ def test_auto_promote_to_continuous_arms_continuous_mode_for_standing_task(
 
     assert promoted is True
     assert chat_state["config"]["continuous"] is True
-    assert chat_state["continuous_objective"] == body
-    continuous = json.loads((mem.project.root / "continuous.json").read_text())
-    assert continuous["enabled"] is True
-    assert continuous["objective"] == body
+    assert chat_state["continuous_objective"] == ""
+    assert not (mem.project.root / "continuous.json").exists()
 
 
 def test_auto_promote_to_continuous_leaves_bounded_task_unchanged(tmp_path, monkeypatch):
@@ -496,6 +752,15 @@ def test_free_text_cmd_end_to_end_auto_promotes_standing_task(tmp_path, capsys, 
     mem = LifeMemory.open(root=tmp_path)
 
     class _FakeRunner:
+        manager = SimpleNamespace(
+            decide_vertical=lambda body, **kwargs: SimpleNamespace(
+                execution_task=body
+            ),
+            commit_vertical_decision=lambda body, decision, **kwargs: SimpleNamespace(
+                execution_task=decision.execution_task
+            ),
+        )
+
         def chat_reply_if_conversational(self, **kwargs):
             return False  # TEAM: not a chat reply
 

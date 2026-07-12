@@ -1,39 +1,69 @@
 import type { Config } from 'tailwindcss';
 
-/** Neutral graphite workbench tokens. Colour communicates state; it is not
- * decoration. No gradients, neon glows, or candy role palette. */
+/** Cool, quiet research-workbench tokens. Colour communicates state while the
+ * chrome stays close to an editor/notebook rather than a card dashboard. */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // warm graphite surfaces
-        bg: '#111210',
-        surface: '#171815',
-        panel: '#1d1e1a',
-        line: '#32332d',
-        // restrained action + attention colours
-        blue: { DEFAULT: '#8fa7b8', deep: '#607d91', sky: '#b0c3cf' },
-        gold: { DEFAULT: '#c7a66a', soft: '#ddc99e', deep: '#a88955' },
+        bg: 'rgb(var(--bg) / <alpha-value>)',
+        surface: 'rgb(var(--surface) / <alpha-value>)',
+        panel: 'rgb(var(--panel) / <alpha-value>)',
+        'panel-raised': 'rgb(var(--panel-raised) / <alpha-value>)',
+        line: 'rgb(var(--line) / <alpha-value>)',
+        blue: {
+          DEFAULT: 'rgb(var(--blue) / <alpha-value>)',
+          deep: 'rgb(var(--blue-deep) / <alpha-value>)',
+          sky: 'rgb(var(--blue-sky) / <alpha-value>)',
+        },
+        gold: { DEFAULT: '#d1b27c', soft: '#e0cca4', deep: '#9f7f4e' },
         // semantic
-        ok: '#7fa386',
-        warn: '#c1a363',
-        err: '#c77b72',
-        // text
-        ink: { DEFAULT: '#efeee8', dim: '#b8b7af', faint: '#7e7d75' },
-        manager: '#90a8b5',
-        planner: '#a69daf',
-        engineer: '#8fa78f',
-        reviewer: '#b5a57f',
+        ok: '#78b892',
+        warn: '#d1ad68',
+        err: '#dc7d78',
+        ink: {
+          DEFAULT: 'rgb(var(--ink) / <alpha-value>)',
+          dim: 'rgb(var(--ink-dim) / <alpha-value>)',
+          faint: 'rgb(var(--ink-faint) / <alpha-value>)',
+        },
+        manager: 'rgb(var(--role-manager) / <alpha-value>)',
+        planner: 'rgb(var(--role-planner) / <alpha-value>)',
+        engineer: 'rgb(var(--role-engineer) / <alpha-value>)',
+        reviewer: 'rgb(var(--role-reviewer) / <alpha-value>)',
+        conversation: {
+          user: 'rgb(var(--conversation-user) / <alpha-value>)',
+          argus: 'rgb(var(--conversation-argus) / <alpha-value>)',
+        },
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['Geist Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono Variable', 'SFMono-Regular', 'Menlo', 'ui-monospace', 'monospace'],
       },
-      borderRadius: { xl: '0.5rem' },
+      borderRadius: { xl: '0.75rem' },
       boxShadow: {
-        glow: '0 14px 36px rgba(0,0,0,0.28)',
+        glow: '0 16px 44px rgba(0,0,0,0.34)',
+      },
+      keyframes: {
+        appear: {
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'appear-right': {
+          '0%': { opacity: '0', transform: 'translateX(8px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+      },
+      animation: {
+        appear: 'appear 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+        'appear-right': 'appear-right 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+      },
+      transitionTimingFunction: {
+        panel: 'cubic-bezier(0.4, 0, 0.2, 1)',
+      },
+      transitionDuration: {
+        panel: '220ms',
       },
     },
   },

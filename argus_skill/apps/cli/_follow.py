@@ -41,7 +41,13 @@ def _follow_layer_from_event(event: dict, current: str) -> str:
     if isinstance(layer, str) and layer:
         return layer
     etype = str(event.get("type") or "")
-    if etype in {"life.mission.started", "loop.start", "round.start", "round.main.completed"}:
+    if etype in {
+        "life.mission.started",
+        "loop.start",
+        "round.start",
+        "round.main.completed",
+        "round.review.deferred",
+    }:
         return "engineer"
     if etype.startswith("life.manager.") or etype.startswith("manager."):
         return "manager"
@@ -451,6 +457,8 @@ def _activity_layer_from_event(event: dict[str, Any]) -> str | None:
         return "planner"
     if etype in {"life.iteration.critic", "life.iteration.continued"}:
         return "critic"
+    if etype == "round.review.deferred":
+        return "engineer"
     if etype in {"round.review.started", "round.review.completed"}:
         return "reviewer"
     if etype in {
@@ -458,6 +466,7 @@ def _activity_layer_from_event(event: dict[str, Any]) -> str | None:
         "loop.start",
         "round.start",
         "round.main.completed",
+        "round.review.deferred",
         "loop.done",
     }:
         return "engineer"
@@ -474,6 +483,7 @@ def _latest_activity_event(events: Sequence[dict[str, Any]]) -> dict[str, Any] |
             "loop.start",
             "round.start",
             "round.main.completed",
+            "round.review.deferred",
             "round.review.started",
             "round.review.completed",
             "match.info",

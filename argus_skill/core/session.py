@@ -46,6 +46,7 @@ class SessionMeta:
     cwd: str = ""
     objective: str = ""
     launch_cwd: str = ""
+    origin: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -60,6 +61,7 @@ class SessionMeta:
             cwd=str(d.get("cwd", "") or ""),
             objective=str(d.get("objective", "") or ""),
             launch_cwd=str(d.get("launch_cwd", "") or ""),
+            origin=str(d.get("origin", "") or ""),
         )
 
 
@@ -114,6 +116,42 @@ def project_exists(global_root: Path | None, sid: str) -> bool:
     return (Path(root) / "projects" / sid).is_dir()
 
 
+def _legacy_last_active(project_dir: Path) -> float:
+    """Derive activity from durable work, never Web projection/lock files."""
+    candidates = (
+        "events.jsonl",
+        "backlog.jsonl",
+        "transcript.jsonl",
+        "journal.jsonl",
+        "continuous.json",
+        "lifecycle.json",
+        "daemon.log",
+    )
+    mtimes: list[float] = []
+    for name in candidates:
+        try:
+            path = project_dir / name
+            if path.is_file():
+                mtimes.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    try:
+        rotations = project_dir.glob("events.jsonl.*")
+    except OSError:
+        rotations = ()
+    for path in rotations:
+        if not path.name.rsplit(".", 1)[-1].isdigit():
+            continue
+        try:
+            if path.is_file():
+                mtimes.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    if mtimes:
+        return max(mtimes)
+    return 0.0
+
+
 def list_sessions(
     global_root: Path | None = None, *, include_empty: bool = True
 ) -> list[SessionMeta]:
@@ -137,10 +175,7 @@ def list_sessions(
         meta = read_session_meta(global_root, d.name)
         if meta is None:
             # Legacy project: synthesise minimal meta so it's resumable.
-            try:
-                mtime = d.stat().st_mtime
-            except OSError:
-                mtime = 0.0
+            mtime = _legacy_last_active(d)
             obj = ""
             try:
                 cj = json.loads((d / "continuous.json").read_text(encoding="utf-8"))
@@ -171,6 +206,8 @@ def _project_has_content(project_dir: Path) -> bool:
 def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
     """A session is worth listing if it is named, has an objective, holds real
     work, or has a LIVE daemon — otherwise it is bare-launch litter."""
+    if (meta.origin or "").strip() in {"tui", "web"}:
+        return True
     if (meta.display_name or "").strip() or (meta.objective or "").strip():
         return True
     if _project_has_content(project_dir):

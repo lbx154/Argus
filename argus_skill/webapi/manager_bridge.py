@@ -27,6 +27,101 @@ _LOCKS: dict[str, threading.Lock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
+def manager_execution_handoff(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> str:
+    """Resolve a direct Web/TUI command into Manager's role-clean handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_execution_task
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return manager_execution_task(
+            mem,
+            text,
+            chat_state,
+            root_task_id=root_task_id,
+        )
+
+
+def manager_continuous_handoff(
+    sid: str,
+    requested_objective: str,
+    *,
+    global_root: Path | str | None = None,
+) -> str:
+    """Atomically enable a Manager-authored continuous handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_continuous_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(mem, requested_objective, chat_state)
+
+
+def manager_bounded_handoff(
+    sid: str,
+    text: str,
+    persist: Any,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> Any:
+    """Commit Manager state and caller persistence under one pipeline lock."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_bounded_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(
+            mem,
+            text,
+            chat_state,
+            persist,
+            root_task_id=root_task_id,
+        )
+
+
+def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> None:
+    """Persist one operator/Manager turn onto the shared live Activity stream."""
+    try:
+        from ..life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=life_dir).append(
+            {
+                "type": f"ui.{role}",
+                "agent_layer": "manager" if role == "argus" else "operator",
+                "message_id": message_id,
+                "text": text,
+                "ts": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — Activity mirroring must never break chat
+        pass
+
+
 def _lock_for(sid: str) -> threading.Lock:
     with _REGISTRY_LOCK:
         lk = _LOCKS.get(sid)
@@ -151,6 +246,7 @@ def manager_message(
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.repl import (
+        _accepts_keyword,
         _apply_config_intent,
         _front_door_classify,
         enqueue_mission,
@@ -180,6 +276,9 @@ def manager_message(
     lock = _lock_for(sid)
     with lock:
         chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        turn_id = f"web-{time.time_ns()}"
 
         # A web-process restart necessarily loses the live ACP process. Resume
         # seamlessly by opening one new warm conversation session with a
@@ -202,6 +301,7 @@ def manager_message(
             append_turn(life_dir, "operator", body)
         except Exception:  # noqa: BLE001
             pass
+        _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
         # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
         # protocol events while the model is reasoning, so without this real
@@ -215,6 +315,9 @@ def manager_message(
         # operator never notices the seam. Turn count is a cheap proxy for "full".
         chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
         send_body = f"{startup_handoff}\n\n{body}" if startup_handoff else body
+        from ..life import BacklogItem
+
+        root_task_id = BacklogItem.new_id()
         if chat_state["turns"] > _rotate_after():
             send_body = f"{_build_handoff(life_dir)}\n\n{body}"
             chat_state["last_thread_id"] = None  # start a fresh session thread
@@ -244,7 +347,23 @@ def manager_message(
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
-        intent, route = _front_door_classify(mem, body, chat_state)
+        from ..manager.front_door import mission_is_running
+
+        if mission_is_running(mem):
+            _phase("Manager · responding while the current mission continues")
+            intent, route = None, "simple"
+        else:
+            classify_kwargs = (
+                {"root_task_id": root_task_id}
+                if _accepts_keyword(_front_door_classify, "root_task_id")
+                else {}
+            )
+            intent, route = _front_door_classify(
+                mem,
+                body,
+                chat_state,
+                **classify_kwargs,
+            )
 
         cfg_lines: list[str] = []
         if intent is not None:
@@ -261,13 +380,21 @@ def manager_message(
                     append_turn(life_dir, "argus", reply)
                 except Exception:  # noqa: BLE001
                     pass
+                _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
                 return {"kind": "chat", "reply": reply}
 
         # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
         # route was already decided in the merged call above, so triage skips its
         # own route classify (``route=route``).
         try:
-            reply = manager_triage(mem, send_body, chat_state, on_fragment=on_fragment, route=route)
+            reply = manager_triage(
+                mem,
+                send_body,
+                chat_state,
+                on_fragment=on_fragment,
+                route=route,
+                root_task_id=root_task_id,
+            )
         except Exception:  # noqa: BLE001 — triage failure → task path (same as REPL)
             reply = None
 
@@ -276,15 +403,23 @@ def manager_message(
                 append_turn(life_dir, "argus", reply)
             except Exception:  # noqa: BLE001
                 pass
+            _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
             return {"kind": "chat", "reply": reply}
 
         # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
         try:
-            item, daemon_alive, daemon_pid = enqueue_mission(mem, body, chat_state)
+            item, daemon_alive, daemon_pid = enqueue_mission(
+                mem,
+                body,
+                chat_state,
+                root_task_id=root_task_id,
+            )
         except Exception as exc:  # noqa: BLE001
-            return {"kind": "error", "reply": f"could not enqueue: {exc}"}
+            error_reply = f"could not enqueue: {exc}"
+            _emit_ui_turn(life_dir, "argus", error_reply, message_id=f"{turn_id}-argus")
+            return {"kind": "error", "reply": error_reply}
 
-    return {
+    result = {
         "kind": "task",
         "reply": None,
         "item": _item_to_dict(item, body),
@@ -292,6 +427,9 @@ def manager_message(
         "daemon_pid": daemon_pid,
         "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
+    title = str(result["item"].get("title") or result["item"].get("objective") or body)
+    _emit_ui_turn(life_dir, "argus", f"Queued · {title}", message_id=f"{turn_id}-argus")
+    return result
 
 
 def manager_plan(

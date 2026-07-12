@@ -7,11 +7,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import project_state, server
+from argus_skill.manager import front_door
+from argus_skill.manager.front_door import (
+    ManagerHandoffError,
+    ManagerHandoffSupersededError,
+)
+from argus_skill.webapi import manager_bridge, project_state, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -29,6 +35,28 @@ def _make_project(root: Path, sid: str = "s-cmd00001") -> Path:
 def ctx(tmp_path: Path):
     life = _make_project(tmp_path)
     return tmp_path, "s-cmd00001", life
+
+
+@pytest.fixture(autouse=True)
+def _identity_manager_handoff(monkeypatch) -> None:
+    _install_manager(monkeypatch, lambda text: text)
+
+
+def _install_manager(monkeypatch, execution_for) -> None:
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=execution_for(text))
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
 
 
 # ── tasks ─────────────────────────────────────────────────────────────────
@@ -54,6 +82,53 @@ def test_post_task_honours_inline_flags(ctx) -> None:
     assert item["objective"] == "tune it"           # flags stripped
     assert item["iterate"] is False                  # --once
     assert item["max_cost_usd"] == 7.0               # --budget enforced (not the $30 default)
+
+
+def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    captured = {}
+
+    def fake_handoff(call_sid, text, persist, **kwargs):
+        captured.update(sid=call_sid, text=text, **kwargs)
+        return persist("write the MRAM paper", None)
+
+    monkeypatch.setattr(manager_bridge, "manager_bounded_handoff", fake_handoff)
+    client = TestClient(server.create_app(global_root=root))
+    raw = "write the MRAM paper; Manager owns the right sidebar"
+    response = client.post(
+        f"/api/projects/{sid}/tasks",
+        json={"text": raw, "autostart_daemon": False},
+    )
+
+    assert response.status_code == 200
+    item = response.json()["item"]
+    assert item["objective"] == "write the MRAM paper"
+    assert captured["sid"] == sid
+    assert captured["text"] == raw
+    assert captured["root_task_id"] == item["id"]
+    assert LifeMemory.open(life).backlog.all()[0].objective == "write the MRAM paper"
+
+
+def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+
+    def fail_handoff(*args, **kwargs):
+        raise ManagerHandoffError("safe handoff unavailable")
+
+    monkeypatch.setattr(manager_bridge, "manager_bounded_handoff", fail_handoff)
+    client = TestClient(server.create_app(global_root=root))
+    response = client.post(
+        f"/api/projects/{sid}/tasks",
+        json={
+            "text": "write paper; Manager owns the sidebar",
+            "autostart_daemon": False,
+        },
+    )
+
+    assert response.status_code == 503
+    assert LifeMemory.open(life).backlog.all() == []
 
 
 def test_post_task_empty_400(ctx) -> None:
@@ -133,6 +208,60 @@ def test_start_project_daemon_returns_replacement_candidates_at_cap(
     snapshot = server.build_snapshot("s-target001", global_root=tmp_path)
     assert snapshot is not None
     assert snapshot["daemon_admission"]["requested_at"] == persisted["requested_at"]
+
+
+def test_lazy_task_start_reclaims_oldest_safe_idle_daemon(
+    tmp_path, monkeypatch,
+) -> None:
+    target = _make_project(tmp_path, "s-target001")
+    victim = _make_project(tmp_path, "s-idle0001")
+    replaced = {}
+
+    def fake_status(path):
+        path = Path(path)
+        alive = path == victim
+        return server.DaemonStatus(
+            alive=alive,
+            pid=44 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=path,
+            pid_path=path / "daemon.pid",
+        )
+
+    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
+    monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
+    monkeypatch.setattr(
+        server,
+        "list_running_daemons",
+        lambda **kwargs: [{
+            "id": "s-idle0001",
+            "last_active": 1,
+            "unfinished_tasks": 0,
+            "active_role": "",
+            "continuous_enabled": False,
+        }],
+    )
+    monkeypatch.setattr(
+        server,
+        "replace_project_daemon",
+        lambda sid, victim_sid, **kwargs: replaced.update(
+            sid=sid,
+            victim_sid=victim_sid,
+        ) or {"rc": 0},
+    )
+
+    result = server.start_project_daemon(
+        "s-target001",
+        global_root=tmp_path,
+        reclaim_idle=True,
+    )
+
+    assert result is not None and result["rc"] == 0
+    assert result["auto_parked_idle"] == "s-idle0001"
+    assert replaced == {"sid": "s-target001", "victim_sid": "s-idle0001"}
+    assert target.exists()
 
 
 def test_replace_project_daemon_parks_state_then_starts_target(
@@ -246,6 +375,139 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
     }
 
 
+def test_set_continuous_persists_only_manager_execution_handoff(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    raw = "study MRAM continuously; Manager decides the right sidebar"
+    _install_manager(monkeypatch, lambda text: "study MRAM continuously")
+
+    assert server.set_continuous(
+        sid,
+        enabled=True,
+        objective=raw,
+        global_root=root,
+    ) is True
+
+    cfg = json.loads((life / "continuous.json").read_text())
+    assert cfg["objective"] == "study MRAM continuously"
+    assert raw not in (life / "continuous.json").read_text()
+
+
+def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    server.write_continuous_config(
+        life,
+        enabled=True,
+        objective="clean current objective",
+    )
+
+    def unexpected_handoff(*args, **kwargs):
+        raise AssertionError("disable must not wait for Manager")
+
+    monkeypatch.setattr(
+        manager_bridge,
+        "manager_continuous_handoff",
+        unexpected_handoff,
+    )
+
+    assert server.set_continuous(
+        sid,
+        enabled=False,
+        objective="raw stale UI objective; Manager owns the sidebar",
+        global_root=root,
+    ) is True
+    state = server.read_continuous_state(life)
+    assert state.enabled is False
+    assert state.objective == "clean current objective"
+
+
+def test_enable_continuous_reprocesses_stored_objective(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    raw = "legacy objective; Manager owns the sidebar"
+    server.write_continuous_config(life, enabled=False, objective=raw)
+    seen = {}
+
+    def clean_handoff(text):
+        seen["text"] = text
+        return "clean legacy objective"
+
+    _install_manager(monkeypatch, clean_handoff)
+
+    assert server.set_continuous(
+        sid,
+        enabled=True,
+        objective="",
+        global_root=root,
+    ) is True
+    state = server.read_continuous_state(life)
+    assert seen["text"] == raw
+    assert state.enabled is True
+    assert state.objective == "clean legacy objective"
+
+
+def test_post_continuous_rejects_enable_without_any_objective(ctx) -> None:
+    root, sid, _life = ctx
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(
+        f"/api/projects/{sid}/continuous",
+        json={"enabled": True, "objective": ""},
+    )
+
+    assert response.status_code == 400
+
+
+def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    server.write_continuous_config(
+        life,
+        enabled=False,
+        objective="paused objective",
+    )
+    commits = []
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            server.set_continuous(
+                sid,
+                enabled=False,
+                objective=text,
+                global_root=root,
+            )
+            return SimpleNamespace(execution_task="clean objective")
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            commits.append(text)
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
+
+    with pytest.raises(ManagerHandoffSupersededError):
+        server.set_continuous(
+            sid,
+            enabled=True,
+            objective="new objective",
+            global_root=root,
+        )
+
+    state = server.read_continuous_state(life)
+    assert state.enabled is False
+    assert state.objective == "paused objective"
+    assert commits == []
+
+
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────
 
 def test_daemon_start_delegates(ctx, monkeypatch) -> None:
@@ -278,6 +540,118 @@ def test_daemon_stop_delegates(ctx, monkeypatch) -> None:
     r = client.post(f"/api/projects/{sid}/daemon/stop", json={"drain": True})
     assert r.status_code == 200 and r.json()["rc"] == 0
     assert seen["life_dir"] == life.resolve() and seen["drain"] is True
+
+
+def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:
+    root, sid, _life = ctx
+    starts = []
+    stops = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda project_id, **kwargs: starts.append(project_id)
+        or {"rc": 0, "already_alive": False},
+    )
+    monkeypatch.setattr(
+        server,
+        "stop_project_daemon",
+        lambda project_id, **kwargs: stops.append(project_id) or {"rc": 0},
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    body = {"command_id": "cmd-start", "expected_revision": 0}
+    first = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
+    duplicate = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
+
+    assert starts == [sid]
+    assert first["command_status"] == duplicate["command_status"] == "applied"
+    assert first["command_revision"] == duplicate["command_revision"] == 3
+
+    stale = client.post(
+        f"/api/projects/{sid}/daemon/stop",
+        json={"command_id": "cmd-stop", "expected_revision": 0},
+    ).json()
+    assert stale["command_status"] == "rejected"
+    assert stale["rc"] == 3
+    assert "stale command revision" in stale["error"]
+    assert stops == []
+
+
+def test_project_update_renames_session(ctx) -> None:
+    root, sid, life = ctx
+    (life / "session.json").write_text(
+        json.dumps({"id": sid, "display_name": "old", "cwd": str(life)}),
+        encoding="utf-8",
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.patch(f"/api/projects/{sid}", json={"name": "Research console"})
+
+    assert r.status_code == 200
+    assert r.json()["name"] == "Research console"
+    assert json.loads((life / "session.json").read_text())["display_name"] == "Research console"
+
+
+def test_project_update_preserves_legacy_continuous_objective(ctx) -> None:
+    root, sid, life = ctx
+    (life / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "Keep studying"}),
+        encoding="utf-8",
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.patch(f"/api/projects/{sid}", json={"name": "Legacy research"})
+
+    assert r.status_code == 200
+    meta = json.loads((life / "session.json").read_text())
+    assert meta["display_name"] == "Legacy research"
+    assert meta["objective"] == "Keep studying"
+
+
+def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.delete(f"/api/projects/{sid}")
+
+    assert r.status_code == 200
+    assert not life.exists()
+    assert (root / r.json()["trash_path"]).is_dir()
+
+
+def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=True,
+            pid=123,
+            started_at_iso=None,
+            uptime_seconds=5.0,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    r = client.delete(f"/api/projects/{sid}")
+
+    assert r.status_code == 409
+    assert life.is_dir()
+    assert "pause" in r.json()["detail"]
 
 
 # ── retired Python-REPL parity commands ───────────────────────────────────
@@ -364,6 +738,10 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     ]:
         r = client.post(f"/api/projects/s-nope/{path}", json=body)
         assert r.status_code == 404, path
+    assert client.patch(
+        "/api/projects/s-nope", json={"name": "missing"}
+    ).status_code == 404
+    assert client.delete("/api/projects/s-nope").status_code == 404
 
 
 # ── auth (bearer token) ────────────────────────────────────────────────────
@@ -389,6 +767,14 @@ def test_bearer_auth_on_posts(ctx) -> None:
         f"/api/projects/{sid}/artifacts",
         headers={"Authorization": "Bearer secret123"},
     ).status_code == 200
+
+
+def test_project_management_requires_token(ctx) -> None:
+    root, sid, _ = ctx
+    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
+
+    assert client.patch(f"/api/projects/{sid}", json={"name": "x"}).status_code == 401
+    assert client.delete(f"/api/projects/{sid}").status_code == 401
 
 
 def test_ws_requires_token_when_configured(ctx) -> None:

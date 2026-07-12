@@ -295,6 +295,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_query(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
+    if args.command == "report":
+        from ...tools.research_report import run_report
+
+        return _run_with_path_resolution_errors(lambda: run_report(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -448,6 +452,7 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
+    from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
     backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
     continuous_error = _continuous_contract_error(
@@ -465,17 +470,35 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     cfg = _build_worker_config(args)
     if foreground:
         return run_foreground(cfg)
-    return spawn_detached_daemon(cfg)
+    receipt = execute_daemon_command(
+        cfg.life_dir,
+        operation="start",
+        issuer="cli",
+        handler=lambda: {"rc": spawn_detached_daemon(cfg)},
+    )
+    return int(receipt.result.get("rc", 3 if receipt.status != "applied" else 0))
 
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:
+    from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import stop_daemon
     bundle = _resolve_project_bundle(args)
-    return stop_daemon(
+    drain = bool(getattr(args, "drain", False))
+    force = bool(getattr(args, "force", False))
+    receipt = execute_daemon_command(
         bundle.project.root,
-        drain=bool(getattr(args, "drain", False)),
-        force=bool(getattr(args, "force", False)),
+        operation="kill" if force else "drain" if drain else "stop",
+        args={"drain": drain, "force": force},
+        issuer="cli",
+        handler=lambda: {
+            "rc": stop_daemon(
+                bundle.project.root,
+                drain=drain,
+                force=force,
+            )
+        },
     )
+    return int(receipt.result.get("rc", 3 if receipt.status != "applied" else 0))
 
 
 def _cmd_watch(args: argparse.Namespace) -> int:

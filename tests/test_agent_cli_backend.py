@@ -40,7 +40,10 @@ class ArgusRunnerOptions:
     reasoning_effort: str = "medium"
     dangerous_yolo: bool = False
     full_auto: bool = False
+    max_budget_usd: float | None = None
+    max_ai_credits: int | None = None
     skip_git_repo_check: bool = False
+    sandbox_mode: str | None = None
     extra_args: list[str] | None = None
     working_dir: str | None = None
     output_schema_path: str | None = None
@@ -210,6 +213,7 @@ def test_run_exec_translates_options_and_result(
         working_dir=str(tmp_path),
         extra_args=["-c", "config_profile=tb"],
         full_auto=True,
+        sandbox_mode="read-only",
         skip_git_repo_check=True,
         dangerous_yolo=False,
         output_schema_path="/tmp/schema.json",
@@ -228,6 +232,7 @@ def test_run_exec_translates_options_and_result(
     assert forwarded.working_dir == str(tmp_path)
     assert forwarded.extra_args == ["-c", "config_profile=tb"]
     assert forwarded.full_auto is True
+    assert forwarded.sandbox_mode == "read-only"
     assert forwarded.skip_git_repo_check is True
     assert forwarded.dangerous_yolo is False
     assert forwarded.output_schema_path == "/tmp/schema.json"
@@ -345,6 +350,119 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     ]
     assert rows[0]["amount_usd"] == pytest.approx(1.0)
     assert rows[-1]["cost_usd"] == pytest.approx(0.008)
+    metrics = [
+        json.loads(line)
+        for line in (root / "metrics.jsonl").read_text().splitlines()
+    ]
+    provider_metric = next(row for row in metrics if row["name"] == "provider.call")
+    assert provider_metric["labels"]["status"] == "completed"
+    assert provider_metric["fields"]["call_id"] == result.call_id
+
+
+def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.01")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.01")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.01")
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, mission_id="mission-overrun")
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        captured["options"] = kwargs["options"]
+        return _make_argus_result(
+            json_events=[{
+                "type": "token_count",
+                "input_tokens": 0,
+                "output_tokens": 1_000,
+            }],
+            thread_id="overrun-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    result = backend.run_exec(
+        prompt="expensive single response",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="engineer-r1",
+    )
+
+    assert captured["options"].max_budget_usd is None
+    assert captured["options"].max_ai_credits is None
+    assert result.cost_usd == pytest.approx(0.03)
+    rows = [
+        json.loads(line)
+        for line in (project / "events.jsonl").read_text().splitlines()
+    ]
+    created = next(row for row in rows if row["type"] == "budget.reservation.created")
+    settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
+    assert created["fence_enforcement"] == "unsupported"
+    assert "no per-call token or dollar limit" in created["fence_reason"]
+    assert settled["overrun_usd"] == pytest.approx(0.02)
+    assert settled["fence_breached"] is True
+    metrics = [
+        json.loads(line)
+        for line in (root / "metrics.jsonl").read_text().splitlines()
+    ]
+    provider_metric = next(row for row in metrics if row["name"] == "provider.call")
+    assert provider_metric["fields"]["overrun_usd"] == pytest.approx(0.02)
+    assert provider_metric["fields"]["fence_enforcement"] == "unsupported"
+
+
+def test_claude_reservation_is_forwarded_as_cli_dollar_fence(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.25")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.25")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.25")
+    backend = AgentCliBackend(backend="claude")
+    backend.set_usage_context(project_root=project, mission_id="mission-claude")
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        captured["options"] = kwargs["options"]
+        return _make_argus_result(
+            json_events=[{
+                "type": "token_count",
+                "input_tokens": 1_000,
+                "output_tokens": 100,
+            }],
+            thread_id="claude-fence-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    backend.run_exec(
+        prompt="bounded claude call",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="reviewer",
+    )
+
+    assert captured["options"].max_budget_usd == pytest.approx(0.25)
+    assert captured["options"].max_ai_credits is None
+    rows = [
+        json.loads(line)
+        for line in (project / "events.jsonl").read_text().splitlines()
+    ]
+    created = next(row for row in rows if row["type"] == "budget.reservation.created")
+    assert created["fence_enforcement"] == "hard"
+    assert created["fence_limit_usd"] == pytest.approx(0.25)
 
 
 def test_unpriced_call_blocks_next_provider_spawn(
@@ -399,6 +517,66 @@ def test_unpriced_call_blocks_next_provider_spawn(
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
 
 
+def test_missing_copilot_resume_target_does_not_poison_cost_control(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda *args, **kwargs: None,
+    )
+    backend = AgentCliBackend(backend="copilot")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+    resumes: list[str | None] = []
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        resume = kwargs["resume_thread_id"]
+        resumes.append(resume)
+        if resume:
+            return _make_argus_result(
+                exit_code=1,
+                thread_id=resume,
+                fatal_error=(
+                    "Error: No session, task, or name matched 'stale-thread'."
+                ),
+            )
+        return _make_argus_result(thread_id="fresh-thread")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+
+    stale = backend.run_exec(
+        prompt="resume",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+        resume_thread_id="stale-thread",
+    )
+    fresh = backend.run_exec(
+        prompt="fresh",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+    )
+
+    assert resumes == ["stale-thread", None]
+    assert stale.pricing_status == "not_billed"
+    assert stale.cost_usd == 0.0
+    assert fresh.exit_code == 0
+
+
 def test_run_exec_writes_full_agent_io_log(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -415,7 +593,7 @@ def test_run_exec_writes_full_agent_io_log(
         run_label: str,
     ) -> AgentRunResult:
         assert self.event_callback is not None
-        self.event_callback("stdout", '{"type":"agent_message","message":"thinking"}')
+        self.event_callback("manager.stdout", '{"type":"agent_message","message":"thinking"}')
         self.event_callback("stderr", "tool stderr line")
         return _make_argus_result(
             command=["copilot", "-p", "<prompt>"],
@@ -455,6 +633,10 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
+    assert [row["stream"] for row in rows if row["type"] == "agent.io.stream"] == [
+        "stdout",
+        "stderr",
+    ]
     assert rows[1]["stream"] == "stdout"
     assert rows[1]["model"] == "gpt-5.5"
     assert rows[1]["line"].startswith('{"type"')
@@ -534,12 +716,16 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert usage["cost_basis"] == "token"
     assert usage["premium_requests"] == 1.0
     assert usage["premium_request_cost_usd"] == pytest.approx(0.04)
+    assert usage["model_usage"][0]["usage_event_id"] == 1
+    assert usage["model_usage"][0]["session_id"] == "session-1"
     event = json.loads(log_path.read_text().splitlines()[-1])
     assert event["type"] == "usage.recorded"
     assert event["schema_version"] == 2
     assert event["thread_id"] == "session-1"
     assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
     assert event["usage"]["models"][0]["input_tokens"] == 25_819
+    assert event["usage"]["models"][0]["usage_event_id"] == 1
+    assert event["usage"]["models"][0]["session_id"] == "session-1"
     assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
     assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
 
@@ -620,6 +806,13 @@ def test_codex_quota_events_and_daily_denial(
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "1")
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
     monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "1")
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "gpt-5.5"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     backend = AgentCliBackend(backend="codex")
     calls = []
 
@@ -661,8 +854,13 @@ def test_codex_quota_events_and_daily_denial(
         for line in (tmp_path / "usage.jsonl").read_text().splitlines()
     ]
     assert len(usage_rows) == 2
+    # The engineer-r1 call pins no model; codex echoes none either. It used to
+    # record an empty model -> "unpriced". Since the empty-model pricing fix it
+    # is attributed to the configured default model, so with no token counts in
+    # this synthetic result it is now "partial" (price known, tokens missing)
+    # rather than "unpriced".
     assert {row["pricing_status"] for row in usage_rows} == {
-        "unpriced",
+        "partial",
         "not_billed",
     }
 

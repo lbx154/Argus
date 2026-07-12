@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,8 @@ try:  # POSIX advisory file locking; absent on Windows.
 except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
+from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.runner_errors import result_has_missing_resume_target
 from ..skills import vertical_select
 from ..skills.vertical_select import (
     persist_vertical,
@@ -52,6 +55,7 @@ _DEFAULT_MANAGER_REASONING_EFFORT = "xhigh"
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
+_PIPELINE_LOCK = ".manager_pipeline.lock"
 
 def _manager_reasoning_effort() -> str:
     for key in (
@@ -82,6 +86,14 @@ def _session_lock_timeout_s() -> float:
         return 120.0
 
 
+def _pipeline_lock_timeout_s() -> float:
+    raw = os.environ.get("ARGUS_SKILL_MANAGER_PIPELINE_LOCK_TIMEOUT_S", "")
+    try:
+        return max(0.0, float(raw)) if raw.strip() else 1800.0
+    except ValueError:
+        return 1800.0
+
+
 def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
     """Acquire ``LOCK_EX`` non-blocking, retrying up to ``timeout`` seconds.
 
@@ -97,6 +109,49 @@ def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.2)
+
+
+@contextmanager
+def manager_pipeline_lock(root: Path | str):
+    """Serialize Manager pipeline commits with daemon mission execution."""
+    path = Path(root)
+    path.mkdir(parents=True, exist_ok=True)
+    with (path / _PIPELINE_LOCK).open("a+b") as handle:
+        if fcntl is not None and not _acquire_session_lock(
+            handle,
+            timeout=_pipeline_lock_timeout_s(),
+        ):
+            raise TimeoutError("timed out waiting for the current mission boundary")
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _restore_files_on_error(paths: list[Path]):
+    snapshots: dict[Path, bytes | None] = {}
+    for path in paths:
+        try:
+            snapshots[path] = path.read_bytes()
+        except FileNotFoundError:
+            snapshots[path] = None
+    try:
+        yield
+    except Exception:
+        for path, content in snapshots.items():
+            try:
+                if content is None:
+                    path.unlink(missing_ok=True)
+                    continue
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(f".{path.name}.rollback.{os.getpid()}")
+                tmp.write_bytes(content)
+                os.replace(tmp, path)
+            except OSError:
+                log.exception("failed to restore Manager pipeline artifact %s", path)
+        raise
 
 
 class _ManagerSession:
@@ -172,7 +227,8 @@ class _ManagerSession:
         nested under it.
         """
         def _no_session() -> Any:
-            return self.runner.run_exec(
+            return gateway_run_exec(
+                self.runner,
                 prompt=prompt, options=options, run_label=run_label
             )
 
@@ -192,12 +248,24 @@ class _ManagerSession:
                 return _no_session()
             try:
                 tid = self._read_tid()
-                result = self.runner.run_exec(
+                result = gateway_run_exec(
+                    self.runner,
                     prompt=prompt,
                     options=options,
                     run_label=run_label,
                     resume_thread_id=tid,
                 )
+                if tid and result_has_missing_resume_target(result):
+                    try:
+                        self._session_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    result = gateway_run_exec(
+                        self.runner,
+                        prompt=prompt,
+                        options=options,
+                        run_label=run_label,
+                    )
                 new = getattr(result, "thread_id", None)
                 if new:
                     try:
@@ -254,6 +322,7 @@ class Division:
     kind: str                # "research" | "optimize" | "custom"
     regular: bool            # True = maps to a preset pipeline; False = free-form
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
+    execution_task: str = ""
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
     # written yet — the caller (an interactive REPL) must confirm and then call
@@ -372,9 +441,11 @@ class Manager:
         *,
         skill_store: Any = None,
         manager_session_root: Path | str | None = None,
+        usage_context: Any = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
+        self._usage_context_factory = usage_context
         self.manager_session_root = (
             Path(manager_session_root)
             if manager_session_root is not None
@@ -399,6 +470,14 @@ class Manager:
         from ..skills.missions import ManagerMission
 
         self.mission = ManagerMission(skill_store)
+
+    def _task_usage_scope(self, root_task_id: str | None):
+        if not root_task_id or self._usage_context_factory is None:
+            return nullcontext()
+        return self._usage_context_factory(root_task_id)
+
+    def pipeline_lock(self):
+        return manager_pipeline_lock(self.manager_session_root)
 
     # ---- skill injection (fixed role skill + matched adaptive block) ----
     def _role_skill_block(self, objective: str, *, match: bool = True) -> str:
@@ -449,7 +528,12 @@ class Manager:
         return block
 
     # ---- the Manager's grounded vertical decision (agent, not keywords) ----
-    def decide_vertical(self, task: str) -> VerticalDecision:
+    def decide_vertical(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None = None,
+    ) -> VerticalDecision:
         """Choose the vertical for ``task`` with ONE grounded Manager agent call.
 
         The agent picks an existing built-in vertical (preferred — built-ins ship
@@ -482,20 +566,31 @@ class Manager:
             verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
             existing_data_domains=existing,
         )
-        safe_mode = _manager_safe_mode()
-        result = backend.run_exec(
-            prompt=prompt,
-            options=RunnerOptions(
-                reasoning_effort=_manager_reasoning_effort(),
-                working_dir=str(self.project_root),
-                dangerous_yolo=not safe_mode,
-                full_auto=safe_mode,
-                skip_git_repo_check=True,
-            ),
-            run_label="manager-vertical-decide",
-        )
+        with self._task_usage_scope(root_task_id):
+            result = gateway_run_exec(
+                backend,
+                prompt=prompt,
+                options=RunnerOptions(
+                    reasoning_effort=_manager_reasoning_effort(),
+                    working_dir=str(self.project_root),
+                    sandbox_mode="read-only",
+                    skip_git_repo_check=True,
+                ),
+                run_label="manager-vertical-decide",
+            )
+        detail = str(getattr(result, "fatal_error", "") or "").strip()
+        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+            if not detail:
+                detail = "\n".join(
+                    map(str, getattr(result, "stderr_lines", None) or [])
+                ).strip()
+            raise VerticalDecisionError(
+                "Manager vertical decision backend failed"
+                + (f": {detail}" if detail else "")
+            )
+        answer = extract_answer(result)
         decision = parse_vertical_decision(
-            extract_answer(result),
+            answer,
             known_verticals=list(vertical_select.VERTICALS),
             existing_data_domains=existing,
         )
@@ -504,20 +599,23 @@ class Manager:
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
             )
-        # Rendering is advisory and must never block the task. Persist the
-        # Manager's grounded selection only after the read-only decision call
-        # returns; malformed/legacy responses leave the previous view intact.
-        try:
-            from .live_view import apply_live_view_decision
+        decision.rendering_response = answer
+        return decision
 
-            apply_live_view_decision(
+    def _apply_vertical_decision_rendering(
+        self,
+        decision: VerticalDecision,
+    ) -> None:
+        """Apply Manager-owned presentation only after its decision commits."""
+        try:
+            from .live_view import apply_manager_rendering_response
+
+            apply_manager_rendering_response(
                 self.project_root,
-                decided=decision.live_view_decided,
-                view=decision.live_view,
+                decision.rendering_response,
             )
         except Exception:  # noqa: BLE001
             log.debug("manager live-view persistence failed", exc_info=True)
-        return decision
 
     @staticmethod
     def _kind_for(vertical: str) -> str:
@@ -529,14 +627,19 @@ class Manager:
         return "custom"  # a project-local (Manager-authored) data domain
 
     # ---- triage: which vertical/kind, and is this a real task? ----
-    def triage(self, task: str) -> tuple[str, str, bool]:
+    def triage(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None = None,
+    ) -> tuple[str, str, bool]:
         """Return (vertical, kind, regular) from the Manager's agent decision.
 
         No keyword classifier: the vertical is whatever :meth:`decide_vertical`
         returns. ``regular`` is simply whether the task is non-blank — the
         Manager already judged it a real task by choosing/authoring a vertical.
         """
-        decision = self.decide_vertical(task)
+        decision = self.decide_vertical(task, root_task_id=root_task_id)
         return (
             decision.vertical,
             self._kind_for(decision.vertical),
@@ -571,7 +674,13 @@ class Manager:
         return list(CANONICAL_STAGE_ORDER)
 
     # ---- the user-facing division step ----
-    def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Division:
+    def divide(
+        self,
+        task: str,
+        *,
+        ask_on_new_domain: bool = False,
+        root_task_id: str | None = None,
+    ) -> Division:
         """Decide the vertical (Manager agent) → stages → COMMIT so the existing
         supervisor trusts it (no re-classify). Returns the Division for
         display/confirmation.
@@ -602,28 +711,86 @@ class Manager:
         """
         if not (task and task.strip()):
             raise ValueError("Manager.divide requires a non-empty task")
-        decision = self.decide_vertical(task)
+        decision = self.decide_vertical(task, root_task_id=root_task_id)
+        return self.commit_vertical_decision(
+            task,
+            decision,
+            ask_on_new_domain=ask_on_new_domain,
+        )
+
+    def commit_vertical_decision(
+        self,
+        task: str,
+        decision: VerticalDecision,
+        *,
+        ask_on_new_domain: bool = False,
+        _lock_held: bool = False,
+    ) -> Division:
+        """Commit a previously computed decision without another model call."""
+        lock = nullcontext() if _lock_held else self.pipeline_lock()
+        with lock:
+            return self._commit_vertical_decision_locked(
+                task,
+                decision,
+                ask_on_new_domain=ask_on_new_domain,
+            )
+
+    def _commit_vertical_decision_locked(
+        self,
+        task: str,
+        decision: VerticalDecision,
+        *,
+        ask_on_new_domain: bool,
+    ) -> Division:
         old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
             proposal = decision.proposal
             if ask_on_new_domain:
-                return Division(
+                division = Division(
                     task=task, vertical=proposal.name, kind="custom",
                     regular=True, stages=list(proposal.stages),
+                    execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
                 )
-            return self.commit_domain(task, proposal, _old_vertical=old_vertical)
+                self._apply_vertical_decision_rendering(decision)
+                return division
+            division = self._commit_domain_locked(
+                task,
+                proposal,
+                _old_vertical=old_vertical,
+                execution_task=decision.execution_task,
+            )
+            self._apply_vertical_decision_rendering(decision)
+            return division
         vertical = decision.vertical
-        persist_vertical(self.project_root, vertical)   # supervisor reads & trusts this
-        vertical_select.reset_stage_for_new_intent(
-            self.project_root, old_vertical=old_vertical, new_vertical=vertical,
-        )
         stages = self.plan_stages(vertical)
-        return Division(task=task, vertical=vertical, kind=self._kind_for(vertical),
-                        regular=True, stages=stages)
+        pipeline_state = self.project_root / "research" / "PIPELINE_STATE.json"
+        with _restore_files_on_error([pipeline_state]):
+            persist_vertical(self.project_root, vertical)
+            vertical_select.reset_stage_for_new_intent(
+                self.project_root,
+                old_vertical=old_vertical,
+                new_vertical=vertical,
+            )
+        division = Division(
+            task=task,
+            vertical=vertical,
+            kind=self._kind_for(vertical),
+            regular=True,
+            stages=stages,
+            execution_task=decision.execution_task,
+        )
+        self._apply_vertical_decision_rendering(decision)
+        return division
 
     def commit_domain(
-        self, task: str, proposal: Any, *, _old_vertical: str | None = None,
+        self,
+        task: str,
+        proposal: Any,
+        *,
+        _old_vertical: str | None = None,
+        execution_task: str = "",
+        _lock_held: bool = False,
     ) -> Division:
         """Write the authored data domain to disk and persist it as the active
         vertical (so the supervisor trusts it). FAIL-HARD: a write error
@@ -636,24 +803,55 @@ class Manager:
         applies on the new-data-domain path. When called directly (e.g. by the
         REPL after an operator confirms a pending proposal) it is re-read here.
         """
+        lock = nullcontext() if _lock_held else self.pipeline_lock()
+        with lock:
+            return self._commit_domain_locked(
+                task,
+                proposal,
+                _old_vertical=_old_vertical,
+                execution_task=execution_task,
+            )
+
+    def _commit_domain_locked(
+        self,
+        task: str,
+        proposal: Any,
+        *,
+        _old_vertical: str | None,
+        execution_task: str,
+    ) -> Division:
         from ..verticals._data_domain import write_data_domain
 
         if _old_vertical is None:
             _old_vertical = vertical_select._persisted_vertical(self.project_root)
 
-        write_data_domain(
-            self.project_root,
-            proposal.name,
-            stages=list(proposal.stages),
-            created_by="manager",
+        pipeline_state = self.project_root / "research" / "PIPELINE_STATE.json"
+        domain_path = (
+            self.project_root
+            / "research"
+            / "DOMAINS"
+            / f"{proposal.name}.json"
         )
-        persist_vertical(self.project_root, proposal.name)
-        vertical_select.reset_stage_for_new_intent(
-            self.project_root, old_vertical=_old_vertical, new_vertical=proposal.name,
-        )
+        with _restore_files_on_error([pipeline_state, domain_path]):
+            write_data_domain(
+                self.project_root,
+                proposal.name,
+                stages=list(proposal.stages),
+                created_by="manager",
+            )
+            persist_vertical(self.project_root, proposal.name)
+            vertical_select.reset_stage_for_new_intent(
+                self.project_root,
+                old_vertical=_old_vertical,
+                new_vertical=proposal.name,
+            )
         return Division(
             task=task, vertical=proposal.name, kind="custom", regular=True,
             stages=list(proposal.stages), proposed_domain=proposal,
+            execution_task=(
+                execution_task
+                or str(getattr(proposal, "execution_task", "") or "")
+            ),
             pending_confirmation=False,
         )
 
@@ -681,7 +879,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -692,7 +891,13 @@ class Manager:
 
         return classify_is_conversational(text, run_exec=run_exec)
 
-    def classify_config_intent(self, text: str, *, run_exec: Any = None) -> Any:
+    def classify_config_intent(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> Any:
         """Does this free text ask to change one of Argus's OWN runtime knobs
         (a role's backend/model/effort, a budget cap, or a safe_mode/
         show_reasoning/telegram toggle)? Returns a ``life.router.ConfigIntent``
@@ -723,7 +928,8 @@ class Manager:
             _backend = self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -733,9 +939,16 @@ class Manager:
                     resume_thread_id=None,
                 )
 
-        return classify_config_intent(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_config_intent(text, run_exec=run_exec)
 
-    def classify_front_door(self, text: str, *, run_exec: Any = None) -> Any:
+    def classify_front_door(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> Any:
         """Merged cockpit front-door classify: ONE model call returning BOTH
         ``(config-intent | None, route)`` where route is ``"simple"``/
         ``"complex"``. Replaces the two sequential ``classify_config_intent`` +
@@ -763,7 +976,8 @@ class Manager:
             ).strip() or "low"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_effort,
@@ -773,9 +987,16 @@ class Manager:
                     resume_thread_id=None,
                 )
 
-        return classify_front_door(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_front_door(text, run_exec=run_exec)
 
-    def route(self, text: str, *, run_exec: Any = None) -> str:
+    def route(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> str:
         """The Manager's lego-block router: pick the SMALLEST block that fits the
         operator's input — ``"chat"`` (one codex reply), ``"simple"`` (one bounded
         codex turn, no reviewer/planner), or ``"complex"`` (the full mission
@@ -793,7 +1014,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -802,9 +1024,16 @@ class Manager:
                     run_label="manager-route",
                 )
 
-        return classify_route(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_route(text, run_exec=run_exec)
 
-    def needs_persistence(self, text: str, *, run_exec: Any = None) -> bool:
+    def needs_persistence(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> bool:
         """Should this task be armed as a STANDING (continuous) campaign, or is
         it BOUNDED (one mission, drains once)? The Manager owns this decision so
         the operator never has to manually pass ``--continuous --objective`` for
@@ -823,7 +1052,8 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
@@ -832,7 +1062,8 @@ class Manager:
                     run_label="manager-persistence",
                 )
 
-        return _classify(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return _classify(text, run_exec=run_exec)
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
@@ -843,6 +1074,7 @@ class Manager:
         project_root: Path | str | None = None,
         run_exec: Any = None,
         on_event: Any = None,
+        root_task_id: str | None = None,
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -944,10 +1176,13 @@ class Manager:
             _backend = self._session or self.runner
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return _backend.run_exec(
+                return gateway_run_exec(
+                    _backend,
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
+                        working_dir=str(root),
+                        sandbox_mode="read-only",
                         skip_git_repo_check=True,
                     ),
                     run_label="manager-stage",
@@ -975,6 +1210,8 @@ class Manager:
             next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             earlier = order[:cur_idx] if cur_idx > 0 else []
             checklist_md = _format_checklist(cur, role="planner", project_root=root)
+            from .live_view import manager_rendering_prompt
+
             prompt = build_stage_decision_prompt(
                 current_stage=cur,
                 next_stage=next_stage,
@@ -982,6 +1219,7 @@ class Manager:
                 checklist_md=checklist_md,
                 review=review,
                 planner_verdict=planner_verdict,
+                rendering_block=manager_rendering_prompt(root, review=review),
             )
             # Inject the Manager's fixed role skill (+ any matched adaptive
             # manager skill) ahead of the decision prompt. No-op when no
@@ -993,25 +1231,47 @@ class Manager:
                 p for p in (cur, str(getattr(review, "reason", "") or "")) if p
             )
             prompt = self._role_skill_block(_match_objective, match=False) + prompt
-            raw = extract_answer(run_exec(prompt))
-            # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
-            # turn. An empty raw makes parse_stage_decision fall back to a silent
-            # "manager held (default)" — which, after a DONE reviewer verdict,
-            # wedges current_stage FOREVER (research completes but never advances
-            # to plan, because no later mission re-triggers a stage decision).
-            # Retry a couple of times on an empty response before accepting a
-            # hold, mirroring the planner's empty-output retry. A genuine,
-            # non-empty hold verdict is never retried.
-            _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 2:
-                _empty_retries += 1
-                time.sleep(1.0)
+            with self._task_usage_scope(root_task_id):
                 raw = extract_answer(run_exec(prompt))
+                # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
+                # turn. An empty raw makes parse_stage_decision fall back to a silent
+                # "manager held (default)" — which, after a DONE reviewer verdict,
+                # wedges current_stage FOREVER (research completes but never advances
+                # to plan, because no later mission re-triggers a stage decision).
+                # Retry a couple of times on an empty response before accepting a
+                # hold, mirroring the planner's empty-output retry. A genuine,
+                # non-empty hold verdict is never retried.
+                _empty_retries = 0
+                while not str(raw or "").strip() and _empty_retries < 2:
+                    _empty_retries += 1
+                    time.sleep(1.0)
+                    raw = extract_answer(run_exec(prompt))
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
                     review, current_stage=cur, stage_order=order
                 )
             else:
+                try:
+                    from .live_view import (
+                        apply_manager_rendering_response,
+                        parse_live_view_response,
+                    )
+
+                    live_decided, _live_view = parse_live_view_response(raw)
+                    live_view = apply_manager_rendering_response(root, raw)
+                    if live_decided and on_event is not None:
+                        on_event({
+                            "type": "manager.live_view.updated",
+                            "title": live_view.title if live_view else "",
+                            "paths": list(live_view.paths) if live_view else [],
+                            "text": (
+                                f"Manager refreshed right sidebar: {live_view.title}"
+                                if live_view
+                                else "Manager cleared right sidebar"
+                            ),
+                        })
+                except Exception:  # noqa: BLE001 — rendering never blocks stage
+                    log.debug("manager live-view refresh failed", exc_info=True)
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )
@@ -1082,6 +1342,16 @@ class Manager:
         return _classify(
             content=content,
             task=task,
+            candidate_verticals=list(vertical_select.VERTICALS),
+            runner=(self._session or self.runner),
+        )
+
+    def classify_skill_placements(self, skills: list[dict[str, str]]) -> Any:
+        """Batch variant used by source promotion to avoid one call per skill."""
+        from .skill_review import classify_skill_placements as _classify_batch
+
+        return _classify_batch(
+            skills=skills,
             candidate_verticals=list(vertical_select.VERTICALS),
             runner=(self._session or self.runner),
         )

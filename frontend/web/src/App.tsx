@@ -1,34 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useProjects, useSnapshot, useJournal, useEventStream, useProjectActions, useArtifacts } from './hooks';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useProjects, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api } from './api';
-import { computeSpend } from './lib/cost';
-import { mergeFragment } from './lib/eventRender';
-import { Sidebar } from './components/Sidebar';
-import { TopBar } from './components/TopBar';
+import { TopBar, type ThemeMode } from './components/TopBar';
 import { EventStream } from './components/EventStream';
-import { RolesPanel } from './components/RolesPanel';
-import { BacklogPanel } from './components/BacklogPanel';
-import { JournalPanel } from './components/JournalPanel';
-import { ChatBox, type ChatTurn } from './components/ChatBox';
+import { ChatBox } from './components/ChatBox';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
+import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
-import { activeGuardianAlert } from './lib/guardian';
 import { Wordmark } from './components/Wordmark';
-import { TAGLINE, WELCOME } from './lib/soul';
+import { TAGLINE } from './lib/soul';
 import { rankProjects, resolveProjectSelection } from '../../core/src/projects';
-import { deriveMissionView } from '../../core/src/mission';
-import { ResultSummary } from './components/ResultSummary';
 import { ArtifactModal } from './components/ArtifactModal';
-import { LiveViewPanel } from './components/LiveViewPanel';
+import { ResearchCanvas } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
-import { TaskDetailModal } from './components/TaskDetailModal';
 import { NewDaemonModal } from './components/NewDaemonModal';
+import { DaemonManageModal } from './components/DaemonManageModal';
+import { Sidebar } from './components/Sidebar';
+import { ProjectInspectorModal } from './components/ProjectInspectorModal';
+import { TaskDetailModal } from './components/TaskDetailModal';
+import { SplitHandle } from './components/SplitHandle';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
+import { MissionControl } from './components/MissionControl';
+import { activeGuardianAlert } from './lib/guardian';
+import { projectMissionView } from '../../core/src/missionView';
+import { useQueryClient } from '@tanstack/react-query';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript';
-type CompactPane = 'feed' | 'tasks' | 'journal' | 'team';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector';
 type ProjectHistoryMode = 'push' | 'replace';
 interface ActiveMessageRequest {
   id: number;
@@ -36,6 +37,11 @@ interface ActiveMessageRequest {
   controller: AbortController;
 }
 let noticeSequence = 0;
+
+function storedBoolean(key: string, fallback: boolean): boolean {
+  const value = localStorage.getItem(key);
+  return value == null ? fallback : value === 'true';
+}
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error || 'Unknown error');
@@ -102,8 +108,10 @@ function Landing({
 
 export default function App() {
   const params = new URLSearchParams(window.location.search);
+  const queryClient = useQueryClient();
   const projectsQ = useProjects();
-  const projects = useMemo(() => rankProjects(projectsQ.data ?? []), [projectsQ.data]);
+  const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
+  const localCwd = projectsQ.data?.local_cwd ?? '';
 
   const [sid, setSid] = useState<string | null>(params.get('project'));
   const sidRef = useRef(sid);
@@ -111,23 +119,70 @@ export default function App() {
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
   const [showReasoning, setShowReasoning] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>(
+    () => localStorage.getItem('argus.workspace.view') === 'mission' ? 'mission' : 'activity',
+  );
+  const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
+  const [leftWidth, setLeftWidth] = useState(() => {
+    const value = Number(localStorage.getItem('argus.sidebar.width.v2') || 256);
+    return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    const value = Number(localStorage.getItem('argus.preview.width.v2') || 440);
+    return Number.isFinite(value) ? Math.max(320, Math.min(600, value)) : 440;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [compactPane, setCompactPane] = useState<CompactPane>('feed');
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
+  const [themeMode, setThemeMode] = useState<ThemeMode>(
+    () => (localStorage.getItem('argus.theme') as ThemeMode | null) ?? 'system',
+  );
   const [composerFocus, setComposerFocus] = useState(0);
-  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
   const [chatPending, setChatPending] = useState(false);
+  const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
+  const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
+  const promptedReplyRef = useRef('');
+  const [managerPhase, setManagerPhase] = useState('');
+  const [managerStartedAt, setManagerStartedAt] = useState(0);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
+  const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const resizeFrameRef = useRef<number | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('argus.sidebar.expanded.v4', String(leftPanelOpen));
+    localStorage.setItem('argus.preview.expanded.v5', String(rightPanelOpen));
+    localStorage.setItem('argus.sidebar.width.v2', String(leftWidth));
+    localStorage.setItem('argus.preview.width.v2', String(rightWidth));
+  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('argus.workspace.view', workspaceView);
+  }, [workspaceView]);
+
+  useEffect(() => {
+    localStorage.setItem('argus.theme', themeMode);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const dark = themeMode === 'dark' || (themeMode === 'system' && media.matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [themeMode]);
 
   const cancelActiveMessage = useCallback(() => {
     const cancelled = Boolean(messageRequestRef.current);
@@ -135,19 +190,19 @@ export default function App() {
     messageRequestRef.current?.controller.abort();
     messageRequestRef.current = null;
     setChatPending(false);
+    setManagerPhase('');
+    setManagerStartedAt(0);
     return cancelled;
   }, []);
 
   const stopWaiting = useCallback(() => {
     if (!cancelActiveMessage()) return;
-    setChatTurns((turns) => turns.map((turn) => turn.pending ? { ...turn, pending: false } : turn));
     notify('info', 'Stopped waiting for this reply. Server-side work may still finish in the project timeline.');
   }, [cancelActiveMessage, notify]);
 
   const activateProject = useCallback((id: string | null) => {
     if (id !== sidRef.current) {
       cancelActiveMessage();
-      setChatTurns([]); // each daemon keeps its own conversation
       setArtifactPath(null);
       setTaskItemId(null);
     }
@@ -167,6 +222,14 @@ export default function App() {
     if (locationId !== id) writeProjectLocation(id, mode);
   }, [activateProject]);
 
+  const prefetchProject = useCallback((id: string) => {
+    void queryClient.prefetchQuery({
+      queryKey: ['snapshot', id],
+      queryFn: ({ signal }) => api.snapshot(id, signal),
+      staleTime: 3_000,
+    });
+  }, [queryClient]);
+
   const createDaemon = async (name: string, objective: string): Promise<boolean> => {
     if (creatingDaemonRef.current) return false;
     creatingDaemonRef.current = true;
@@ -175,7 +238,6 @@ export default function App() {
       const r = await api.createDaemon(objective, name);
       await projectsQ.refetch();
       selectProject(r.sid);
-      setChatTurns([{ role: 'system', text: WELCOME }]);
       window.setTimeout(() => setComposerFocus((x) => x + 1), 0);
       notify('success', 'Daemon created and selected.');
       return true;
@@ -244,14 +306,77 @@ export default function App() {
 
   const snapQ = useSnapshot(activeSid);
   const snap = snapQ.data;
+  const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
-  const mission = snap ? deriveMissionView(snap, continuous) : null;
-  const journalQ = useJournal(activeSid, 5, !kiosk || mission?.state === 'complete');
-  const artifactsQ = useArtifacts(activeSid, true);
-  const { events, connected } = useEventStream(activeSid);
-  const spend = useMemo(() => computeSpend(events), [events]);
-  const actions = useProjectActions(activeSid);
-  const daemonBusy = actions.startDaemon.isPending || actions.stopDaemon.isPending;
+  const artifactsQ = useArtifacts(loadedSid, true);
+  const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
+  const { events, connected } = useEventStream(loadedSid);
+  const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
+  const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
+  const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
+  const pendingReply = useMemo<PendingReply | null>(() => {
+    const row = (snap?.pending_questions ?? []).find((item) => {
+      const id = String(item.id ?? '').trim();
+      const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
+      return Boolean(id && question);
+    });
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      title: String(row.title ?? row.objective ?? 'Blocked task'),
+      question: String(row.pending_question ?? row.question ?? row.text),
+    };
+  }, [snap?.pending_questions]);
+  useEffect(() => {
+    if (!pendingReply || !activeSid) {
+      setPendingReplyOpen(false);
+      return;
+    }
+    const key = `${activeSid}:${pendingReply.id}`;
+    if (promptedReplyRef.current !== key) {
+      promptedReplyRef.current = key;
+      setPendingReplyOpen(true);
+    }
+  }, [activeSid, pendingReply]);
+  const activityEvents = useMemo(() => {
+    const liveCounts = new Map<string, number>();
+    events.forEach((event) => {
+      const type = String(event.type ?? '');
+      if (type !== 'ui.operator' && type !== 'ui.argus') return;
+      const key = `${type}\u0000${String(event.text ?? '')}`;
+      liveCounts.set(key, (liveCounts.get(key) ?? 0) + 1);
+    });
+    const history = (transcriptQ.data ?? []).map((turn) => ({
+      type: turn.role === 'operator' ? 'ui.operator' : 'ui.argus',
+      agent_layer: turn.role === 'operator' ? 'operator' : 'manager',
+      text: turn.text,
+      ts: turn.ts,
+      message_id: `transcript-${turn.ts}-${turn.role}`,
+    }));
+    const keep = new Array(history.length).fill(true);
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const event = history[index];
+      const key = `${event.type}\u0000${event.text}`;
+      const count = liveCounts.get(key) ?? 0;
+      if (count > 0) {
+        keep[index] = false;
+        liveCounts.set(key, count - 1);
+      }
+    }
+    return [
+      ...history.filter((_event, index) => keep[index]),
+      ...events,
+    ].sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
+  }, [events, transcriptQ.data]);
+  const missionView = useMemo(
+    () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
+    [activityEvents, artifactsQ.data, snap],
+  );
+  const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
+  const daemonBusy = actions.startDaemon.isPending
+    || actions.stopDaemon.isPending
+    || actions.updateProject.isPending
+    || actions.deleteProject.isPending;
   const actionFeedback = (success: string) => ({
     onSuccess: () => notify('success', success),
     onError: (error: Error) => notify('error', errorText(error)),
@@ -260,14 +385,75 @@ export default function App() {
     actions.startDaemon.mutate(undefined, actionFeedback('Daemon start requested.'));
   const requestStopDaemon = () =>
     actions.stopDaemon.mutate(true, actionFeedback('Daemon is draining and will stop safely.'));
+  const manageStartDaemon = async (): Promise<boolean> => {
+    try {
+      await actions.startDaemon.mutateAsync();
+      notify('success', 'Daemon resumed.');
+      return true;
+    } catch (error) {
+      notify('error', errorText(error));
+      return false;
+    }
+  };
+  const managePauseDaemon = async (): Promise<boolean> => {
+    try {
+      await actions.stopDaemon.mutateAsync(true);
+      notify('success', 'Daemon paused safely.');
+      return true;
+    } catch (error) {
+      notify('error', errorText(error));
+      return false;
+    }
+  };
+  const manageRenameProject = async (name: string): Promise<boolean> => {
+    try {
+      await actions.updateProject.mutateAsync(name);
+      notify('success', 'Session name updated.');
+      return true;
+    } catch (error) {
+      notify('error', errorText(error));
+      return false;
+    }
+  };
+  const manageDeleteProject = async (): Promise<boolean> => {
+    if (!activeSid) return false;
+    try {
+      await actions.deleteProject.mutateAsync();
+      setDaemonManageOpen(false);
+      activateProject(null);
+      writeProjectLocation(null, 'replace');
+      const refreshed = await projectsQ.refetch();
+      const next = rankProjects(refreshed.data?.projects ?? [])[0];
+      if (next) selectProject(next.id, 'replace');
+      notify('success', 'Session moved to recoverable trash.');
+      return true;
+    } catch (error) {
+      notify('error', errorText(error));
+      return false;
+    }
+  };
+  const requestManageSession = useCallback((projectId: string) => {
+    setDaemonManageOpen(false);
+    if (projectId === activeSid && snap?.session.id === projectId) {
+      setManageTargetSid(null);
+      setDaemonManageOpen(true);
+      return;
+    }
+    setManageTargetSid(projectId);
+    selectProject(projectId);
+  }, [activeSid, selectProject, snap?.session.id]);
+  useEffect(() => {
+    if (!manageTargetSid || activeSid !== manageTargetSid || snap?.session.id !== manageTargetSid) return;
+    setManageTargetSid(null);
+    setDaemonManageOpen(true);
+  }, [activeSid, manageTargetSid, snap?.session.id]);
   const requestDispose = (id: string, op: 'done' | 'skip' | 'rm') =>
     actions.disposeBacklog.mutate(
       { id, op },
-      actionFeedback(op === 'done' ? `Marked ${id} done.` : `Skipped ${id}.`),
+      actionFeedback(op === 'done' ? 'Work marked done.' : 'Work removed.'),
     );
   const requestStopIteration = (id: string) =>
-    actions.stopBacklog.mutate(id, actionFeedback(`Stopped auto-iteration for ${id}.`));
-
+    actions.stopBacklog.mutate(id, actionFeedback('Iteration stopped.'));
   const toggleContinuous = () => {
     if (!continuous) return;
     const enabled = !continuous.enabled;
@@ -276,8 +462,73 @@ export default function App() {
       actionFeedback(enabled ? 'Continuous campaign enabled.' : 'Continuous campaign stopped.'),
     );
   };
+  const cycleTheme = () => {
+    setThemeMode((mode) => mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system');
+  };
+  const resizeSidebar = useCallback((
+    side: 'left' | 'right',
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    event.preventDefault();
+    const rect = shell.getBoundingClientRect();
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const move = (pointer: PointerEvent) => {
+      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        if (side === 'left') {
+          const occupiedRight = rightPanelOpen ? rightWidth + 8 : 56;
+          const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
+          setLeftWidth(Math.max(220, Math.min(max, pointer.clientX - rect.left)));
+        } else {
+          const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
+          const max = Math.max(320, Math.min(600, rect.width - occupiedLeft - 360 - 8));
+          setRightWidth(Math.max(320, Math.min(max, rect.right - pointer.clientX)));
+        }
+      });
+    };
+    const stop = () => {
+      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointercancel', stop, { once: true });
+  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+  useEffect(() => {
+    const fit = () => {
+      if (window.innerWidth < 1024 || !shellRef.current) return;
+      const shellWidth = shellRef.current.clientWidth;
+      const left = leftPanelOpen ? leftWidth : 56;
+      const right = rightPanelOpen ? rightWidth : 56;
+      const handles = (leftPanelOpen ? 8 : 0) + (rightPanelOpen ? 8 : 0);
+      const availableForSides = Math.max(540, shellWidth - 360 - handles);
+      if (left + right <= availableForSides) return;
+      let nextRight = rightPanelOpen
+        ? Math.max(320, Math.min(rightWidth, availableForSides - left))
+        : right;
+      let nextLeft = leftPanelOpen
+        ? Math.max(220, Math.min(leftWidth, availableForSides - nextRight))
+        : left;
+      if (nextLeft + nextRight > availableForSides && rightPanelOpen) {
+        nextRight = Math.max(320, availableForSides - nextLeft);
+      }
+      if (leftPanelOpen) setLeftWidth(nextLeft);
+      if (rightPanelOpen) setRightWidth(nextRight);
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
 
-  // global keybindings — ⌘K palette · ⌘O reasoning · ⌘. kiosk · ? help · / composer
+  // global keybindings — editor-style panel toggles plus cockpit actions.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -292,6 +543,12 @@ export default function App() {
       } else if (mod && e.key === '.') {
         e.preventDefault();
         setKiosk((v) => !v);
+      } else if (mod && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setLeftPanelOpen((value) => !value);
+      } else if (mod && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setComposerFocus((value) => value + 1);
       } else if (!typing && e.key === '?') {
         e.preventDefault();
         setOverlay('help');
@@ -321,29 +578,25 @@ export default function App() {
       );
     };
 
-    setChatTurns((t) => [...t, { role: 'you', text }]);
     setChatPending(true);
+    setManagerPhase('');
+    setManagerStartedAt(Date.now());
 
-    // Grow (or create) the trailing Argus bubble from the actual state — no
-    // external accumulator, so out-of-order React batches can't drop a block.
-    const applyReply = (next: (prev: string) => string, done: boolean) => {
+    const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
-      setChatTurns((t) => {
-        if (!isCurrent()) return t;
-        const copy = [...t];
-        const last = copy[copy.length - 1];
-        if (last && last.role === 'argus') copy[copy.length - 1] = { role: 'argus', text: next(last.text), pending: !done };
-        else copy.push({ role: 'argus', text: next(''), pending: !done });
-        return copy;
-      });
-    };
-
-    const dispatchTask = (result: { item?: { title?: string; objective?: string } | null }) => {
-      if (!isCurrent()) return;
-      const title = result.item?.title || result.item?.objective || 'new mission';
-      setChatTurns((turns) => isCurrent()
-        ? [...turns, { role: 'system', text: `→ dispatched to the team: ${title}` }]
-        : turns);
+      const daemon = result.daemon && typeof result.daemon === 'object'
+        ? result.daemon as Record<string, unknown>
+        : null;
+      if (daemon?.admission_required) {
+        notify(
+          'error',
+          `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+        );
+      } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
+        notify('error', `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+      } else if (daemon?.auto_parked_idle) {
+        notify('success', `Started · parked idle session ${String(daemon.auto_parked_idle)}`);
+      }
       snapQ.refetch?.();
     };
 
@@ -352,16 +605,17 @@ export default function App() {
     try {
       try {
         await api.messageStream(requestSid, text, {
-          onDelta: (block) => {
+          onPhase: (label) => {
+            if (isCurrent()) setManagerPhase(label);
+          },
+          onDelta: () => {
             if (!isCurrent()) return;
             gotDelta = true;
-            applyReply((prev) => mergeFragment(prev, block), false); // same reply row grows
           },
           onDone: (result) => {
             if (!isCurrent()) return;
             if (result.kind === 'task') dispatchTask(result);
-            else if (!gotDelta) applyReply(() => result.reply || 'no response', true);
-            else applyReply((prev) => prev, true); // settle: stop the pending shimmer
+            void transcriptQ.refetch();
           },
           onError: (err) => {
             if (isCurrent()) streamErr = err;
@@ -379,19 +633,41 @@ export default function App() {
           const result = await api.message(requestSid, text, controller.signal);
           if (!isCurrent()) return;
           if (result.kind === 'task') dispatchTask(result);
-          else applyReply(() => result.reply || 'no response', true);
+          void transcriptQ.refetch();
         } catch (error) {
           if (!isCurrent()) return;
-          setChatTurns((turns) => isCurrent()
-            ? [...turns, { role: 'system', text: `message failed · ${errorText(error)}` }]
-            : turns);
+          notify('error', `Message failed: ${errorText(error)}`);
         }
       }
     } finally {
       if (messageRequestRef.current?.id === requestId) {
         messageRequestRef.current = null;
         setChatPending(false);
+        setManagerPhase('');
+        setManagerStartedAt(0);
       }
+    }
+  };
+
+  const answerPendingReply = async (text: string) => {
+    if (!activeSid || !pendingReply || pendingReplyBusy) return;
+    setPendingReplyBusy(true);
+    try {
+      const result = await api.answerPending(activeSid, pendingReply.id, text);
+      setPendingReplyOpen(false);
+      await snapQ.refetch();
+      if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
+        notify(
+          'error',
+          `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
+        );
+      } else {
+        notify('success', 'Answer sent directly to the blocked task.');
+      }
+    } catch (error) {
+      notify('error', `Could not send answer: ${errorText(error)}`);
+    } finally {
+      setPendingReplyBusy(false);
     }
   };
 
@@ -402,6 +678,7 @@ export default function App() {
       { id: 'config', label: 'Open Config', hint: '/config', group: 'View', run: () => setOverlay('config') },
       { id: 'identity', label: 'Open Identity', hint: '/identity', group: 'View', run: () => setOverlay('identity') },
       { id: 'transcript', label: 'Open Transcript', hint: '/transcript', group: 'View', run: () => setOverlay('transcript') },
+      { id: 'inspector', label: 'Open Project', hint: 'work · memory · agents', group: 'View', run: () => setOverlay('inspector') },
       { id: 'help', label: 'Keyboard shortcuts', hint: '?', group: 'View', run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -452,154 +729,159 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg text-ink">
-      {!kiosk && (
-        <>
-          {sidebarOpen && (
-            <button
-              aria-label="close project navigation"
-                className="fixed inset-0 z-30 bg-black/60 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          <Sidebar
-            projects={projects}
-            activeId={activeSid}
-            onSelect={(id) => {
-              selectProject(id);
-              setSidebarOpen(false);
-            }}
-            onOpenPanel={(p) => {
-              setOverlay(p);
-              setSidebarOpen(false);
-            }}
-            onNew={() => {
-              setNewDaemonOpen(true);
-              setSidebarOpen(false);
-            }}
-            loading={projectsQ.isLoading}
-            creating={creatingDaemon}
-            error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
-            onRetry={() => void projectsQ.refetch()}
-            mobileOpen={sidebarOpen}
-          />
-          <button
-            aria-label="open project navigation"
-            className="fixed left-3 top-3 z-20 rounded border border-line bg-panel px-2 py-1 text-ink-dim md:hidden"
-            onClick={() => setSidebarOpen(true)}
-          >
-            ☰
-          </button>
-        </>
-      )}
+    <div ref={shellRef} className="flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden bg-bg text-ink">
+      {!kiosk && sidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close sessions"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+        />
+      ) : null}
+      {!kiosk ? (
+        <Sidebar
+          projects={projects}
+          activeId={activeSid}
+          localCwd={localCwd}
+          onSelect={(id) => {
+            selectProject(id);
+            setSidebarOpen(false);
+          }}
+          onPrefetch={prefetchProject}
+          onManage={requestManageSession}
+          onOpenPanel={(panel) => setOverlay(panel)}
+          onNew={() => setNewDaemonOpen(true)}
+          loading={projectsQ.isLoading}
+          creating={creatingDaemon}
+          error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
+          onRetry={() => void projectsQ.refetch()}
+          mobileOpen={sidebarOpen}
+          collapsed={!leftPanelOpen}
+          onToggleCollapse={() => setLeftPanelOpen((value) => !value)}
+          themeMode={themeMode}
+          onCycleTheme={cycleTheme}
+          expandedWidth={leftWidth}
+        />
+      ) : null}
+      {!kiosk && leftPanelOpen ? (
+        <SplitHandle
+          label="Resize sessions"
+          value={leftWidth}
+          min={220}
+          max={400}
+          onPointerDown={(event) => resizeSidebar('left', event)}
+          onReset={() => setLeftWidth(256)}
+          onNudge={(delta) => setLeftWidth((value) => Math.max(220, Math.min(400, value + delta)))}
+        />
+      ) : null}
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
-            <TopBar
-              snap={snap}
-              spend={spend}
-              streamOk={connected}
-              onStart={requestStartDaemon}
-              onStop={requestStopDaemon}
-              busy={daemonBusy}
-              busyLabel={actions.startDaemon.isPending ? 'starting…' : 'stopping…'}
-              snapshotStale={snapQ.isError}
-              readOnly={kiosk}
-              continuous={continuous}
-              onToggleContinuous={toggleContinuous}
-              continuousBusy={actions.setContinuous.isPending}
-            />
-            <PendingBanner
-              questions={snap.pending_questions ?? []}
-              backlog={snap.backlog}
-              onAnswer={() => setComposerFocus((x) => x + 1)}
-            />
-            <GuardianBanner alert={activeGuardianAlert(events)} />
-            <div className="mx-3 mt-3 grid grid-cols-4 border border-line bg-surface p-1 xl:hidden">
-              {(['feed', 'tasks', 'journal', 'team'] as CompactPane[]).map((pane) => (
-                <button
-                  key={pane}
-                  onClick={() => setCompactPane(pane)}
-                  className={`rounded-sm px-2 py-1.5 text-[11px] capitalize transition-colors ${
-                    compactPane === pane ? 'bg-panel text-ink' : 'text-ink-faint'
-                  }`}
-                >
-                  {pane}
-                </button>
-              ))}
-            </div>
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className={`${compactPane === 'feed' ? 'flex' : 'hidden'} min-h-0 flex-col xl:flex`}>
-                <LiveViewPanel
-                  artifacts={artifactsQ.data}
-                  error={artifactsQ.isError}
-                  onOpenArtifact={setArtifactPath}
-                  className="mb-3 xl:hidden"
-                />
-                {mission?.state === 'complete' && (
-                  <ResultSummary
-                    entries={journalQ.data ?? []}
-                    artifacts={artifactsQ.data}
-                    artifactError={artifactsQ.isError}
-                    onOpenArtifact={setArtifactPath}
-                  />
-                )}
+            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} h-full min-w-0 flex-1 flex-col bg-panel lg:flex`}>
+              <TopBar
+                snap={snap}
+                streamOk={connected}
+                onStart={requestStartDaemon}
+                onStop={requestStopDaemon}
+                onManage={() => setDaemonManageOpen(true)}
+                onOpenSessions={() => setSidebarOpen(true)}
+                mobileView={mobileView}
+                onToggleMobileView={() => setMobileView('preview')}
+                busy={daemonBusy}
+                snapshotStale={snapQ.isError}
+                readOnly={kiosk}
+                missionView={missionView}
+              />
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
+                <button type="button" onClick={() => setWorkspaceView('mission')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'mission' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Mission</button>
+                <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
+                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : null}
+              </div>
+              <GuardianBanner alert={guardianAlert} />
+              {workspaceView === 'mission' && missionView ? (
+                <MissionControl view={missionView} gitDiff={gitDiffQ.data} onOpenArtifact={setArtifactPath} />
+              ) : (
                 <EventStream
-                  events={events}
+                  events={activityEvents}
                   connected={connected}
                   showReasoning={showReasoning}
-                  onToggleReasoning={() => setShowReasoning((v) => !v)}
+                  onToggleReasoning={() => setShowReasoning((value) => !value)}
+                  embedded
                 />
-              </div>
-              <div className={`${compactPane === 'tasks' ? 'flex' : 'hidden'} min-h-0 flex-col xl:hidden`}>
-                <BacklogPanel
-                  items={snap.backlog}
-                  onDispose={requestDispose}
-                  onStop={requestStopIteration}
-                  onInspect={setTaskItemId}
-                  busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
-                  readOnly={kiosk}
-                />
-              </div>
-              <div className={`${compactPane === 'journal' ? 'flex' : 'hidden'} min-h-0 flex-col xl:hidden`}>
-                <JournalPanel entries={journalQ.data ?? []} />
-              </div>
-              <div className={`${compactPane === 'team' ? 'block' : 'hidden'} min-h-0 xl:hidden`}>
-                <RolesPanel roles={snap.roles} />
-              </div>
-              <div className="hidden min-h-0 flex-col gap-3 xl:flex">
-                <LiveViewPanel
-                  artifacts={artifactsQ.data}
-                  error={artifactsQ.isError}
-                  onOpenArtifact={setArtifactPath}
-                />
-                <div className="shrink-0">
-                  <RolesPanel roles={snap.roles} />
+              )}
+              {!kiosk ? (
+                <div className="shrink-0 px-4 pb-6 pt-3">
+                  <div className="mx-auto w-full max-w-[760px]">
+                  <PendingBanner
+                    questions={snap.pending_questions ?? []}
+                    backlog={snap.backlog}
+                    onAnswer={() => setPendingReplyOpen(true)}
+                  />
+                  <ChatBox
+                    onSend={sendMessage}
+                    onCancel={stopWaiting}
+                    disabled={!activeSid}
+                    pending={chatPending}
+                    focusSignal={composerFocus}
+                    embedded
+                    phase={managerPhase}
+                    startedAt={managerStartedAt}
+                  />
+                  </div>
                 </div>
-                <BacklogPanel
-                  items={snap.backlog}
-                  onDispose={requestDispose}
-                  onStop={requestStopIteration}
-                  onInspect={setTaskItemId}
-                  busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
+              ) : null}
+            </section>
+            {rightPanelOpen ? (
+              <SplitHandle
+                label="Resize preview"
+                value={rightWidth}
+                min={320}
+                max={600}
+                onPointerDown={(event) => resizeSidebar('right', event)}
+                onReset={() => setRightWidth(440)}
+                onNudge={(delta) => setRightWidth((value) => Math.max(320, Math.min(600, value - delta)))}
+              />
+            ) : null}
+
+            <aside
+              style={{ '--preview-width': `${rightWidth}px` } as React.CSSProperties}
+              className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel transition-[width] duration-[250ms] ease-panel lg:flex lg:flex-none ${
+              rightPanelOpen ? 'lg:w-[var(--preview-width)]' : 'lg:w-14'
+            }`}>
+              <div className="lg:hidden">
+                <TopBar
+                  snap={snap}
+                  streamOk={connected}
+                  onStart={requestStartDaemon}
+                  onStop={requestStopDaemon}
+                  onManage={() => setDaemonManageOpen(true)}
+                  onOpenSessions={() => setSidebarOpen(true)}
+                  mobileView={mobileView}
+                  onToggleMobileView={() => setMobileView('activity')}
+                  busy={daemonBusy}
+                  snapshotStale={snapQ.isError}
                   readOnly={kiosk}
-                />
-                <JournalPanel entries={journalQ.data ?? []} />
-              </div>
-            </div>
-            {!kiosk && (
-              <div className="px-3 pb-3">
-                <ChatBox
-                  turns={chatTurns}
-                  onSend={sendMessage}
-                  onCancel={stopWaiting}
-                  disabled={!activeSid}
-                  pending={chatPending}
-                  focusSignal={composerFocus}
+                  missionView={missionView}
                 />
               </div>
-            )}
+              <ResearchCanvas
+                sid={loadedSid}
+                artifacts={artifactsQ.data}
+                error={artifactsQ.isError}
+                onExpand={setArtifactPath}
+                className={`min-h-0 flex-1 ${rightPanelOpen ? 'lg:flex' : 'lg:hidden'}`}
+                embedded
+                onCollapse={() => setRightPanelOpen(false)}
+              />
+              {!rightPanelOpen ? (
+                <div className="hidden h-12 items-center justify-center border-b border-line/50 text-ink-faint lg:flex">
+                  <button type="button" onClick={() => setRightPanelOpen(true)} aria-label="Expand preview" title="Expand preview" className="flex h-8 w-8 items-center justify-center rounded-md border border-line/50 bg-bg/40 hover:border-blue/50 hover:text-ink">
+                    <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
+            </aside>
           </>
         ) : (
           <Landing
@@ -630,6 +912,18 @@ export default function App() {
       {activeSid && <ConfigModal sid={activeSid} open={overlay === 'config'} onClose={() => setOverlay('none')} />}
       {activeSid && <IdentityModal sid={activeSid} open={overlay === 'identity'} onClose={() => setOverlay('none')} />}
       {activeSid && <TranscriptModal sid={activeSid} open={overlay === 'transcript'} onClose={() => setOverlay('none')} />}
+      {activeSid && snap ? (
+        <ProjectInspectorModal
+          open={overlay === 'inspector'}
+          snap={snap}
+          journal={journalQ.data ?? []}
+          busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
+          onClose={() => setOverlay('none')}
+          onDispose={requestDispose}
+          onStop={requestStopIteration}
+          onInspect={setTaskItemId}
+        />
+      ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} onClose={() => setArtifactPath(null)} />
       <TaskDetailModal
         sid={activeSid}
@@ -647,6 +941,27 @@ export default function App() {
         onClose={() => setNewDaemonOpen(false)}
         onCreate={createDaemon}
       />
+      <PendingReplyDialog
+        reply={pendingReply}
+        open={pendingReplyOpen}
+        busy={pendingReplyBusy}
+        onClose={() => setPendingReplyOpen(false)}
+        onSubmit={answerPendingReply}
+      />
+      {activeSid && snap ? (
+        <DaemonManageModal
+          open={daemonManageOpen}
+          sid={activeSid}
+          name={snap.session.display_name || ''}
+          alive={snap.daemon.alive}
+          busy={daemonBusy}
+          onClose={() => setDaemonManageOpen(false)}
+          onRename={manageRenameProject}
+          onStart={manageStartDaemon}
+          onPause={managePauseDaemon}
+          onDelete={manageDeleteProject}
+        />
+      ) : null}
       <ActionNotice notice={notice} onClose={dismissNotice} />
     </div>
   );

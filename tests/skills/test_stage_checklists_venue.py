@@ -61,3 +61,22 @@ def test_full_pipeline_checklist_is_venue_aware(tmp_path: Path) -> None:
     assert "Anonymous submission" in aaai
     assert "up to 7 pages" in aaai
     assert "Anonymous EMNLP Submission" not in aaai
+
+
+def test_unknown_venue_does_not_break_venue_neutral_plan(tmp_path: Path) -> None:
+    root = _project(tmp_path, "Undecided pending contribution strength")
+    plan = format_stage_checklist("plan", role="reviewer", project_root=root)
+    assert "Experiment plan states the hypothesis" in plan
+    assert "`venue.profile`" not in plan
+
+
+def test_unknown_venue_blocks_full_pipeline_without_emnlp_fallback(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, "Undecided pending contribution strength")
+    checklist = format_full_pipeline_checklist(
+        role="reviewer", project_root=root
+    )
+    assert "`venue.profile`" in checklist
+    assert "do not return `done`" in checklist
+    assert "Anonymous EMNLP Submission" not in checklist

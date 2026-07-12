@@ -39,6 +39,8 @@ class CopilotModelUsage:
 
     def to_usage_jsonable(self) -> dict[str, Any]:
         return {
+            "usage_event_id": self.row_id,
+            "session_id": self.session_id,
             "model": self.model,
             "turn_index": self.turn_index,
             "input_tokens": self.input_tokens,

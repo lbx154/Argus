@@ -9,6 +9,7 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -26,6 +27,7 @@ export type {
   CostControlSnapshot,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -68,18 +70,38 @@ export interface DoctorReport {
 }
 export interface ConfigRole {
   role: string;
+  backend: string;
   backend_label: string;
+  backend_source: string;
   model: string;
-  effort: string | null;
+  model_source: string;
+  reasoning_effort: string | null;
+  reasoning_effort_source: string;
+  description: string;
+}
+export interface ConfigKnob {
+  name: string;
+  group: string;
+  value: string;
+  source: string;
+  default: string;
+  doc: string;
 }
 export interface ConfigSnapshot {
+  schema_version: number;
+  generated_at_utc: string;
   roles: ConfigRole[];
-  [k: string]: unknown;
+  operator_knobs: ConfigKnob[];
+  how_to_change: string[];
 }
 export interface Turn {
   ts: number;
   role: string; // "operator" | "argus"
   text: string;
+}
+export interface ProjectIndex {
+  projects: ProjectRow[];
+  local_cwd: string;
 }
 
 const token = (): string | null =>
@@ -91,8 +113,8 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const r = await fetch(path, { headers: authHeaders() });
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return (await r.json()) as T;
 }
@@ -112,13 +134,28 @@ async function postJson<T = Record<string, unknown>>(
   return (await r.json()) as T;
 }
 
-async function getBlob(path: string): Promise<Blob> {
-  const r = await fetch(path, { headers: authHeaders() });
+async function mutationJson<T>(
+  method: 'PATCH' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  await ensureResponseOk(r, method, path);
+  return (await r.json()) as T;
+}
+
+async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const r = await fetch(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return r.blob();
 }
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
+const commandId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 let apiMetaPromise: Promise<ApiMeta> | undefined;
 
 export function compatibleApiMeta(): Promise<ApiMeta> {
@@ -181,44 +218,90 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 
 export const api = {
   meta: compatibleApiMeta,
+  projectIndex: async () => {
+    await compatibleApiMeta();
+    return getJson<ProjectIndex>('/api/projects');
+  },
   listProjects: async () => {
     await compatibleApiMeta();
-    return getJson<{ projects: ProjectRow[] }>('/api/projects').then((r) => r.projects);
+    return getJson<ProjectIndex>('/api/projects').then((result) => result.projects);
   },
   /** Create a brand-new daemon armed with an objective, and spawn it. */
-  createDaemon: (objective: string, name = '') =>
-    postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', { objective, name }),
-  snapshot: async (sid: string) => {
+  createDaemon: (objective: string, name = '', expectedRevision?: number) =>
+    postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', {
+      objective,
+      name,
+      command_id: commandId(),
+      expected_revision: expectedRevision,
+    }),
+  updateProject: (sid: string, name: string) =>
+    mutationJson<{ ok: boolean; sid: string; name: string }>('PATCH', P(sid), { name }),
+  deleteProject: (sid: string) =>
+    mutationJson<{ ok: boolean; sid: string; trash_path: string }>('DELETE', P(sid)),
+  snapshot: async (sid: string, signal?: AbortSignal) => {
     await compatibleApiMeta();
-    const value = await getJson<unknown>(P(sid, '/snapshot?compact=true&events_limit=1'));
+    const value = await getJson<unknown>(
+      P(sid, '/snapshot?compact=true&events_limit=1'),
+      signal,
+    );
     return requireSnapshotContract(value);
   },
-  status: (sid: string) => getJson<StatusView>(P(sid, '/status')),
-  journal: (sid: string, n = 20) =>
-    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`)).then((r) => r.journal),
-  doctor: (sid: string) => getJson<DoctorReport>(P(sid, '/doctor')),
-  config: (sid: string) => getJson<ConfigSnapshot>(P(sid, '/config')),
-  identity: (sid: string) => getJson<{ identity: string }>(P(sid, '/identity')).then((r) => r.identity),
-  transcript: (sid: string, n = 30) =>
-    getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`)).then((r) => r.turns),
-  events: (sid: string, limit = 80) =>
-    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}`)).then((r) => r.events),
-  backlogItem: (sid: string, id: string) =>
-    getJson<{ item: BacklogItem }>(P(sid, `/backlog/${encodeURIComponent(id)}`)).then((r) => r.item),
-  artifacts: (sid: string) =>
-    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts')).then((r) => r.artifacts),
-  artifact: (sid: string, path: string) => {
+  status: (sid: string, signal?: AbortSignal) =>
+    getJson<StatusView>(P(sid, '/status'), signal),
+  journal: (sid: string, n = 20, signal?: AbortSignal) =>
+    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`), signal)
+      .then((r) => r.journal),
+  doctor: (sid: string, signal?: AbortSignal) =>
+    getJson<DoctorReport>(P(sid, '/doctor'), signal),
+  config: (sid: string, signal?: AbortSignal) =>
+    getJson<ConfigSnapshot>(P(sid, '/config'), signal),
+  identity: (sid: string, signal?: AbortSignal) =>
+    getJson<{ identity: string }>(P(sid, '/identity'), signal).then((r) => r.identity),
+  transcript: (sid: string, n = 30, signal?: AbortSignal) =>
+    getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`), signal)
+      .then((r) => r.turns),
+  events: (sid: string, limit = 80, signal?: AbortSignal) =>
+    getJson<{ events: EventMsg[] }>(
+      P(sid, `/events?limit=${limit}&view=ui`),
+      signal,
+    )
+      .then((r) => r.events),
+  backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
+    getJson<{ item: BacklogItem }>(
+      P(sid, `/backlog/${encodeURIComponent(id)}`),
+      signal,
+    ).then((r) => r.item),
+  artifacts: (sid: string, signal?: AbortSignal) =>
+    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
+      .then((r) => r.artifacts),
+  artifact: (sid: string, path: string, signal?: AbortSignal) => {
     const q = new URLSearchParams({ path });
-    return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`));
+    return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
-  artifactBlob: (sid: string, path: string, download = false) => {
+  artifactBlob: (
+    sid: string,
+    path: string,
+    download = false,
+    signal?: AbortSignal,
+  ) => {
     const q = new URLSearchParams({ path });
     if (download) q.set('download', 'true');
-    return getBlob(P(sid, `/artifact/raw?${q}`));
+    return getBlob(P(sid, `/artifact/raw?${q}`), signal);
   },
+  gitDiff: (sid: string, signal?: AbortSignal) =>
+    getJson<GitDiffView>(P(sid, '/git-diff'), signal),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
+  answerPending: (sid: string, itemId: string, text: string) =>
+    postJson<{
+      answered_item_id: string;
+      item: BacklogItem;
+      daemon?: { rc?: number; error?: string; admission_required?: boolean };
+    }>(
+      P(sid, `/backlog/${encodeURIComponent(itemId)}/answer`),
+      { text },
+    ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (sid: string, text: string, signal?: AbortSignal) =>
     postJson<{ kind: 'chat' | 'task' | 'error'; reply: string | null; item?: BacklogItem | null; daemon_alive?: boolean }>(
@@ -278,8 +361,15 @@ export const api = {
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
     postJson(P(sid, '/continuous'), { enabled, objective }),
-  startDaemon: (sid: string) => postJson(P(sid, '/daemon/start')),
-  stopDaemon: (sid: string, drain = false) => postJson(P(sid, '/daemon/stop'), { drain }),
+  startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
+    command_id: commandId(),
+    expected_revision: expectedRevision,
+  }),
+  stopDaemon: (sid: string, drain = false, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
+    drain,
+    command_id: commandId(),
+    expected_revision: expectedRevision,
+  }),
 };
 
 /** Open the live event stream for a project. Returns a close() fn. */
@@ -291,6 +381,7 @@ export function openStream(
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
+  q.set('view', 'ui');
   const t = token();
   if (t) q.set('token', t);
   const url = `${proto}//${window.location.host}${P(sid, '/stream')}?${q}`;

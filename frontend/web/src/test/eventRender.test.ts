@@ -22,10 +22,27 @@ describe('renderEvent', () => {
     expect(r!.tone).toBe('bright');
   });
 
+  it('renders operator and Manager conversation turns in Activity', () => {
+    const operator = renderEvent({ type: 'ui.operator', text: '继续实验' } as EventMsg);
+    const manager = renderEvent({ type: 'ui.argus', text: '已开始运行' } as EventMsg);
+    expect(operator).toMatchObject({ role: 'operator', label: 'You', text: '继续实验' });
+    expect(manager).toMatchObject({ role: 'manager', label: 'Argus', text: '已开始运行' });
+  });
+
   it('colours a review verdict by status', () => {
     expect(renderEvent({ type: 'round.review.completed', status: 'done', reason: 'ok' } as EventMsg)!.tone).toBe('ok');
     expect(renderEvent({ type: 'round.review.completed', status: 'blocked', reason: 'x' } as EventMsg)!.tone).toBe('err');
     expect(renderEvent({ type: 'round.review.completed', status: 'continue', reason: 'x' } as EventMsg)!.tone).toBe('warn');
+  });
+
+  it('shows an engineer-requested bounded review deferral', () => {
+    const rendered = renderEvent({
+      type: 'round.review.deferred',
+      round_index: 1,
+      next_step: 'wire the parser into the runner',
+    } as EventMsg);
+    expect(rendered).toMatchObject({ role: 'engineer', tone: 'info' });
+    expect(rendered!.text).toContain('wire the parser into the runner');
   });
 
   it('accepts round and round_index lifecycle schemas', () => {
@@ -41,7 +58,7 @@ describe('renderEvent', () => {
     expect(stall!.tone).toBe('warn');
     const rbf = renderEvent({ type: 'round.reviewer_backend_failure', text: 'backend down' } as EventMsg);
     expect(rbf!.tone).toBe('err');
-    expect(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as EventMsg)!.tone).toBe('err');
+    expect(renderEvent({ type: 'life.lifecycle.block', reason: 'needs creds' } as EventMsg)).toBeNull();
   });
 
   it('surfaces ANY operator_alert event loud, even an unknown type', () => {
@@ -50,6 +67,32 @@ describe('renderEvent', () => {
     expect(r!.label).toBe('Notice');
     expect(r!.tone).toBe('err');
     expect(r!.text).toContain('look here');
+  });
+
+  it('raises a persistent budget alarm for denied provider spend', () => {
+    const event = {
+      type: 'budget.reservation.denied',
+      reason: 'daily budget exhausted ($0.000000 available)',
+    } as EventMsg;
+    expect(renderEvent(event)).toMatchObject({
+      label: 'Budget',
+      tone: 'err',
+      rule: true,
+    });
+    expect(activeGuardianAlert([event])).toEqual({
+      tone: 'block',
+      kind: 'budget',
+      text: 'Budget exhausted or blocked — daily budget exhausted ($0.000000 available)',
+    });
+    expect(activeGuardianAlert([
+      event,
+      { type: 'ui.operator', text: 'retry' } as EventMsg,
+      { type: 'round.start', round: 2 } as EventMsg,
+    ])?.kind).toBe('budget');
+    expect(activeGuardianAlert([
+      event,
+      { type: 'provider.request.started' } as EventMsg,
+    ])).toBeNull();
   });
 
   it('hides reviewer protocol JSON and empty phase markers', () => {
@@ -62,6 +105,10 @@ describe('renderEvent', () => {
       text: 'I am rerunning the tests.',
     } as EventMsg)!.text).toBe('I am rerunning the tests.');
     expect(renderEvent({ type: 'life.phase.started', agent_layer: 'reviewer' } as EventMsg)).toBeNull();
+    expect(renderEvent({
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner',
+      text: '{"steps":[{"title":"draft"}]}',
+    } as EventMsg)).toBeNull();
   });
 
   it('renders the manager target_stage field', () => {

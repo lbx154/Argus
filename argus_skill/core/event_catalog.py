@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Mapping
 
 EVENT_ENVELOPE_VERSION = 1
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+_PAYLOAD_SCHEMA_PATH = Path(__file__).with_name("event_payload_schemas.json")
+
+
+def _load_payload_schemas() -> tuple[int, dict[str, dict[str, Any]]]:
+    payload = json.loads(_PAYLOAD_SCHEMA_PATH.read_text(encoding="utf-8"))
+    return int(payload["schema_version"]), dict(payload["events"])
+
+
+EVENT_PAYLOAD_SCHEMA_VERSION, EVENT_PAYLOAD_SCHEMAS = _load_payload_schemas()
 
 
 class EventCategory(StrEnum):
@@ -20,8 +31,10 @@ class EventCategory(StrEnum):
     OPERATOR = "operator"
     PLANNER = "planner"
     PROVIDER = "provider"
+    RESEARCH = "research"
     SKILL = "skill"
     USAGE = "usage"
+    WIKI = "wiki"
 
 
 class EventType(StrEnum):
@@ -40,11 +53,13 @@ class EventType(StrEnum):
     BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
     BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
     BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
+    BUDGET_FENCE_BREACH_BLOCKED = "budget.fence_breach.blocked"
     LOOP_START = "loop.start"
     LOOP_DONE = "loop.done"
     ROUND_START = "round.start"
     ROUND_MAIN_COMPLETED = "round.main.completed"
     ROUND_REVIEW_STARTED = "round.review.started"
+    ROUND_REVIEW_DEFERRED = "round.review.deferred"
     ROUND_REVIEW_COMPLETED = "round.review.completed"
     ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
@@ -76,14 +91,56 @@ class EventType(StrEnum):
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
     LIFE_INBOX_QUEUED = "life.inbox.queued"
+    LIFE_INBOX_DRAINED = "life.inbox.drained"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
+    DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
+    DAEMON_COMMAND_COMPLETED = "daemon.command.completed"
+    DAEMON_COMMAND_REJECTED = "daemon.command.rejected"
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
+    RESEARCH_HYPOTHESIS_PROPOSED = "research.hypothesis.proposed"
+    RESEARCH_EXPERIMENT_STARTED = "research.experiment.started"
+    RESEARCH_EXPERIMENT_COMPLETED = "research.experiment.completed"
+    RESEARCH_METRIC_REPORTED = "research.metric.reported"
+    RESEARCH_METRIC_VERIFIED = "research.metric.verified"
+    RESEARCH_ARTIFACT_REGISTERED = "research.artifact.registered"
+    RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
+    SKILL_OUTCOME = "skill.outcome"
+    SKILL_SCIENTIST_STARTED = "skill.scientist.started"
+    SKILL_SCIENTIST_CREATED = "skill.scientist.created"
+    SKILL_TIDIED = "skill.tidied"
+    SKILL_COMPACTED = "skill.compacted"
+    SKILL_COMPACT_ERROR = "skill.compact.error"
+    SKILL_OP_ERROR = "skill.op.error"
+    SKILL_OP_REFUSED = "skill.op.refused"
+    SKILL_PROPOSAL_REJECTED = "skill.proposal.rejected"
+    SKILL_DISTILL_REJECTED = "skill.distill.rejected"
+    SKILL_REVISED = "skill.revised"
+    SKILL_USE_RECORDED = "skill.use.recorded"
+    SKILL_HISTORY_COMPRESSED = "skill.history.compressed"
+    SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
+    WIKI_INITIALIZED = "wiki.initialized"
+    WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
+    WIKI_HOOK_OK = "wiki.hook.ok"
+    WIKI_HOOK_WARNING = "wiki.hook.warning"
+    WIKI_COMPACTED = "wiki.compacted"
+    WIKI_COMPACT_ERROR = "wiki.compact.error"
+    WIKI_OP_ERROR = "wiki.op.error"
+    WIKI_OP_REJECTED = "wiki.op.rejected"
+    WIKI_CREATED = "wiki.created"
+    WIKI_UPDATED = "wiki.updated"
+    WIKI_RETIRED = "wiki.retired"
+    WIKI_SOURCE_CREATED = "wiki.source.created"
+    WIKI_SOURCE_SKIPPED = "wiki.source.skipped"
+    WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
+    WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
+    WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
+    WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
     OPERATOR_ALERT = "operator_alert"
 
 
@@ -101,6 +158,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LOOP_DONE,
     EventType.ROUND_START,
     EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
@@ -108,6 +166,37 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_OUTCOME,
+    EventType.SKILL_SCIENTIST_STARTED,
+    EventType.SKILL_SCIENTIST_CREATED,
+    EventType.SKILL_TIDIED,
+    EventType.SKILL_COMPACTED,
+    EventType.SKILL_COMPACT_ERROR,
+    EventType.SKILL_OP_ERROR,
+    EventType.SKILL_OP_REFUSED,
+    EventType.SKILL_PROPOSAL_REJECTED,
+    EventType.SKILL_DISTILL_REJECTED,
+    EventType.SKILL_REVISED,
+    EventType.SKILL_USE_RECORDED,
+    EventType.SKILL_HISTORY_COMPRESSED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_INITIALIZATION_FAILED,
+    EventType.WIKI_HOOK_OK,
+    EventType.WIKI_HOOK_WARNING,
+    EventType.WIKI_COMPACTED,
+    EventType.WIKI_COMPACT_ERROR,
+    EventType.WIKI_OP_ERROR,
+    EventType.WIKI_OP_REJECTED,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_SOURCE_CREATED,
+    EventType.WIKI_SOURCE_SKIPPED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MANAGER_INTENT_STARTED,
@@ -126,17 +215,28 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,
+    EventType.BUDGET_FENCE_BREACH_BLOCKED,
     EventType.LIFE_LIFECYCLE_BLOCK,
     EventType.LIFE_LIFECYCLE_TRANSITION,
     EventType.PROVIDER_REQUEST_STARTED,
     EventType.PROVIDER_REQUEST_COMPLETED,
     EventType.PROVIDER_REQUEST_DENIED,
     EventType.LIFE_INBOX_QUEUED,
+    EventType.LIFE_INBOX_DRAINED,
     EventType.LIFE_DAEMON_IDLE_TIMEOUT,
     EventType.DAEMON_PARKED,
+    EventType.DAEMON_COMMAND_COMPLETED,
+    EventType.DAEMON_COMMAND_REJECTED,
     EventType.IDEA_SEARCH_STARTED,
     EventType.IDEA_SEARCH_COMPLETED,
     EventType.IDEA_SEARCH_SKIPPED,
+    EventType.RESEARCH_HYPOTHESIS_PROPOSED,
+    EventType.RESEARCH_EXPERIMENT_STARTED,
+    EventType.RESEARCH_EXPERIMENT_COMPLETED,
+    EventType.RESEARCH_METRIC_REPORTED,
+    EventType.RESEARCH_METRIC_VERIFIED,
+    EventType.RESEARCH_ARTIFACT_REGISTERED,
+    EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
     EventType.OPERATOR_ALERT,
 })
 
@@ -149,31 +249,6 @@ CALL_SCOPED_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.PROVIDER_REQUEST_DENIED,
     EventType.USAGE_RECORDED,
 })
-
-_REQUIRED_FIELDS: dict[EventType, tuple[str, ...]] = {
-    EventType.AGENT_IO_START: ("call_id", "run_label"),
-    EventType.AGENT_IO_STREAM: ("call_id", "stream", "line"),
-    EventType.AGENT_IO_COMPLETE: ("call_id", "run_label"),
-    EventType.AGENT_IO_ERROR: ("call_id", "error"),
-    EventType.USAGE_RECORDED: ("call_id", "schema_version", "provider", "status"),
-    EventType.PROVIDER_REQUEST_STARTED: ("provider", "run_label"),
-    EventType.PROVIDER_REQUEST_COMPLETED: ("provider", "run_label"),
-    EventType.PROVIDER_REQUEST_DENIED: ("provider", "run_label"),
-    EventType.BUDGET_RESERVATION_CREATED: (
-        "reservation_id",
-        "call_id",
-        "amount_usd",
-    ),
-    EventType.BUDGET_RESERVATION_DENIED: ("call_id", "reason"),
-    EventType.BUDGET_RESERVATION_SETTLED: (
-        "reservation_id",
-        "call_id",
-        "pricing_status",
-    ),
-    EventType.BUDGET_RESERVATION_RELEASED: ("reservation_id", "call_id"),
-    EventType.BUDGET_UNPRICED_BLOCKED: ("call_id", "reason"),
-}
-
 
 @dataclass(frozen=True)
 class EventSpec:
@@ -204,8 +279,12 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.PLANNER
     if value.startswith("skill."):
         return EventCategory.SKILL
+    if value.startswith("wiki."):
+        return EventCategory.WIKI
     if value.startswith("idea."):
         return EventCategory.IDEA
+    if value.startswith("research."):
+        return EventCategory.RESEARCH
     if value.startswith("daemon.") or value.startswith("life.daemon."):
         return EventCategory.DAEMON
     if value == EventType.OPERATOR_ALERT:
@@ -219,7 +298,9 @@ EVENT_SPECS: dict[EventType, EventSpec] = {
         category=_category(event_type),
         signal=event_type.value in SIGNAL_EVENT_TYPES,
         call_scoped=event_type.value in CALL_SCOPED_EVENT_TYPES,
-        required_fields=_REQUIRED_FIELDS.get(event_type, ()),
+        required_fields=tuple(
+            EVENT_PAYLOAD_SCHEMAS.get(event_type.value, {}).get("required") or ()
+        ),
     )
     for event_type in EventType
 }
@@ -237,6 +318,74 @@ def event_spec(value: Any) -> EventSpec | None:
         return EVENT_SPECS[EventType(canonical)]
     except (ValueError, KeyError):
         return None
+
+
+def event_payload_schema(value: Any) -> dict[str, Any] | None:
+    return EVENT_PAYLOAD_SCHEMAS.get(canonical_event_type(value))
+
+
+def _matches_json_type(value: Any, expected: str) -> bool:
+    if expected == "null":
+        return value is None
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "object":
+        return isinstance(value, Mapping)
+    if expected == "array":
+        return isinstance(value, list)
+    return True
+
+
+def _validate_payload(event: Mapping[str, Any], schema: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    version = int(schema.get("version") or 1)
+    recorded_version = event.get("payload_schema_version")
+    if recorded_version is not None and recorded_version != version:
+        errors.append(
+            f"payload_schema_version must be {version}; got {recorded_version!r}"
+        )
+    for field, field_schema in (schema.get("properties") or {}).items():
+        if field not in event:
+            continue
+        value = event[field]
+        expected = field_schema.get("type")
+        expected_types = expected if isinstance(expected, list) else [expected]
+        expected_types = [item for item in expected_types if isinstance(item, str)]
+        if expected_types and not any(
+            _matches_json_type(value, item) for item in expected_types
+        ):
+            errors.append(f"field {field} must be {' or '.join(expected_types)}")
+            continue
+        if "const" in field_schema and value != field_schema["const"]:
+            errors.append(f"field {field} must equal {field_schema['const']!r}")
+        allowed = field_schema.get("enum")
+        if isinstance(allowed, list) and value not in allowed:
+            errors.append(f"field {field} must be one of {allowed!r}")
+        if isinstance(value, str) and "minLength" in field_schema:
+            if len(value) < int(field_schema["minLength"]):
+                errors.append(
+                    f"field {field} must have length >= {field_schema['minLength']}"
+                )
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and "minimum" in field_schema
+            and value < float(field_schema["minimum"])
+        ):
+            errors.append(f"field {field} must be >= {field_schema['minimum']}")
+        if isinstance(value, list) and isinstance(field_schema.get("items"), dict):
+            item_type = field_schema["items"].get("type")
+            if isinstance(item_type, str) and any(
+                not _matches_json_type(item, item_type) for item in value
+            ):
+                errors.append(f"field {field} items must be {item_type}")
+    return errors
 
 
 def validate_event_envelope(
@@ -262,6 +411,9 @@ def validate_event_envelope(
         ]
         if missing:
             errors.append(f"missing required fields: {', '.join(missing)}")
+    payload_schema = event_payload_schema(raw_type)
+    if payload_schema is not None:
+        errors.extend(_validate_payload(event, payload_schema))
     ts = event.get("ts")
     if ts is not None and (isinstance(ts, bool) or not isinstance(ts, (int, float))):
         errors.append("ts must be numeric")
@@ -290,6 +442,12 @@ def normalize_event_envelope(
     out.pop("canonical_type", None)
     out.setdefault("ts", time.time() if timestamp is None else float(timestamp))
     out.setdefault("event_schema_version", EVENT_ENVELOPE_VERSION)
+    payload_schema = event_payload_schema(out.get("type"))
+    if payload_schema is not None:
+        out.setdefault(
+            "payload_schema_version",
+            int(payload_schema.get("version") or 1),
+        )
     validation = validate_event_envelope(out)
     raw_type = str(out.get("type") or "")
     if validation.canonical_type and validation.canonical_type != raw_type:
@@ -309,6 +467,8 @@ def new_event(event_type: EventType | str, /, **payload: Any) -> dict[str, Any]:
 __all__ = [
     "CALL_SCOPED_EVENT_TYPES",
     "EVENT_ENVELOPE_VERSION",
+    "EVENT_PAYLOAD_SCHEMA_VERSION",
+    "EVENT_PAYLOAD_SCHEMAS",
     "EVENT_SPECS",
     "EVENT_TYPE_RE",
     "EventCategory",
@@ -318,6 +478,7 @@ __all__ = [
     "LEGACY_EVENT_ALIASES",
     "SIGNAL_EVENT_TYPES",
     "canonical_event_type",
+    "event_payload_schema",
     "event_spec",
     "new_event",
     "normalize_event_envelope",

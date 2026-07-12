@@ -36,7 +36,16 @@ def _node_major(node: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _run_python_admin(argv: list[str]) -> int:
+    from .cli._core import main as cli_main
+
+    return cli_main(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
+    forwarded = list(sys.argv[1:] if argv is None else argv)
+    if forwarded[:1] == ["report"]:
+        return _run_python_admin(forwarded)
     bundle = _bundle_path()
     if bundle is None:
         sys.stderr.write(
@@ -54,7 +63,6 @@ def main(argv: list[str] | None = None) -> int:
             f"argus: Ink TUI requires Node.js 18 or newer (found {found}).\n"
         )
         return 2
-    forwarded = list(sys.argv[1:] if argv is None else argv)
     os.execv(node, [node, str(bundle), *forwarded])
     return 0  # pragma: no cover - execv replaces the process
 

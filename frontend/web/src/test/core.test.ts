@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   activeGuardianAlert,
   authoritativeSpend,
@@ -16,12 +18,79 @@ import {
 } from '../../../core/src';
 import { formatBytes } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
+import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
+import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
+import { MarkdownContent } from '../components/MarkdownContent';
+import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
+import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { activeProviderRequest } from '../components/EventStream';
+import { HtmlPreview } from '../components/HtmlPreview';
+import { formatStructuredData, parseDelimited } from '../components/DataPreview';
+
+const typedUsageEvent: UsageRecordedEvent = {
+  type: 'usage.recorded',
+  payload_schema_version: 2,
+  call_id: 'call-1',
+  schema_version: 2,
+  provider: 'codex',
+  status: 'completed',
+  usage: {},
+  pricing: {},
+};
 
 describe('shared frontend core', () => {
+  it('renders generated HTML only inside an opaque script sandbox', () => {
+    const markup = renderToStaticMarkup(createElement(HtmlPreview, {
+      html: '<button onclick="document.body.dataset.ok=1">Start</button>',
+      title: 'Timer preview',
+    }));
+    expect(markup).toContain('sandbox="allow-scripts"');
+    expect(markup).not.toContain('allow-same-origin');
+    expect(markup).toContain('referrerPolicy="no-referrer"');
+    expect(markup).toContain('&lt;button');
+  });
+
+  it('formats JSON and parses quoted CSV tables', () => {
+    expect(formatStructuredData('{"answer":42}')).toContain('"answer": 42');
+    expect(parseDelimited('name,note\nA,"x,y"', ',')).toEqual([
+      ['name', 'note'],
+      ['A', 'x,y'],
+    ]);
+  });
+
+  it('tracks the still-running provider request across concurrent calls', () => {
+    const first = { type: 'provider.request.started', call_id: 'a', run_label: 'engineer-r1' };
+    const second = { type: 'provider.request.started', call_id: 'b', run_label: 'manager' };
+    expect(activeProviderRequest([
+      first,
+      second,
+      { type: 'provider.request.completed', call_id: 'b' },
+    ])).toEqual(first);
+  });
+
   it('uses the canonical event catalog and explicit legacy aliases', () => {
     expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
+    expect(typedUsageEvent.payload_schema_version).toBe(2);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
+  });
+
+  it('renders operator questions in a dedicated direct-reply dialog', () => {
+    const html = renderToStaticMarkup(createElement(PendingReplyDialog, {
+      reply: {
+        id: 'blocked-1',
+        title: 'Blocked task',
+        question: 'Which dataset should the process use?',
+      },
+      open: true,
+      busy: false,
+      onClose: () => undefined,
+      onSubmit: () => undefined,
+    }));
+    expect(html).toContain('Answer required');
+    expect(html).toContain('Which dataset should the process use?');
+    expect(html).toContain('Send answer');
+    expect(html).toContain('directly to the process');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {
@@ -127,6 +196,48 @@ describe('shared frontend core', () => {
     expect(formatBytes(0)).toBe('0 B');
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
+  });
+
+  it('keeps the opening animation lightweight and bounded', () => {
+    const html = renderToStaticMarkup(
+      createElement(BootSplash, { onDone: () => undefined }),
+    );
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
+    expect((html.match(/<pre/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('<span');
+  });
+
+  it('lets the Manager choose the live canvas and prefers its rendered output', () => {
+    const artifacts = [
+      { path: 'paper/main.tex', name: 'main.tex', why: 'draft', exists: true, kind: 'text' as const, mime: 'text/plain', size: 10, mtime: 1, source: 'manager_live' as const },
+      { path: 'paper/main.pdf', name: 'main.pdf', why: 'rendered draft', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'manager_live' as const },
+      { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
+    ];
+
+    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.tex');
+    expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
+    expect(selectPreferredLiveArtifact([{
+      ...artifacts[1],
+      source: 'research_registered' as const,
+    }])).toBeNull();
+    expect(selectPreferredLiveArtifact([artifacts[2]])).toBeNull();
+    expect(selectPreferredLiveArtifact([
+      { ...artifacts[0], exists: false },
+      artifacts[2],
+    ])).toBeNull();
+  });
+
+  it('renders conversation Markdown without executing raw HTML', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n`score = 1`\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
+    );
+    expect(html).toContain('<h2');
+    expect(html).toContain('<strong');
+    expect(html).toContain('<code');
+    expect(html).toContain('whitespace-pre-wrap');
+    expect(html).not.toContain('min-w-max');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('turns API JSON detail into a useful operator-facing error', async () => {

@@ -218,3 +218,26 @@ general
         if label == "scientist.skill_distill"
     )
     assert scientist_options.live_search is True
+def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message="Delivered the requested standalone artifact."),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=2, workflow_mode="direct"),
+        on_event=events.append,
+    )
+
+    outcome = loop.run("write one short poem", workdir=tmp_path)
+
+    assert outcome.successful
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "matcher" not in labels
+    assert "scientist.skill_distill" not in labels
+    assert not any(event.get("type") == "skill.scientist.started" for event in events)

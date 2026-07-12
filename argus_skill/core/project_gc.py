@@ -108,7 +108,7 @@ def _project_is_empty(project_dir: Path) -> bool:
                 return False
         except OSError:
             pass
-    for fname, keys in (("session.json", ("display_name", "objective")),
+    for fname, keys in (("session.json", ("display_name", "objective", "origin")),
                         ("continuous.json", ("objective",))):
         try:
             f = project_dir / fname

@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+import jsonschema
 
 from argus_skill.core.event_catalog import (
     CALL_SCOPED_EVENT_TYPES,
     EVENT_ENVELOPE_VERSION,
+    EVENT_PAYLOAD_SCHEMA_VERSION,
+    EVENT_PAYLOAD_SCHEMAS,
     EVENT_SPECS,
     SIGNAL_EVENT_TYPES,
     EventType,
@@ -39,6 +45,7 @@ def test_envelope_normalization_versions_events_and_marks_invalid_known_rows() -
     )
     assert valid["type"] == "agent.io.start"
     assert valid["event_schema_version"] == EVENT_ENVELOPE_VERSION
+    assert valid["payload_schema_version"] == 1
     assert isinstance(valid["ts"], float)
     assert "event_validation" not in valid
 
@@ -50,6 +57,28 @@ def test_envelope_normalization_versions_events_and_marks_invalid_known_rows() -
     assert invalid["event_validation"]["errors"] == [
         "missing required fields: run_label"
     ]
+
+
+def test_payload_schema_validates_types_and_payload_versions() -> None:
+    invalid = normalize_event_envelope({
+        "type": EventType.AGENT_IO_COMPLETE,
+        "call_id": "call-1",
+        "run_label": "engineer-r1",
+        "input_tokens": "100",
+    })
+    assert "field input_tokens must be integer" in invalid["event_validation"]["errors"]
+
+    usage = normalize_event_envelope({
+        "type": EventType.USAGE_RECORDED,
+        "call_id": "call-2",
+        "schema_version": 2,
+        "provider": "codex",
+        "status": "completed",
+        "usage": {},
+        "pricing": {},
+    })
+    assert usage["payload_schema_version"] == 2
+    assert "event_validation" not in usage
 
 
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
@@ -81,6 +110,12 @@ def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
     assert rows[1]["event_validation"]["errors"] == [
         "missing required fields: error"
     ]
+    metrics = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert metrics[-1]["name"] == "event.validation_failure"
+    assert metrics[-1]["labels"]["type"] == "agent.io.error"
 
 
 def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
@@ -98,3 +133,31 @@ def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
     call_block = source.split("CALL_SCOPED_EVENT_TYPES", 1)[1].split("]);", 1)[0]
     call_names = set(re.findall(r"EVENT_TYPES\.([A-Z0-9_]+)", call_block))
     assert {EventType[name].value for name in call_names} == CALL_SCOPED_EVENT_TYPES
+
+
+def test_payload_schema_is_standard_json_schema_and_generated_types_are_current() -> None:
+    schema_path = (
+        Path(__file__).parents[2]
+        / "argus_skill"
+        / "core"
+        / "event_payload_schemas.json"
+    )
+    payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(payload)
+    for event_schema in payload["events"].values():
+        jsonschema.Draft202012Validator.check_schema({
+            "type": "object",
+            **event_schema,
+        })
+    assert payload["schema_version"] == EVENT_PAYLOAD_SCHEMA_VERSION
+    assert set(payload["events"]) == set(EVENT_PAYLOAD_SCHEMAS)
+    assert set(payload["events"]) <= {event.value for event in EventType}
+
+    result = subprocess.run(
+        [sys.executable, "scripts/generate_event_payload_types.py", "--check"],
+        cwd=Path(__file__).parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout

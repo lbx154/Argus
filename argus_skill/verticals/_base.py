@@ -167,6 +167,12 @@ def vertical_completion_gate(mod: ModuleType) -> str:
     return "full_paper"
 
 
+def vertical_workflow_mode(mod: ModuleType) -> str:
+    """Return ``direct`` for lean one-mission verticals, else ``staged``."""
+    mode = str(getattr(mod, "WORKFLOW_MODE", "") or "").strip().lower()
+    return "direct" if mode == "direct" else "staged"
+
+
 def vertical_search_altitude(mod: ModuleType, project_root: object) -> str:
     """Return ``mod.search_altitude_context(project_root)`` or ``""``.
 
@@ -230,6 +236,7 @@ __all__ = [
     "vertical_checklist_items",
     "vertical_role_banner",
     "vertical_completion_gate",
+    "vertical_workflow_mode",
     "vertical_search_altitude",
     "vertical_search_altitude_facts",
     "vertical_strategy_pool",

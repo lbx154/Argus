@@ -37,6 +37,7 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +52,10 @@ from ..core.copilot_usage import (
     read_copilot_usage_since,
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
+from ..core.metrics import metrics_root_for_project, record_metric
+from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
+from ..core.runner_errors import result_has_pre_provider_refusal
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +99,122 @@ _COMPACT_IO_RUN_LABELS = frozenset({
 
 def _compact_agent_io(run_label: str) -> bool:
     return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
+
+
+def resolve_pricing_model(
+    response_model: str | None,
+    request_model: str | None,
+    configured_default: str | None,
+) -> tuple[str, str]:
+    """Pick the model id to record for pricing, with a traceable fallback source.
+
+    Returns ``(model, fallback_source)``.  ``fallback_source`` is ``""`` when the
+    model came straight from the provider response (no fallback needed); it names
+    where the value was recovered from otherwise: ``"request"`` (the caller's
+    configured ``options.model``), ``"configured_default"`` (the backend's
+    resolved default model), or ``"none"`` (nothing usable — recorded empty so
+    pricing still, honestly, marks the call ``unpriced`` and the cost gate can
+    block).
+
+    The bug this fixes: a codex call that does not pin a model — e.g. every
+    ``Manager`` classify call, which builds ``RunnerOptions(...)`` with no
+    ``model=`` — gets no ``model`` echoed back in the codex response, so the
+    usage record used to be written with an empty model.  An empty model is
+    ``unpriced``, and one unresolved ``unpriced`` call trips ``cost_control``'s
+    block guard, freezing every subsequent provider call on the whole root.
+    Falling back to the configured/canonical model prices the call truthfully
+    (it IS the model codex used) instead of silently wedging the gate.
+    """
+    resp = str(response_model or "").strip()
+    if resp:
+        return resp, ""
+    req = str(request_model or "").strip()
+    if req:
+        return req, "request"
+    default = str(configured_default or "").strip()
+    if default:
+        return default, "configured_default"
+    return "", "none"
+
+
+def _normalize_codex_selection_args(
+    args: list[str] | None,
+) -> tuple[list[str], str, str, str, bool]:
+    """Remove model selectors while preserving unrelated Codex CLI args."""
+    cleaned: list[str] = []
+    direct_model = ""
+    config_model = ""
+    profile = ""
+    ignore_user_config = False
+    values = list(args or [])
+    index = 0
+    while index < len(values):
+        value = str(values[index] or "").strip()
+        if value in {"-m", "--model"} and index + 1 < len(values):
+            direct_model = str(values[index + 1] or "").strip()
+            index += 2
+            continue
+        if value.startswith("--model="):
+            direct_model = value.partition("=")[2].strip()
+            index += 1
+            continue
+        if value in {"-c", "--config"} and index + 1 < len(values):
+            payload = str(values[index + 1] or "")
+            key, sep, raw = payload.partition("=")
+            if sep and key.strip() == "model":
+                config_model = raw.strip().strip("\"'")
+            else:
+                cleaned.extend([value, payload])
+            index += 2
+            continue
+        if value.startswith("--config="):
+            payload = value.partition("=")[2]
+            key, sep, raw = payload.partition("=")
+            if sep and key.strip() == "model":
+                config_model = raw.strip().strip("\"'")
+            else:
+                cleaned.append(value)
+            index += 1
+            continue
+        if value in {"-p", "--profile"} and index + 1 < len(values):
+            profile = str(values[index + 1] or "").strip()
+            index += 2
+            continue
+        if value.startswith("--profile="):
+            profile = value.partition("=")[2].strip()
+            index += 1
+            continue
+        if value == "--ignore-user-config":
+            ignore_user_config = True
+        cleaned.append(values[index])
+        index += 1
+    return cleaned, direct_model, config_model, profile, ignore_user_config
+
+
+def resolve_codex_execution_model(
+    request_model: str | None,
+    configured_model: str | None,
+    default_extra_args: list[str] | None = None,
+    call_extra_args: list[str] | None = None,
+) -> str:
+    """Resolve one model using Codex CLI's direct/config/file precedence."""
+    _cleaned, default_direct, default_config, _profile, _ignore = (
+        _normalize_codex_selection_args(default_extra_args)
+    )
+    _cleaned, call_direct, call_config, _profile, _ignore = (
+        _normalize_codex_selection_args(call_extra_args)
+    )
+    direct = (
+        str(request_model or "").strip()
+        or call_direct
+        or default_direct
+    )
+    return (
+        direct
+        or call_config
+        or default_config
+        or str(configured_model or "").strip()
+    )
 
 
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
@@ -315,13 +435,21 @@ class AgentCliBackend:
         self._external_event_callback = event_callback
         self._io_log_lock = threading.Lock()
         self._io_context = threading.local()
+        raw_default_extra_args = list(default_extra_args or [])
+        codex_backend = chosen == deps["BACKEND_CODEX"]
+        normalized_default_extra_args = (
+            _normalize_codex_selection_args(raw_default_extra_args)[0]
+            if codex_backend
+            else raw_default_extra_args
+        )
         self._argus_runner = deps["AgentCliRunner"](
             agent_bin=runner_bin,
             backend=chosen,
             event_callback=self._stream_event_callback,
-            default_extra_args=default_extra_args,
+            default_extra_args=normalized_default_extra_args,
             before_exec=before_exec,
         )
+        self._default_extra_args = raw_default_extra_args
         self._backend_name = chosen
         self._is_codex = chosen == deps["BACKEND_CODEX"]
         self._is_copilot = chosen == deps["BACKEND_COPILOT"]
@@ -382,6 +510,54 @@ class AgentCliBackend:
         with self._usage_context_lock:
             return self._usage_project_root, self._usage_mission_id
 
+    def _configured_pricing_model(self, *, profile: str = "") -> str:
+        """Read the implicit model from Codex's own config, never another route."""
+        if not self._is_codex:
+            return ""
+        try:
+            from ..tools.capability_vault import read_codex_default_model
+
+            return read_codex_default_model(os.environ, profile=profile)
+        except Exception:  # noqa: BLE001 — accounting must never break a call
+            return ""
+
+    def _resolve_execution_options(self, options: RunnerOptions) -> RunnerOptions:
+        if not self._is_codex:
+            return options
+        normalized_call_args, _direct, _config, call_profile, call_ignore = (
+            _normalize_codex_selection_args(options.extra_args)
+        )
+        (
+            _normalized_defaults,
+            _default_direct,
+            _default_config,
+            default_profile,
+            default_ignore,
+        ) = _normalize_codex_selection_args(self._default_extra_args)
+        effective_profile = call_profile or default_profile
+        configured_model = (
+            ""
+            if call_ignore or default_ignore
+            else self._configured_pricing_model(
+                profile=effective_profile,
+            )
+        )
+        model = resolve_codex_execution_model(
+            options.model,
+            configured_model,
+            self._default_extra_args,
+            options.extra_args,
+        )
+        return replace(
+            options,
+            model=model or None,
+            extra_args=(
+                [*(["--profile", effective_profile] if effective_profile else []),
+                 *normalized_call_args]
+                or None
+            ),
+        )
+
     # --- RunnerBackend.run_exec ------------------------------------------
 
     def run_exec(
@@ -392,10 +568,13 @@ class AgentCliBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
+        # Pin Codex's implicit config model before any accounting or execution.
+        # The generated command, reservation, and settled usage record therefore
+        # share one model id instead of independently guessing after the call.
+        options = self._resolve_execution_options(options)
         # Reset per-call: the flag is checked AFTER this call completes,
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
-        argus_options = self._translate_options(options)
         call_id = uuid.uuid4().hex
         started_at = time.time()
         log_path = self._agent_io_log_path(options)
@@ -421,6 +600,7 @@ class AgentCliBackend:
         ) -> RunnerResult:
             completed_at = time.time()
             usage_record = None
+            reservation_overrun_usd: float | None = None
             result.call_id = call_id
             result.thread_id = result.thread_id or resume_thread_id
             result.started_at = started_at
@@ -461,12 +641,28 @@ class AgentCliBackend:
                         usage_recorded_event,
                     )
 
+                    pricing_model, model_fallback_source = resolve_pricing_model(
+                        result.usage_model,
+                        options.model,
+                        None,
+                    )
+                    if model_fallback_source == "configured_default":
+                        # Traceability without spamming the durable event tape:
+                        # the provider response AND the request both lacked a
+                        # model, so the call was priced via the configured
+                        # default rather than a model the provider named.
+                        log.debug(
+                            "codex model id empty for %s (call %s); pricing via "
+                            "configured default %s "
+                            "(raw_model_empty=True, model_fallback_source=%s)",
+                            run_label, call_id, pricing_model, model_fallback_source,
+                        )
                     record = build_usage_record(
                         call_id=call_id,
                         project_root=usage_project_root,
                         mission_id=usage_mission_id,
                         provider=self._backend_name,
-                        model=result.usage_model or str(options.model or ""),
+                        model=pricing_model,
                         run_label=run_label,
                         started_at=started_at,
                         completed_at=completed_at,
@@ -507,6 +703,14 @@ class AgentCliBackend:
                             "reason": error or str(result.fatal_error or "not_started"),
                         })
                     elif usage_record is not None:
+                        reservation_overrun_usd = (
+                            max(
+                                0.0,
+                                usage_record.cost_usd - cost_reservation.amount_usd,
+                            )
+                            if usage_record.cost_usd is not None
+                            else None
+                        )
                         cost_reservation.settle(usage_record)
                         self._log_agent_io(log_path, {
                             "type": EventType.BUDGET_RESERVATION_SETTLED,
@@ -514,6 +718,12 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": usage_record.cost_usd,
+                            "overrun_usd": reservation_overrun_usd,
+                            "fence_breached": bool(
+                                reservation_overrun_usd
+                                and reservation_overrun_usd > 0
+                            ),
+                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
@@ -527,16 +737,63 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": None,
+                            "overrun_usd": None,
+                            "fence_breached": False,
+                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": "unknown",
                             "error": reason,
                         })
                 except Exception:  # noqa: BLE001 — metering must not break work
                     log.exception("failed to settle cost reservation for %s", call_id)
+            if usage_project_root is not None:
+                try:
+                    record_metric(
+                        metrics_root_for_project(usage_project_root),
+                        "provider.call",
+                        labels={
+                            "provider": self._backend_name,
+                            "status": status,
+                            "pricing_status": result.pricing_status or "unknown",
+                        },
+                        fields={
+                            "call_id": call_id,
+                            "mission_id": usage_mission_id,
+                            "run_label": run_label,
+                            "duration_ms": result.duration_ms,
+                            "cost_usd": result.cost_usd,
+                            "input_tokens": result.input_tokens,
+                            "output_tokens": result.output_tokens,
+                            "reservation_usd": (
+                                cost_reservation.amount_usd
+                                if cost_reservation is not None
+                                else None
+                            ),
+                            "fence_enforcement": (
+                                cost_reservation.provider_fence.enforcement
+                                if cost_reservation is not None
+                                else "none"
+                            ),
+                            "overrun_usd": reservation_overrun_usd,
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("failed to record provider metric for %s", call_id)
             self._io_context.current = None
             return result
 
+        # Reservation happens before the provider responds, so there is no
+        # response model yet — attribute it to the request model, falling back to
+        # the configured default (same rule as the settled usage record) so the
+        # reservation ledger and its events never carry an empty codex model.
+        reservation_model = resolve_pricing_model(
+            None, options.model, None,
+        )[0]
         try:
-            from ..core.cost_control import cost_control_enabled, reserve_call_budget
+            from ..core.cost_control import (
+                cost_control_enabled,
+                per_call_budget_cap_usd,
+                reserve_call_budget,
+            )
 
             if cost_control_enabled():
                 cost_reservation, reserve_reason = reserve_call_budget(
@@ -544,15 +801,19 @@ class AgentCliBackend:
                     project_root=usage_project_root,
                     mission_id=usage_mission_id,
                     provider=self._backend_name,
-                    model=str(options.model or ""),
+                    model=reservation_model,
                     run_label=run_label,
+                    per_mission_cap_usd=mission_cap_from_guard(
+                        self._budget_reason_provider
+                    ),
+                    per_call_cap_usd=per_call_budget_cap_usd(),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {
                         "type": EventType.BUDGET_RESERVATION_DENIED,
                         "call_id": call_id,
                         "provider": self._backend_name,
-                        "model": str(options.model or ""),
+                        "model": reservation_model,
                         "run_label": run_label,
                         "reason": reserve_reason,
                     })
@@ -570,9 +831,10 @@ class AgentCliBackend:
                     "reservation_id": cost_reservation.reservation_id,
                     "call_id": call_id,
                     "provider": self._backend_name,
-                    "model": str(options.model or ""),
+                    "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
+                    **cost_reservation.provider_fence.event_fields(),
                 })
         except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
             reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
@@ -580,10 +842,35 @@ class AgentCliBackend:
                 "type": EventType.BUDGET_RESERVATION_DENIED,
                 "call_id": call_id,
                 "provider": self._backend_name,
-                "model": str(options.model or ""),
+                "model": reservation_model,
                 "run_label": run_label,
                 "reason": reason,
             })
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                ),
+                status="denied",
+                error=reason,
+            )
+
+        if cost_reservation is not None:
+            fence = cost_reservation.provider_fence
+            options = replace(
+                options,
+                max_budget_usd=(
+                    fence.limit_usd if fence.enforcement == "hard" else None
+                ),
+                max_ai_credits=(
+                    fence.max_ai_credits if fence.enforcement == "soft" else None
+                ),
+            )
+        try:
+            argus_options = self._translate_options(options)
+        except Exception as exc:  # noqa: BLE001 - release reservation on setup failure
+            reason = f"runner option translation failed: {type(exc).__name__}: {exc}"
             return _finalize_result(
                 RunnerResult(
                     exit_code=-1,
@@ -842,6 +1129,19 @@ class AgentCliBackend:
         stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
         fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
         failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+        pre_provider_refusal = bool(
+            result_has_pre_provider_refusal(argus_result)
+            and translated.total_nano_aiu is None
+            and not translated.model_usage
+            and not translated.premium_requests_present
+            and not any((
+                translated.input_tokens_present,
+                translated.cached_input_tokens_present,
+                translated.cache_write_tokens_present,
+                translated.output_tokens_present,
+                translated.reasoning_output_tokens_present,
+            ))
+        )
 
         # Detect auth/policy failures even when Copilot exits 0 but reports
         # turn_failed=true. Policy denial previously looked "successful" at the
@@ -873,6 +1173,9 @@ class AgentCliBackend:
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
             "fatal_error": getattr(argus_result, "fatal_error", None),
+            "tool_activity_observed": bool(
+                getattr(argus_result, "tool_activity_observed", False)
+            ),
             "input_tokens": translated.input_tokens,
             "cached_input_tokens": translated.cached_input_tokens,
             "cache_write_tokens": translated.cache_write_tokens,
@@ -901,7 +1204,13 @@ class AgentCliBackend:
         self._log_agent_io(log_path, complete_row)
         return _finalize_result(
             translated,
-            status="error" if failed else "completed",
+            status=(
+                "denied"
+                if pre_provider_refusal
+                else "error"
+                if failed
+                else "completed"
+            ),
             error=failure_text,
         )
 
@@ -933,6 +1242,9 @@ class AgentCliBackend:
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
+        canonical_stream = stream.rsplit(".", 1)[-1]
+        if canonical_stream not in {"stdout", "stderr"}:
+            canonical_stream = "stdout"
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
@@ -941,7 +1253,7 @@ class AgentCliBackend:
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),
                 "model": ctx.get("model"),
-                "stream": stream,
+                "stream": canonical_stream,
                 "line": line,
                 "ts": time.time(),
             })
@@ -988,11 +1300,17 @@ class AgentCliBackend:
         # field; then we degrade gracefully to no live search rather than crash.
         if "live_search" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["live_search"] = getattr(options, "live_search", False)
+        if "sandbox_mode" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
         # Forward the live assistant-block callback the same guarded way — only
         # the Manager chat front-door sets it, and a vendored copy without the
         # field degrades to no streaming rather than crashing.
         if "on_agent_message" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
+        if "max_budget_usd" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["max_budget_usd"] = getattr(options, "max_budget_usd", None)
+        if "max_ai_credits" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["max_ai_credits"] = getattr(options, "max_ai_credits", None)
         return argus_cls(**kwargs)
 
     def _translate_result(
@@ -1079,6 +1397,9 @@ class AgentCliBackend:
                 list(copilot_usage.model_usage)
                 if copilot_usage is not None
                 else []
+            ),
+            tool_activity_observed=bool(
+                getattr(argus_result, "tool_activity_observed", False)
             ),
         )
 

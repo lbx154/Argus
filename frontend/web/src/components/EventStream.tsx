@@ -5,42 +5,238 @@ import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { rotate, IDLE_LINES } from '../lib/soul';
 import { PanelHeader, EmptyHint } from './primitives';
-import {
-  EVENT_VIEW_FILTERS,
-  eventMatchesView,
-  type EventViewFilter,
-} from '../../../core/src/events';
+import { MarkdownContent } from './MarkdownContent';
+import { ArgusMark } from './Wordmark';
 
-const FILTER_LABEL: Record<EventViewFilter, string> = {
-  all: 'all',
-  attention: 'watch',
-  milestones: 'milestones',
-  messages: 'messages',
-};
+type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
+type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
+const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
+const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
-function EventRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
+export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
+  const active = new Map<string, EventMsg>();
+  events.forEach((event) => {
+    const type = String(event.type ?? '');
+    const callId = String(event.call_id ?? '');
+    if (!callId) return;
+    if (type === 'provider.request.started') active.set(callId, event);
+    else if (type === 'provider.request.completed' || type === 'provider.request.denied') active.delete(callId);
+  });
+  return Array.from(active.values()).at(-1) ?? null;
+}
+
+function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
   return (
     <div
-      className={`group flex flex-wrap gap-x-2 gap-y-0.5 border-b border-line/30 px-3 py-1.5 font-mono text-[12px] leading-relaxed last:border-b-0 sm:flex-nowrap ${r.reasoning ? 'opacity-70' : ''}`}
-      style={r.rule ? { borderTop: `1px solid ${roleHue}22`, marginTop: 3, paddingTop: 5 } : undefined}
+      className={`group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-70' : ''}`}
+      style={r.rule ? { marginTop: 4 } : undefined}
     >
-      <span className="shrink-0 select-none text-ink-faint tabular-nums">{clockOf(ev)}</span>
-      <span
-        className="w-[68px] shrink-0 truncate text-[10px] font-medium uppercase tracking-wide"
-        style={{ color: roleHue }}
-        title={r.label}
-      >
-        {r.label}
-      </span>
-      <span className="shrink-0 select-none" style={{ color }}>
-        {r.glyph}
-      </span>
-      <span className="min-w-0 basis-full whitespace-pre-wrap break-words sm:basis-auto" style={{ color }}>
-        {r.text}
-      </span>
+      <div className="relative flex justify-center">
+        {!first ? <span className="absolute -top-2.5 h-4 w-px bg-line/60" /> : null}
+        {!last ? <span className="absolute -bottom-2.5 top-2 w-px bg-line/60" /> : null}
+        <span
+          className="relative z-10 mt-1.5 h-2 w-2 rounded-full border-2 border-panel"
+          style={{ backgroundColor: roleHue, boxShadow: `0 0 0 1px ${roleHue}55` }}
+        />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            className="truncate text-xs font-semibold uppercase tracking-[0.06em]"
+            style={{ color: roleHue }}
+            title={r.label}
+          >
+            {r.label}
+          </span>
+          <span className="text-xs" style={{ color }}>{r.glyph}</span>
+          <time className="ml-auto font-mono text-xs tabular-nums text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
+            {clockOf(ev)}
+          </time>
+        </div>
+        <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5" style={{ color }}>
+          {r.text}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
+  const operator = String(ev.type) === 'ui.operator';
+  return (
+    <article className={`group mx-auto w-full max-w-[760px] px-4 py-3 sm:px-6 ${operator ? 'animate-appear-right' : 'animate-appear'}`}>
+      {operator ? (
+        <div className="flex items-end justify-end gap-2">
+          <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
+          <div className="max-w-[calc(100%_-_3rem)] rounded-[18px] bg-conversation-user px-4 py-2.5 text-[15px] leading-relaxed text-ink ring-1 ring-line/35 sm:max-w-[82%]">
+            <MarkdownContent>{r.text}</MarkdownContent>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-3">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center">
+            <ArgusMark size={26} className="text-blue" />
+          </span>
+          <div className="relative min-w-0 flex-1 text-[15px] leading-relaxed text-ink">
+            <div className="mb-1 flex items-center">
+              <span className="text-xs font-semibold text-blue">Argus</span>
+            </div>
+            <time className="absolute right-0 top-0 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
+            <MarkdownContent>{r.text}</MarkdownContent>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function RoleLogGroup({
+  role,
+  rows,
+  open,
+  active,
+  onToggle,
+}: {
+  role: typeof ROLE_ORDER[number];
+  rows: ActivityRow[];
+  open: boolean;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const color = theme.role[role];
+  const logScroller = useRef<HTMLDivElement>(null);
+  const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (logScroller.current && logScroller.current.scrollHeight > logScroller.current.clientHeight) {
+        logScroller.current.scrollTop = logScroller.current.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, rows.length, tailLength]);
+  return (
+    <section className="border-b border-line/50">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="group flex h-11 w-full items-center gap-2 px-4 text-left transition-colors hover:bg-bg/60"
+      >
+        <span
+          className={`h-2 w-2 rounded-full ${active ? 'animate-pulse' : 'opacity-55'}`}
+          style={{ background: color }}
+        />
+        <span className="text-xs font-semibold capitalize text-ink-dim">{role}</span>
+        <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
+        {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{rows[rows.length - 1].r.text}</span> : <span className="flex-1" />}
+        <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <path d="m6 3.5 4.5 4.5L6 12.5" />
+        </svg>
+      </button>
+      <div className={`grid transition-[grid-template-rows] duration-panel ease-panel ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="min-h-0 overflow-hidden">
+          <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
+            {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
+              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
+            )) : <div className="px-4 py-3 text-xs text-ink-faint">No logs</div>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConversationThread({ group, latest }: { group: ConversationGroup; latest: boolean }) {
+  const isSystemMessage = (row: ActivityRow) =>
+    row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
+  const replyParts = group.rows
+    .filter((row) => row.ev.type === 'ui.argus')
+    .map((row) => {
+      const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
+      const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
+      return {
+        reply: text && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
+        messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
+      };
+    });
+  const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
+  const systemMessages = replyParts.flatMap((part) => part.messages);
+  const operational = group.rows.filter(({ ev }) => ev.type !== 'ui.argus');
+  const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
+    manager: [],
+    planner: [],
+    engineer: [],
+    reviewer: [],
+  };
+  const systemRows: ActivityRow[] = [];
+  operational.forEach((row) => {
+    if (ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number])) {
+      roleRows[row.r.role as typeof ROLE_ORDER[number]].push(row);
+    } else {
+      systemRows.push(row);
+    }
+  });
+  const lastRole = [...operational].reverse().find((row) =>
+    ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]),
+  )?.r.role ?? '';
+  const [openRoles, setOpenRoles] = useState<Set<string>>(
+    () => new Set(latest && lastRole ? [lastRole] : []),
+  );
+  const userToggledRole = useRef(false);
+  const logCount = operational.length;
+  useEffect(() => {
+    if (!latest || !lastRole || userToggledRole.current) return;
+    setOpenRoles(new Set([lastRole]));
+  }, [lastRole, latest]);
+
+  return (
+    <section className="border-b border-line/60">
+      <ConversationRow ev={group.operator.ev} r={group.operator.r} />
+      {replies.map((row) => <ConversationRow key={row.key} ev={row.ev} r={row.r} />)}
+      {systemMessages.map((message, index) => (
+        <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-[760px] px-6 py-1.5 text-center text-xs text-ink-faint">
+          {message}
+        </div>
+      ))}
+      {logCount > 0 ? (
+        <div className="mx-auto w-full max-w-[760px] border-t border-line/40 bg-bg/25">
+          {ROLE_ORDER.map((role) => (
+            <RoleLogGroup
+              key={`${group.key}-${role}`}
+              role={role}
+              rows={roleRows[role]}
+              open={openRoles.has(role)}
+              active={lastRole === role}
+              onToggle={() => {
+                userToggledRole.current = true;
+                setOpenRoles((current) => {
+                  const next = new Set(current);
+                  if (next.has(role)) next.delete(role);
+                  else next.add(role);
+                  return next;
+                });
+              }}
+            />
+          ))}
+          {systemRows.length > 0 ? (
+            <details className="border-b border-line/50">
+              <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
+                <span>System</span>
+                <span className="font-mono">{systemRows.length}</span>
+              </summary>
+              <div className="border-t border-line/40">
+                {systemRows.map(({ ev, r, key }, index) => (
+                  <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === systemRows.length - 1} />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -55,16 +251,28 @@ export function EventStream({
   connected,
   showReasoning,
   onToggleReasoning,
+  embedded = false,
 }: {
   events: EventMsg[];
   connected: boolean;
   showReasoning: boolean;
   onToggleReasoning: () => void;
+  embedded?: boolean;
 }) {
   const [following, setFollowing] = useState(true);
-  const [filter, setFilter] = useState<EventViewFilter>('all');
-  const [query, setQuery] = useState('');
+  const [earlierOpen, setEarlierOpen] = useState(true);
+  const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
+  const activeProvider = useMemo(() => activeProviderRequest(events), [events]);
+  useEffect(() => {
+    if (!activeProvider) return;
+    setActivityTick(Date.now());
+    const id = window.setInterval(() => setActivityTick(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [activeProvider]);
+  const providerElapsed = activeProvider
+    ? Math.max(0, Math.floor((activityTick - Number(activeProvider.ts ?? 0) * 1_000) / 1_000))
+    : 0;
 
   // render + whitelist + COALESCE streaming message fragments once per change.
   // engineer.progress message events stream in fragments sharing a message_id
@@ -102,16 +310,33 @@ export function EventStream({
     return { list: out, hiddenReasoning };
   }, [events, showReasoning]);
 
-  const rows = useMemo(() => ({
-    ...baseRows,
-    list: baseRows.list.filter(({ ev, r }) => eventMatchesView(ev, r, filter, query)),
-  }), [baseRows, filter, query]);
+  const rows = baseRows;
+  const conversations = useMemo(() => {
+    const groups: ConversationGroup[] = [];
+    const earlier: ActivityRow[] = [];
+    let current: ConversationGroup | null = null;
+    rows.list.forEach((row) => {
+      if (row.ev.type === 'ui.operator') {
+        current = { key: row.key, operator: row, rows: [] };
+        groups.push(current);
+      } else if (current) {
+        current.rows.push(row);
+      } else {
+        earlier.push(row);
+      }
+    });
+    return { groups, earlier };
+  }, [rows.list]);
 
   const reasoningTotal = useMemo(() => events.filter(isReasoning).length, [events]);
+  const tailContentLength = useMemo(
+    () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
+    [rows.list],
+  );
 
   useLayoutEffect(() => {
     if (following && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [rows.list.length, following, filter, query]);
+  }, [rows.list.length, tailContentLength, following]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -123,80 +348,79 @@ export function EventStream({
 
   const jump = () => {
     setFollowing(true);
-    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
   };
 
   return (
-    <section className="card relative flex min-h-0 flex-1 flex-col">
+    <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
+      embedded ? '' : 'rounded-lg border border-line/80'
+    }`}>
       <PanelHeader
-        title="Live feed"
+        title="Activity"
         right={
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-ink-faint">
-              {rows.list.length}{rows.list.length !== baseRows.list.length ? `/${baseRows.list.length}` : ''} shown
-            </span>
             <button
               onClick={onToggleReasoning}
-              className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+              className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                 showReasoning ? 'text-blue-sky' : 'text-ink-faint hover:text-ink-dim'
               }`}
               title="toggle agent reasoning (⌘O)"
             >
               reasoning{reasoningTotal ? ` ·${reasoningTotal}` : ''}
             </button>
-            <span className={`text-[10px] ${connected ? 'text-ok' : 'text-ink-faint'}`}>
+            <span className={`text-xs ${connected ? 'text-ok' : 'text-ink-faint'}`}>
               {connected ? '● live' : '○ reconnecting'}
             </span>
           </div>
         }
       />
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
-        <label className="relative min-w-[130px] flex-1">
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-ink-faint">/</span>
-          <span className="sr-only">Search live feed</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search feed"
-            className="h-7 w-full rounded border border-line bg-bg/50 pl-6 pr-2 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-blue-deep"
-          />
-        </label>
-        <div className="flex max-w-full gap-1 overflow-x-auto scroll-thin" role="group" aria-label="Filter live feed">
-          {EVENT_VIEW_FILTERS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={filter === value}
-              onClick={() => setFilter(value)}
-              className={`shrink-0 rounded border px-2 py-1 text-[10px] transition-colors ${
-                filter === value
-                  ? value === 'attention'
-                    ? 'border-warn/50 bg-warn/10 text-warn'
-                    : 'border-blue-deep/50 bg-blue-deep/15 text-blue-sky'
-                  : 'border-transparent text-ink-faint hover:border-line hover:text-ink-dim'
-              }`}
-            >
-              {FILTER_LABEL[value]}
-            </button>
-          ))}
+      {activeProvider ? (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
+          <span className="truncate">
+            {String(activeProvider.run_label ?? 'provider call')} · working
+          </span>
+          <span className="ml-auto shrink-0 font-mono tabular-nums text-ink-faint">
+            {providerElapsed}s
+          </span>
         </div>
-      </div>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto scroll-thin py-1.5">
+      ) : null}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
         {rows.list.length === 0 ? (
-          <EmptyHint>
-            {query || filter !== 'all' ? 'no events match this view' : rotate(IDLE_LINES)}
-          </EmptyHint>
+          <EmptyHint>{rotate(IDLE_LINES)}</EmptyHint>
         ) : (
-          rows.list.map(({ ev, r, key }) => <EventRow key={key} ev={ev} r={r} />)
+          <>
+            {conversations.earlier.length > 0 ? (
+              <details
+                open={earlierOpen}
+                onToggle={(event) => setEarlierOpen(event.currentTarget.open)}
+                className="border-b border-line/60"
+              >
+                <summary className="flex h-11 cursor-pointer list-none items-center gap-2 px-4 text-xs font-medium text-ink-dim hover:bg-bg/60">
+                  Earlier activity
+                  <span className="font-mono text-ink-faint">{conversations.earlier.length}</span>
+                </summary>
+                <div className="border-t border-line/40">
+                  {conversations.earlier.map(({ ev, r, key }, index) => (
+                    <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === conversations.earlier.length - 1} />
+                  ))}
+                </div>
+              </details>
+            ) : null}
+            {conversations.groups.map((group, index) => (
+              <ConversationThread key={group.key} group={group} latest={index === conversations.groups.length - 1} />
+            ))}
+          </>
         )}
       </div>
       {!following && (
         <button
           onClick={jump}
-          className="absolute bottom-3 right-4 rounded border border-line bg-surface px-3 py-1 text-[11px] text-ink-dim shadow-glow transition-colors hover:border-ink-faint hover:text-ink"
+          aria-label="Jump to latest"
+          title="Jump to latest"
+          className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-line/60 bg-panel text-sm text-ink-dim shadow-glow transition-all duration-200 hover:border-ink-faint hover:text-ink"
         >
-          ↓ jump to latest
+          ↓
         </button>
       )}
     </section>

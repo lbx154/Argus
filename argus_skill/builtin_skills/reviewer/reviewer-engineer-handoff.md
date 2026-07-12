@@ -17,21 +17,25 @@ Use this skill when a reviewer must turn validation or critique into the next pr
 - If verification fails, choose `continue` unless user input is strictly required.
 - If a short deterministic check can disambiguate missing evidence, the reviewer may run it locally. Do not run long builds, model reviews, experiments, or regeneration work inside the handoff step; give the engineer the exact command and expected pass condition.
 - Preserve the important facts from validation: failed command, exit code, issue codes, exact file paths, artifact paths, and validator messages.
-- Group related failures by root cause and tell the engineer what to change first.
-- Include the exact command that must pass before the engineer reports completion.
+- Group related failures by root cause and name the outcome that must change first.
+- Preserve implementation freedom: give constraints and the evidence gap, not a
+  scripted sequence, unless a deterministic failed check already implies one.
+- Include an exact command only when it is the real acceptance check or the
+  shortest way to disambiguate missing evidence.
 - Do not tell the engineer merely to "look at the validation output"; translate it into concrete work.
 - If repeated paper validators or reviews are failing, write a coherent repair brief rather than a microtask. Ask the engineer to inspect the page map, evidence sufficiency, source artifact graph, generated review freshness, and figure/table provenance, then make the smallest complete root-cause repair.
 
 ## `next_action` shape
 
-Write `next_action` as a compact repair brief:
+Default to a compact outcome brief:
 
-1. Goal: one sentence naming the failed acceptance condition.
-2. Required fixes: ordered steps with file paths and artifact paths.
-3. Verification: exact command(s) to rerun and the expected pass condition.
-4. Stop rule: do not claim done until verification passes.
+1. Name the failed outcome or evidence gap.
+2. State hard constraints, relevant paths, and the expected proof.
+3. Let the Engineer choose tools and implementation.
 
-Keep the handoff concise. Avoid copying stack traces or long output blocks unless one or two lines are essential for diagnosis.
+For a deterministic validator/test failure, a short ordered repair brief with
+the exact command is appropriate. Keep either form concise; avoid copying stack
+traces or long output blocks unless one or two lines are essential for diagnosis.
 
 ## Figure and paper validation handoff
 

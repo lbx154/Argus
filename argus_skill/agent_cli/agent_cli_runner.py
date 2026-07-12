@@ -15,6 +15,7 @@ from ..core.sandbox import sandboxed_child_env
 from .models import AgentRunResult
 from .runner_backend import (
     BACKEND_CLAUDE,
+    BACKEND_CODEX,
     BACKEND_COPILOT,
     DEFAULT_RUNNER_BACKEND,
     RunnerBackend,
@@ -36,6 +37,89 @@ _ACP_MANAGER_LABELS = frozenset(
         "chat-1",
     }
 )
+
+_READ_ONLY_FLAG_SWITCHES = frozenset({
+    "--allow-all",
+    "--allow-all-paths",
+    "--allow-all-tools",
+    "--allowed-tools",
+    "--allowedTools",
+    "--allow-tool",
+    "--available-tools",
+    "--autopilot",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--dangerously-bypass-hook-trust",
+    "--dangerously-skip-permissions",
+    "--full-auto",
+    "--permission-mode",
+    "--sandbox",
+    "--tools",
+    "--yolo",
+    "-C",
+    "-s",
+    "--add-dir",
+    "--cd",
+})
+_READ_ONLY_VALUE_SWITCHES = frozenset({
+    "--allow-tool",
+    "--allowed-tools",
+    "--allowedTools",
+    "--available-tools",
+    "--permission-mode",
+    "--sandbox",
+    "--tools",
+    "-C",
+    "-s",
+    "--add-dir",
+    "--cd",
+})
+
+
+def _read_only_extra_args(args: list[str], *, backend: RunnerBackend) -> list[str]:
+    """Drop any extra argument capable of broadening a read-only Manager call."""
+    cleaned: list[str] = []
+    index = 0
+    while index < len(args):
+        value = str(args[index] or "")
+        config_switches = (
+            {"-c", "--config"} if backend == BACKEND_CODEX else {"--config"}
+        )
+        if value in config_switches and index + 1 < len(args):
+            payload = str(args[index + 1] or "")
+            key = payload.partition("=")[0].strip().casefold()
+            if key.startswith((
+                "approval", "permission", "sandbox", "shell_environment", "tools",
+            )):
+                index += 2
+                continue
+            cleaned.extend([value, payload])
+            index += 2
+            continue
+        if value.startswith("--config="):
+            key = value.partition("=")[2].partition("=")[0].strip().casefold()
+            if key.startswith((
+                "approval", "permission", "sandbox", "shell_environment", "tools",
+            )):
+                index += 1
+                continue
+        if backend == BACKEND_CODEX and value.startswith("-c") and value != "-c":
+            payload = value[2:].lstrip("=")
+            key = payload.partition("=")[0].strip().casefold()
+            if key.startswith((
+                "approval", "permission", "sandbox", "shell_environment", "tools",
+            )):
+                index += 1
+                continue
+        if value.startswith(("-C", "-s")) and value not in {"-C", "-s"}:
+            index += 1
+            continue
+        flag = value.partition("=")[0]
+        if flag in _READ_ONLY_FLAG_SWITCHES:
+            index += 2 if flag in _READ_ONLY_VALUE_SWITCHES and "=" not in value else 1
+            continue
+        cleaned.append(value)
+        index += 1
+    return cleaned
 
 
 def _incomplete_turn_error(stderr_lines: list[str]) -> str:
@@ -70,6 +154,8 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     dangerous_yolo: bool = False
     full_auto: bool = False
+    max_budget_usd: float | None = None
+    max_ai_credits: int | None = None
     # Codex sandbox policy. When set (e.g. "workspace-write"), the codex command
     # is built with ``-s <mode> -C <working_dir> --add-dir <add_dirs>`` so writes
     # are confined to the workspace + add_dirs, and the child env is scrubbed of
@@ -149,7 +235,7 @@ class AgentCliRunner:
         # Warm-copilot fast path: Manager front-door classify + direct replies go
         # through a persistent ``copilot --acp`` process.  The ACP client keeps
         # the classifier and conversation in separate logical sessions.
-        if self._acp_enabled(run_label):
+        if self._acp_enabled(run_label, options) and options.max_ai_credits is None:
             _acp = self._run_exec_acp(
                 prompt=prompt,
                 resume_thread_id=resume_thread_id,
@@ -381,7 +467,11 @@ class AgentCliRunner:
         )
 
     # ── warm-copilot (ACP) fast path ─────────────────────────────────────────
-    def _acp_enabled(self, run_label: str | None) -> bool:
+    def _acp_enabled(
+        self,
+        run_label: str | None,
+        options: RunnerOptions | None = None,
+    ) -> bool:
         """Route this call through the persistent ``copilot --acp`` client?
 
         True only for the copilot backend and a Manager label. It defaults ON;
@@ -389,7 +479,11 @@ class AgentCliRunner:
         ``ARGUS_SKILL_COPILOT_ACP_LABELS`` overrides the default label set. All
         engineer/reviewer/planner/mission turns stay on the CLI ``Popen`` path.
         """
-        if self.backend != BACKEND_COPILOT or not run_label:
+        if (
+            self.backend != BACKEND_COPILOT
+            or not run_label
+            or getattr(options, "sandbox_mode", None) == "read-only"
+        ):
             return False
         raw_flag = os.environ.get("ARGUS_SKILL_COPILOT_ACP")
         flag = str(raw_flag or "").strip().lower()
@@ -518,7 +612,9 @@ class AgentCliRunner:
             summary = (os.environ.get("ARGUS_SKILL_REASONING_SUMMARY") or "auto").strip()
             if summary.lower() not in {"none", "off", "0", "false", ""}:
                 command.extend(["-c", f'model_reasoning_summary="{summary}"'])
-        if options.sandbox_mode:
+        if options.sandbox_mode and resume_thread_id:
+            command.extend(["-c", f'sandbox_mode="{options.sandbox_mode}"'])
+        elif options.sandbox_mode:
             # Sandboxed role: confine writes to the workspace (-C) plus the
             # explicit --add-dir allowlist; keep network on for research. This
             # replaces the dangerous bypass so the engineer cannot write the
@@ -558,6 +654,10 @@ class AgentCliRunner:
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args, backend=BACKEND_CODEX,
+            )
         if merged_extra_args:
             command.extend(merged_extra_args)
         if resume_thread_id:
@@ -580,9 +680,17 @@ class AgentCliRunner:
         if options.model:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
-            effort = "high" if options.reasoning_effort == "xhigh" else options.reasoning_effort
+            effort = (
+                "high"
+                if options.reasoning_effort == "xhigh"
+                else options.reasoning_effort
+            )
             command.extend(["--effort", effort])
-        if options.dangerous_yolo:
+        if options.max_budget_usd is not None and options.max_budget_usd > 0:
+            command.extend(["--max-budget-usd", format(options.max_budget_usd, ".12g")])
+        if options.sandbox_mode == "read-only":
+            command.extend(["--tools", "Read,Glob,Grep"])
+        elif options.dangerous_yolo:
             command.extend(["--permission-mode", "bypassPermissions"])
         elif options.full_auto:
             command.extend(["--permission-mode", "acceptEdits"])
@@ -613,6 +721,10 @@ class AgentCliRunner:
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args, backend=BACKEND_CLAUDE,
+            )
         if merged_extra_args:
             command.extend(merged_extra_args)
         if resume_thread_id:
@@ -639,7 +751,14 @@ class AgentCliRunner:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
             command.extend(["--reasoning-effort", options.reasoning_effort])
-        if options.dangerous_yolo:
+        if options.max_ai_credits is not None and options.max_ai_credits >= 30:
+            command.extend(["--max-ai-credits", str(options.max_ai_credits)])
+        if options.sandbox_mode == "read-only":
+            command.extend([
+                "--available-tools", "view,rg,glob",
+                "--allow-tool", "view,rg,glob",
+            ])
+        elif options.dangerous_yolo:
             command.append("--yolo")
         else:
             # Copilot prompt mode requires automatic tool approval in non-interactive runs.
@@ -653,6 +772,10 @@ class AgentCliRunner:
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args, backend=BACKEND_COPILOT,
+            )
         if merged_extra_args:
             command.extend(merged_extra_args)
         if resume_thread_id:

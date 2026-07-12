@@ -8,15 +8,15 @@ export const theme = {
   success: '#7fa386',
   error: '#c77b72',
   warning: '#c1a363',
-  info: '#8fa7b8',
-  ink: '#efeee8',
-  inkDim: '#b8b7af',
-  inkFaint: '#7e7d75',
+  info: 'rgb(var(--blue))',
+  ink: 'rgb(var(--ink))',
+  inkDim: 'rgb(var(--ink-dim))',
+  inkFaint: 'rgb(var(--ink-faint))',
   role: {
-    manager: '#90a8b5',
-    planner: '#a69daf',
-    engineer: '#8fa78f',
-    reviewer: '#b5a57f',
+    manager: 'rgb(var(--role-manager))',
+    planner: 'rgb(var(--role-planner))',
+    engineer: 'rgb(var(--role-engineer))',
+    reviewer: 'rgb(var(--role-reviewer))',
   } as Record<string, string>,
 };
 

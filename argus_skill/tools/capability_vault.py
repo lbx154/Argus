@@ -124,7 +124,11 @@ def default_auth_json_path(env: Mapping[str, str] | None = None) -> Path:
 def default_codex_config_path(env: Mapping[str, str] | None = None) -> Path:
     source = env if env is not None else os.environ
     raw = _env_text(source, _CODEX_CONFIG_ENV)
-    return Path(raw).expanduser() if raw else Path.home() / ".codex" / "config.toml"
+    if raw:
+        return Path(raw).expanduser()
+    codex_home = _env_text(source, "CODEX_HOME")
+    root = Path(codex_home).expanduser() if codex_home else Path.home() / ".codex"
+    return root / "config.toml"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -165,6 +169,35 @@ def read_codex_provider_config(
         return None
     wire_api = str(provider.get("wire_api") or "responses").strip() or "responses"
     return CodexProviderConfig(name=provider_name, base_url=base_url, wire_api=wire_api)
+
+
+def read_codex_default_model(
+    env: Mapping[str, str] | None = None,
+    *,
+    profile: str = "",
+) -> str:
+    """Return the model Codex CLI will use when no ``-m`` is supplied."""
+    if tomllib is None:
+        return ""
+    source = env if env is not None else os.environ
+
+    def read(path: Path) -> dict[str, Any]:
+        try:
+            with path.open("rb") as fh:
+                data = tomllib.load(fh)
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    codex_home = _env_text(source, "CODEX_HOME")
+    root = Path(codex_home).expanduser() if codex_home else Path.home() / ".codex"
+    data = read(root / "config.toml")
+    model = str(data.get("model") or "").strip()
+    profile_name = str(profile or "").strip()
+    if not profile_name or Path(profile_name).name != profile_name:
+        return model
+    profile_data = read(root / f"{profile_name}.config.toml")
+    return str(profile_data.get("model") or "").strip() or model
 
 
 def _split_models(raw: str) -> tuple[str, ...]:

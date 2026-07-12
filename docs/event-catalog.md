@@ -5,6 +5,11 @@ Cross-component event names are protocol. Define them in
 `frontend/core/src/eventCatalog.ts`. A golden test requires both catalogs and
 their signal/call-scoped groups to match.
 
+Typed payloads live in `argus_skill/core/event_payload_schemas.json`.
+`scripts/generate_event_payload_types.py` generates the frontend discriminated
+union in `frontend/core/src/eventPayloads.generated.ts`; CI checks that the
+generated file is current.
+
 ## Envelope
 
 New persisted events receive:
@@ -12,6 +17,8 @@ New persisted events receive:
 - `type`: canonical event name.
 - `ts`: Unix timestamp.
 - `event_schema_version`: envelope version, currently `1`.
+- `payload_schema_version`: event-specific payload version when a typed schema
+  exists.
 
 Payload-specific versions remain separate. For example, `usage.recorded` uses
 `schema_version: 2` while its generic event envelope uses

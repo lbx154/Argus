@@ -156,6 +156,10 @@ known-first-party = ["argus_skill"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "integration: crosses local process, thread, filesystem, or API boundaries",
+  "e2e: exercises a complete workflow through a real entry point or toolchain",
+]
 filterwarnings = [
   "ignore::DeprecationWarning",
 ]

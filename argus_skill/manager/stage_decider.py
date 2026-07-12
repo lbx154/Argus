@@ -91,6 +91,7 @@ def build_stage_decision_prompt(
     checklist_md: str,
     review: Any,
     planner_verdict: Any = None,
+    rendering_block: str = "",
 ) -> str:
     """Render the prompt asking the Manager to rule on the stage transition."""
     earlier = ", ".join(f"`{s}`" for s in earlier_stages) or "(none — already first)"
@@ -117,6 +118,7 @@ def build_stage_decision_prompt(
         f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
+        f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "
         "with concrete evidence the reviewer confirmed.\n"
@@ -126,7 +128,8 @@ def build_stage_decision_prompt(
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
         '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>"}\n'
+        '"reason": "<clear explanation>", "live_view": null | {"title": "<title>", '
+        '"reason": "<why>", "paths": ["<path>", ...]}}\n'
         "For HOLD, set target_stage to the current stage."
     )
 

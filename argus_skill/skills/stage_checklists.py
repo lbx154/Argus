@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .venue_profiles import VenueProfile, get_venue_profile, resolve_venue_profile
+from .venue_profiles import VenueProfile, resolve_venue_profile
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "research",
@@ -86,16 +86,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="research.signal_derisk",
             statement=(
                 "Before leaving the research stage, the locked idea passed a REAL "
-                "judgemental minimal experiment (<=10 min, <=$1) on a model/data "
-                "this box can actually run: research/SIGNAL_DERISK.json records "
-                "verdict=pass with measured baseline_metric and proposed_metric "
-                "that DIFFER by at least min_meaningful_delta in the "
-                "success_direction (the core signal provably MOVES), within budget "
+                "judgemental minimal experiment (<=10 min, <=$1 cheap screen) on a "
+                "model/data this box can actually run: research/SIGNAL_DERISK.json "
+                "records verdict=pass where proposed_metric BEATS a REPRODUCED, "
+                "competitive baseline_metric by at least min_meaningful_delta in the "
+                "success_direction (the method provably wins on a cheap slice or its "
+                "faithful proxy — not merely that a phenomenon moves), within budget "
                 "(cost_usd<=1.0, duration_s<=600), and research/SIGNAL_DERISK_LOG.txt "
                 "carries the verbatim commands + raw outputs of that run. Numbers "
-                "are COMPUTED from the run, never estimated. A dead signal "
-                "(baseline==proposed, no movement, wrong direction, or the model "
-                "cannot even exhibit the behaviour the idea needs) means PIVOT the "
+                "are COMPUTED from the run, never estimated. A dead result "
+                "(proposed does not beat the reproduced baseline by the margin, wrong "
+                "direction, a straw-man baseline, or the model cannot even exhibit "
+                "the behaviour the idea needs) means PIVOT the "
                 "idea and re-run the de-risk — it is NOT allowed to enter the plan "
                 "stage. The reviewer may run `python -m "
                 "argus_skill.skills.signal_derisk validate` as a consistency "
@@ -1175,6 +1177,37 @@ def _resolve_checklist_venue(project_root) -> VenueProfile:
     return resolve_venue_profile(Path(project_root))
 
 
+VENUE_DEPENDENT_STAGES = frozenset({"draft", "review", "submission"})
+
+
+def _unresolved_venue_checklist(
+    header: str,
+    *,
+    role: str,
+    error: KeyError,
+) -> str:
+    """Render a fail-closed venue gate without crashing prompt construction."""
+    if role == "reviewer":
+        instruction = (
+            "Keep this item unchecked and do not return `done`; ask the engineer "
+            "to resolve it in `next_action`."
+        )
+    else:
+        instruction = (
+            "Resolve this item before doing venue-specific drafting, review, or "
+            "submission work."
+        )
+    return (
+        f"{header}\n\n"
+        "### venue resolution\n"
+        f"- [ ] `venue.profile` — {error}. `target_venue` must name a real "
+        "publication venue, not planning commentary. Choose a built-in venue or "
+        "research a non-built-in venue and write `research/VENUE_PROFILE.json` "
+        "from official instructions. Never grade against the EMNLP default while "
+        f"this is unresolved. {instruction}"
+    )
+
+
 def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
     """Rewrite the EMNLP-literal floor items for a non-EMNLP venue.
 
@@ -1471,7 +1504,17 @@ def format_stage_checklist(
         f"{framing}\n\n"
         f"{_render_items(items, annotations)}"
     )
-    body = _apply_venue_to_checklist_body(body, _resolve_checklist_venue(project_root))
+    if stage_norm in VENUE_DEPENDENT_STAGES:
+        try:
+            body = _apply_venue_to_checklist_body(
+                body, _resolve_checklist_venue(project_root)
+            )
+        except KeyError as exc:
+            body = _unresolved_venue_checklist(
+                f"## Stage checklist ({stage_norm})",
+                role=role_norm,
+                error=exc,
+            )
     return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
 
 
@@ -1540,7 +1583,14 @@ def format_full_pipeline_checklist(
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
-    body = _apply_venue_to_checklist_body(
-        "\n\n".join(blocks), _resolve_checklist_venue(project_root)
-    )
+    try:
+        body = _apply_venue_to_checklist_body(
+            "\n\n".join(blocks), _resolve_checklist_venue(project_root)
+        )
+    except KeyError as exc:
+        body = _unresolved_venue_checklist(
+            header,
+            role=role_norm,
+            error=exc,
+        )
     return _augment(body, role_norm, project_root, overlay_present=overlay_present)

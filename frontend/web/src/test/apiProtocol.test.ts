@@ -1,19 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
+import {
+  API_PROTOCOL,
+  REQUIRED_API_CAPABILITIES,
+  SNAPSHOT_SCHEMA_VERSION,
+} from '../../../core/src/protocol';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
-  protocol: { name: 'argus.webapi', major: 1, minor: 2 },
-  snapshot_schema_version: 2,
-  capabilities: [
-    'daemon.admission.v1',
-    'daemon.status.protocol.v1',
-    'cost.reservation.v1',
-    'event.catalog.v1',
-    'manager.sse.v1',
-    'snapshot.budget.v1',
-    'snapshot.schema.v1',
-    'usage.recorded.v2',
-  ],
+  protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
+  snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
+  capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
     package_version: '0.1.0',
     source_root: '/checkout/argus-skill',
@@ -24,6 +21,10 @@ const currentMeta = {
     python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
+    release_id: RELEASE_ID,
+    manifest_source_digest: RELEASE_SOURCE_DIGEST,
+    runtime_source_digest: RELEASE_SOURCE_DIGEST,
+    release_matches_source: true,
   },
 };
 
@@ -63,5 +64,21 @@ describe('web API protocol handshake', () => {
       '/api/projects',
       '/api/projects',
     ]);
+  });
+
+  it('passes cancellation signals to project reads', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ events: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+    const controller = new AbortController();
+
+    await expect(api.events('s-test', 120, controller.signal)).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/s-test/events?limit=120&view=ui',
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 });

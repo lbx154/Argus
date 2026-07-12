@@ -129,6 +129,17 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   要跨 mission 续接，给它传一个 project-state 路径即可。
 - 测试：`tests/test_checkpoint.py`、`tests/test_checkpoint_loop.py`。
 
+### Dynamic review cadence（简单、agent 主导）
+
+默认仍是每个 Engineer round 后由 Reviewer 独立验收。若 Engineer 已落地真实增量、
+下一步局部执行非常明确、此时 Review 只会重复转述，它可以把
+`CONTINUE_WORK: <specific next step>` 作为回复的最后一行，申请先再做一个 round。
+
+- 最多连续跳过一次 Reviewer；下一个工作 round 强制回到 Reviewer。
+- 真 Reviewer verdict 后额度重置；最后一个可用 round 永不跳过 Reviewer。
+- `done` 仍只能由 Reviewer 裁决。harness 不从 prose 猜是否该跳过，只响应这个显式请求。
+- 相关实现：`engineer/runner.py`、`loop.py`；事件：`round.review.deferred`。
+
 ### Background-subagent cadence wait（别空转盯长实验）
 
 背景：mission 用 subagent 工具 `--mode supervised` 起一个长跑（如 veRL GRPO

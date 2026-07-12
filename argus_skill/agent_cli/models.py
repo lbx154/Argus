@@ -16,6 +16,7 @@ class AgentRunResult:
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
+    tool_activity_observed: bool = False
 
     @property
     def last_agent_message(self) -> str:

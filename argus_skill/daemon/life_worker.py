@@ -21,19 +21,14 @@ CAS pending→running on the on-disk JSONL file.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
-import uuid
-from collections.abc import Iterable, MutableMapping
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -43,20 +38,81 @@ except ImportError:  # pragma: no cover - detached daemon is POSIX-only
     _fcntl = None
 
 from ..core import paths as core_paths
-from ..core.bootstrap import inspect_project_bootstrap
+from ..core.bootstrap import (
+    inspect_project_bootstrap,
+    structured_research_bootstrap_requested,
+)
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
-from ..core.usage import format_usage_cost
+from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 from ..life.memory import BacklogItem, GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ..life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
     global_daily_spend,
-    global_daily_usage_summary,
+)
+from .config import LifeWorkerConfig
+from .config import config_from_payload as _config_from_payload
+from .config import config_payload as _config_payload
+from .handoff import (
+    _HANDOFF_CONFIG_ENV,
+    _HANDOFF_GEN_ENV,
+    _HANDOFF_LOG_ENV,
+    _HANDOFF_READY_ENV,
+    _HANDOFF_TOKEN_ENV,
+    _SOURCE_SIGNATURE_ENV,
+    _TEST_SOURCE_SIGNATURE_FILE_ENV,
+    _auto_handoff_enabled,
+    _handoff_generation,
+    _handoff_max_generations,
+    _handoff_min_interval_seconds,
+    _source_signature,
+    _spawn_handoff_candidate,
+    _strip_git_config_injection,
+    _truthy_env,
+    run_handoff_child_process,
+)
+from .handoff import (
+    _acquire_daemon_lock_with_timeout as _acquire_daemon_lock_with_timeout_impl,
+)
+from .process import run_foreground_process, spawn_detached_process
+from .state import (
+    ContinuousConfigState,
+    DaemonStatus,
+    _daemon_log_path,
+    _daemon_pid_path,
+    _daemon_status_path,
+    _daemon_status_payload,
+    _new_boot_id,
+    _point_active_daemon_log,
+    _process_alive,
+    _redirect_std_to_log,
+    compare_and_swap_continuous_config,
+    continuous_mode_error,
+    disable_continuous_config,
+    read_continuous_config,
+    read_continuous_state,
+    read_daemon_status,
+    resolve_effective_budget,
+    stop_daemon,
+    wait_for_daemon_status,
+    write_continuous_config,
+)
+from .state import (
+    format_budget_status as _format_budget_status,
 )
 
 log = logging.getLogger(__name__)
-_GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
+
+
+def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
+    """Compatibility wrapper preserving the historical monkeypatch seam."""
+    return _format_budget_status(
+        journal,
+        status=status,
+        global_spend_fn=global_daily_spend,
+    )
 
 __all__ = [
     "LifeWorkerConfig",
@@ -64,15 +120,44 @@ __all__ = [
     "DaemonStatus",
     "ContinuousConfigState",
     "continuous_mode_error",
+    "disable_continuous_config",
     "format_budget_status",
     "resolve_effective_budget",
     "read_daemon_status",
     "stop_daemon",
+    "wait_for_daemon_status",
     "spawn_detached_daemon",
     "run_handoff_child",
     "read_continuous_state",
     "read_continuous_config",
     "write_continuous_config",
+    "_process_alive",
+    "_redirect_std_to_log",
+    "_daemon_log_path",
+    "_daemon_pid_path",
+    "_daemon_status_path",
+    "_daemon_status_payload",
+    "_new_boot_id",
+    "_point_active_daemon_log",
+    "_config_from_payload",
+    "_config_payload",
+    "_HANDOFF_CONFIG_ENV",
+    "_HANDOFF_GEN_ENV",
+    "_HANDOFF_LOG_ENV",
+    "_HANDOFF_READY_ENV",
+    "_HANDOFF_TOKEN_ENV",
+    "_SOURCE_SIGNATURE_ENV",
+    "_TEST_SOURCE_SIGNATURE_FILE_ENV",
+    "_acquire_daemon_lock_with_timeout",
+    "_auto_handoff_enabled",
+    "_handoff_generation",
+    "_handoff_max_generations",
+    "_handoff_min_interval_seconds",
+    "_source_signature",
+    "_spawn_handoff_candidate",
+    "_strip_git_config_injection",
+    "_truthy_env",
+    "DaemonAlreadyRunning",
 ]
 
 
@@ -80,97 +165,9 @@ __all__ = [
 # Configuration
 # ---------------------------------------------------------------------------
 
-@dataclass
-class LifeWorkerConfig:
-    """How the worker drains the backlog.
-
-    All durations are seconds. ``poll_interval`` is how long the worker
-    sleeps between :meth:`LifeSupervisor.tick` calls when the backlog
-    is empty — when work is pending it does not sleep, it just keeps
-    ticking.
-    """
-
-    life_dir: Path
-    global_root: Path | None = None
-    project_fingerprint: str = ""
-    project_label: str = ""
-    backend: str = "codex"  # "codex" | "memory"
-    engineer_model: str = "gpt-5.5"
-    reviewer_model: str = "gpt-5.5"
-    engineer_reasoning_effort: str = "xhigh"
-    reviewer_reasoning_effort: str = "xhigh"
-    per_mission_cap_usd: float = 30.0
-    daily_cap_usd: float = 180.0
-    global_daily_cap_usd: float = 0.0
-    planner_task_iteration_max_cycles: int = 6
-    planner_task_iteration_budget_usd: float = 30.0
-    # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
-    # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
-    # this configures.
-    subagent_family_failure_streak_limit: int = 3
-    subagent_family_failure_window_hours: float = 72.0
-    poll_interval: float = 5.0
-    log_path: Path | None = None  # defaults to <life_dir>/daemon.log
-    project_workdir: Path | None = None
-    # Persisted-events verbosity for the daemon's own events.jsonl. DEFAULT
-    # "full": the REPL live-follow tails this file, so dropping engineer.progress
-    # / round.review.* would break streaming (and hide the reviewer working).
-    # events.jsonl is size-bounded by JsonlEventSink's roll. "signal" is an
-    # opt-in (ARGUS_SKILL_EVENT_VERBOSITY) for a tiny verdict-only log; the
-    # REPL noise problem is solved at the DISPLAY layer, not by gutting the log.
-    event_log_verbosity: str = "full"
-    continuous: bool = False
-    continuous_objective: str = ""
-    # Opt-in to adopt THIS project's persisted continuous campaign
-    # (``<life_dir>/continuous.json``) at boot. Off by default: a fresh/manual
-    # daemon must NOT silently inherit a project-level campaign it was not asked
-    # to run (see ``--resume-continuous``). Supervisors that restart the campaign
-    # daemon pass it True to preserve crash-recovery.
-    resume_continuous: bool = False
-    # When True (the default for the lifetime daemon) the supervisor keeps the
-    # mission alive after the planner certifies ``project_done`` instead of
-    # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
-    continuous_open_ended: bool = True
-
-
-_HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
-_HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
-_HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
-_HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
-_HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
-_SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
-_TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
-_TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
-
-
 # ---------------------------------------------------------------------------
 # Disk-based continuous config (hot-reloadable by both daemon + REPL)
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ContinuousConfigState:
-    enabled: bool = False
-    objective: str = ""
-    done_reason: str = ""
-    done_at: str = ""
-
-
-def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
-    """Return the public error string for an invalid continuous-mode request."""
-    backend = backend.strip().lower()
-    objective = objective.strip()
-    if objective and not enabled:
-        return "--objective requires --continuous"
-    if enabled and not objective:
-        return "--continuous requires a non-empty --objective"
-    allow_memory_continuous = _truthy_env(_TEST_ALLOW_MEMORY_CONTINUOUS_ENV, "0")
-    if enabled and backend == "memory" and not allow_memory_continuous:
-        return (
-            "--continuous requires a planning-capable life backend; "
-            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
-        )
-    return ""
 
 
 def _preflight_route_on_codex(route: str) -> bool:
@@ -222,469 +219,30 @@ def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     return [r for r in routes if _preflight_route_on_codex(r)]
 
 
-def _continuous_config_path(life_dir: Path) -> Path:
-    return life_dir / "continuous.json"
-
-
-def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
-    """Read the full ``continuous.json`` state blob."""
-    path = _continuous_config_path(life_dir)
-    if not path.exists():
-        return ContinuousConfigState()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return ContinuousConfigState()
-        def _text(value: Any) -> str:
-            return "" if value is None else str(value)
-        return ContinuousConfigState(
-            enabled=bool(data.get("enabled", False)),
-            objective=_text(data.get("objective", "")),
-            done_reason=_text(data.get("done_reason", "")),
-            done_at=_text(data.get("done_at", "")),
-        )
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return ContinuousConfigState()
-
-
-def read_continuous_config(life_dir: Path) -> tuple[bool, str]:
-    """Read ``(enabled, objective)`` from ``<life_dir>/continuous.json``.
-
-    Returns ``(False, "")`` if the file is missing or malformed.
-    """
-    state = read_continuous_state(life_dir)
-    return state.enabled, state.objective
-
-
-def write_continuous_config(
-    life_dir: Path,
-    *,
+def _apply_continuous_suppression(
+    state: dict,
     enabled: bool,
     objective: str,
-    done_reason: str = "",
-) -> None:
-    """Atomically write ``continuous.json`` so the daemon can hot-reload.
-
-    Uses write-to-temp + ``os.replace`` for atomicity.
-    """
-    objective = objective.strip()
-    if enabled and not objective:
-        log.warning("refusing to write invalid continuous config to %s", life_dir)
-        return
-    life_dir.mkdir(parents=True, exist_ok=True)
-    path = _continuous_config_path(life_dir)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    data = {
-        "enabled": enabled,
-        "objective": objective,
-    }
-    if done_reason:
-        data["done_reason"] = done_reason
-        data["done_at"] = datetime.now(timezone.utc).isoformat()
-    try:
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        os.replace(str(tmp), str(path))
-    except OSError:
-        log.warning("failed to write continuous config to %s", path)
-
-
-def _apply_continuous_suppression(
-    state: dict, enabled: bool, objective: str
+    *,
+    generation: int | None = None,
 ) -> tuple[bool, str]:
     """Gate a persisted continuous read against a fresh-daemon suppression.
 
-    ``state`` is a mutable ``{"active": bool, "objective": str}``. While active,
-    a still-identical stale-boot campaign (enabled + same objective) is reported
-    disabled, so a daemon that did NOT opt to resume never silently adopts the
-    project's ambient campaign. Any change from the suppressed boot state (the
-    operator re-arming with a different objective, or the campaign being
-    disabled) lifts the suppression permanently — runtime arming is honored.
+    A generation-aware caller lifts suppression on every explicit rewrite,
+    including re-arming the same objective. ``generation=None`` retains the
+    legacy value-based behavior for compatibility callers.
     """
     if state.get("active"):
-        if enabled and (objective or "").strip() == state.get("objective", ""):
+        same_generation = (
+            generation == state.get("generation")
+            if generation is not None
+            else (objective or "").strip() == state.get("objective", "")
+        )
+        if enabled and same_generation:
             return False, objective
         state["active"] = False
     return enabled, objective
 
-
-# ---------------------------------------------------------------------------
-# Blue/green self-handoff
-# ---------------------------------------------------------------------------
-
-def _truthy_env(name: str, default: str = "1") -> bool:
-    return os.environ.get(name, default).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
-def _strip_git_config_injection(env: MutableMapping[str, str]) -> list[str]:
-    """Remove the ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_*`` /
-    ``GIT_CONFIG_VALUE_*`` env-based config-injection family in place.
-
-    The host seeds a benign ``safe.bareRepository=explicit`` override via
-    these vars, but the codex sandbox forwards ``GIT_CONFIG_COUNT`` /
-    ``GIT_CONFIG_VALUE_0`` while dropping ``GIT_CONFIG_KEY_0`` — leaving an
-    incomplete tuple that makes *every* ``git`` command in the agent's shell
-    fail with ``fatal: unable to parse command-line config`` until the agent
-    rediscovers an ``env -u`` workaround, burning rounds each mission. The
-    agent's project git work does not need this host override, so drop the
-    whole family from the env handed to child shells.
-
-    Returns the list of removed keys (for logging/tests).
-    """
-    removed = [
-        k
-        for k in list(env)
-        if k == "GIT_CONFIG_COUNT"
-        or k.startswith("GIT_CONFIG_KEY_")
-        or k.startswith("GIT_CONFIG_VALUE_")
-    ]
-    for k in removed:
-        env.pop(k, None)
-    return removed
-
-
-def _auto_handoff_enabled() -> bool:
-    return _truthy_env("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0")
-
-
-def _handoff_min_interval_seconds() -> float:
-    try:
-        return max(0.0, float(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MIN_S", "60")))
-    except ValueError:
-        return 60.0
-
-
-def _handoff_generation() -> int:
-    try:
-        return max(0, int(os.environ.get(_HANDOFF_GEN_ENV, "0")))
-    except ValueError:
-        return 0
-
-
-def _handoff_max_generations() -> int:
-    try:
-        return max(1, int(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN", "10")))
-    except ValueError:
-        return 10
-
-
-def _source_signature() -> str:
-    """Content hash of runtime files that require a daemon restart.
-
-    Covers both Python runtime code and the behavior-defining built-in skill
-    markdown: a skill edit changes how the engineer/reviewer act, so the daemon
-    is just as stale against a skill change as against a ``.py`` change and the
-    auto-handoff signature must notice it.
-    """
-    test_signature_path = os.environ.get(_TEST_SOURCE_SIGNATURE_FILE_ENV, "").strip()
-    if test_signature_path:
-        try:
-            return Path(test_signature_path).expanduser().read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-    package_root = Path(__file__).resolve().parents[1]
-    repo_root = package_root.parent
-    paths: list[Path] = sorted(package_root.rglob("*.py"))
-    paths += sorted((package_root / "builtin_skills").rglob("*.md"))
-    pyproject = repo_root / "pyproject.toml"
-    if pyproject.exists():
-        paths.append(pyproject)
-    digest = hashlib.sha256()
-    for path in paths:
-        parts = set(path.parts)
-        if "__pycache__" in parts or ".git" in parts:
-            continue
-        try:
-            rel = path.relative_to(repo_root)
-            data = path.read_bytes()
-        except OSError:
-            continue
-        digest.update(str(rel).encode("utf-8", "surrogateescape"))
-        digest.update(b"\0")
-        digest.update(data)
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
-    return {
-        "life_dir": str(config.life_dir),
-        "global_root": str(config.global_root) if config.global_root is not None else "",
-        "project_fingerprint": config.project_fingerprint,
-        "project_label": config.project_label,
-        "backend": config.backend,
-        "engineer_model": config.engineer_model,
-        "reviewer_model": config.reviewer_model,
-        "engineer_reasoning_effort": config.engineer_reasoning_effort,
-        "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "per_mission_cap_usd": config.per_mission_cap_usd,
-        "daily_cap_usd": config.daily_cap_usd,
-        "global_daily_cap_usd": config.global_daily_cap_usd,
-        "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
-        "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
-        "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
-        "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
-        "poll_interval": config.poll_interval,
-        "log_path": str(config.log_path) if config.log_path is not None else "",
-        "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
-        "continuous": config.continuous,
-        "continuous_objective": config.continuous_objective,
-        "continuous_open_ended": config.continuous_open_ended,
-    }
-
-
-def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
-    from ..core.knobs import resolve_role_model
-
-    log_path = str(data.get("log_path") or "")
-    global_root = str(data.get("global_root") or "")
-    project_workdir = str(data.get("project_workdir") or "")
-    def _number(name: str, default: float) -> float:
-        value = data.get(name)
-        return default if value is None else float(value)
-
-    return LifeWorkerConfig(
-        life_dir=Path(str(data["life_dir"])).expanduser(),
-        global_root=Path(global_root).expanduser() if global_root else None,
-        project_workdir=Path(project_workdir).expanduser() if project_workdir else None,
-        project_fingerprint=str(data.get("project_fingerprint") or ""),
-        project_label=str(data.get("project_label") or ""),
-        backend=str(data.get("backend") or "codex"),
-        engineer_model=str(
-            data.get("engineer_model")
-            or resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL")
-        ),
-        reviewer_model=str(
-            data.get("reviewer_model")
-            or resolve_role_model("reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL")
-        ),
-        engineer_reasoning_effort=str(
-            data.get("engineer_reasoning_effort") or "xhigh"
-        ),
-        reviewer_reasoning_effort=str(
-            data.get("reviewer_reasoning_effort") or "xhigh"
-        ),
-        per_mission_cap_usd=_number("per_mission_cap_usd", 30.0),
-        daily_cap_usd=_number("daily_cap_usd", 180.0),
-        global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
-        planner_task_iteration_max_cycles=int(
-            data.get("planner_task_iteration_max_cycles") or 6
-        ),
-        planner_task_iteration_budget_usd=_number(
-            "planner_task_iteration_budget_usd", 30.0
-        ),
-        subagent_family_failure_streak_limit=int(
-            data.get("subagent_family_failure_streak_limit") or 3
-        ),
-        subagent_family_failure_window_hours=float(
-            data.get("subagent_family_failure_window_hours") or 72.0
-        ),
-        poll_interval=float(data.get("poll_interval") or 5.0),
-        log_path=Path(log_path).expanduser() if log_path else None,
-        continuous=bool(data.get("continuous")),
-        continuous_objective=str(data.get("continuous_objective") or ""),
-        continuous_open_ended=bool(data.get("continuous_open_ended", True)),
-    )
-
-
-def _handoff_ready_path(life_dir: Path) -> Path:
-    return life_dir / "daemon.handoff.json"
-
-
-def _handoff_config_path(life_dir: Path, token: str) -> Path:
-    return life_dir / f"daemon.handoff.{token}.json"
-
-
-def _spawn_handoff_candidate(
-    config: LifeWorkerConfig,
-    *,
-    source_signature: str,
-    reason: str,
-    standby_timeout: float = 30.0,
-) -> bool:
-    """Start a fresh interpreter and wait until it reaches standby."""
-    token = uuid.uuid4().hex
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    ready_path = _handoff_ready_path(config.life_dir)
-    config_path = _handoff_config_path(config.life_dir, token)
-    ready_path.unlink(missing_ok=True)
-    payload = {
-        "token": token,
-        "reason": reason,
-        "source_signature": source_signature,
-        "config": _config_payload(config),
-    }
-    try:
-        config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        log.exception("daemon handoff: failed to write config")
-        return False
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    env = os.environ.copy()
-    env[_HANDOFF_CONFIG_ENV] = str(config_path)
-    env[_HANDOFF_READY_ENV] = str(ready_path)
-    env[_HANDOFF_TOKEN_ENV] = token
-    env[_HANDOFF_LOG_ENV] = str(log_path)
-    env[_SOURCE_SIGNATURE_ENV] = source_signature
-    env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
-    cmd = [
-        sys.executable,
-        "-c",
-        (
-            "from argus_skill.daemon.life_worker import run_handoff_child; "
-            "raise SystemExit(run_handoff_child())"
-        ),
-    ]
-    try:
-        with log_path.open("ab") as log_fh:
-            proc = subprocess.Popen(  # noqa: S603
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                cwd="/",
-                env=env,
-                start_new_session=True,
-                close_fds=True,
-            )
-    except OSError:
-        log.exception("daemon handoff: failed to spawn candidate")
-        config_path.unlink(missing_ok=True)
-        return False
-
-    deadline = time.monotonic() + standby_timeout
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            log.warning("daemon handoff: candidate exited early rc=%s", proc.returncode)
-            config_path.unlink(missing_ok=True)
-            return False
-        try:
-            data = json.loads(ready_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            time.sleep(0.1)
-            continue
-        if data.get("token") == token and data.get("state") == "standby":
-            return True
-        time.sleep(0.1)
-    log.warning("daemon handoff: candidate did not reach standby in %.1fs", standby_timeout)
-    try:
-        proc.terminate()
-    except OSError:
-        pass
-    config_path.unlink(missing_ok=True)
-    ready_path.unlink(missing_ok=True)
-    return False
-
-
-def _acquire_daemon_lock_with_timeout(pid_path: Path, timeout: float) -> Any:
-    deadline = time.monotonic() + timeout
-    last_exc: DaemonAlreadyRunning | None = None
-    while True:
-        try:
-            return acquire_global_daemon_lock(pid_path=pid_path)
-        except DaemonAlreadyRunning as exc:
-            last_exc = exc
-            if time.monotonic() >= deadline:
-                raise last_exc
-            time.sleep(0.1)
-
-
-def run_handoff_child() -> int:
-    """Entrypoint for a blue/green handoff candidate."""
-    config_env = os.environ.get(_HANDOFF_CONFIG_ENV, "")
-    ready_env = os.environ.get(_HANDOFF_READY_ENV, "")
-    token = os.environ.get(_HANDOFF_TOKEN_ENV, "")
-    if not config_env or not ready_env or not token:
-        sys.stderr.write("argus-skill handoff: missing handoff environment\n")
-        return 2
-    config_path = Path(config_env).expanduser()
-    ready_path = Path(ready_env).expanduser()
-    try:
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
-        config = _config_from_payload(payload["config"])
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        sys.stderr.write(f"argus-skill handoff: invalid config: {exc}\n")
-        return 2
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    worker = LifeWorker(config)
-    # Housekeeping: prune stale projects on daemon boot too (covers a daemon
-    # started directly via --daemon, not just via the REPL). Best-effort.
-    try:
-        from ..core.project_gc import maybe_gc_stale_projects
-        # Exclude THIS daemon's own project: the sweep runs before daemon.pid is
-        # acquired, so a freshly-resumed long-parked project would otherwise be
-        # trashed out from under the daemon starting on it.
-        _fp = getattr(config, "project_fingerprint", "") or ""
-        maybe_gc_stale_projects(
-            getattr(config, "global_root", None),
-            exclude={_fp} if _fp else None,
-        )
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        ready_path.write_text(
-            json.dumps({
-                "token": token,
-                "state": "standby",
-                "pid": os.getpid(),
-                "ts": time.time(),
-            }),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        sys.stderr.write(f"argus-skill handoff: failed to write standby file: {exc}\n")
-        return 2
-
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-    try:
-        lock = _acquire_daemon_lock_with_timeout(pid_path, timeout=60.0)
-    except DaemonAlreadyRunning as exc:
-        log.error("handoff candidate could not acquire daemon lock (pid=%s)", exc.pid)
-        return 2
-
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-        ready_path.unlink(missing_ok=True)
-        config_path.unlink(missing_ok=True)
-    except OSError:
-        log.exception("handoff candidate: failed to publish active status")
-
-    # This candidate just took over — repoint daemon.log at its own boot log so
-    # readers follow the live process (the incumbent's boot log is left intact,
-    # never interleaved). Fail-soft: skip if the handoff log env is absent.
-    _hlog = os.environ.get(_HANDOFF_LOG_ENV, "")
-    if _hlog:
-        _point_active_daemon_log(config.life_dir, Path(_hlog))
-
-    try:
-        return worker.run_forever()
-    finally:
-        lock.release()
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Worker
-# ---------------------------------------------------------------------------
 
 class LifeWorker:
     """The 7×24 background worker.
@@ -699,6 +257,8 @@ class LifeWorker:
     def __init__(self, config: LifeWorkerConfig) -> None:
         self.config = config
         self._stop = threading.Event()
+        self._operator_stop_requested = False
+        self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
         self._missions_completed = 0
         self._source_signature = (
@@ -714,6 +274,7 @@ class LifeWorker:
     def _install_signal_handlers(self) -> None:
         def _handler(signum: int, _frame: Any) -> None:  # noqa: ANN401
             log.info("daemon: received signal %s, requesting stop", signum)
+            self._operator_stop_requested = True
             self._stop.set()
 
         signal.signal(signal.SIGTERM, _handler)
@@ -881,7 +442,7 @@ class LifeWorker:
         sink: Any,
         preflight: Any,
     ) -> bool:
-        """Enqueue the bootstrap backlog item once per empty project root."""
+        """Enqueue an explicitly requested research bootstrap once."""
         title = "bootstrap empty project root"
         try:
             existing = [
@@ -978,13 +539,14 @@ class LifeWorker:
         if backend is None:
             return None
         from ..core.knobs import resolve_role_model
-        from ..core.models import RunnerOptions
+
         model = resolve_role_model("curator", role_env="ARGUS_SKILL_CURATOR_MODEL")
         effort = os.environ.get("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high")
         workdir = str(self.config.project_workdir) if self.config.project_workdir else None
 
         def _distill(prompt: str) -> str:
-            result = backend.run_exec(
+            result = gateway_run_exec(
+                backend,
                 prompt=prompt,
                 options=RunnerOptions(model=model or None, reasoning_effort=effort,
                                       skip_git_repo_check=True, full_auto=True,
@@ -1060,6 +622,9 @@ class LifeWorker:
             mem = LifeMemory.open(cfg.life_dir)
             runtime_root = cfg.life_dir
         mem.init()
+        if split_memory:
+            os.environ["ARGUS_SKILL_SESSION_ID"] = cfg.project_fingerprint
+        os.environ["ARGUS_SKILL_SESSION_ROOT"] = str(runtime_root)
         os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(runtime_root / "events.jsonl")
 
         # Build the runner the same way the REPL does. Importing here
@@ -1082,34 +647,18 @@ class LifeWorker:
             verbosity=getattr(cfg, "event_log_verbosity", "signal"),
         )
 
-        # Classify the bootstrap need NOW (before the Manager's divide() below
-        # can write anything to the project root), but DEFER the actual seed
-        # call — see the "bootstrap_preflight_pending" trigger a bit further
-        # down, right after the Manager's divide() has had a chance to persist
-        # the vertical. Splitting classify-now/act-later closes the write-order
-        # race documented in GROUND_TRUTH.md CLASSIFY_BY_VERTICAL §(f): the old
-        # code ran ``_seed_bootstrap_task`` (which synchronously renders
-        # ``AGENTS.md`` via ``_seed_project_agents_and_venv``) unconditionally
-        # here, BEFORE ``mgr.divide()`` had any chance to resolve+persist the
-        # vertical a few dozen lines below — so a fresh project whose objective
-        # should resolve to a research-kind vertical (e.g. ``quant``) still saw
-        # ``vertical=None`` at AGENTS.md-render time and got permanently sealed
-        # onto the lean/optimize contract (the write-once guard at
-        # ``agents_path.exists()`` never re-renders it). The classification
-        # (``inspect_project_bootstrap``) itself MUST stay here, before
-        # ``divide()`` runs: ``divide()``/``persist_vertical`` writes
-        # ``research/PIPELINE_STATE.json``, which is itself one of
-        # ``_RESEARCH_BOOTSTRAP_ARTIFACTS`` (``core/bootstrap.py``) — computing
-        # the preflight AFTER divide() would make a genuinely empty project
-        # look like it already has a "research artifact" and wrongly flip
-        # ``should_bootstrap`` to False, silently skipping the bootstrap
-        # entirely. So: decide-early (before any writes), act-late (after the
-        # vertical is resolved).
+        # Capture an empty-root RESEARCH bootstrap candidate before Manager.divide
+        # writes PIPELINE_STATE, but do not enqueue it yet. After divide, only a
+        # structured research signal (persisted research/quant vertical or an
+        # explicit research profile) may activate it. Custom domains such as
+        # composition own their workspace shape and never receive a Python
+        # package bootstrap from the harness.
         bootstrap_preflight_pending = None
         if cfg.project_workdir is not None:
             bootstrap_preflight = inspect_project_bootstrap(
                 cfg.project_workdir,
                 objective_hint=cfg.continuous_objective,
+                research_requested=True,
             )
             if bootstrap_preflight.should_bootstrap:
                 bootstrap_preflight_pending = bootstrap_preflight
@@ -1125,6 +674,7 @@ class LifeWorker:
         _suppress = {
             "active": bool(_boot.enabled) and not resume_intent,
             "objective": (_boot.objective or "").strip(),
+            "generation": _boot.generation,
         }
         if _suppress["active"]:
             log.warning(
@@ -1140,10 +690,18 @@ class LifeWorker:
         # is running — no daemon restart needed. A suppressed stale-boot
         # campaign stays off until the operator re-arms it (any change from the
         # boot state lifts the suppression and is then honored live).
+        _latest_continuous_state = _boot
+
         def _continuous_provider() -> tuple[bool, str]:
-            enabled, objective = read_continuous_config(runtime_root)
+            nonlocal _latest_continuous_state
+            current = read_continuous_state(runtime_root)
+            _latest_continuous_state = current
+            enabled, objective = current.enabled, current.objective
             enabled, objective = _apply_continuous_suppression(
-                _suppress, enabled, objective
+                _suppress,
+                enabled,
+                objective,
+                generation=current.generation,
             )
             if continuous_mode_error(cfg.backend, enabled, objective):
                 if enabled:
@@ -1153,19 +711,20 @@ class LifeWorker:
                         objective=objective,
                     )
                 return False, objective
+            if not self._operator_stop_requested:
+                self._adopted_continuous_generation = (
+                    current.generation if enabled else None
+                )
             return enabled, objective
 
         # Seed continuous config from disk (or CLI flags).
         init_continuous, init_objective = _continuous_provider()
+        init_source_state = _latest_continuous_state
         if cfg.continuous:
-            # CLI flags override disk — also persist them so REPL sees.
+            # CLI flags override disk. Persist only after Manager has produced a
+            # role-clean execution handoff.
             init_continuous = True
             init_objective = cfg.continuous_objective or init_objective
-            write_continuous_config(
-                runtime_root,
-                enabled=True,
-                objective=init_objective,
-            )
 
         # New daemon = fresh isolation generation: drop the Manager's persistent
         # codex session so it does NOT resume the PRIOR daemon's accumulated
@@ -1187,13 +746,24 @@ class LifeWorker:
         # Manager divides the task before the supervisor starts — same as the
         # REPL path (apps/_runtime.run_life_supervisor): classify the vertical,
         # split into Stages, and commit it so the supervisor trusts the persisted
-        # vertical. Fail-open: daemon start must never be blocked by division.
-        if str(init_objective or "").strip():
+        # vertical. A missing handoff fails closed: raw operator text never reaches
+        # Planner/Engineer.
+        if init_continuous and str(init_objective or "").strip() and not _suppress["active"]:
+            source_objective = str(init_objective).strip()
+            expected_state = init_source_state
+            intent_id = f"intent-daemon-{time.time_ns()}"
+            sink.append({
+                "type": "life.manager.intent.started",
+                "agent_layer": "manager",
+                "intent_id": intent_id,
+                "source": "daemon_boot",
+                "objective": source_objective,
+                "text": "manager interpreting daemon objective",
+            })
             try:
                 # Prefer the runner's single Manager instance (manager backend);
                 # fall back to an ad-hoc Manager only when the runner has none
-                # (e.g. the memory runner in tests). Fail-open either way —
-                # daemon start must never be blocked by division.
+                # (e.g. the memory runner in tests).
                 mgr = getattr(runner, "manager", None)
                 if mgr is None:
                     from ..manager import Manager
@@ -1204,28 +774,123 @@ class LifeWorker:
                         or getattr(runner, "backend", None),
                         manager_session_root=runtime_root,
                     )
-                _ask = str(os.environ.get("ARGUS_SKILL_DOMAIN_ASK", "")).strip().lower() in (
-                    "1", "true", "yes", "on",
+                from ..manager.front_door import require_manager_execution_task
+
+                decision = mgr.decide_vertical(source_objective)
+                execution_task = require_manager_execution_task(decision)
+                if self._operator_stop_requested:
+                    raise RuntimeError("operator stop requested during Manager handoff")
+                target_enabled = True if cfg.continuous else expected_state.enabled
+                committed: dict[str, Any] = {}
+
+                def _commit_decision() -> None:
+                    committed["division"] = mgr.commit_vertical_decision(
+                        source_objective,
+                        decision,
+                        ask_on_new_domain=False,
+                        _lock_held=True,
+                    )
+
+                lock_factory = getattr(mgr, "pipeline_lock", None)
+                pipeline_lock = (
+                    lock_factory() if callable(lock_factory) else nullcontext()
                 )
-                division = mgr.divide(init_objective, ask_on_new_domain=_ask)
-                # Daemon is headless: an ask-mode proposal has no operator to
-                # confirm, so commit the authored domain directly.
-                if (
-                    getattr(division, "pending_confirmation", False)
-                    and getattr(division, "proposed_domain", None) is not None
-                ):
-                    mgr.commit_domain(division.task, division.proposed_domain)
-            except Exception:  # noqa: BLE001 — never block daemon start on division
-                pass
+                with pipeline_lock:
+                    swapped = compare_and_swap_continuous_config(
+                        runtime_root,
+                        expected=expected_state,
+                        enabled=target_enabled,
+                        objective=execution_task,
+                        before_write=_commit_decision,
+                    )
+                if swapped:
+                    division = committed["division"]
+                    init_continuous = target_enabled
+                    init_objective = execution_task
+                    if not self._operator_stop_requested:
+                        self._adopted_continuous_generation = (
+                            expected_state.generation + 1
+                            if target_enabled
+                            else None
+                        )
+                    sink.append({
+                        "type": "life.manager.intent.completed",
+                        "agent_layer": "manager",
+                        "intent_id": intent_id,
+                        "source": "daemon_boot",
+                        "continuous_generation": expected_state.generation + 1,
+                        "execution_task": execution_task,
+                        "vertical": getattr(division, "vertical", ""),
+                        "kind": getattr(division, "kind", ""),
+                        "stages": list(getattr(division, "stages", []) or []),
+                        "text": "manager completed daemon objective handoff",
+                    })
+                else:
+                    if (
+                        read_continuous_state(runtime_root).generation
+                        == expected_state.generation
+                    ):
+                        init_continuous, init_objective = False, ""
+                        if expected_state.enabled:
+                            _suppress.update({
+                                "active": True,
+                                "objective": expected_state.objective,
+                                "generation": expected_state.generation,
+                            })
+                        sink.append({
+                            "type": "life.manager.intent.failed",
+                            "agent_layer": "manager",
+                            "intent_id": intent_id,
+                            "source": "daemon_boot",
+                            "error": "failed to persist Manager execution handoff",
+                            "text": "manager daemon objective handoff was not persisted",
+                        })
+                    else:
+                        init_continuous, init_objective = _continuous_provider()
+                        sink.append({
+                            "type": "life.manager.intent.superseded",
+                            "agent_layer": "manager",
+                            "intent_id": intent_id,
+                            "source": "daemon_boot",
+                            "text": "daemon objective changed during Manager handoff",
+                        })
+                cfg.continuous_objective = init_objective
+            except Exception as exc:  # noqa: BLE001 — fail closed, keep daemon available
+                current_state = read_continuous_state(runtime_root)
+                if current_state.generation == expected_state.generation:
+                    init_continuous = False
+                    init_objective = current_state.objective
+                    if current_state.enabled:
+                        _suppress.update({
+                            "active": True,
+                            "objective": current_state.objective,
+                            "generation": current_state.generation,
+                        })
+                else:
+                    init_continuous, init_objective = _continuous_provider()
+                cfg.continuous_objective = init_objective
+                log.error("daemon Manager handoff failed; objective not dispatched: %s", exc)
+                sink.append({
+                    "type": "life.manager.intent.failed",
+                    "agent_layer": "manager",
+                    "intent_id": intent_id,
+                    "source": "daemon_boot",
+                    "objective": source_objective,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "text": "manager daemon objective handoff failed",
+                })
 
         # Now that the Manager's divide() above has had its chance to resolve
-        # and persist the real vertical (fail-open: if it raised or the
-        # objective was blank, ``vertical`` simply stays unresolved, exactly
-        # matching today's fallback behavior), perform the previously-deferred
+        # and persist the real vertical, perform the previously-deferred
         # bootstrap seed. ``_seed_project_agents_and_venv`` re-reads the
         # persisted vertical itself, so this ordering is what actually closes
         # the race — no vertical is threaded through by hand here.
-        if bootstrap_preflight_pending is not None:
+        if (
+            bootstrap_preflight_pending is not None
+            and structured_research_bootstrap_requested(
+                Path(bootstrap_preflight_pending.project_root)
+            )
+        ):
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the
@@ -1331,7 +996,13 @@ class LifeWorker:
             while not self._stop.is_set():
                 summary: dict = {}
                 try:
-                    summary = sup.run()
+                    manager = getattr(runner, "manager", None)
+                    lock_factory = getattr(manager, "pipeline_lock", None)
+                    pipeline_lock = (
+                        lock_factory() if callable(lock_factory) else nullcontext()
+                    )
+                    with pipeline_lock:
+                        summary = sup.run()
                     test_signature_path = os.environ.get(
                         _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
                     ).strip()
@@ -1346,12 +1017,21 @@ class LifeWorker:
                     # When planner declares project done, persist to disk
                     # so we don't re-plan the same objective next loop.
                     if summary.get("stopped_by") == "project_done":
-                        write_continuous_config(
-                            runtime_root,
-                            enabled=False,
-                            objective=sup.config.continuous_objective,
-                            done_reason="planner declared project done",
-                        )
+                        current = read_continuous_state(runtime_root)
+                        if (
+                            current.enabled
+                            and self._adopted_continuous_generation is not None
+                            and current.generation
+                            == self._adopted_continuous_generation
+                            and compare_and_swap_continuous_config(
+                                runtime_root,
+                                expected=current,
+                                enabled=False,
+                                objective=current.objective,
+                                done_reason="planner declared project done",
+                            )
+                        ):
+                            self._adopted_continuous_generation = None
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
                     # (the shutdown distillation below runs) — the session model
@@ -1392,9 +1072,10 @@ class LifeWorker:
         # daemon launch. A crash (SIGKILL / power loss) never reaches here, so
         # continuous stays enabled and the campaign auto-resumes — the intended
         # crash-recovery.
-        if self._stop.is_set():
+        if self._operator_stop_requested:
             self._quiesce_continuous_on_operator_stop(
-                runtime_root, sup.config.continuous_objective
+                runtime_root,
+                self._adopted_continuous_generation,
             )
 
         log.info(
@@ -1406,7 +1087,9 @@ class LifeWorker:
         return 0
 
     def _quiesce_continuous_on_operator_stop(
-        self, runtime_root: Path, objective: str
+        self,
+        runtime_root: Path,
+        adopted_generation: int | None,
     ) -> None:
         """Operator clock-out (别干了): disable continuous mode on a graceful stop.
 
@@ -1421,15 +1104,20 @@ class LifeWorker:
         recovery. No-op for a non-continuous daemon. Best-effort: never blocks
         shutdown.
         """
-        if not getattr(self.config, "continuous", False):
+        if adopted_generation is None:
             return
         try:
-            write_continuous_config(
+            current = read_continuous_state(runtime_root)
+            if not current.enabled or current.generation != adopted_generation:
+                return
+            if not compare_and_swap_continuous_config(
                 runtime_root,
+                expected=current,
                 enabled=False,
-                objective=objective,
+                objective=current.objective,
                 done_reason="operator stop (graceful SIGTERM/SIGINT — clock out)",
-            )
+            ):
+                return
             log.info("daemon: quiesced continuous mode on operator stop (clock out)")
         except Exception:  # noqa: BLE001 — quiesce is best-effort
             log.exception("daemon: failed to quiesce continuous on operator stop")
@@ -1587,6 +1275,21 @@ class LifeWorker:
         self._failed_handoff_signature = current
         log.warning("daemon handoff failed for signature=%s; incumbent continues", current)
         return False
+
+def run_handoff_child() -> int:
+    return run_handoff_child_process(
+        worker_factory=LifeWorker,
+        acquire_lock=_acquire_daemon_lock_with_timeout,
+    )
+
+
+def _acquire_daemon_lock_with_timeout(pid_path: Path, timeout: float) -> Any:
+    return _acquire_daemon_lock_with_timeout_impl(
+        pid_path,
+        timeout,
+        acquire_fn=acquire_global_daemon_lock,
+    )
+
 
 def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     """Build the argparse-shaped namespace ``build_life_runner`` expects."""
@@ -1788,415 +1491,6 @@ class _DaemonSink:
 # PID lock + status
 # ---------------------------------------------------------------------------
 
-def _daemon_pid_path(life_dir: Path) -> Path:
-    return life_dir / "daemon.pid"
-
-
-def _daemon_status_path(life_dir: Path) -> Path:
-    return life_dir / "daemon.status.json"
-
-
-def _new_boot_id() -> str:
-    """Per-boot daemon id — UTC timestamp + a short random suffix (collision-free
-    even on a sub-second restart). Segments each boot's log so consecutive daemon
-    runs on the same project never interleave in one file."""
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
-
-
-def _daemon_log_path(
-    life_dir: Path, override: Path | None = None, boot_id: str | None = None
-) -> Path:
-    """Per-boot daemon log path. An explicit ``override`` (``config.log_path``)
-    always wins. Otherwise each boot gets its OWN file
-    ``<life_dir>/daemons/boot-<id>.log``; the stable ``<life_dir>/daemon.log``
-    symlink (:func:`_point_active_daemon_log`) points at the current boot for
-    back-compat readers / ``tail`` / ``--status``. Identity stays per-PROJECT (one
-    daemon per life_dir) — this only segments that one daemon's log by boot."""
-    if override is not None:
-        return override
-    return life_dir / "daemons" / f"boot-{boot_id or _new_boot_id()}.log"
-
-
-def _point_active_daemon_log(life_dir: Path, target: Path) -> None:
-    """(Re)point ``<life_dir>/daemon.log`` at the active boot's log file so every
-    existing reader / ``tail`` / ``--status`` keeps resolving the live log. A
-    pre-existing legacy regular ``daemon.log`` is preserved (renamed aside), not
-    clobbered. Best-effort — never breaks daemon startup."""
-    link = life_dir / "daemon.log"
-    try:
-        if link.is_symlink():
-            link.unlink()
-        elif link.exists():
-            link.rename(life_dir / "daemon.log.pre-segment")
-        os.symlink(os.path.relpath(target, life_dir), link)
-    except OSError:
-        log.debug("could not point daemon.log -> %s", target, exc_info=True)
-
-
-def _redirect_std_to_log(log_path: Path, *, keep_console: bool = False) -> int | None:
-    """dup2 stdout+stderr to ``log_path`` (append) so ALL output — Python logs and
-    codex subprocess output — lands in the per-boot log. Returns a saved copy of
-    the original stderr fd when ``keep_console`` (so the caller can still tee
-    Python logs to the terminal / journald), else None."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    saved = os.dup(2) if keep_console else None
-    fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.dup2(fd, sys.stdout.fileno())
-    os.dup2(fd, sys.stderr.fileno())
-    os.close(fd)
-    return saved
-
-
-def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> dict[str, Any]:
-    # Report the RUNNER backend (what actually executes role turns — codex /
-    # claude / copilot), not the life-orchestration backend. Otherwise a
-    # copilot-backed run would mislabel itself "codex" in every UI. Resolved the
-    # same way the role config is (env → persisted → codex), so it matches the
-    # roles panel.
-    try:
-        from ..agent_cli.runner_backend import normalize_runner_backend
-        from ..core.knobs import resolve_role_backend
-
-        backend = normalize_runner_backend(resolve_role_backend("engineer"))
-    except Exception:  # noqa: BLE001
-        backend = config.backend
-    from .protocol import daemon_protocol_metadata
-
-    return {
-        "pid": os.getpid(),
-        "started_at_iso": started_at_iso,
-        "backend": backend,
-        "life_dir": str(config.life_dir),
-        "per_mission_cap_usd": config.per_mission_cap_usd,
-        "daily_cap_usd": config.daily_cap_usd,
-        "global_daily_cap_usd": config.global_daily_cap_usd,
-        **daemon_protocol_metadata(),
-    }
-
-
-@dataclass
-class DaemonStatus:
-    alive: bool
-    pid: int | None
-    started_at_iso: str | None
-    uptime_seconds: float | None
-    life_dir: Path
-    backend: str | None = None
-    per_mission_cap_usd: float | None = None
-    daily_cap_usd: float | None = None
-    global_daily_cap_usd: float | None = None
-    protocol_name: str = ""
-    protocol_major: int | None = None
-    protocol_minor: int | None = None
-    capabilities: tuple[str, ...] = ()
-    runtime: dict[str, Any] | None = None
-    status_read_error: str = ""
-    pid_path: Path | None = None
-
-
-def _daemon_budget_from_env() -> LifeBudget:
-    from ..core.knobs import resolve_budget_caps
-
-    budget = resolve_budget_caps()
-
-    return LifeBudget(
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
-        global_daily_cap_usd=budget.global_daily_cap_usd,
-    )
-
-
-def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
-    """Return the live budget caps for operator surfaces.
-
-    When the daemon has published caps in its status sidecar, use those
-    exact values. Otherwise fall back to the current env/default caps so
-    stopped-daemon status commands still show what a new launch would
-    enforce.
-    """
-    alive = bool(getattr(status, "alive", False))
-    per_mission = getattr(status, "per_mission_cap_usd", None)
-    daily = getattr(status, "daily_cap_usd", None)
-    global_daily = getattr(status, "global_daily_cap_usd", None)
-    try:
-        if alive and per_mission is not None and daily is not None:
-            return LifeBudget(
-                per_mission_cap_usd=float(per_mission),
-                daily_cap_usd=float(daily),
-                global_daily_cap_usd=float(global_daily or 0.0),
-            )
-    except (TypeError, ValueError):
-        pass
-    return _daemon_budget_from_env()
-
-
-def _status_global_root(status: Any | None) -> Path | None:
-    life_dir = getattr(status, "life_dir", None)
-    if life_dir is None:
-        return None
-    try:
-        path = Path(life_dir).expanduser()
-    except TypeError:
-        return None
-    parent = path.parent
-    if parent.name != "projects":
-        return None
-    return parent.parent
-
-
-def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
-    budget = resolve_effective_budget(status)
-    remaining = budget.remaining_today(journal)
-    global_root = _status_global_root(status)
-    if global_daily_spend is _GLOBAL_DAILY_SPEND_IMPL:
-        global_usage = global_daily_usage_summary(
-            global_root=global_root,
-            now=time.time(),
-        )
-        global_cost_text = format_usage_cost(global_usage)
-    else:
-        global_spend = global_daily_spend(global_root=global_root, now=time.time())
-        global_cost_text = f"${global_spend:.2f}"
-    tail = " (paused)" if remaining <= 0 else ""
-    return (
-        "budget   : "
-        f"per-mission ${budget.per_mission_cap_usd:.2f} · "
-        f"daily ${budget.daily_cap_usd:.2f} · "
-        f"global daily ${budget.global_daily_cap_usd:.2f} "
-        f"(spent {global_cost_text}) · "
-        f"remaining ${remaining:.2f}{tail}"
-    )
-
-
-def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
-    """Read the daemon's pid file and return a structured status.
-
-    ``alive=True`` only if both the pid file exists AND the process is
-    still running (verified via ``os.kill(pid, 0)``). A stale pid file
-    from a hard kill returns ``alive=False`` so callers know the lock
-    is reclaimable.
-    """
-    if life_dir is None:
-        from ..core import paths as core_paths
-        life_dir = core_paths.global_root()
-    else:
-        life_dir = Path(life_dir).expanduser()
-    pid_path = _daemon_pid_path(life_dir)
-    if not pid_path.exists():
-        return DaemonStatus(
-            alive=False, pid=None, started_at_iso=None,
-            uptime_seconds=None, life_dir=life_dir, pid_path=pid_path,
-        )
-    try:
-        pid = int(pid_path.read_text().strip())
-    except (OSError, ValueError):
-        return DaemonStatus(
-            alive=False, pid=None, started_at_iso=None,
-            uptime_seconds=None, life_dir=life_dir, pid_path=pid_path,
-        )
-    alive = _process_alive(pid)
-    started_iso: str | None = None
-    backend: str | None = None
-    per_mission_cap_usd: float | None = None
-    daily_cap_usd: float | None = None
-    global_daily_cap_usd: float | None = None
-    protocol_name = ""
-    protocol_major: int | None = None
-    protocol_minor: int | None = None
-    capabilities: tuple[str, ...] = ()
-    runtime: dict[str, Any] | None = None
-    status_read_error = ""
-    uptime: float | None = None
-    sidecar = _daemon_status_path(life_dir)
-    if sidecar.exists():
-        try:
-            data = json.loads(sidecar.read_text(encoding="utf-8"))
-            started_iso = data.get("started_at_iso")
-            backend = data.get("backend")
-            raw_per_mission = data.get("per_mission_cap_usd")
-            raw_daily = data.get("daily_cap_usd")
-            raw_global_daily = data.get("global_daily_cap_usd")
-            if raw_per_mission is not None:
-                per_mission_cap_usd = float(raw_per_mission)
-            if raw_daily is not None:
-                daily_cap_usd = float(raw_daily)
-            if raw_global_daily is not None:
-                global_daily_cap_usd = float(raw_global_daily)
-            protocol = data.get("protocol")
-            if isinstance(protocol, dict):
-                protocol_name = str(protocol.get("name") or "")
-                raw_major = protocol.get("major")
-                raw_minor = protocol.get("minor")
-                protocol_major = int(raw_major) if raw_major is not None else None
-                protocol_minor = int(raw_minor) if raw_minor is not None else None
-            raw_capabilities = data.get("capabilities")
-            if isinstance(raw_capabilities, list):
-                capabilities = tuple(
-                    str(item) for item in raw_capabilities if isinstance(item, str)
-                )
-            raw_runtime = data.get("runtime")
-            if isinstance(raw_runtime, dict):
-                runtime = dict(raw_runtime)
-            if started_iso:
-                started_dt = datetime.fromisoformat(started_iso)
-                uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            status_read_error = f"{type(exc).__name__}: {exc}"[:500]
-    return DaemonStatus(
-        alive=alive,
-        pid=pid if alive else None,
-        started_at_iso=started_iso,
-        uptime_seconds=uptime,
-        life_dir=life_dir,
-        backend=backend,
-        per_mission_cap_usd=per_mission_cap_usd,
-        daily_cap_usd=daily_cap_usd,
-        global_daily_cap_usd=global_daily_cap_usd,
-        protocol_name=protocol_name,
-        protocol_major=protocol_major,
-        protocol_minor=protocol_minor,
-        capabilities=capabilities,
-        runtime=runtime,
-        status_read_error=status_read_error,
-        pid_path=pid_path,
-    )
-
-
-def wait_for_daemon_status(
-    life_dir: Path | None = None,
-    *,
-    timeout: float = 5.0,
-    poll_interval: float = 0.05,
-) -> DaemonStatus | None:
-    """Wait briefly for the daemon pid/status sidecars to become readable."""
-    deadline = time.monotonic() + max(0.0, timeout)
-    last: DaemonStatus | None = None
-    while True:
-        status = read_daemon_status(life_dir)
-        last = status
-        if status.alive and status.pid is not None:
-            return status
-        if time.monotonic() >= deadline:
-            return last
-        time.sleep(max(0.0, poll_interval))
-
-
-def _process_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
-
-
-def stop_daemon(
-    life_dir: Path | None = None,
-    *,
-    timeout: float = 10.0,
-    drain: bool = False,
-    drain_timeout: float = 1800.0,
-    force: bool = False,
-) -> int:
-    """Stop the running daemon.
-
-    Default (fast SIGTERM): send SIGTERM and wait ``timeout`` (10s) for exit. A
-    daemon that is mid-mission will NOT exit in 10s — the supervisor only checks
-    its stop flag *between* missions, and the engineer round loop runs to a
-    natural boundary — so this returns 2 and (unless ``force``) tells the
-    operator to drain or escalate rather than silently leaving the daemon up.
-
-    Drain (``drain=True``): quiesce continuous mode FIRST (so no NEW mission
-    starts after the current one), then SIGTERM (which sets the supervisor stop
-    flag), and wait up to ``drain_timeout`` for the daemon to finish its CURRENT
-    mission at its natural between-mission boundary and exit cleanly. There is no
-    mid-mission SIGKILL, so a running eval or a win being banked is never
-    interrupted. This is the safe way to stop for a code-reload restart and
-    replaces hand-rolling a pgrep boundary-watcher. Progress is printed while
-    waiting.
-
-    ``force``: if the daemon is still alive when the wait elapses, escalate to
-    SIGKILL (which DOES interrupt a running mission) instead of returning 2.
-
-    Returns 0 on graceful stop, 1 if no daemon was running, 2 on timeout.
-    """
-    status = read_daemon_status(life_dir)
-    if not status.alive or status.pid is None:
-        sys.stderr.write("argus-skill: no daemon is running for this life-dir.\n")
-        return 1
-    pid = status.pid
-    resolved_dir = status.life_dir
-
-    if drain:
-        # Stop NEW missions from starting after the current one finishes,
-        # preserving the objective so the operator can resume later. The daemon
-        # hot-reloads continuous.json, so this lands without a restart.
-        try:
-            _enabled, objective = read_continuous_config(resolved_dir)
-            write_continuous_config(
-                resolved_dir,
-                enabled=False,
-                objective=objective,
-                done_reason="operator drain-stop",
-            )
-        except Exception:  # noqa: BLE001 — quiesce is best-effort
-            pass
-        sys.stdout.write(
-            f"argus-skill: draining daemon (pid {pid}) — quiesced continuous mode; "
-            "waiting for the current mission to finish at its natural boundary "
-            "(no mid-mission SIGKILL)...\n"
-        )
-        sys.stdout.flush()
-
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return 1
-
-    wait_for = drain_timeout if drain else timeout
-    deadline = time.monotonic() + wait_for
-    next_heartbeat = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        if not _process_alive(pid):
-            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
-            return 0
-        if drain and time.monotonic() >= next_heartbeat:
-            elapsed = int(wait_for - (deadline - time.monotonic()))
-            sys.stdout.write(
-                f"argus-skill: draining... still finishing current mission "
-                f"({elapsed}s elapsed).\n"
-            )
-            sys.stdout.flush()
-            next_heartbeat += 30.0
-        time.sleep(0.2)
-
-    if force:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
-            return 0
-        sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) did not exit within {wait_for:.0f}s; "
-            "sent SIGKILL (--force).\n"
-        )
-        return 0
-    if drain:
-        sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) is still finishing its mission after "
-            f"{wait_for:.0f}s. It will exit on its own at the next boundary; re-run "
-            "with --force to SIGKILL now (interrupts the mission).\n"
-        )
-    else:
-        sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) did not exit within {timeout:.1f}s "
-            "(it is mid-mission). Re-run with --drain to wait for a clean boundary, "
-            "or --force to SIGKILL now.\n"
-        )
-    return 2
 
 
 # ---------------------------------------------------------------------------
@@ -2273,235 +1567,16 @@ def _release_daemon_spawn_lock(fd: int | None, *, unlock: bool = True) -> None:
 
 
 def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> int:
-    """Fork a detached background process running the worker, then exit.
-
-    Returns 0 on successful spawn, 2 if a daemon is already running.
-
-    Uses the standard double-fork idiom to fully detach from the
-    controlling terminal and become a session leader. The grandchild
-    inherits no fds we care about, redirects std{in,out,err} to the
-    log file, acquires the daemon pid lock, writes the status sidecar,
-    and finally enters :meth:`LifeWorker.run_forever`.
-    """
-    spawn_lock_fd = _acquire_daemon_spawn_lock(config)
-    try:
-        # Count and fork while holding one host-wide admission lock. A second
-        # launcher cannot observe the same pre-start count before this child has
-        # published its pid/status sidecars.
-        existing = read_daemon_status(config.life_dir)
-        if existing.alive and existing.pid is not None:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: daemon already running for this life-dir "
-                    f"(pid={existing.pid}, lock={existing.pid_path}).\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        daemon_limit = _max_active_daemons(config)
-        active_count = _active_daemon_count(config)
-        if daemon_limit > 0 and active_count >= daemon_limit:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: refusing to start another daemon: host-wide "
-                    f"active-daemon cap {daemon_limit} reached ({active_count} live). "
-                    "Stop an existing project or raise "
-                    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS explicitly.\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        config.life_dir.mkdir(parents=True, exist_ok=True)
-        boot_id = _new_boot_id()
-        log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-        _point_active_daemon_log(config.life_dir, log_path)
-        pid_path = _daemon_pid_path(config.life_dir)
-        status_path = _daemon_status_path(config.life_dir)
-        pid = os.fork()
-    except Exception:
-        _release_daemon_spawn_lock(spawn_lock_fd)
-        raise
-    if pid > 0:
-        try:
-            # Parent waits briefly so the admission lock covers pid publication.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if pid_path.exists() and status_path.exists():
-                    try:
-                        written_pid = int(pid_path.read_text().strip())
-                    except (OSError, ValueError):
-                        written_pid = 0
-                    if written_pid and _process_alive(written_pid):
-                        if not quiet:
-                            sys.stdout.write(
-                                f"argus-skill: daemon started (pid {written_pid}, "
-                                f"life_dir={config.life_dir}, log={log_path}).\n"
-                            )
-                        return 0
-                time.sleep(0.1)
-            if not quiet:
-                sys.stderr.write(
-                    "argus-skill: daemon fork succeeded but child did not write its "
-                    f"pid file within 5s. Check {log_path} for errors.\n"
-                )
-            return 2
-        finally:
-            _release_daemon_spawn_lock(spawn_lock_fd)
-
-    # The parent owns admission. Close only this inherited descriptor copy;
-    # unlocking here would release the parent's lock before pid publication.
-    _release_daemon_spawn_lock(spawn_lock_fd, unlock=False)
-
-    # First child — become session leader.
-    try:
-        os.setsid()
-    except OSError:
-        pass
-
-    # Second fork — guarantee no controlling TTY can be reacquired.
-    try:
-        pid2 = os.fork()
-    except OSError:
-        pid2 = -1
-    if pid2 > 0:
-        os._exit(0)
-
-    # Grandchild: this is the daemon. Redirect std fds to the log file.
-    os.chdir("/")
-    os.umask(0o077)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.dup2(log_fd, sys.stdout.fileno())
-    os.dup2(log_fd, sys.stderr.fileno())
-    os.close(log_fd)
-    devnull_fd = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(devnull_fd, sys.stdin.fileno())
-    os.close(devnull_fd)
-
-    # Close every inherited fd beyond std{in,out,err}. ``os.fork`` (unlike
-    # ``subprocess(close_fds=True)``) inherits the WHOLE fd table of whoever
-    # called ``spawn_detached_daemon`` — which is often the web server
-    # (``argus-skill --web``), whose LISTENING SOCKET would otherwise be kept
-    # open here and wedge that port after the web restarts (a real fd leak:
-    # connections queue to a daemon that never accepts). The daemon opens every
-    # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
-    # so dropping the inherited table is safe and correct daemonisation.
-    try:
-        _keep = {0, 1, 2}
-        for _name in os.listdir("/proc/self/fd"):
-            try:
-                _fd = int(_name)
-            except ValueError:
-                continue
-            if _fd not in _keep:
-                try:
-                    os.close(_fd)
-                except OSError:
-                    pass
-    except FileNotFoundError:  # /proc unavailable — bounded fallback
-        os.closerange(3, 4096)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
+    return spawn_detached_process(
+        config,
+        worker_factory=LifeWorker,
+        acquire_spawn_lock=_acquire_daemon_spawn_lock,
+        release_spawn_lock=_release_daemon_spawn_lock,
+        max_active_daemons=_max_active_daemons,
+        active_daemon_count=_active_daemon_count,
+        quiet=quiet,
     )
-
-    # Acquire the daemon pid lock. If a competing daemon raced us and
-    # got it first we exit cleanly — the parent's pre-flight is just
-    # an optimization, the lock is the real guarantee.
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        log.error("daemon: another daemon already holds the lock (pid=%s)", exc.pid)
-        os._exit(2)
-
-    # Write the status sidecar so ``read_daemon_status`` knows when we
-    # started + which backend we're on.
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        rc = worker.run_forever()
-    except Exception:  # noqa: BLE001
-        log.exception("daemon: fatal error")
-        rc = 1
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
-
-    os._exit(rc)
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:
-    """Run the worker in the foreground (for systemd / debugging).
-
-    Same lock + status sidecar as the detached path, but logs go to
-    stderr and SIGINT/SIGTERM stop the process directly.
-    """
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        sys.stderr.write(
-            f"argus-skill: daemon already running for this life-dir "
-            f"(pid={exc.pid}, lock={exc.lock_path}).\n"
-        )
-        return 2
-
-    # We own the daemon — segment THIS boot's output into its own per-boot log
-    # (fixes --daemon-fg previously writing no file); the daemon.log symlink
-    # points here. keep_console tees Python logs to the original stderr (terminal
-    # / journald) so an interactive fg run still shows progress.
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    _point_active_daemon_log(config.life_dir, log_path)
-    saved_console = _redirect_std_to_log(log_path, keep_console=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    if saved_console is not None:
-        try:
-            _console = os.fdopen(saved_console, "w", buffering=1)
-            _handler = logging.StreamHandler(_console)
-            _handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            )
-            logging.getLogger().addHandler(_handler)
-        except OSError:
-            pass
-
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon-fg: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        return worker.run_forever()
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon-fg: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
+    return run_foreground_process(config, worker_factory=LifeWorker)

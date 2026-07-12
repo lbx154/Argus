@@ -34,13 +34,13 @@ Command POSTs (task/nudge/daemon start-stop/config) land in M1.
 
 import asyncio
 import json
-import mimetypes
 import os
 import queue
 import shlex
+import shutil
 import threading
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
@@ -48,24 +48,36 @@ from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_events
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
-from ..core.event_catalog import EventType
+from ..core.event_catalog import EventType, canonical_event_type
+from ..core.metrics import (
+    http_route_template,
+    metrics_snapshot,
+    record_metric,
+    render_prometheus,
+)
 from ..core.provider_quota import provider_usage_snapshot
-from ..core.session import SessionMeta, read_session_meta
+from ..core.session import SessionMeta, read_session_meta, write_session_meta
 from ..core.transcript import read_turns
+from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
     _active_daemon_count,
     _max_active_daemons,
+    disable_continuous_config,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
     stop_daemon,
-    write_continuous_config,
+    write_continuous_config,  # noqa: F401 - compatibility export
 )
-from ..life.memory import LifeMemory, _read_jsonl_tail_history
+from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
+from ..manager.front_door import (
+    ManagerHandoffError,
+    ManagerHandoffSupersededError,
+)
 from ..tools.doctor import run_diagnostics
-from . import project_state
+from . import artifacts, project_state
 from .protocol import build_api_meta, protocol_header
 
 _DAEMON_ADMISSION_FILE = project_state.DAEMON_ADMISSION_FILE
@@ -77,12 +89,23 @@ _stat_signature = project_state.stat_signature
 build_snapshot = project_state.build_snapshot
 list_projects = project_state.list_projects
 project_life_dir = project_state.project_life_dir
+_artifact_metadata = artifacts.artifact_metadata
+_latest_evidence_files = artifacts.latest_evidence_files
+_manager_live_view_files = artifacts.manager_live_view_files
+_project_git_diff = artifacts.project_git_diff
+_project_workspace = artifacts.project_workspace
+_resolved_project_artifact = artifacts.resolved_project_artifact
+_safe_artifact_path = artifacts.safe_artifact_path
+get_project_artifact = artifacts.get_project_artifact
+list_project_artifacts = artifacts.list_project_artifacts
 
 __all__ = [
     "DaemonStatus",
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
-    "enqueue_task", "enqueue_nudge", "start_project_daemon", "stop_project_daemon",
+    "enqueue_task", "enqueue_nudge", "answer_pending_question",
+    "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
+    "update_project", "delete_project",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
     "get_identity", "get_transcript",
@@ -97,6 +120,46 @@ _JOURNAL_TAIL_CACHE: dict[
     tuple[tuple[tuple[int, int, int] | None, tuple[int, int, int] | None], list[dict[str, Any]]],
 ] = {}
 _JOURNAL_TAIL_CACHE_LOCK = threading.Lock()
+_WEB_UI_DROPPED_EVENT_TYPES = frozenset({
+    EventType.AGENT_IO_START,
+    EventType.AGENT_IO_STREAM,
+    EventType.AGENT_IO_COMPLETE,
+    EventType.USAGE_RECORDED,
+    EventType.CODEX_UTIL_COMPLETED,
+    EventType.SKILL_COST_COMPLETED,
+    EventType.BUDGET_RESERVATION_CREATED,
+    EventType.BUDGET_RESERVATION_SETTLED,
+    EventType.BUDGET_RESERVATION_RELEASED,
+})
+
+
+def _event_visible_in_web_ui(event: dict[str, Any]) -> bool:
+    if event.get("operator_alert") is True:
+        return True
+    return canonical_event_type(event.get("type")) not in _WEB_UI_DROPPED_EVENT_TYPES
+
+
+def _web_cache_control(path: str) -> str:
+    """Return cache policy for the static SPA shell and hashed build assets."""
+    if path in {"/", "/index.html"}:
+        return "no-store"
+    if path.startswith("/assets/"):
+        return "public, max-age=31536000, immutable"
+    return ""
+
+
+def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
+    result = dict(receipt.result)
+    if receipt.status in {"failed", "rejected"}:
+        result.setdefault("rc", 3)
+        result.setdefault("error", receipt.error)
+    result.update({
+        "command_id": receipt.command_id,
+        "command_status": receipt.status,
+        "command_revision": receipt.revision,
+        "command": receipt.to_jsonable(),
+    })
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -171,10 +234,28 @@ def enqueue_task(
         text,
         defaults=_CONFIG_DEFAULTS,
     )
+    objective = cleaned or text.strip()
+    item_id = BacklogItem.new_id()
+    from .manager_bridge import manager_bounded_handoff
+
     mem = LifeMemory.open(life_dir)
-    item = add_backlog_item(
-        mem, cleaned or text.strip(),
-        iterate=iterate, iteration_max_cycles=cycles, iteration_budget_usd=budget,
+
+    def _persist(execution_task: str, _division: Any):
+        return add_backlog_item(
+            mem,
+            execution_task,
+            item_id=item_id,
+            iterate=iterate,
+            iteration_max_cycles=cycles,
+            iteration_budget_usd=budget,
+        )
+
+    item = manager_bounded_handoff(
+        sid,
+        objective,
+        _persist,
+        global_root=global_root,
+        root_task_id=item_id,
     )
     return item.to_jsonable()
 
@@ -189,6 +270,33 @@ def enqueue_nudge(
         return None
     queue_inbox_message(life_dir, text.strip(), source=source)
     return True
+
+
+def answer_pending_question(
+    sid: str,
+    item_id: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Continue one blocked item without routing its answer through Manager."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    answer = text.strip()
+    mem = LifeMemory.open(life_dir)
+    blocked, continuation = mem.backlog.continue_with_operator_reply(
+        item_id,
+        answer,
+    )
+    if blocked is None:
+        return None
+    if continuation is None:
+        return {"error": "question is no longer pending"}
+    return {
+        "answered_item_id": blocked.id,
+        "item": continuation.to_jsonable(),
+    }
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
@@ -329,6 +437,7 @@ def _clear_daemon_admission(life_dir: Path) -> None:
 def start_project_daemon(
     sid: str, *, global_root: Path | str | None = None,
     resume_continuous: bool = False,
+    reclaim_idle: bool = False,
 ) -> dict[str, Any] | None:
     """Spawn this project's detached daemon (if not already alive). Blocking-ish
     (subprocess spawn) — call from a threadpool in the async endpoint."""
@@ -350,6 +459,28 @@ def start_project_daemon(
     daemon_limit = _max_active_daemons(config)
     active_count = _active_daemon_count(config)
     if daemon_limit > 0 and active_count >= daemon_limit:
+        if reclaim_idle:
+            running = list_running_daemons(global_root=root, exclude_sid=sid)
+            idle = [
+                row for row in running
+                if int(row.get("unfinished_tasks") or 0) == 0
+                and not row.get("active_role")
+                and not row.get("continuous_enabled")
+            ]
+            if idle:
+                victim = min(
+                    idle,
+                    key=lambda row: float(row.get("last_active") or 0.0),
+                )
+                replaced = replace_project_daemon(
+                    sid,
+                    str(victim.get("id") or ""),
+                    global_root=root,
+                    resume_continuous=resume_continuous,
+                )
+                if replaced is not None and int(replaced.get("rc") or 0) == 0:
+                    replaced["auto_parked_idle"] = str(victim.get("id") or "")
+                    return replaced
         return {
             **_admission_required(
                 root=root,
@@ -528,23 +659,49 @@ def create_daemon(
     root = _global_root(global_root)
     sid = new_session_id()
     now = _time.time()
-    obj = (objective or "").strip()
+    requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid, display_name=(name or "").strip(),
-            created=now, last_active=now, cwd=str(life_dir), objective=obj,
-            launch_cwd=str(Path(launch_cwd).expanduser().resolve()) if launch_cwd else "",
-        ),
+    effective_launch_cwd = (
+        str(Path(launch_cwd).expanduser().resolve())
+        if launch_cwd
+        else str(Path.cwd().resolve())
     )
+    meta = SessionMeta(
+        id=sid,
+        display_name=(name or "").strip(),
+        created=now,
+        last_active=now,
+        cwd=str(life_dir),
+        objective="",
+        launch_cwd=effective_launch_cwd,
+        origin="web",
+    )
+    # Persist the deliberate Web session before the Manager round-trip so
+    # concurrent empty-project GC cannot remove it while division is running.
+    write_session_meta(root, meta)
     life_dir.mkdir(parents=True, exist_ok=True)
 
     start_result: dict[str, Any] | None = None
+    obj = requested_objective
     if obj:
+        from .manager_bridge import manager_continuous_handoff
+
+        obj = manager_continuous_handoff(sid, obj, global_root=root)
+        write_session_meta(
+            root,
+            SessionMeta(
+                id=meta.id,
+                display_name=meta.display_name,
+                created=meta.created,
+                last_active=meta.last_active,
+                cwd=meta.cwd,
+                objective=obj,
+                launch_cwd=meta.launch_cwd,
+                origin=meta.origin,
+            ),
+        )
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
-        write_continuous_config(life_dir, enabled=True, objective=obj)
         start_result = start_project_daemon(
             sid,
             global_root=root,
@@ -600,6 +757,63 @@ def stop_project_daemon(
     return {"rc": rc}
 
 
+def update_project(
+    sid: str, *, name: str, global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Update operator-owned session metadata without changing mission state."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    root = _global_root(global_root)
+    meta = read_session_meta(root, sid)
+    if meta is None:
+        now = time.time()
+        try:
+            objective = read_continuous_state(life_dir).objective
+        except Exception:  # noqa: BLE001 — legacy metadata repair is best-effort
+            objective = ""
+        meta = SessionMeta(
+            id=sid,
+            created=now,
+            last_active=now,
+            cwd=str(life_dir),
+            objective=objective,
+        )
+    meta.display_name = (name or "").strip()[:80]
+    write_session_meta(root, meta)
+    return {"ok": True, "sid": sid, "name": meta.display_name}
+
+
+def delete_project(
+    sid: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Reversibly remove a stopped session by moving it to projects_trash."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    status = read_daemon_status(life_dir)
+    if status.alive:
+        return {
+            "ok": False,
+            "sid": sid,
+            "error": "pause the daemon before deleting this session",
+        }
+
+    root = _global_root(global_root)
+    date = time.strftime("%Y%m%d", time.localtime())
+    dest_parent = root / "projects_trash" / date
+    dest_parent.mkdir(parents=True, exist_ok=True)
+    dest = dest_parent / sid
+    if dest.exists():
+        dest = dest_parent / f"{sid}.{int(time.time())}"
+    shutil.move(str(life_dir), str(dest))
+    return {
+        "ok": True,
+        "sid": sid,
+        "trash_path": str(dest.relative_to(root)),
+    }
+
+
 def set_continuous(
     sid: str, *, enabled: bool, objective: str = "",
     global_root: Path | str | None = None,
@@ -609,7 +823,16 @@ def set_continuous(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    write_continuous_config(life_dir, enabled=enabled, objective=objective)
+    if not enabled:
+        disable_continuous_config(life_dir)
+        return True
+    from .manager_bridge import manager_continuous_handoff
+
+    manager_continuous_handoff(
+        sid,
+        objective.strip(),
+        global_root=global_root,
+    )
     return True
 
 
@@ -693,236 +916,6 @@ def get_journal(
     return rows
 
 
-_TEXT_ARTIFACT_SUFFIXES = {
-    ".bib", ".cfg", ".csv", ".html", ".ini", ".json", ".jsonl", ".log",
-    ".md", ".py", ".rst", ".sh", ".tex", ".toml", ".tsv", ".txt", ".yaml",
-    ".yml",
-}
-_INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
-
-
-def _project_workspace(
-    sid: str, *, global_root: Path | str | None = None,
-) -> Path | None:
-    root = _global_root(global_root)
-    meta = read_session_meta(root, sid)
-    if meta is None or not meta.cwd.strip():
-        return None
-    try:
-        workspace = Path(meta.cwd).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError):
-        return None
-    return workspace if workspace.is_dir() else None
-
-
-def _safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] | None:
-    raw = str(relative_path or "").strip().replace("\\", "/")
-    if not raw or "\x00" in raw:
-        return None
-    # Parse as a URL-style path on every OS.  PurePosixPath conveniently
-    # removes a harmless leading ``./`` without corrupting dotfiles (the old
-    # ``lstrip('./')`` changed ``.env`` into ``env``).  Reject traversal before
-    # normalization so ``a/../secret`` can never be made to look innocuous.
-    rel = PurePosixPath(raw)
-    if rel.is_absolute() or ".." in rel.parts:
-        return None
-    normalized = rel.as_posix()
-    if normalized in {"", "."}:
-        return None
-    try:
-        resolved = (workspace / normalized).resolve(strict=False)
-        resolved.relative_to(workspace)
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return normalized, resolved
-
-
-def _latest_evidence_files(
-    sid: str, *, global_root: Path | str | None = None,
-) -> list[dict[str, str]]:
-    # Evidence is scoped to the latest completed mission.  Never fall back to
-    # an older mission merely because a newer result omitted evidence: that
-    # would silently keep stale files allowlisted.  The filtered reverse reader
-    # finds that mission even after thousands of progress events/user notes and
-    # follows the single supported rollover.
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return []
-    events = _read_jsonl_tail_history(
-        life_dir / EVENT_FILE,
-        1,
-        predicate=lambda row: str(row.get("type") or "") == "life.mission.completed",
-    )
-    latest = events[-1] if events else {}
-    report = latest.get("planner_report") if isinstance(latest, dict) else {}
-    evidence = report.get("evidence_files") if isinstance(report, dict) else None
-    if not isinstance(evidence, list) or not evidence:
-        return []
-    out: list[dict[str, str]] = []
-    for item in evidence:
-        if isinstance(item, dict) and str(item.get("path") or "").strip():
-            out.append({
-                "path": str(item["path"]).strip(),
-                "why": str(item.get("why") or "").strip(),
-            })
-    return out
-
-
-def _manager_live_view_files(workspace: Path) -> list[dict[str, str]]:
-    """Manager-selected files for the active project view.
-
-    The declaration is project-local and already path-normalized by the
-    Manager boundary. Re-parse it here so a hand-edited/corrupt manifest cannot
-    expand the artifact allowlist.
-    """
-    from ..manager.live_view import load_live_view_decision
-
-    view = load_live_view_decision(workspace)
-    if view is None:
-        return []
-    return [
-        {
-            "path": path,
-            "why": view.reason,
-            "source": "manager_live",
-            "group_title": view.title,
-        }
-        for path in view.paths
-    ]
-
-
-def _artifact_metadata(
-    workspace: Path,
-    relative_path: str,
-    *,
-    why: str = "",
-    preview_bytes: int = 0,
-) -> dict[str, Any] | None:
-    safe = _safe_artifact_path(workspace, relative_path)
-    if safe is None:
-        return None
-    normalized, resolved = safe
-    try:
-        exists = resolved.is_file()
-        stat = resolved.stat() if exists else None
-    except OSError:
-        exists = False
-        stat = None
-    mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
-    suffix = resolved.suffix.lower()
-    kind = (
-        "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
-        else "image" if mime in _INLINE_IMAGE_MIMES
-        else "pdf" if mime == "application/pdf"
-        else "binary"
-    )
-    row: dict[str, Any] = {
-        "path": normalized,
-        "name": Path(normalized).name,
-        "why": why,
-        "exists": exists,
-        "kind": kind,
-        "mime": mime,
-        "size": int(stat.st_size) if stat is not None else 0,
-        "mtime": float(stat.st_mtime) if stat is not None else None,
-    }
-    if preview_bytes > 0 and exists and kind == "text":
-        try:
-            # Read only the preview window.  ``Path.read_bytes()[:limit]``
-            # still allocates the whole file first and lets a huge allowlisted
-            # log exhaust the API process.
-            with resolved.open("rb") as fh:
-                raw = fh.read(preview_bytes + 1)
-            row["preview"] = raw[:preview_bytes].decode("utf-8", errors="replace")
-            row["truncated"] = len(raw) > preview_bytes
-        except OSError:
-            row["preview"] = ""
-            row["truncated"] = False
-    return row
-
-
-def list_project_artifacts(
-    sid: str, *, global_root: Path | str | None = None,
-) -> list[dict[str, Any]] | None:
-    """Manager live-view files plus latest reviewer evidence, workspace-confined."""
-    if project_life_dir(sid, global_root=global_root) is None:
-        return None
-    workspace = _project_workspace(sid, global_root=global_root)
-    if workspace is None:
-        return []
-    rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    evidence_rows = [
-        *_manager_live_view_files(workspace),
-        *(
-            {
-                **evidence,
-                "source": "reviewer_evidence",
-                "group_title": "Latest reviewed result",
-            }
-            for evidence in _latest_evidence_files(sid, global_root=global_root)
-        ),
-    ]
-    for evidence in evidence_rows:
-        row = _artifact_metadata(workspace, evidence["path"], why=evidence["why"])
-        if row is not None and row["path"] not in seen:
-            row["source"] = evidence["source"]
-            row["group_title"] = evidence["group_title"]
-            seen.add(row["path"])
-            rows.append(row)
-    return rows
-
-
-def get_project_artifact(
-    sid: str,
-    artifact_path: str,
-    *,
-    global_root: Path | str | None = None,
-    preview_bytes: int = 128 * 1024,
-) -> dict[str, Any] | None:
-    """Metadata/preview for a Manager- or Reviewer-allowlisted artifact."""
-    artifacts = list_project_artifacts(sid, global_root=global_root)
-    if artifacts is None:
-        return None
-    workspace = _project_workspace(sid, global_root=global_root)
-    if workspace is None:
-        return None
-    safe_requested = _safe_artifact_path(workspace, artifact_path)
-    if safe_requested is None:
-        return None
-    requested = safe_requested[0]
-    allowed = next((row for row in artifacts if row["path"] == requested), None)
-    if allowed is None or not allowed["exists"]:
-        return None
-    row = _artifact_metadata(
-        workspace,
-        requested,
-        why=str(allowed.get("why") or ""),
-        preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)),
-    )
-    if row is None:
-        return None
-    row["source"] = str(allowed.get("source") or "reviewer_evidence")
-    row["group_title"] = str(allowed.get("group_title") or "")
-    return row
-
-
-def _resolved_project_artifact(
-    sid: str,
-    artifact_path: str,
-    *,
-    global_root: Path | str | None = None,
-) -> tuple[dict[str, Any], Path] | None:
-    info = get_project_artifact(
-        sid, artifact_path, global_root=global_root, preview_bytes=0,
-    )
-    workspace = _project_workspace(sid, global_root=global_root)
-    if info is None or workspace is None:
-        return None
-    safe = _safe_artifact_path(workspace, str(info["path"]))
-    if safe is None or not safe[1].is_file():
-        return None
-    return info, safe[1]
 
 
 def add_project_note(
@@ -1161,7 +1154,10 @@ async def tail_events(
 # ---------------------------------------------------------------------------
 
 def create_app(
-    *, global_root: Path | str | None = None, auth_token: str | None = None
+    *,
+    global_root: Path | str | None = None,
+    auth_token: str | None = None,
+    session_roots: list[Path | str] | None = None,
 ):
     """Build the FastAPI app. Requires the ``[web]`` extra (fastapi).
 
@@ -1184,9 +1180,26 @@ def create_app(
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
     from starlette.concurrency import run_in_threadpool
+    from starlette.middleware.gzip import GZipMiddleware
     from starlette.responses import FileResponse, StreamingResponse
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
+    primary_root = _global_root(global_root).expanduser().resolve()
+    roots: list[Path] = [primary_root]
+    if session_roots is not None:
+        candidates = [Path(root).expanduser() for root in session_roots]
+    elif global_root is None:
+        candidates = [
+            Path(root).expanduser()
+            for root in os.environ.get("ARGUS_SKILL_WEB_SESSION_ROOTS", "").split(os.pathsep)
+            if root.strip()
+        ]
+    else:
+        candidates = []
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in roots:
+            roots.append(resolved)
 
     api_meta = build_api_meta()
     app = FastAPI(
@@ -1196,11 +1209,41 @@ def create_app(
 
     @app.middleware("http")
     async def _add_protocol_headers(request, call_next):  # noqa: ANN001
-        response = await call_next(request)
+        started_at = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            record_metric(
+                _global_root(global_root),
+                "web.request",
+                labels={
+                    "method": request.method,
+                    "path": http_route_template(request.scope, request.url.path),
+                    "status": 500,
+                },
+                fields={"duration_ms": (time.monotonic() - started_at) * 1_000},
+            )
+            raise
+        record_metric(
+            _global_root(global_root),
+            "web.request",
+            labels={
+                "method": request.method,
+                "path": http_route_template(request.scope, request.url.path),
+                "status": response.status_code,
+            },
+            fields={"duration_ms": (time.monotonic() - started_at) * 1_000},
+        )
         response.headers["X-Argus-Protocol"] = protocol_header()
         revision = api_meta["runtime"].get("revision")
         if revision:
             response.headers["X-Argus-Revision"] = str(revision)
+        response.headers["X-Argus-Release"] = str(
+            api_meta["runtime"].get("release_id") or "unknown"
+        )
+        cache_control = _web_cache_control(request.url.path)
+        if cache_control:
+            response.headers["Cache-Control"] = cache_control
         return response
 
     @app.on_event("shutdown")
@@ -1225,6 +1268,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     def _require_auth(authorization: str | None = Header(default=None)) -> None:
         if not token:
@@ -1232,11 +1276,57 @@ def create_app(
         if authorization != f"Bearer {token}":
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
+    def _root_for_project(sid: str) -> Path | None:
+        for root in roots:
+            if project_life_dir(sid, global_root=root) is not None:
+                return root
+        return None
+
+    def _project_root_or_404(sid: str) -> Path:
+        root = _root_for_project(sid)
+        if root is None:
+            raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
+        return root
+
     def _resolve_or_404(sid: str) -> Path:
-        life_dir = project_life_dir(sid, global_root=global_root)
+        root = _project_root_or_404(sid)
+        life_dir = project_life_dir(sid, global_root=root)
         if life_dir is None:
             raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
         return life_dir
+
+    def _machine_projects(
+        *, limit: int, include_empty: bool,
+    ) -> list[dict[str, Any]]:
+        projects: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for root in roots:
+            try:
+                root_session_ids = {
+                    path.name
+                    for path in (root / "projects").iterdir()
+                    if path.is_dir()
+                }
+            except OSError:
+                root_session_ids = set()
+            root_limit = limit + len(seen.intersection(root_session_ids))
+            for project in list_projects(
+                global_root=root,
+                limit=root_limit,
+                include_empty=include_empty,
+            ):
+                sid = str(project.get("id") or "")
+                if not sid or sid in seen:
+                    continue
+                projects.append(project)
+            # Routing uses the first root containing an ID, so reserve every ID
+            # from that root even when its session is empty or outside `limit`.
+            seen.update(root_session_ids)
+        projects.sort(
+            key=lambda project: float(project.get("last_active") or 0.0),
+            reverse=True,
+        )
+        return projects[:limit]
 
     def _404_if_none(value, sid: str):
         if value is None:
@@ -1256,7 +1346,14 @@ def create_app(
     class _MessageIn(BaseModel):
         text: str
 
-    class _CreateDaemonIn(BaseModel):
+    class _AnswerIn(BaseModel):
+        text: str
+
+    class _CommandIn(BaseModel):
+        command_id: str = ""
+        expected_revision: int | None = None
+
+    class _CreateDaemonIn(_CommandIn):
         objective: str = ""
         name: str = ""
         launch_cwd: str = ""
@@ -1264,11 +1361,11 @@ def create_app(
     class _LaunchCwdIn(BaseModel):
         launch_cwd: str
 
-    class _StopIn(BaseModel):
+    class _StopIn(_CommandIn):
         drain: bool = False
         force: bool = False
 
-    class _ReplaceDaemonIn(BaseModel):
+    class _ReplaceDaemonIn(_CommandIn):
         victim_sid: str
         resume_continuous: bool = False
 
@@ -1285,6 +1382,9 @@ def create_app(
     class _ConfigSetIn(BaseModel):
         name: str
         value: str
+
+    class _ProjectUpdateIn(BaseModel):
+        name: str
 
     class _IdentitySetIn(BaseModel):
         text: str
@@ -1314,15 +1414,26 @@ def create_app(
         }
         return {**api_meta, "runtime": runtime}
 
+    @app.get("/api/metrics", dependencies=[Depends(_require_auth)])
+    def _metrics() -> dict[str, Any]:
+        return metrics_snapshot(root=_global_root(global_root))
+
+    @app.get("/metrics", dependencies=[Depends(_require_auth)])
+    def _prometheus_metrics() -> Response:
+        snapshot = metrics_snapshot(root=_global_root(global_root))
+        return Response(
+            render_prometheus(snapshot),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+
     @app.get("/api/projects")
     def _projects(
         limit: int = Query(100, ge=1, le=2000),
         include_empty: bool = Query(False),
     ) -> dict[str, Any]:
         return {
-            "projects": list_projects(
-                global_root=global_root, limit=limit, include_empty=include_empty
-            )
+            "projects": _machine_projects(limit=limit, include_empty=include_empty),
+            "local_cwd": str(Path.cwd().resolve()),
         }
 
     @app.post("/api/daemons", dependencies=[Depends(_require_auth)])
@@ -1330,19 +1441,65 @@ def create_app(
         """Create a brand-new daemon (session). The objective is OPTIONAL — with
         none, the daemon is idle and the user just talks to the Manager (which
         writes its own objectives). Threadpool: fs writes + optional fork."""
-        return await run_in_threadpool(
-            create_daemon, body.objective, name=body.name,
-            launch_cwd=body.launch_cwd, global_root=global_root,
+        root = _global_root(global_root)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            root,
+            operation="create",
+            args={
+                "objective": body.objective,
+                "name": body.name,
+                "launch_cwd": body.launch_cwd,
+            },
+            command_id=body.command_id or None,
+            expected_revision=body.expected_revision,
+            issuer="webapi",
+            handler=lambda: create_daemon(
+                body.objective,
+                name=body.name,
+                launch_cwd=body.launch_cwd,
+                global_root=global_root,
+            ),
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/launch-cwd", dependencies=[Depends(_require_auth)])
     async def _set_launch_cwd(sid: str, body: _LaunchCwdIn) -> dict[str, bool]:
         updated = await run_in_threadpool(
-            set_project_launch_cwd, sid, body.launch_cwd, global_root=global_root,
+            set_project_launch_cwd,
+            sid,
+            body.launch_cwd,
+            global_root=_project_root_or_404(sid),
         )
         if updated is None:
             raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
         return {"ok": True}
+
+    @app.patch("/api/projects/{sid}", dependencies=[Depends(_require_auth)])
+    async def _update_project(sid: str, body: _ProjectUpdateIn) -> dict[str, Any]:
+        return _404_if_none(
+            await run_in_threadpool(
+                update_project,
+                sid,
+                name=body.name,
+                global_root=_project_root_or_404(sid),
+            ),
+            sid,
+        )
+
+    @app.delete("/api/projects/{sid}", dependencies=[Depends(_require_auth)])
+    async def _delete_project(sid: str) -> dict[str, Any]:
+        result = _404_if_none(
+            await run_in_threadpool(
+                delete_project,
+                sid,
+                global_root=_project_root_or_404(sid),
+            ),
+            sid,
+        )
+        if not result.get("ok"):
+            raise HTTPException(status_code=409, detail=result.get("error", "project is busy"))
+        return result
 
     @app.get("/api/projects/{sid}/snapshot")
     def _snapshot(
@@ -1353,7 +1510,7 @@ def create_app(
         return _404_if_none(
             build_snapshot(
                 sid,
-                global_root=global_root,
+                global_root=_project_root_or_404(sid),
                 events_limit=events_limit,
                 compact=compact,
             ),
@@ -1361,9 +1518,21 @@ def create_app(
         )
 
     @app.get("/api/projects/{sid}/events")
-    def _events(sid: str, limit: int = Query(80, ge=1, le=1000)) -> dict[str, Any]:
+    def _events(
+        sid: str,
+        limit: int = Query(80, ge=1, le=1000),
+        view: str = Query("full", pattern="^(full|ui)$"),
+    ) -> dict[str, Any]:
         life_dir = _resolve_or_404(sid)
-        return {"events": _read_recent_project_events(life_dir, limit=limit)}
+        if view == "ui":
+            events = _read_jsonl_tail_history(
+                life_dir / EVENT_FILE,
+                limit,
+                predicate=_event_visible_in_web_ui,
+            )
+        else:
+            events = _read_recent_project_events(life_dir, limit=limit)
+        return {"events": events}
 
     @app.get(
         "/api/projects/{sid}/artifacts",
@@ -1373,7 +1542,10 @@ def create_app(
         response.headers["Cache-Control"] = "private, no-store"
         return {
             "artifacts": _404_if_none(
-                list_project_artifacts(sid, global_root=global_root), sid,
+                list_project_artifacts(
+                    sid, global_root=_project_root_or_404(sid)
+                ),
+                sid,
             )
         }
 
@@ -1387,7 +1559,9 @@ def create_app(
         path: str = Query(..., min_length=1),
     ) -> dict[str, Any]:
         response.headers["Cache-Control"] = "private, no-store"
-        artifact = get_project_artifact(sid, path, global_root=global_root)
+        artifact = get_project_artifact(
+            sid, path, global_root=_project_root_or_404(sid)
+        )
         if artifact is None:
             raise HTTPException(status_code=404, detail="artifact unavailable or not allowlisted")
         return artifact
@@ -1401,11 +1575,13 @@ def create_app(
         path: str = Query(..., min_length=1),
         download: bool = Query(False),
     ):
-        resolved = _resolved_project_artifact(sid, path, global_root=global_root)
+        resolved = _resolved_project_artifact(
+            sid, path, global_root=_project_root_or_404(sid)
+        )
         if resolved is None:
             raise HTTPException(status_code=404, detail="artifact unavailable or not allowlisted")
         info, file_path = resolved
-        safe_inline = info["kind"] in {"image", "pdf"}
+        safe_inline = info["kind"] in {"image", "pdf", "audio", "video"}
         media_type = (
             "application/octet-stream" if download
             else str(info["mime"]) if safe_inline
@@ -1425,13 +1601,40 @@ def create_app(
             },
         )
 
+    @app.get(
+        "/api/projects/{sid}/git-diff",
+        dependencies=[Depends(_require_auth)],
+    )
+    def _git_diff(sid: str, response: Response) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "private, no-store"
+        return _404_if_none(
+            _project_git_diff(sid, global_root=_project_root_or_404(sid)),
+            sid,
+        )
+
     # ── command endpoints (M1, auth-gated) ────────────────────────────────
 
     @app.post("/api/projects/{sid}/tasks", dependencies=[Depends(_require_auth)])
     async def _post_task(sid: str, body: _TaskIn) -> dict[str, Any]:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty task text")
-        item = _404_if_none(enqueue_task(sid, body.text, global_root=global_root), sid)
+        project_root = _project_root_or_404(sid)
+        try:
+            item = _404_if_none(
+                await run_in_threadpool(
+                    enqueue_task,
+                    sid,
+                    body.text,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         resp: dict[str, Any] = {"item": item}
         if body.autostart_daemon:
             # Lazy spawn (like the Python cockpit): queueing a task ensures the
@@ -1439,7 +1642,10 @@ def create_app(
             # a daemon is already alive. In a threadpool because spawn touches
             # the filesystem / forks a detached process.
             resp["daemon"] = await run_in_threadpool(
-                start_project_daemon, sid, global_root=global_root
+                start_project_daemon,
+                sid,
+                global_root=project_root,
+                reclaim_idle=True,
             )
         return resp
 
@@ -1447,8 +1653,44 @@ def create_app(
     def _post_nudge(sid: str, body: _NudgeIn) -> dict[str, Any]:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty nudge text")
-        _404_if_none(enqueue_nudge(sid, body.text, global_root=global_root), sid)
+        _404_if_none(
+            enqueue_nudge(
+                sid, body.text, global_root=_project_root_or_404(sid)
+            ),
+            sid,
+        )
         return {"ok": True}
+
+    @app.post(
+        "/api/projects/{sid}/backlog/{item_id}/answer",
+        dependencies=[Depends(_require_auth)],
+    )
+    async def _answer_pending(
+        sid: str,
+        item_id: str,
+        body: _AnswerIn,
+    ) -> dict[str, Any]:
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty answer")
+        project_root = _project_root_or_404(sid)
+        result = await run_in_threadpool(
+            answer_pending_question,
+            sid,
+            item_id,
+            body.text,
+            global_root=project_root,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="unknown backlog item")
+        if result.get("error"):
+            raise HTTPException(status_code=409, detail=result["error"])
+        result["daemon"] = await run_in_threadpool(
+            start_project_daemon,
+            sid,
+            global_root=project_root,
+            reclaim_idle=True,
+        )
+        return result
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(_require_auth)])
     async def _post_message(sid: str, body: _MessageIn) -> dict[str, Any]:
@@ -1459,17 +1701,18 @@ def create_app(
         """
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
-        _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
         from .manager_bridge import manager_message
 
         result = await run_in_threadpool(
-            manager_message, sid, body.text, global_root=global_root
+            manager_message, sid, body.text, global_root=project_root
         )
         # A task classification lazily spawns the executor, mirroring /tasks.
         if result.get("kind") == "task" and not result.get("daemon_alive"):
             result["daemon"] = await run_in_threadpool(
-                start_project_daemon, sid, global_root=global_root,
+                start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
+                reclaim_idle=True,
             )
         return result
 
@@ -1492,7 +1735,7 @@ def create_app(
         """
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
-        _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
         from .manager_bridge import manager_message
 
         q: "queue.Queue[dict | None]" = queue.Queue()
@@ -1502,7 +1745,10 @@ def create_app(
                 q.put({"type": kind, **payload})
             try:
                 result = manager_message(
-                    sid, body.text, global_root=global_root, on_fragment=_on_fragment
+                    sid,
+                    body.text,
+                    global_root=project_root,
+                    on_fragment=_on_fragment,
                 )
                 # Mirror the blocking endpoint: a task classification lazily spawns
                 # the executor so streamed dispatch behaves like /message + /tasks.
@@ -1510,8 +1756,9 @@ def create_app(
                     try:
                         result["daemon"] = start_project_daemon(
                             sid,
-                            global_root=global_root,
+                            global_root=project_root,
                             resume_continuous=bool(result.get("continuous")),
+                            reclaim_idle=True,
                         )
                     except Exception as exc:  # noqa: BLE001 — surface failure in done frame
                         result["daemon"] = {
@@ -1543,52 +1790,111 @@ def create_app(
         )
 
     @app.post("/api/projects/{sid}/daemon/start", dependencies=[Depends(_require_auth)])
-    async def _daemon_start(sid: str) -> dict[str, Any]:
-        return _404_if_none(
-            await run_in_threadpool(
-                start_project_daemon,
+    async def _daemon_start(
+        sid: str,
+        body: _CommandIn | None = None,
+    ) -> dict[str, Any]:
+        command = body or _CommandIn()
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="start",
+            args={"resume_continuous": True},
+            command_id=command.command_id or None,
+            expected_revision=command.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                start_project_daemon(
+                    sid,
+                    global_root=project_root,
+                    resume_continuous=True,
+                ),
                 sid,
-                global_root=global_root,
-                resume_continuous=True,
             ),
-            sid,
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/stop", dependencies=[Depends(_require_auth)])
     async def _daemon_stop(sid: str, body: _StopIn | None = None) -> dict[str, Any]:
         b = body or _StopIn()
-        return _404_if_none(
-            await run_in_threadpool(
-                stop_project_daemon, sid, drain=b.drain, force=b.force, global_root=global_root
-            ), sid,
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        operation = "kill" if b.force else "drain" if b.drain else "stop"
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation=operation,
+            args={"drain": b.drain, "force": b.force},
+            command_id=b.command_id or None,
+            expected_revision=b.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                stop_project_daemon(
+                    sid,
+                    drain=b.drain,
+                    force=b.force,
+                    global_root=project_root,
+                ),
+                sid,
+            ),
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/replace", dependencies=[Depends(_require_auth)])
     async def _daemon_replace(sid: str, body: _ReplaceDaemonIn) -> dict[str, Any]:
-        return _404_if_none(
-            await run_in_threadpool(
-                replace_project_daemon,
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="replace",
+            args={
+                "victim_sid": body.victim_sid,
+                "resume_continuous": body.resume_continuous,
+            },
+            command_id=body.command_id or None,
+            expected_revision=body.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                replace_project_daemon(
+                    sid,
+                    body.victim_sid,
+                    global_root=project_root,
+                    resume_continuous=body.resume_continuous,
+                ),
                 sid,
-                body.victim_sid,
-                global_root=global_root,
-                resume_continuous=body.resume_continuous,
             ),
-            sid,
         )
+        return _command_response(receipt)
 
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])
     async def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:
-        _404_if_none(
-            set_continuous(sid, enabled=body.enabled, objective=body.objective,
-                           global_root=global_root),
-            sid,
-        )
+        project_root = _project_root_or_404(sid)
+        try:
+            _404_if_none(
+                await run_in_threadpool(
+                    set_continuous,
+                    sid,
+                    enabled=body.enabled,
+                    objective=body.objective,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         response: dict[str, Any] = {"ok": True}
         if body.enabled:
             response["daemon"] = await run_in_threadpool(
                 start_project_daemon,
                 sid,
-                global_root=global_root,
+                global_root=project_root,
                 resume_continuous=True,
             )
         return response
@@ -1597,33 +1903,55 @@ def create_app(
 
     @app.get("/api/projects/{sid}/status")
     def _status(sid: str) -> dict[str, Any]:
-        return _404_if_none(get_status(sid, global_root=global_root), sid)
+        return _404_if_none(
+            get_status(sid, global_root=_project_root_or_404(sid)), sid
+        )
 
     @app.get("/api/projects/{sid}/journal")
     def _journal(sid: str, n: int = Query(10, ge=1, le=500)) -> dict[str, Any]:
-        return {"journal": _404_if_none(get_journal(sid, n=n, global_root=global_root), sid)}
+        return {
+            "journal": _404_if_none(
+                get_journal(
+                    sid, n=n, global_root=_project_root_or_404(sid)
+                ),
+                sid,
+            )
+        }
 
     @app.get("/api/projects/{sid}/doctor")
     def _doctor(sid: str) -> dict[str, Any]:
-        return _404_if_none(get_doctor(sid, global_root=global_root), sid)
+        return _404_if_none(
+            get_doctor(sid, global_root=_project_root_or_404(sid)), sid
+        )
 
     @app.get("/api/projects/{sid}/config")
     def _config(sid: str) -> dict[str, Any]:
-        _resolve_or_404(sid)  # validate the project exists
-        return get_config(global_root=global_root)
+        return get_config(global_root=_project_root_or_404(sid))
 
     @app.get("/api/projects/{sid}/identity")
     def _identity(sid: str) -> dict[str, Any]:
-        return {"identity": _404_if_none(get_identity(sid, global_root=global_root), sid)}
+        return {
+            "identity": _404_if_none(
+                get_identity(sid, global_root=_project_root_or_404(sid)), sid
+            )
+        }
 
     @app.get("/api/projects/{sid}/transcript")
     def _transcript(sid: str, n: int = Query(20, ge=1, le=500)) -> dict[str, Any]:
-        return {"turns": _404_if_none(get_transcript(sid, n=n, global_root=global_root), sid)}
+        return {
+            "turns": _404_if_none(
+                get_transcript(
+                    sid, n=n, global_root=_project_root_or_404(sid)
+                ),
+                sid,
+            )
+        }
 
     @app.get("/api/projects/{sid}/backlog/{item_id}")
     def _backlog_item(sid: str, item_id: str) -> dict[str, Any]:
-        _resolve_or_404(sid)
-        item = get_backlog_item(sid, item_id, global_root=global_root)
+        item = get_backlog_item(
+            sid, item_id, global_root=_project_root_or_404(sid)
+        )
         if item is None:
             raise HTTPException(status_code=404, detail=f"unknown backlog item: {item_id}")
         return {"item": item}
@@ -1634,21 +1962,28 @@ def create_app(
     def _post_note(sid: str, body: _NoteIn) -> dict[str, Any]:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty note text")
-        return {"result": _404_if_none(add_project_note(sid, body.text, global_root=global_root), sid)}
+        return {
+            "result": _404_if_none(
+                add_project_note(
+                    sid, body.text, global_root=_project_root_or_404(sid)
+                ),
+                sid,
+            )
+        }
 
     @app.post("/api/projects/{sid}/plan", dependencies=[Depends(_require_auth)])
     async def _plan_preview(sid: str, body: _PlanIn) -> dict[str, Any]:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty plan objective")
-        _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
         from .manager_bridge import manager_plan
         return await run_in_threadpool(
-            manager_plan, sid, body.text, global_root=global_root,
+            manager_plan, sid, body.text, global_root=project_root,
         )
 
     @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(_require_auth)])
     def _config_set(sid: str, body: _ConfigSetIn) -> dict[str, Any]:
-        _resolve_or_404(sid)
+        _project_root_or_404(sid)
         try:
             return set_operator_config(body.name, body.value)
         except ValueError as exc:
@@ -1656,18 +1991,23 @@ def create_app(
 
     @app.post("/api/projects/{sid}/identity", dependencies=[Depends(_require_auth)])
     def _identity_set(sid: str, body: _IdentitySetIn) -> dict[str, Any]:
-        _404_if_none(set_identity(sid, body.text, global_root=global_root), sid)
+        _404_if_none(
+            set_identity(
+                sid, body.text, global_root=_project_root_or_404(sid)
+            ),
+            sid,
+        )
         return {"ok": True}
 
     @app.post("/api/projects/{sid}/reset", dependencies=[Depends(_require_auth)])
     def _manager_reset(sid: str) -> dict[str, Any]:
-        _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
         from .manager_bridge import reset_manager_context
-        return {"ok": reset_manager_context(sid, global_root=global_root)}
+        return {"ok": reset_manager_context(sid, global_root=project_root)}
 
     @app.post("/api/projects/{sid}/skills", dependencies=[Depends(_require_auth)])
     def _skills(sid: str, body: _SkillsIn) -> dict[str, Any]:
-        _resolve_or_404(sid)
+        _project_root_or_404(sid)
         try:
             tokens = shlex.split(body.args)
         except ValueError as exc:
@@ -1678,16 +2018,21 @@ def create_app(
     def _dispose(sid: str, item_id: str, body: _DisposeIn) -> dict[str, Any]:
         if body.op not in ("done", "skip", "rm"):
             raise HTTPException(status_code=400, detail="op must be done|skip|rm")
-        _resolve_or_404(sid)
-        item = dispose_backlog(sid, item_id, body.op, global_root=global_root)
+        item = dispose_backlog(
+            sid,
+            item_id,
+            body.op,
+            global_root=_project_root_or_404(sid),
+        )
         if item is None:
             raise HTTPException(status_code=404, detail=f"unknown backlog item: {item_id}")
         return {"item": item}
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/stop", dependencies=[Depends(_require_auth)])
     def _stop_item(sid: str, item_id: str) -> dict[str, Any]:
-        _resolve_or_404(sid)
-        item = stop_backlog_iteration(sid, item_id, global_root=global_root)
+        item = stop_backlog_iteration(
+            sid, item_id, global_root=_project_root_or_404(sid)
+        )
         if item is None:
             raise HTTPException(status_code=404, detail=f"unknown backlog item: {item_id}")
         return {"item": item}
@@ -1696,8 +2041,14 @@ def create_app(
 
     @app.websocket("/api/projects/{sid}/stream")
     async def _stream(ws: WebSocket, sid: str, replay: int = 40,
+                      view: str = Query(default="full", pattern="^(full|ui)$"),
                       token_q: str | None = Query(default=None, alias="token")) -> None:
-        life_dir = project_life_dir(sid, global_root=global_root)
+        project_root = _root_for_project(sid)
+        life_dir = (
+            project_life_dir(sid, global_root=project_root)
+            if project_root is not None
+            else None
+        )
         await ws.accept()
         if token and token_q != token:
             await ws.close(code=4401, reason="unauthorized")
@@ -1707,6 +2058,8 @@ def create_app(
             return
         try:
             async for ev in tail_events(life_dir, replay_limit=max(0, min(replay, 200))):
+                if view == "ui" and not _event_visible_in_web_ui(ev):
+                    continue
                 await ws.send_json(ev)
         except WebSocketDisconnect:
             return

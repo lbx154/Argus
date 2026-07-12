@@ -35,7 +35,9 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
+from ..core.run_gateway import run_exec as gateway_run_exec
 
 log = logging.getLogger(__name__)
 
@@ -212,7 +214,8 @@ def llm_cluster_wiki(
             continue
         prompt = build_compaction_batch_prompt(batch)
         try:
-            result = judge_runner.run_exec(
+            result = gateway_run_exec(
+                judge_runner,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=judge_model or None,
@@ -279,7 +282,7 @@ def auto_compact_wiki(
     caught and reported via the return value / ``on_event``, never raised
     into the mission.
     """
-    counts = {"clusters": 0, "retired": 0, "errors": 0}
+    counts = {"clusters": 0, "retired": 0, "skipped": 0, "errors": 0}
     try:
         if judge_runner is None:
             return counts
@@ -303,16 +306,29 @@ def auto_compact_wiki(
                 if page is rep:
                     continue
                 try:
-                    store.retire_page(
-                        page.type, page.id,
+                    retired_path = store.retire_page_if_peer_active(
+                        page.type,
+                        page.id,
+                        peer_card_type=rep.type,
+                        peer_card_id=rep.id,
                         reason=f"auto-compacted into '{rep.id}' (near-duplicate)",
                         retired_by=retired_by,
                     )
+                    if retired_path is None:
+                        counts["skipped"] += 1
+                        continue
                     counts["retired"] += 1
                     if callable(on_event):
                         try:
                             on_event({
-                                "type": "wiki.compacted",
+                                "type": EventType.WIKI_COMPACTED,
+                                "card_type": str(getattr(page, "type", "") or ""),
+                                "page_id": str(getattr(page, "id", "") or ""),
+                                "target_id": str(getattr(rep, "id", "") or ""),
+                                "retired_path": str(retired_path),
+                                "evidence_sources": [
+                                    str(source) for source in (getattr(page, "sources", []) or [])
+                                ],
                                 "text": (
                                     f"auto-compacted {page.type}/{page.id} into "
                                     f"{rep.type}/{rep.id} (near-duplicate)"
@@ -325,7 +341,10 @@ def auto_compact_wiki(
                     if callable(on_event):
                         try:
                             on_event({
-                                "type": "wiki.compact.error",
+                                "type": EventType.WIKI_COMPACT_ERROR,
+                                "card_type": str(getattr(page, "type", "") or ""),
+                                "page_id": str(getattr(page, "id", "") or ""),
+                                "error": f"{type(exc).__name__}: {exc}",
                                 "text": f"{page.type}/{page.id}: {type(exc).__name__}: {exc}",
                             })
                         except Exception:  # noqa: BLE001
