@@ -6,6 +6,7 @@ import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
+import { HtmlPreview } from './HtmlPreview';
 
 export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
   return (artifacts ?? []).filter((item) => item.source === 'manager_live');
@@ -15,6 +16,7 @@ export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): Artifac
   const live = selectLiveArtifacts(artifacts).filter((item) => item.exists);
   return live.find((item) => item.kind === 'pdf')
     ?? live.find((item) => item.kind === 'image')
+    ?? live.find((item) => item.kind === 'html')
     ?? live[0]
     ?? null;
 }
@@ -197,6 +199,14 @@ export function ResearchCanvas({
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… live preview truncated · expand to inspect the complete file' : ''}
           </pre>
+        ) : null}
+        {info?.kind === 'html' && !info.truncated ? (
+          <HtmlPreview html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
+        ) : null}
+        {info?.kind === 'html' && info.truncated ? (
+          <div className="m-auto max-w-sm px-8 text-center text-sm text-warn">
+            HTML preview is too large to render safely. Download the complete file.
+          </div>
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">

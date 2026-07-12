@@ -5,6 +5,7 @@ import json
 from argus_skill.apps._runtime import _workflow_mode_for_project_root
 from argus_skill.manager import Manager
 from argus_skill.manager.domain_author import build_vertical_decision_prompt
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
@@ -64,3 +65,33 @@ def test_manager_prompt_prefers_direct_without_inventing_requirements() -> None:
     assert "Use `direct` for a bounded one-off deliverable" in prompt
     assert "do NOT invent mandatory word counts" in prompt
     assert "acceptance gates that the operator did not request" in prompt
+
+
+def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:
+    persist_vertical(tmp_path, "direct")
+
+    class _Result:
+        agent_messages: list[str] = []
+        exit_code = 1
+        fatal_error = "test stop"
+        input_tokens = 0
+        cached_input_tokens = 0
+        output_tokens = 0
+
+    class _Runner:
+        def run_exec(self, **kwargs):
+            return _Result()
+
+    reviewer = Reviewer(runner=_Runner(), skill_store=object())
+    reviewer.mission.match = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("direct workflow must not call reviewer skill matcher")
+    )
+
+    reviewer.evaluate(
+        objective="创建一个单文件番茄钟",
+        round_index=1,
+        session_id=None,
+        main_summary="index.html created",
+        main_error=None,
+        config=ReviewerConfig(working_dir=str(tmp_path)),
+    )

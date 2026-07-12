@@ -344,7 +344,7 @@ export interface ProjectRow {
   continuous_objective?: string;
 }
 
-export type ArtifactKind = 'text' | 'image' | 'pdf' | 'binary';
+export type ArtifactKind = 'text' | 'html' | 'image' | 'pdf' | 'binary';
 
 /** Reviewer-approved result file exposed by the protected artifact API. */
 export interface ArtifactInfo {
@@ -358,7 +358,7 @@ export interface ArtifactInfo {
   mtime: number | null;
   source?: 'manager_live' | 'reviewer_evidence' | 'research_registered';
   group_title?: string;
-  /** Included by the single-artifact endpoint for text files only. */
+  /** Included by the single-artifact endpoint for text/HTML files only. */
   preview?: string;
   truncated?: boolean;
 }

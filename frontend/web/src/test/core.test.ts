@@ -24,6 +24,7 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { activeProviderRequest } from '../components/EventStream';
+import { HtmlPreview } from '../components/HtmlPreview';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -37,6 +38,17 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('renders generated HTML only inside an opaque script sandbox', () => {
+    const markup = renderToStaticMarkup(createElement(HtmlPreview, {
+      html: '<button onclick="document.body.dataset.ok=1">Start</button>',
+      title: 'Timer preview',
+    }));
+    expect(markup).toContain('sandbox="allow-scripts"');
+    expect(markup).not.toContain('allow-same-origin');
+    expect(markup).toContain('referrerPolicy="no-referrer"');
+    expect(markup).toContain('&lt;button');
+  });
+
   it('tracks the still-running provider request across concurrent calls', () => {
     const first = { type: 'provider.request.started', call_id: 'a', run_label: 'engineer-r1' };
     const second = { type: 'provider.request.started', call_id: 'b', run_label: 'manager' };

@@ -462,6 +462,13 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
 
     html = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "report.html"})
     svg = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "figure.svg"})
+    html_info = client.get(
+        f"/api/projects/{sid}/artifact",
+        params={"path": "report.html"},
+    )
+    assert html_info.status_code == 200
+    assert html_info.json()["kind"] == "html"
+    assert html_info.json()["preview"] == "<script>alert(1)</script>"
     assert html.status_code == 200
     assert html.headers["content-type"].startswith("text/plain")
     assert html.headers["x-content-type-options"] == "nosniff"

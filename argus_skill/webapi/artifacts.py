@@ -171,7 +171,8 @@ def artifact_metadata(
     mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     suffix = resolved.suffix.lower()
     kind = (
-        "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
+        "html" if suffix == ".html"
+        else "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
         else "image" if mime in _INLINE_IMAGE_MIMES
         else "pdf" if mime == "application/pdf"
         else "binary"
@@ -186,7 +187,7 @@ def artifact_metadata(
         "size": int(stat.st_size) if stat is not None else 0,
         "mtime": float(stat.st_mtime) if stat is not None else None,
     }
-    if preview_bytes > 0 and exists and kind == "text":
+    if preview_bytes > 0 and exists and kind in {"text", "html"}:
         try:
             with resolved.open("rb") as handle:
                 raw = handle.read(preview_bytes + 1)

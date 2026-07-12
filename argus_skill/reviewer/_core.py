@@ -510,28 +510,7 @@ class Reviewer:
         # role/handoff/academic blocks above. The three fixed reviewer skills
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
-        matched_review_skill_block = ""
-        if self.skill_store is not None:
-            from ..skills.harness_overlay import resolve_project_root as _rpr
-            from ..skills.venue_profiles import venue_excluded_skill_files
-
-            review_match = self.mission.match(
-                objective,
-                extra_exclude=venue_excluded_skill_files(_rpr(working_dir)),
-            )
-            if review_match.block:
-                matched_review_skill_block = (
-                    "Matched reviewer skill(s) for this objective "
-                    "(read first; apply the relevant one(s)):\n"
-                    f"{review_match.block}\n\n"
-                )
         from ..skills.harness_overlay import resolve_project_root
-        from ..skills.stage_checklists import (
-            CANONICAL_STAGE_ORDER,
-            current_stage,
-            format_full_pipeline_checklist,
-            format_stage_checklist,
-        )
         from ..skills.vertical_select import resolve_vertical
         from ..verticals._base import (
             load_vertical,
@@ -542,6 +521,28 @@ class Reviewer:
         )
 
         _proot = resolve_project_root(working_dir)
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
+        _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
+        matched_review_skill_block = ""
+        if self.skill_store is not None and not _direct_workflow:
+            from ..skills.venue_profiles import venue_excluded_skill_files
+
+            review_match = self.mission.match(
+                objective,
+                extra_exclude=venue_excluded_skill_files(_proot),
+            )
+            if review_match.block:
+                matched_review_skill_block = (
+                    "Matched reviewer skill(s) for this objective "
+                    "(read first; apply the relevant one(s)):\n"
+                    f"{review_match.block}\n\n"
+                )
+        from ..skills.stage_checklists import (
+            CANONICAL_STAGE_ORDER,
+            current_stage,
+            format_full_pipeline_checklist,
+            format_stage_checklist,
+        )
         stage = current_stage(_proot)
         import os as _os
         _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
@@ -551,7 +552,6 @@ class Reviewer:
         # "full_paper"); for any other vertical (e.g. speedrun) those blocks are
         # suppressed and the vertical's banner is prepended so the reviewer judges
         # only that vertical's metric instead of paper-pipeline artifacts.
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the

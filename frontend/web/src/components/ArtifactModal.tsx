@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
+import { HtmlPreview } from './HtmlPreview';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 
@@ -118,6 +119,16 @@ export function ArtifactModal({
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… preview truncated · download to inspect the complete file' : ''}
           </pre>
+        ) : null}
+        {info?.kind === 'html' && !info.truncated ? (
+          <div className="flex min-h-[60vh] overflow-hidden rounded-lg border border-line">
+            <HtmlPreview html={info.preview || ''} title={`HTML preview: ${info.name}`} />
+          </div>
+        ) : null}
+        {info?.kind === 'html' && info.truncated ? (
+          <div className="m-auto text-sm text-warn">
+            HTML preview is too large to render safely. Download the complete file.
+          </div>
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
