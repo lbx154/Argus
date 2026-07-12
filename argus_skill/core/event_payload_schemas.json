@@ -316,6 +316,14 @@
         "reason": {"type": "string"}
       }
     },
+    "life.inbox.drained": {
+      "version": 1,
+      "required": ["count", "messages"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 1},
+        "messages": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "engineer.progress": {
       "version": 1,
       "required": ["kind"],

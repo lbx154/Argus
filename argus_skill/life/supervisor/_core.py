@@ -25,7 +25,6 @@ agent is doing one thing, then the next, like a person.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -46,6 +45,15 @@ from ._config import (
     reserve_global_daily_budget,
 )
 from ._constants import (
+    IDLE_BACKOFF_BASE_SECONDS as _IDLE_BACKOFF_BASE_SECONDS,  # noqa: F401
+)
+from ._constants import (
+    IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,  # noqa: F401
+)
+from ._constants import (
+    PLAN_TERMINAL_IDLE as _PLAN_TERMINAL_IDLE,
+)
+from ._constants import (
     PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,
 )
 from ._constants import (
@@ -61,6 +69,7 @@ from ._helpers import (
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
+from ._idle_cycle import IdleCycleMixin, _idle_exit_seconds  # noqa: F401
 from ._lifecycle import LifecycleMixin
 from ._mission_execution import MissionExecutionMixin
 from ._planner_orchestration import PlannerOrchestrationMixin
@@ -102,7 +111,6 @@ _PLAN_RETRY = "planner_retry"
 _PLAN_HANDOFF = "daemon_handoff"
 _PLAN_ERROR = "planner_error"
 _PLAN_AWAITING = "awaiting_external"
-_PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 _PLAN_MANAGER_ROLLBACK = "manager_blocked_rollback"
 
 # Idle backoff for the "no new work" outcomes (awaiting-external / planner
@@ -110,33 +118,9 @@ _PLAN_MANAGER_ROLLBACK = "manager_blocked_rollback"
 # re-check sleep, capped — so a project correctly waiting on a live external
 # job (or a planner that keeps finding nothing) is polled every few minutes,
 # not continuously. Reset to 0 the moment real work runs.
-_IDLE_BACKOFF_BASE_SECONDS = 15.0
-_IDLE_BACKOFF_CAP_SECONDS = 300.0
-
-# Idle auto-exit: a continuous daemon that has had no real mission to run for
-# longer than this wall-clock window exits cleanly (``stopped_by=idle_timeout``)
-# instead of spinning 7×24 on an empty backlog. The session model makes daemons
-# cheap to respawn (a `--resume`/`--continue` brings it right back), so an idle
-# daemon should release its slot rather than hold it forever. Default 30 min;
-# ``ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN=0`` disables it (old never-exit behaviour).
-_DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 30.0
-
-
-def _idle_exit_seconds() -> float:
-    """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
-    raw = os.environ.get("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "").strip()
-    if not raw:
-        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
-    try:
-        minutes = float(raw)
-    except ValueError:
-        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
-    return max(0.0, minutes) * 60.0
-
 
 # Legacy heartbeat used by budget pauses and tests that exercise the old idle
 # gate. Planner waiting/idling is now represented by structured events.
-_PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 
 # Stall escalation: after this many consecutive idle planner cycles concluding the
 # same external dependency blocks progress, dispatch ONE domain-agnostic
@@ -173,6 +157,7 @@ _FULL_PAPER_GATE_DESCRIPTION = (
 
 class LifeSupervisor(
     EvolutionMixin,
+    IdleCycleMixin,
     MissionExecutionMixin,
     LifecycleMixin,
     PlannerOrchestrationMixin,
@@ -828,70 +813,6 @@ class LifeSupervisor(
         ``can_start`` check and the mid-mission breaker use one number (F3)."""
         return self.config.budget.effective_per_mission_cap(item)
 
-    def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
-        """Pull all pending operator nudges from the configured inbox.
-
-        Returns up to ``max_messages`` lines (oldest-first). Empty list
-        if no inbox is configured or nothing is pending. Any exception
-        from the user-supplied callable is swallowed — a flaky bus
-        must never break a mission.
-        """
-        cb = getattr(self.config, "user_inbox", None)
-        if cb is None:
-            return []
-        out: list[str] = []
-        for _ in range(max(1, int(max_messages))):
-            try:
-                msg = cb()
-            except Exception:  # noqa: BLE001
-                log.exception("user_inbox callable raised; ignoring")
-                break
-            if not msg:
-                break
-            text = str(msg).strip()
-            if text:
-                out.append(text)
-        if out:
-            self._emit({
-                "type": "life.inbox.drained",
-                "count": len(out),
-                "messages": out,
-            })
-        return out
-
-    def _maybe_stop(self) -> str:
-        ev = self.config.stop_event
-        if ev is not None and ev.is_set():
-            return "stop_event signalled"
-        # In continuous mode, max_missions is not a hard cap — the
-        # planner generates new work indefinitely until it declares
-        # the project done. Only daily budget is enforced.
-        if not self.config.continuous:
-            if self._missions_started >= self.config.budget.max_missions:
-                # Suppress the cap message when there's no held-back work.
-                # Treats "you asked for one mission, you got one" as silent
-                # success rather than a noisy guardrail trip.
-                try:
-                    more_pending = self.memory.backlog.next_pending() is not None
-                except Exception:  # noqa: BLE001
-                    more_pending = False
-                if more_pending:
-                    return f"max-missions cap reached ({self.config.budget.max_missions})"
-                return "__silent_stop__"
-        if self.config.budget.remaining_today(self.memory.journal) <= 0:
-            return "daily budget exhausted"
-        return ""
-
-    def _wait_idle(self) -> bool:
-        """Sleep ``poll_interval_seconds`` honouring stop_event.
-
-        Returns True if stop_event fired during the wait."""
-        ev = self.config.stop_event
-        if ev is None:
-            time.sleep(self.config.poll_interval_seconds)
-            return False
-        return ev.wait(self.config.poll_interval_seconds)
-
     def _emit(self, event: dict[str, Any]) -> None:
         try:
             self.sink.handle_event(event)
@@ -900,195 +821,6 @@ class LifeSupervisor(
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
-
-    def _idle_backoff_seconds(self) -> float:
-        """Exponential re-check sleep for consecutive no-work plan-cycles.
-
-        ``_consecutive_idle_planner_cycles`` is incremented by the caller
-        BEFORE calling this; cycle 1 → base, doubling each cycle, capped.
-        """
-        n = max(1, int(self._consecutive_idle_planner_cycles))
-        return min(_IDLE_BACKOFF_CAP_SECONDS, _IDLE_BACKOFF_BASE_SECONDS * (2 ** (n - 1)))
-
-    def _reset_idle_backoff(self) -> None:
-        self._consecutive_idle_planner_cycles = 0
-        self._suggested_sleep_s = 0.0
-        self._idle_since = None
-        self._last_open_ended_project_done_signature = ""
-
-    def _enter_idle_backoff(self) -> float:
-        """Register one more no-work plan-cycle and return the suggested sleep."""
-        self._consecutive_idle_planner_cycles += 1
-        if getattr(self, "_idle_since", None) is None:
-            self._idle_since = time.monotonic()
-        self._suggested_sleep_s = self._idle_backoff_seconds()
-        return self._suggested_sleep_s
-
-    def _maybe_idle_timeout(self) -> str:
-        """``"idle_timeout"`` once a continuous daemon has been idle too long.
-
-        Idle wall-clock is measured from ``_idle_since`` (first no-work pass)
-        and spans the daemon's outer-loop sleeps. Returns ``""`` when not in
-        continuous mode, when the feature is disabled (cap ≤ 0), or when the
-        streak is still within the window — so the only behaviour change is: a
-        genuinely idle 7×24 daemon releases its slot after the cap.
-        """
-        if not getattr(self.config, "continuous", False):
-            return ""
-        cap = _idle_exit_seconds()
-        idle_since = getattr(self, "_idle_since", None)
-        if cap <= 0 or idle_since is None:
-            return ""
-        if time.monotonic() - idle_since >= cap:
-            return "idle_timeout"
-        return ""
-
-    def _should_journal_idle_repeat(self, kind: str) -> bool:
-        """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
-
-        Keyed on ``kind`` ALONE — deliberately ignoring the reason text, because
-        the planner rewrites the reason every cycle (fresh audit timestamps and
-        details), so a reason-keyed gate would never collapse the spam. Returns
-        True (and updates the suppression state) when the kind differs from the
-        last idle entry or a heartbeat window has elapsed; False for an
-        in-window repeat that should be suppressed — so a long external wait
-        cannot flood, and poison, the planner's own next-cycle context. The
-        per-cycle event + status still carry the live reason, so operator
-        visibility is unchanged. State read via ``getattr`` defaults for
-        test-stub safety.
-        """
-        now = time.monotonic()
-        last_sig = getattr(self, "_last_planner_idle_sig", None)
-        last_at = getattr(self, "_last_planner_idle_at", 0.0)
-        if kind != last_sig or (
-            now - last_at
-        ) >= _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS:
-            self._last_planner_idle_sig = kind
-            self._last_planner_idle_at = now
-            return True
-        return False
-
-    def _open_ended_terminal_idle_signature(self) -> str:
-        """Cheap observable-state fingerprint for open-ended terminal idling.
-
-        The signature deliberately excludes the life journal/backlog files
-        written by the supervisor itself, so a skipped planner cycle does not
-        invalidate its own idle state. It includes runtime context, objective,
-        pipeline stage, backlog statuses, and project file metadata so operator
-        edits or daemon/runtime source changes cause the planner to run again.
-        """
-        digest = hashlib.sha256()
-        digest.update(b"open-ended-terminal-idle-v1\0")
-        digest.update(str(self.config.continuous_objective or "").encode())
-        digest.update(b"\0")
-        digest.update(str(self._current_pipeline_stage() or "").encode())
-        digest.update(b"\0")
-        digest.update(str(self._planner_project_context() or "").encode())
-        digest.update(b"\0")
-        try:
-            for item in self.memory.backlog.all():
-                digest.update(str(getattr(item, "id", "")).encode())
-                digest.update(b"\t")
-                digest.update(str(getattr(item, "title", "")).encode())
-                digest.update(b"\t")
-                digest.update(str(getattr(item, "status", "")).encode())
-                digest.update(b"\n")
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"backlog-error:{type(exc).__name__}:{exc}".encode())
-            digest.update(b"\0")
-
-        root = self._planner_workdir()
-        ignored_dirs = {
-            ".git",
-            ".venv",
-            "__pycache__",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            "node_modules",
-        }
-        ignored_files = {
-            "events.jsonl",
-            "journal.jsonl",
-            "backlog.jsonl",
-            "continuous.json",
-            "daemon.log",
-            "daemon.status.json",
-            "daemon.pid",
-        }
-        try:
-            root = root.resolve()
-            count = 0
-            for dirpath, dirnames, filenames in os.walk(root):
-                dirnames[:] = [
-                    d
-                    for d in sorted(dirnames)
-                    if d not in ignored_dirs and not d.endswith(".egg-info")
-                ]
-                rel_dir = Path(dirpath).relative_to(root)
-                if any(part in ignored_dirs for part in rel_dir.parts):
-                    continue
-                for name in sorted(filenames):
-                    if name in ignored_files:
-                        continue
-                    path = Path(dirpath) / name
-                    try:
-                        st = path.stat()
-                    except OSError:
-                        continue
-                    try:
-                        rel = path.relative_to(root)
-                    except ValueError:
-                        rel = path
-                    digest.update(str(rel).encode("utf-8", "surrogateescape"))
-                    digest.update(b"\t")
-                    digest.update(str(st.st_size).encode())
-                    digest.update(b"\t")
-                    digest.update(str(st.st_mtime_ns).encode())
-                    digest.update(b"\n")
-                    count += 1
-                    if count >= 5000:
-                        digest.update(b"file-scan-truncated\0")
-                        raise StopIteration
-        except StopIteration:
-            pass
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"fs-error:{type(exc).__name__}:{exc}".encode())
-            digest.update(b"\0")
-        return digest.hexdigest()
-
-    def _maybe_idle_after_unchanged_open_ended_done(self) -> str | None:
-        if not (
-            getattr(self.config, "continuous", False)
-            and getattr(self.config, "continuous_objective", "")
-            and getattr(self.config, "open_ended", False)
-            and getattr(self, "_last_open_ended_project_done_signature", "")
-        ):
-            return None
-
-        # New operator input is state change. Drain it into the inbox context so
-        # the next planner call can see it, then re-plan normally.
-        if self._drain_user_inbox():
-            self._last_open_ended_project_done_signature = ""
-            return None
-
-        current = self._open_ended_terminal_idle_signature()
-        if current != self._last_open_ended_project_done_signature:
-            self._last_open_ended_project_done_signature = ""
-            return None
-
-        sleep_s = self._enter_idle_backoff()
-        self._emit({
-            "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
-            "cycle": self._planning_cycles,
-            "reason": "open-ended project_done unchanged since last planner verdict",
-            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-            "suggested_sleep_s": sleep_s,
-        })
-        self._emit_status(
-            "planner: project already done and unchanged; idling without planner call"
-        )
-        return _PLAN_TERMINAL_IDLE
 
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))

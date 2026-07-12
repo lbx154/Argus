@@ -90,6 +90,7 @@ class EventType(StrEnum):
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
     LIFE_INBOX_QUEUED = "life.inbox.queued"
+    LIFE_INBOX_DRAINED = "life.inbox.drained"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
@@ -219,6 +220,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.PROVIDER_REQUEST_COMPLETED,
     EventType.PROVIDER_REQUEST_DENIED,
     EventType.LIFE_INBOX_QUEUED,
+    EventType.LIFE_INBOX_DRAINED,
     EventType.LIFE_DAEMON_IDLE_TIMEOUT,
     EventType.DAEMON_PARKED,
     EventType.DAEMON_COMMAND_COMPLETED,

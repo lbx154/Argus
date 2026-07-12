@@ -291,6 +291,13 @@ export interface LifeManagerIntentCompletedEvent extends EventMsg {
   "reason"?: string;
 }
 
+export interface LifeInboxDrainedEvent extends EventMsg {
+  type: "life.inbox.drained";
+  payload_schema_version?: 1;
+  "count": number;
+  "messages": Array<string>;
+}
+
 export interface EngineerProgressEvent extends EventMsg {
   type: "engineer.progress";
   payload_schema_version?: 1;
@@ -825,6 +832,7 @@ export interface EventPayloadByType {
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
+  "life.inbox.drained": LifeInboxDrainedEvent;
   "engineer.progress": EngineerProgressEvent;
   "skill.created": SkillCreatedEvent;
   "skill.updated": SkillUpdatedEvent;
