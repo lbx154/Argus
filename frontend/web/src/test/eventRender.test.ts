@@ -69,6 +69,32 @@ describe('renderEvent', () => {
     expect(r!.text).toContain('look here');
   });
 
+  it('raises a persistent budget alarm for denied provider spend', () => {
+    const event = {
+      type: 'budget.reservation.denied',
+      reason: 'daily budget exhausted ($0.000000 available)',
+    } as EventMsg;
+    expect(renderEvent(event)).toMatchObject({
+      label: 'Budget',
+      tone: 'err',
+      rule: true,
+    });
+    expect(activeGuardianAlert([event])).toEqual({
+      tone: 'block',
+      kind: 'budget',
+      text: 'Budget exhausted or blocked — daily budget exhausted ($0.000000 available)',
+    });
+    expect(activeGuardianAlert([
+      event,
+      { type: 'ui.operator', text: 'retry' } as EventMsg,
+      { type: 'round.start', round: 2 } as EventMsg,
+    ])?.kind).toBe('budget');
+    expect(activeGuardianAlert([
+      event,
+      { type: 'provider.request.started' } as EventMsg,
+    ])).toBeNull();
+  });
+
   it('hides reviewer protocol JSON and empty phase markers', () => {
     expect(renderEvent({
       type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
