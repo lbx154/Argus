@@ -25,7 +25,9 @@ COMMAND_LOG_FILE = "daemon.commands.jsonl"
 COMMAND_STATE_FILE = "daemon.command-state.json"
 COMMAND_LOCK_FILE = "daemon.command-state.lock"
 COMMAND_SCHEMA_VERSION = 1
-COMMAND_OPERATIONS = frozenset({"create", "start", "stop", "drain", "kill", "replace"})
+COMMAND_OPERATIONS = frozenset(
+    {"create", "start", "stop", "drain", "kill", "replace", "upgrade"}
+)
 CommandStatus = Literal["accepted", "running", "applied", "failed", "rejected"]
 
 _THREAD_LOCKS: dict[str, threading.Lock] = {}

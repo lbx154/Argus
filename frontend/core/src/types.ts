@@ -301,6 +301,7 @@ export interface Snapshot {
     objective: string;
     last_active: number;
     cwd: string;
+    launch_cwd?: string;
   };
   daemon: Daemon;
   roles: Role[];

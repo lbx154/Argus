@@ -105,7 +105,8 @@ __all__ = [
     "enqueue_task", "enqueue_nudge", "answer_pending_question",
     "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
-    "update_project", "delete_project",
+    "update_project", "delete_project", "list_trashed_projects",
+    "restore_trashed_project", "upgrade_project_daemon",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
     "get_doctor", "get_config",
@@ -758,6 +759,54 @@ def stop_project_daemon(
     return {"rc": rc}
 
 
+def upgrade_project_daemon(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Restart one executor from the currently loaded checkout."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    status = read_daemon_status(life_dir)
+    if not status.alive or status.pid is None:
+        started = start_project_daemon(
+            sid,
+            global_root=global_root,
+            resume_continuous=True,
+        )
+        return None if started is None else {**started, "upgraded": True}
+
+    import signal
+
+    from ..daemon.handoff import _source_signature, _spawn_handoff_candidate
+
+    root = _global_root(global_root)
+    config = _worker_config_from_env(life_dir, root)
+    continuous = read_continuous_state(life_dir)
+    if continuous.enabled:
+        config.continuous = True
+        config.continuous_objective = continuous.objective
+        config.resume_continuous = True
+    ready = _spawn_handoff_candidate(
+        config,
+        source_signature=_source_signature(),
+        reason="operator requested Web release upgrade",
+    )
+    if not ready:
+        return {"rc": 2, "error": "current-release handoff candidate did not become ready"}
+    try:
+        os.kill(status.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    return {
+        "rc": 0,
+        "upgraded": True,
+        "handoff_pending": True,
+        "previous_pid": status.pid,
+    }
+
+
 def update_project(
     sid: str, *, name: str, global_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
@@ -813,6 +862,99 @@ def delete_project(
         "sid": sid,
         "trash_path": str(dest.relative_to(root)),
     }
+
+
+def list_trashed_projects(
+    *, global_root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    root = _global_root(global_root)
+    trash_root = root / "projects_trash"
+    out: list[dict[str, Any]] = []
+    try:
+        candidates = [
+            path
+            for date_dir in trash_root.iterdir()
+            if date_dir.is_dir()
+            for path in date_dir.iterdir()
+            if path.is_dir()
+        ]
+    except OSError:
+        candidates = []
+    for path in candidates:
+        payload: dict[str, Any] = {}
+        try:
+            value = json.loads((path / "session.json").read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                payload = value
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        sid = str(payload.get("id") or path.name.split(".", 1)[0]).strip()
+        label = str(
+            payload.get("display_name")
+            or payload.get("objective")
+            or sid
+        ).strip()
+        try:
+            trashed_at = path.stat().st_mtime
+        except OSError:
+            trashed_at = 0.0
+        out.append({
+            "sid": sid,
+            "label": label or sid,
+            "launch_cwd": str(payload.get("launch_cwd") or ""),
+            "trash_path": str(path.relative_to(root)),
+            "trashed_at": trashed_at,
+        })
+    out.sort(key=lambda row: float(row.get("trashed_at") or 0.0), reverse=True)
+    return out
+
+
+def restore_trashed_project(
+    trash_path: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    root = _global_root(global_root).resolve()
+    trash_root = (root / "projects_trash").resolve()
+    try:
+        source = (root / trash_path).resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        relative = source.relative_to(trash_root)
+    except ValueError:
+        return None
+    if (
+        len(relative.parts) != 2
+        or len(relative.parts[0]) != 8
+        or not relative.parts[0].isdigit()
+        or source.is_symlink()
+        or source.parent.is_symlink()
+        or not source.is_dir()
+    ):
+        return None
+    payload: dict[str, Any] = {}
+    try:
+        value = json.loads((source / "session.json").read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            payload = value
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    sid = str(payload.get("id") or source.name.split(".", 1)[0]).strip()
+    if not sid or Path(sid).name != sid:
+        return None
+    destination = (root / "projects" / sid).resolve()
+    if destination.parent != (root / "projects").resolve():
+        return None
+    if destination.exists():
+        return {
+            "ok": False,
+            "sid": sid,
+            "error": "a live session with this id already exists",
+        }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(destination))
+    return {"ok": True, "sid": sid}
 
 
 def set_continuous(
@@ -1471,6 +1613,61 @@ def create_app(
             "local_cwd": str(Path.cwd().resolve()),
         }
 
+    @app.get("/api/trash", dependencies=[Depends(_require_auth)])
+    def _trash() -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        for index, root in enumerate(roots):
+            for entry in list_trashed_projects(global_root=root):
+                entries.append({
+                    **entry,
+                    "trash_id": f"{index}:{entry['trash_path']}",
+                })
+        entries.sort(
+            key=lambda entry: float(entry.get("trashed_at") or 0.0),
+            reverse=True,
+        )
+        return {"entries": entries}
+
+    @app.post(
+        "/api/trash/{trash_id:path}/restore",
+        dependencies=[Depends(_require_auth)],
+    )
+    async def _restore_trash(trash_id: str) -> dict[str, Any]:
+        prefix, separator, relative = trash_id.partition(":")
+        if not separator or not prefix.isdigit():
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        index = int(prefix)
+        if index < 0 or index >= len(roots):
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        entry = next(
+            (
+                item
+                for item in list_trashed_projects(global_root=roots[index])
+                if item["trash_path"] == relative
+            ),
+            None,
+        )
+        if entry is None:
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        if any(
+            project_life_dir(str(entry["sid"]), global_root=root) is not None
+            for root in roots
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="a session with this id already exists",
+            )
+        result = await run_in_threadpool(
+            restore_trashed_project,
+            relative,
+            global_root=roots[index],
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        if not result.get("ok"):
+            raise HTTPException(status_code=409, detail=result.get("error"))
+        return result
+
     @app.post("/api/daemons", dependencies=[Depends(_require_auth)])
     async def _create_daemon(body: _CreateDaemonIn) -> dict[str, Any]:
         """Create a brand-new daemon (session). The objective is OPTIONAL — with
@@ -1899,6 +2096,29 @@ def create_app(
                     global_root=project_root,
                     resume_continuous=body.resume_continuous,
                 ),
+                sid,
+            ),
+        )
+        return _command_response(receipt)
+
+    @app.post("/api/projects/{sid}/daemon/upgrade", dependencies=[Depends(_require_auth)])
+    async def _daemon_upgrade(
+        sid: str,
+        body: _CommandIn | None = None,
+    ) -> dict[str, Any]:
+        command = body or _CommandIn()
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="upgrade",
+            args={},
+            command_id=command.command_id or None,
+            expected_revision=command.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                upgrade_project_daemon(sid, global_root=project_root),
                 sid,
             ),
         )

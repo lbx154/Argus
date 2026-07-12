@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 
@@ -542,6 +543,69 @@ def test_daemon_stop_delegates(ctx, monkeypatch) -> None:
     assert seen["life_dir"] == life.resolve() and seen["drain"] is True
 
 
+def test_daemon_upgrade_restarts_from_current_web_release(ctx, monkeypatch) -> None:
+    root, sid, _life = ctx
+    calls = []
+    monkeypatch.setattr(
+        server,
+        "upgrade_project_daemon",
+        lambda project_id, **kwargs: calls.append(project_id)
+        or {"rc": 0, "upgraded": True},
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(f"/api/projects/{sid}/daemon/upgrade")
+
+    assert response.status_code == 200
+    assert response.json()["upgraded"] is True
+    assert calls == [sid]
+
+
+def test_daemon_upgrade_uses_blue_green_handoff_without_force_stop(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=True,
+            pid=321,
+            started_at_iso=None,
+            uptime_seconds=5.0,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    monkeypatch.setattr(
+        server,
+        "stop_daemon",
+        lambda *args, **kwargs: pytest.fail("upgrade must not force-stop active work"),
+    )
+    handoffs = []
+    monkeypatch.setattr(
+        "argus_skill.daemon.handoff._source_signature",
+        lambda: "current-source",
+    )
+    monkeypatch.setattr(
+        "argus_skill.daemon.handoff._spawn_handoff_candidate",
+        lambda config, **kwargs: handoffs.append((config, kwargs)) or True,
+    )
+    signals = []
+    monkeypatch.setattr(server.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+
+    result = server.upgrade_project_daemon(sid, global_root=root)
+
+    assert result == {
+        "rc": 0,
+        "upgraded": True,
+        "handoff_pending": True,
+        "previous_pid": 321,
+    }
+    assert handoffs[0][1]["source_signature"] == "current-source"
+    assert signals and signals[0][0] == 321
+
+
 def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:
     root, sid, _life = ctx
     starts = []
@@ -629,6 +693,92 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     assert r.status_code == 200
     assert not life.exists()
     assert (root / r.json()["trash_path"]).is_dir()
+
+
+def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+    deleted = client.delete(f"/api/projects/{sid}").json()
+
+    entries = client.get("/api/trash").json()["entries"]
+    entry = next(item for item in entries if item["sid"] == sid)
+    assert entry["trash_path"] == deleted["trash_path"]
+
+    restored = client.post(
+        f"/api/trash/{quote(entry['trash_id'], safe='')}/restore"
+    )
+    assert restored.status_code == 200
+    assert restored.json() == {"ok": True, "sid": sid}
+    assert life.is_dir()
+    assert client.get("/api/trash").json()["entries"] == []
+
+
+def test_trash_restore_rejects_date_bucket(ctx, monkeypatch) -> None:
+    root, sid, _life = ctx
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    client = TestClient(server.create_app(global_root=root))
+    deleted = client.delete(f"/api/projects/{sid}").json()
+    bucket = str(Path(deleted["trash_path"]).parent)
+
+    assert server.restore_trashed_project(bucket, global_root=root) is None
+
+
+def test_trash_restore_rejects_duplicate_sid_in_another_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+    sid = "s-duplicate"
+    _make_project(primary, sid)
+    _make_project(secondary, sid)
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    assert server.delete_project(sid, global_root=secondary)["ok"] is True
+    client = TestClient(
+        server.create_app(global_root=primary, session_roots=[secondary])
+    )
+    entry = client.get("/api/trash").json()["entries"][0]
+
+    response = client.post(
+        f"/api/trash/{quote(entry['trash_id'], safe='')}/restore"
+    )
+
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
 
 
 def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
@@ -731,7 +881,7 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     for path, body in [
         ("tasks", {"text": "x"}), ("nudge", {"text": "x"}),
         ("continuous", {"enabled": False}), ("daemon/start", None), ("daemon/stop", None),
-        ("daemon/replace", {"victim_sid": "s-other"}),
+        ("daemon/replace", {"victim_sid": "s-other"}), ("daemon/upgrade", None),
         ("plan", {"text": "x"}), ("identity", {"text": "x"}),
         ("config/set", {"name": "model", "value": "x"}),
         ("skills", {"args": "ls"}), ("reset", None),
