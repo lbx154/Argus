@@ -43,6 +43,19 @@ export function resolveProjectSelection(
   };
 }
 
+/** Polling-safe selection: only the first authoritative list may choose a default. */
+export function reconcileProjectSelection(
+  projects: ProjectRow[],
+  current: string | null,
+  initialized: boolean,
+): ProjectSelection {
+  if (initialized) {
+    const id = current?.trim() || null;
+    return { id, requested: id, recovered: false };
+  }
+  return resolveProjectSelection(projects, current);
+}
+
 /** Multi-term project lookup shared by Web and Ink navigation surfaces. */
 export function projectMatchesQuery(project: ProjectRow, query: string): boolean {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);

@@ -6,6 +6,7 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
+  reconcileProjectSelection,
   deriveMissionView,
   EVENT_TYPES,
   eventKey,
@@ -136,12 +137,28 @@ describe('shared frontend core', () => {
     expect(resolveProjectSelection(rows, 's-kernel-42')).toEqual({
       id: 's-kernel-42', requested: 's-kernel-42', recovered: false,
     });
+
     expect(resolveProjectSelection(rows, 'missing')).toEqual({
       id: 's-kernel-42', requested: 'missing', recovered: true,
     });
     expect(resolveProjectSelection([], 'missing')).toEqual({
       id: null, requested: 'missing', recovered: true,
     });
+  });
+
+  it('never auto-follows another operator session after initial selection', () => {
+    const current = {
+      id: 'mine', label: 'Mine', objective: '', last_active: 1,
+      daemon_alive: false, daemon_pid: null, uptime_seconds: null,
+    };
+    const other = {
+      id: 'other', label: 'Other live session', objective: '', last_active: 2,
+      daemon_alive: true, daemon_pid: 42, uptime_seconds: 3,
+    };
+    expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
+    expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], null, true).id).toBeNull();
   });
 
   it('uses only the authoritative project ledger total', () => {

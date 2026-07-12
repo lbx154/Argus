@@ -12,7 +12,7 @@ import { PendingReplyDialog, type PendingReply } from './components/PendingReply
 import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
 import { TAGLINE } from './lib/soul';
-import { rankProjects, resolveProjectSelection } from '../../core/src/projects';
+import { rankProjects, reconcileProjectSelection, resolveProjectSelection } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ResearchCanvas } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
@@ -38,10 +38,28 @@ interface ActiveMessageRequest {
   controller: AbortController;
 }
 let noticeSequence = 0;
+const BROWSER_PROJECT_KEY = 'argus.browser.project.v1';
 
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = localStorage.getItem(key);
   return value == null ? fallback : value === 'true';
+}
+
+function storedBrowserProject(): string | null {
+  try {
+    return window.sessionStorage.getItem(BROWSER_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeBrowserProject(id: string | null): void {
+  try {
+    if (id) window.sessionStorage.setItem(BROWSER_PROJECT_KEY, id);
+    else window.sessionStorage.removeItem(BROWSER_PROJECT_KEY);
+  } catch {
+    /* storage can be disabled; the URL remains authoritative */
+  }
 }
 
 const errorText = (error: unknown): string =>
@@ -114,8 +132,11 @@ export default function App() {
   const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
   const localCwd = projectsQ.data?.local_cwd ?? '';
 
-  const [sid, setSid] = useState<string | null>(params.get('project'));
+  const [sid, setSid] = useState<string | null>(
+    params.get('project') || storedBrowserProject(),
+  );
   const sidRef = useRef(sid);
+  const initialSelectionResolvedRef = useRef(false);
   sidRef.current = sid;
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
@@ -209,6 +230,7 @@ export default function App() {
     }
     sidRef.current = id;
     setSid(id);
+    storeBrowserProject(id);
   }, [cancelActiveMessage]);
 
   useEffect(() => () => {
@@ -251,15 +273,25 @@ export default function App() {
     }
   };
 
-  // Resolve the initial/deleted project only after the authoritative list is
-  // available. Invalid IDs never reach snapshot/stream endpoints.
+  // Resolve exactly once. Project polling must NEVER auto-follow a newly live
+  // session created by another browser/operator.
   useEffect(() => {
     if (!projectsQ.isSuccess) return;
-    const selection = resolveProjectSelection(projects, sidRef.current);
-    if (selection.id === sidRef.current) return;
-    activateProject(selection.id);
-    if (selection.recovered) {
+    const wasResolved = initialSelectionResolvedRef.current;
+    const selection = reconcileProjectSelection(
+      projects,
+      sidRef.current,
+      wasResolved,
+    );
+    if (wasResolved) return;
+    initialSelectionResolvedRef.current = true;
+    if (selection.id !== sidRef.current) activateProject(selection.id);
+    else storeBrowserProject(selection.id);
+    const locationId = new URLSearchParams(window.location.search).get('project');
+    if (locationId !== selection.id) {
       writeProjectLocation(selection.id, 'replace');
+    }
+    if (selection.recovered) {
       const fallback = projects.find((project) => project.id === selection.id);
       notify(
         'info',
@@ -276,6 +308,10 @@ export default function App() {
     const onPopState = () => {
       const requested = new URLSearchParams(window.location.search).get('project');
       setSidebarOpen(false);
+      if (!requested) {
+        activateProject(null);
+        return;
+      }
       if (!projectsQ.isSuccess) {
         activateProject(requested);
         return;
