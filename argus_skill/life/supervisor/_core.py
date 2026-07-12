@@ -561,6 +561,7 @@ class LifeSupervisor(
                 "budget_pause",
                 "iteration_cap",
                 "lifecycle_block",
+                "stage_hold",
             }:
                 # No mission actually ran — this is a held/paused outcome. Escalate
                 # the wait like the idle path (15→300s) instead of resetting to
@@ -604,6 +605,7 @@ class LifeSupervisor(
                 "budget_pause",
                 "iteration_cap",
                 "lifecycle_block",
+                "stage_hold",
             }:
                 stopped_by = outcome.get("status", "")
                 break

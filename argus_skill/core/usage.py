@@ -20,7 +20,7 @@ from .codex_usage import TokenUsage, extract_token_usage
 from .copilot_usage import NANO_AIU_PER_USD, find_copilot_usage_near
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingStatus, quote_copilot_usage, quote_token_usage
-from .runner_errors import is_missing_resume_target_error
+from .runner_errors import is_pre_provider_refusal_error
 
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
@@ -84,7 +84,7 @@ class UsageRecord:
         pricing_tier = str(row.get("pricing_tier") or "unknown")
         error = str(row.get("error") or "")
         if (
-            is_missing_resume_target_error(error)
+            is_pre_provider_refusal_error(error)
             and cost is None
             and row.get("total_nano_aiu") is None
             and not row.get("model_usage")
@@ -203,7 +203,7 @@ def build_usage_record(
     normalized_model_usage = _normalize_model_usage(model_usage)
     normalized_provider = str(provider or "").strip().lower()
     missing_resume_target = (
-        is_missing_resume_target_error(error)
+        is_pre_provider_refusal_error(error)
         and total_nano_aiu is None
         and not normalized_model_usage
         and not usage.observed

@@ -102,7 +102,8 @@ list_project_artifacts = artifacts.list_project_artifacts
 __all__ = [
     "DaemonStatus",
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
-    "enqueue_task", "enqueue_nudge", "start_project_daemon", "stop_project_daemon",
+    "enqueue_task", "enqueue_nudge", "answer_pending_question",
+    "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
     "update_project", "delete_project",
     "set_continuous", "get_status", "get_journal", "add_project_note",
@@ -271,6 +272,33 @@ def enqueue_nudge(
         return None
     queue_inbox_message(life_dir, text.strip(), source=source)
     return True
+
+
+def answer_pending_question(
+    sid: str,
+    item_id: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Continue one blocked item without routing its answer through Manager."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    answer = text.strip()
+    mem = LifeMemory.open(life_dir)
+    blocked, continuation = mem.backlog.continue_with_operator_reply(
+        item_id,
+        answer,
+    )
+    if blocked is None:
+        return None
+    if continuation is None:
+        return {"error": "question is no longer pending"}
+    return {
+        "answered_item_id": blocked.id,
+        "item": continuation.to_jsonable(),
+    }
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
@@ -1297,6 +1325,9 @@ def create_app(
     class _MessageIn(BaseModel):
         text: str
 
+    class _AnswerIn(BaseModel):
+        text: str
+
     class _CommandIn(BaseModel):
         command_id: str = ""
         expected_revision: int | None = None
@@ -1605,6 +1636,36 @@ def create_app(
             sid,
         )
         return {"ok": True}
+
+    @app.post(
+        "/api/projects/{sid}/backlog/{item_id}/answer",
+        dependencies=[Depends(_require_auth)],
+    )
+    async def _answer_pending(
+        sid: str,
+        item_id: str,
+        body: _AnswerIn,
+    ) -> dict[str, Any]:
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty answer")
+        project_root = _project_root_or_404(sid)
+        result = await run_in_threadpool(
+            answer_pending_question,
+            sid,
+            item_id,
+            body.text,
+            global_root=project_root,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="unknown backlog item")
+        if result.get("error"):
+            raise HTTPException(status_code=409, detail=result["error"])
+        result["daemon"] = await run_in_threadpool(
+            start_project_daemon,
+            sid,
+            global_root=project_root,
+        )
+        return result
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(_require_auth)])
     async def _post_message(sid: str, body: _MessageIn) -> dict[str, Any]:

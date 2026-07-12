@@ -8,6 +8,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
+import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
 import { TAGLINE } from './lib/soul';
@@ -138,6 +139,9 @@ export default function App() {
   );
   const [composerFocus, setComposerFocus] = useState(0);
   const [chatPending, setChatPending] = useState(false);
+  const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
+  const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
+  const promptedReplyRef = useRef('');
   const [managerPhase, setManagerPhase] = useState('');
   const [managerStartedAt, setManagerStartedAt] = useState(0);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
@@ -310,6 +314,30 @@ export default function App() {
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
+  const pendingReply = useMemo<PendingReply | null>(() => {
+    const row = (snap?.pending_questions ?? []).find((item) => {
+      const id = String(item.id ?? '').trim();
+      const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
+      return Boolean(id && question);
+    });
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      title: String(row.title ?? row.objective ?? 'Blocked task'),
+      question: String(row.pending_question ?? row.question ?? row.text),
+    };
+  }, [snap?.pending_questions]);
+  useEffect(() => {
+    if (!pendingReply || !activeSid) {
+      setPendingReplyOpen(false);
+      return;
+    }
+    const key = `${activeSid}:${pendingReply.id}`;
+    if (promptedReplyRef.current !== key) {
+      promptedReplyRef.current = key;
+      setPendingReplyOpen(true);
+    }
+  }, [activeSid, pendingReply]);
   const activityEvents = useMemo(() => {
     const liveCounts = new Map<string, number>();
     events.forEach((event) => {
@@ -608,6 +636,28 @@ export default function App() {
     }
   };
 
+  const answerPendingReply = async (text: string) => {
+    if (!activeSid || !pendingReply || pendingReplyBusy) return;
+    setPendingReplyBusy(true);
+    try {
+      const result = await api.answerPending(activeSid, pendingReply.id, text);
+      setPendingReplyOpen(false);
+      await snapQ.refetch();
+      if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
+        notify(
+          'error',
+          `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
+        );
+      } else {
+        notify('success', 'Answer sent directly to the blocked task.');
+      }
+    } catch (error) {
+      notify('error', `Could not send answer: ${errorText(error)}`);
+    } finally {
+      setPendingReplyBusy(false);
+    }
+  };
+
   const paletteItems: PaletteItem[] = useMemo(() => {
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: 'New daemon', hint: '+', group: 'View', run: () => setNewDaemonOpen(true) }]),
@@ -753,7 +803,7 @@ export default function App() {
                   <PendingBanner
                     questions={snap.pending_questions ?? []}
                     backlog={snap.backlog}
-                    onAnswer={() => setComposerFocus((value) => value + 1)}
+                    onAnswer={() => setPendingReplyOpen(true)}
                   />
                   <ChatBox
                     onSend={sendMessage}
@@ -877,6 +927,13 @@ export default function App() {
         busy={creatingDaemon}
         onClose={() => setNewDaemonOpen(false)}
         onCreate={createDaemon}
+      />
+      <PendingReplyDialog
+        reply={pendingReply}
+        open={pendingReplyOpen}
+        busy={pendingReplyBusy}
+        onClose={() => setPendingReplyOpen(false)}
+        onSubmit={answerPendingReply}
       />
       {activeSid && snap ? (
         <DaemonManageModal

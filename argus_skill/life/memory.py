@@ -825,6 +825,36 @@ class Backlog:
                 self._save(items)
             return out
 
+    def continue_with_operator_reply(
+        self,
+        item_id: str,
+        answer: str,
+    ) -> tuple[BacklogItem | None, BacklogItem | None]:
+        """Atomically consume one pending question and enqueue its continuation."""
+        with self._locked():
+            items = self._load()
+            blocked = next((item for item in items if item.id == item_id), None)
+            if blocked is None or not str(blocked.pending_question or "").strip():
+                return blocked, None
+            continuation = BacklogItem.new(
+                title=blocked.title,
+                objective=(
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator reply to blocked question:\n{answer.strip()}"
+                ),
+                priority=blocked.priority,
+                max_cost_usd=blocked.max_cost_usd,
+                tags=[*blocked.tags, "operator-reply"],
+                notes=f"Continues blocked item {blocked.id}.",
+                iterate=blocked.iterate,
+                iteration_max_cycles=blocked.iteration_max_cycles,
+                iteration_budget_usd=blocked.iteration_budget_usd,
+            )
+            blocked.pending_question = ""
+            items.append(continuation)
+            self._save(items)
+            return blocked, continuation
+
     def claim_next(self) -> BacklogItem | None:
         """Atomically pick the head *ready* pending item and flip it to ``running``.
 

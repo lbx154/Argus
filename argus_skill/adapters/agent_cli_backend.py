@@ -55,7 +55,7 @@ from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
-from ..core.runner_errors import result_has_missing_resume_target
+from ..core.runner_errors import result_has_pre_provider_refusal
 
 log = logging.getLogger(__name__)
 
@@ -1129,8 +1129,8 @@ class AgentCliBackend:
         stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
         fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
         failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
-        missing_resume_target = bool(
-            resume_thread_id and result_has_missing_resume_target(argus_result)
+        pre_provider_refusal = bool(
+            result_has_pre_provider_refusal(argus_result)
             and translated.total_nano_aiu is None
             and not translated.model_usage
             and not translated.premium_requests_present
@@ -1206,7 +1206,7 @@ class AgentCliBackend:
             translated,
             status=(
                 "denied"
-                if missing_resume_target
+                if pre_provider_refusal
                 else "error"
                 if failed
                 else "completed"
