@@ -22,8 +22,11 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   edit `research/PIPELINE_STATE.json`; Reviewer certifies work and reports defects.
 - Planner owns checklist edits. Reviewer only reports `checklist_feedback`; read it and
   add, modify, seed, or remove checklist items without weakening protected integrity
-  requirements. A Manager-authored domain starts with no checklist: author the current
-  stage's gate before routing its first mission.
+  requirements. When the prompt already contains a non-empty expert checklist, use that
+  gate as written: do not restate it or expand it with generic snapshots, manifests,
+  checksums, inventories, or other bookkeeping. Change an existing gate only for concrete
+  reviewer feedback or a material requirement it truly omits. A Manager-authored domain
+  starts with no checklist: author the current stage's gate before routing its first mission.
 - Set `project_done=true` only when the operator's objective is truly satisfied and,
   after inspection, no independent high-impact work remains. Empty backlog is not done.
 

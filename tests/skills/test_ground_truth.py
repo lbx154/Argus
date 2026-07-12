@@ -77,6 +77,15 @@ def test_staged_mandate_keeps_required_first_gate(role: str) -> None:
     assert "measured" in low
 
 
+@pytest.mark.parametrize("role", ROLES)
+def test_proportional_mandate_reuses_certified_evidence(role: str) -> None:
+    low = ground_truth_mandate(role, workflow_mode="proportional").lower()
+    assert "proportional ground truth" in low
+    assert "reuse certified evidence" in low
+    assert "first required deliverable" not in low
+    assert "fresh snapshot, manifest, checksum" in low
+
+
 def test_speedrun_setup_stage_gates_on_ground_truth() -> None:
     # The speedrun 'setup' stage must mechanically gate on GROUND_TRUTH.md and
     # the reviewer must require a re-verified, MEASURED binding-constraint

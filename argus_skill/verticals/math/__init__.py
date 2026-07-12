@@ -7,6 +7,7 @@ from .stages import (
     REVIEWER_CHECKLISTS,
     STAGE_CHECKS,
     STAGE_ORDER,
+    WORKFLOW_MODE,
     completion_gate,
     role_banner,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
     "STAGE_ORDER",
+    "WORKFLOW_MODE",
     "completion_gate",
     "role_banner",
 ]

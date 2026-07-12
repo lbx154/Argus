@@ -1,8 +1,8 @@
 """Workflow-aware ground-truth + 实事求是 operating mandate.
 
 Staged research/benchmark work keeps the strong shared evidence gate. Direct
-one-off deliverables use proportional verification so creative/self-contained
-work is not forced to manufacture research scaffolding.
+one-off deliverables and proportional staged workflows avoid manufacturing
+research scaffolding when the relevant evidence already exists.
 
 This module is deliberately TASK-AGNOSTIC. It encodes the *principle* of
 investigating reality before acting, not any specific metric, machine,
@@ -64,6 +64,32 @@ instead of turning verification into ceremony.
    unrelated research scaffolding as proof of quality."""
 
 
+_PROPORTIONAL_MANDATE = f"""\
+## Operating mandate: proportional ground truth, 实事求是 always
+
+Work from relevant facts you verify yourself. Never fabricate measurements,
+sources, artifacts, or completion evidence. Scale investigation and provenance
+to the current claim instead of rebuilding already certified history.
+
+1. VERIFY THE CURRENT DELTA. Inspect the exact sources, definitions, prior
+   results, computations, or artifacts on which the new claim depends. Do not
+   re-read or re-hash an already reviewer-certified evidence tree without a
+   concrete conflict, stale dependency, or changed premise.
+
+2. REUSE CERTIFIED EVIDENCE. Prior reviewer-certified artifacts remain usable
+   project evidence. Cite their precise claim or location and independently
+   check the step that consumes them; do not reproduce their entire audit.
+
+3. USE PROPORTIONAL ARTIFACTS. Record shared cross-mission facts in
+   `{GROUND_TRUTH_RELPATH}` when that record materially helps later work. Do not
+   require a fresh snapshot, manifest, checksum, or inventory merely because a
+   new stage or round began.
+
+4. PRESERVE THE OPERATOR'S CONTRACT. Do not invent files, mandatory structure,
+   or acceptance gates unrelated to correctness. Be explicit about uncertainty,
+   and require checkable evidence for every genuinely new material claim."""
+
+
 _STAGED_ROLE_SLANTS = {
     "planner": (
         "PLANNER SLANT: plan against the VERIFIED binding constraint. If the "
@@ -94,17 +120,42 @@ _DIRECT_ROLE_SLANTS = {
     ),
 }
 
+_PROPORTIONAL_ROLE_SLANTS = {
+    "planner": (
+        "PLANNER SLANT: route the smallest coherent mission that can resolve the "
+        "current mathematical or factual uncertainty. Reuse certified evidence "
+        "instead of assigning another full-project audit."
+    ),
+    "engineer": (
+        "ENGINEER SLANT: spend effort on the new derivation, construction, "
+        "counterexample, or decisive test. Keep verification claim-local and "
+        "reference certified prior evidence by exact location."
+    ),
+    "reviewer": (
+        "REVIEWER SLANT: independently check the new claim and every dependency "
+        "edge it uses. Re-open certified prior evidence only when the new work "
+        "reveals a concrete contradiction, changed premise, or provenance gap."
+    ),
+}
+
 
 def ground_truth_mandate(role: str = "", *, workflow_mode: str = "staged") -> str:
     """Return the shared ground-truth mandate plus the role-specific slant.
 
-    ``direct`` uses proportional evidence; every other mode preserves the strong
-    staged research/benchmark gate.
+    ``direct`` and ``proportional`` scale evidence to the current task. Other
+    modes preserve the strong staged research/benchmark gate.
     """
-    direct = (workflow_mode or "").strip().lower() == "direct"
-    slants = _DIRECT_ROLE_SLANTS if direct else _STAGED_ROLE_SLANTS
+    mode = (workflow_mode or "").strip().lower()
+    if mode == "direct":
+        slants = _DIRECT_ROLE_SLANTS
+        block = _DIRECT_MANDATE
+    elif mode == "proportional":
+        slants = _PROPORTIONAL_ROLE_SLANTS
+        block = _PROPORTIONAL_MANDATE
+    else:
+        slants = _STAGED_ROLE_SLANTS
+        block = _STAGED_MANDATE
     slant = slants.get((role or "").strip().lower(), "")
-    block = _DIRECT_MANDATE if direct else _STAGED_MANDATE
     if slant:
         block = f"{block}\n\n{slant}"
     return block + "\n\n"

@@ -170,9 +170,9 @@ def vertical_completion_gate(mod: VerticalDefinition) -> str:
 
 
 def vertical_workflow_mode(mod: VerticalDefinition) -> str:
-    """Return ``direct`` for lean one-mission verticals, else ``staged``."""
+    """Return the vertical's supported workflow mode."""
     mode = str(getattr(mod, "WORKFLOW_MODE", "") or "").strip().lower()
-    return "direct" if mode == "direct" else "staged"
+    return mode if mode in {"direct", "proportional"} else "staged"
 
 
 def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> str:

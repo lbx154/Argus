@@ -10,6 +10,7 @@ from ...skills.stage_checklists import ChecklistItem
 
 STAGE_ORDER = ("scope", "solve", "review")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
+WORKFLOW_MODE = "proportional"
 
 # Math missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
@@ -163,14 +164,19 @@ def role_banner(role: str) -> str:
             "Choose work from the actual mathematical structure of the problem. "
             "Use background retrieval, examples, counterexamples, computation, "
             "proof construction, or Lean only when they are useful; do not turn "
-            "the method menu into a fixed pipeline."
+            "the method menu into a fixed pipeline. Reuse reviewer-certified "
+            "prior-stage evidence by precise reference; do not assign another "
+            "full-tree audit, snapshot, manifest, or checksum without a concrete "
+            "new dependency that requires it."
         )
     if role_norm == "engineer":
         return common + (
             "Dynamically choose the path that fits this problem; do not mechanically "
             "execute a fixed workflow. Clearly distinguish conjecture, finite or "
             "numerical evidence, natural-language proof, and formal verification. "
-            "State the limits of every result and compile Lean claims for real."
+            "State the limits of every result and compile Lean claims for real. "
+            "Spend the turn on the new mathematical delta and cite certified prior "
+            "evidence instead of recreating its audit trail."
         )
     if role_norm == "reviewer":
         return common + (
@@ -178,7 +184,9 @@ def role_banner(role: str) -> str:
             "definitions, quantifiers, assumptions, and conclusion. Check the boundary "
             "of computational evidence. If Lean is used, verify fresh real compilation "
             "and reject proof holes. Lean compilation does not prove that the formal "
-            "statement faithfully represents the original problem."
+            "statement faithfully represents the original problem. Audit the current "
+            "claim and its dependency edges; do not demand a new full-project evidence "
+            "inventory when prior stages are already reviewer-certified."
         )
     return common
 
@@ -189,6 +197,7 @@ __all__ = [
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
     "STAGE_ORDER",
+    "WORKFLOW_MODE",
     "completion_gate",
     "role_banner",
 ]
