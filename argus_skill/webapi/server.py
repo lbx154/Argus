@@ -1226,6 +1226,38 @@ def set_operator_config(name: str, value: str) -> dict[str, Any]:
     return {"name": env_name, "value": val, "restart_required": True}
 
 
+_BUDGET_BATCH_ALIASES = frozenset({
+    "per_mission_cap",
+    "daily_cap",
+    "global_daily_cap",
+    "codex_daily_requests",
+    "copilot_daily_requests",
+    "copilot_daily_premium",
+})
+
+
+def set_budget_config(values: dict[str, str]) -> dict[str, Any]:
+    from ..core.knob_store import write_persisted_knobs
+    from ..core.knobs import normalize_cockpit_knob_value
+
+    unknown = sorted(set(values) - _BUDGET_BATCH_ALIASES)
+    if unknown:
+        raise ValueError(f"unsupported budget setting(s): {', '.join(unknown)}")
+    normalized: dict[str, str] = {}
+    for alias in _BUDGET_BATCH_ALIASES:
+        if alias not in values:
+            raise ValueError(f"missing budget setting: {alias}")
+        env_name = _CONFIG_ALIASES[alias]
+        normalized[env_name] = normalize_cockpit_knob_value(
+            env_name,
+            str(values[alias]),
+        )
+    if not write_persisted_knobs(normalized):
+        raise RuntimeError("budget settings could not be persisted")
+    os.environ.update(normalized)
+    return {"values": normalized, "restart_required": True}
+
+
 def set_identity(
     sid: str, text: str, *, global_root: Path | str | None = None,
 ) -> bool | None:
@@ -1556,6 +1588,9 @@ def create_app(
     class _ConfigSetIn(BaseModel):
         name: str
         value: str
+
+    class _BudgetSetIn(BaseModel):
+        values: dict[str, str]
 
     class _ProjectUpdateIn(BaseModel):
         name: str
@@ -2265,6 +2300,17 @@ def create_app(
         _project_root_or_404(sid)
         try:
             return set_operator_config(body.name, body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/projects/{sid}/config/budget",
+        dependencies=[Depends(_require_auth)],
+    )
+    def _budget_set(sid: str, body: _BudgetSetIn) -> dict[str, Any]:
+        _project_root_or_404(sid)
+        try:
+            return set_budget_config(body.values)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

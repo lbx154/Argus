@@ -409,6 +409,11 @@ export const api = {
     postJson<PlanPreview>(P(sid, '/plan'), { text }),
   setConfig: (sid: string, name: string, value: string) =>
     postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
+  setBudgets: (sid: string, values: Record<string, string>) =>
+    postJson<{ values: Record<string, string>; restart_required: boolean }>(
+      P(sid, '/config/budget'),
+      { values },
+    ),
   setIdentity: (sid: string, text: string) =>
     postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
   resetManager: (sid: string) =>

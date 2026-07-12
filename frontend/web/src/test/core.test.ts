@@ -6,6 +6,7 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
+  reconcileProjectSelection,
   deriveMissionView,
   EVENT_TYPES,
   eventKey,
@@ -23,6 +24,7 @@ import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { Sidebar } from '../components/Sidebar';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
@@ -93,6 +95,28 @@ describe('shared frontend core', () => {
     expect(html).toContain('directly to the process');
   });
 
+  it('renders Settings and icon-only theme controls in the sidebar footer', () => {
+    const html = renderToStaticMarkup(createElement(Sidebar, {
+      projects: [],
+      activeId: null,
+      localCwd: '/workspace',
+      onSelect: () => undefined,
+      onManage: () => undefined,
+      onOpenPanel: () => undefined,
+      onNew: () => undefined,
+      loading: false,
+      collapsed: false,
+      onToggleCollapse: () => undefined,
+      themeMode: 'light',
+      onCycleTheme: () => undefined,
+    }));
+    expect(html).toContain('Settings');
+    expect(html).toContain('data-icon="gear"');
+    expect(html).toContain('data-icon="sun"');
+    expect(html).not.toContain('>Runtime<');
+    expect(html).not.toContain('>light<');
+  });
+
   it('surfaces persisted event validation failures instead of hiding them', () => {
     expect(activeGuardianAlert([{
       type: EVENT_TYPES.AGENT_IO_ERROR,
@@ -136,12 +160,28 @@ describe('shared frontend core', () => {
     expect(resolveProjectSelection(rows, 's-kernel-42')).toEqual({
       id: 's-kernel-42', requested: 's-kernel-42', recovered: false,
     });
+
     expect(resolveProjectSelection(rows, 'missing')).toEqual({
       id: 's-kernel-42', requested: 'missing', recovered: true,
     });
     expect(resolveProjectSelection([], 'missing')).toEqual({
       id: null, requested: 'missing', recovered: true,
     });
+  });
+
+  it('never auto-follows another operator session after initial selection', () => {
+    const current = {
+      id: 'mine', label: 'Mine', objective: '', last_active: 1,
+      daemon_alive: false, daemon_pid: null, uptime_seconds: null,
+    };
+    const other = {
+      id: 'other', label: 'Other live session', objective: '', last_active: 2,
+      daemon_alive: true, daemon_pid: 42, uptime_seconds: 3,
+    };
+    expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
+    expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], null, true).id).toBeNull();
   });
 
   it('uses only the authoritative project ledger total', () => {

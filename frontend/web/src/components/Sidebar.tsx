@@ -6,7 +6,15 @@ import { ago, uptime } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAnglesLeft, faAnglesRight, faEllipsis } from '@fortawesome/free-solid-svg-icons';
+import {
+  faAnglesLeft,
+  faAnglesRight,
+  faDesktop,
+  faEllipsis,
+  faGear,
+  faMoon,
+  faSun,
+} from '@fortawesome/free-solid-svg-icons';
 
 type Scope = 'local' | 'all';
 
@@ -72,6 +80,8 @@ export function Sidebar({
     });
     return [...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
+  const themeIcon = themeMode === 'light' ? faSun : themeMode === 'dark' ? faMoon : faDesktop;
+  const nextTheme = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
 
   return (
     <aside
@@ -207,8 +217,12 @@ export function Sidebar({
           </div>
 
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
-            <button type="button" onClick={() => onOpenPanel('config')} className="rounded-md px-2 py-1 text-xs text-ink-faint hover:bg-bg hover:text-ink">Runtime</button>
-            <button type="button" onClick={onCycleTheme} title={`Theme: ${themeMode}`} className="rounded-md px-2 py-1 text-xs text-ink-faint hover:bg-bg hover:text-ink">{themeMode}</button>
+            <button type="button" onClick={() => onOpenPanel('config')} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink" aria-label="Open settings" title="Settings">
+              <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={onCycleTheme} title={`${themeMode} theme · switch to ${nextTheme}`} aria-label={`${themeMode} theme; switch to ${nextTheme}`} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink">
+              <FontAwesomeIcon icon={themeIcon} className="h-3.5 w-3.5" />
+            </button>
           </div>
         </>
       ) : null}

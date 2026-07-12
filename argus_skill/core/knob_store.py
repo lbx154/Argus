@@ -47,7 +47,12 @@ except ImportError:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
-__all__ = ["read_persisted_knobs", "write_persisted_knob", "persisted_knob"]
+__all__ = [
+    "read_persisted_knobs",
+    "write_persisted_knob",
+    "write_persisted_knobs",
+    "persisted_knob",
+]
 
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -101,11 +106,23 @@ def write_persisted_knob(name: str, value: str) -> None:
     name = (name or "").strip()
     if not name:
         return
+    write_persisted_knobs({name: str(value)})
+
+
+def write_persisted_knobs(values: Mapping[str, str]) -> bool:
+    """Atomically validate-at-caller and persist a batch of knob overrides."""
+    updates = {
+        str(name).strip(): str(value)
+        for name, value in values.items()
+        if str(name).strip()
+    }
+    if not updates:
+        return True
     path = config_path()
     try:
         with _write_lock(path):
             data = read_persisted_knobs()
-            data[name] = str(value)
+            data.update(updates)
             fd, tmp_name = tempfile.mkstemp(
                 dir=path.parent,
                 prefix=f".{path.name}.",
@@ -124,8 +141,14 @@ def write_persisted_knob(name: str, value: str) -> None:
                     tmp.unlink()
                 except FileNotFoundError:
                     pass
+        return True
     except OSError:
-        log.warning("knob_store: failed to persist %s to %s", name, path)
+        log.warning(
+            "knob_store: failed to persist %d setting(s) to %s",
+            len(updates),
+            path,
+        )
+        return False
 
 
 def persisted_knob(name: str, *, env: Mapping[str, str] | None = None) -> str:
