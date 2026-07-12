@@ -48,7 +48,7 @@ _SENSITIVE_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
 _RENDERABLE_SUFFIXES = frozenset({
     ".bib", ".cfg", ".csv", ".gif", ".html", ".ini", ".jpeg", ".jpg",
     ".json", ".jsonl", ".log", ".md", ".pdf", ".png", ".py", ".rst",
-    ".sh", ".tex", ".ts", ".tsv", ".txt", ".webp", ".yaml", ".yml",
+    ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".webp", ".yaml", ".yml",
 })
 
 

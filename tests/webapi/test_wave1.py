@@ -166,6 +166,7 @@ def _seed_result_artifacts(root: Path, sid: str, life: Path) -> Path:
     workspace = root / "workspace"
     (workspace / "paper").mkdir(parents=True)
     (workspace / "paper" / "result.md").write_text("# Certified\nreal result\n", encoding="utf-8")
+    (workspace / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     (workspace / ".review-note").write_text("hidden evidence\n", encoding="utf-8")
     (workspace / "secret.txt").write_text("not allowlisted", encoding="utf-8")
     outside = root / "outside.txt"
@@ -182,6 +183,7 @@ def _seed_result_artifacts(root: Path, sid: str, life: Path) -> Path:
             "planner_report": {
                 "evidence_files": [
                     {"path": "paper/result.md", "why": "reviewed output"},
+                    {"path": "pyproject.toml", "why": "runtime configuration"},
                     {"path": "paper/missing.json", "why": "declared but missing"},
                     {"path": "./.review-note", "why": "dotfile path must survive normalization"},
                     {"path": "../outside.txt", "why": "must be rejected"},
@@ -199,10 +201,11 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
 
     rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
     assert [row["path"] for row in rows] == [
-        "paper/result.md", "paper/missing.json",
+        "paper/result.md", "pyproject.toml", "paper/missing.json",
     ]
     assert rows[0]["exists"] is True
-    assert rows[1]["exists"] is False
+    assert rows[1]["exists"] is True
+    assert rows[2]["exists"] is False
     assert client.get(f"/api/projects/{sid}/artifacts").headers["cache-control"] == "private, no-store"
 
     info = client.get(
@@ -212,6 +215,12 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     assert info.json()["preview"].startswith("# Certified")
     assert info.json()["kind"] == "text"
     assert info.headers["cache-control"] == "private, no-store"
+
+    toml = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "pyproject.toml"},
+    )
+    assert toml.status_code == 200
+    assert toml.json()["kind"] == "text"
 
     raw = client.get(
         f"/api/projects/{sid}/artifact/raw", params={"path": "paper/result.md"},

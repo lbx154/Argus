@@ -155,6 +155,11 @@ class ReviewDecision:
     completion_summary_markdown: str = ""
     failure_cause: str = ""
     verification_summary: str = ""
+    # Optional project-level research achievement independently certified by
+    # this reviewer. The loop emits the sole authoritative
+    # ``research.achievement.certified`` event only for a ``done`` verdict with
+    # this structured payload. Ordinary task completion leaves it ``None``.
+    achievement: dict[str, Any] | None = None
     # Reviewer completion contract (replaces the old hardcoded paper-validator
     # gate). For ``final_submission`` missions the reviewer must set
     # ``scope == "final_submission"`` and populate ``checklist`` with one
@@ -312,6 +317,9 @@ class ReviewDecision:
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
             "verification_summary": self.verification_summary or "",
+            "achievement": (
+                dict(self.achievement) if isinstance(self.achievement, dict) else None
+            ),
             "scope": self.scope or "",
             "checklist": list(self.checklist or []),
             "planner_report": dict(self.planner_report or {}),

@@ -37,6 +37,57 @@
       "type": "string",
       "maxLength": 5000
     },
+    "achievement": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "OPTIONAL reviewer certification of a project-level research achievement. Use null for ordinary task completion, partial work, wiring, or any result without independently verified evidence.",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "metric_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 240
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "required": [
+        "title",
+        "goal",
+        "metric_id",
+        "summary",
+        "evidence"
+      ]
+    },
     "failure_cause": {
       "type": [
         "string",
@@ -529,6 +580,7 @@
     "operator_question",
     "round_summary_markdown",
     "completion_summary_markdown",
+    "achievement",
     "failure_cause",
     "scope",
     "planner_report",

@@ -18,6 +18,7 @@ from argus_skill.manager.live_view import (
 
 def test_live_view_paths_are_workspace_relative_and_secret_safe() -> None:
     assert normalize_live_view_path("paper/main.pdf") == "paper/main.pdf"
+    assert normalize_live_view_path("pyproject.toml") == "pyproject.toml"
     assert normalize_live_view_path(".argus/live/current.md") == ".argus/live/current.md"
     for unsafe in (
         "../secret.txt",
