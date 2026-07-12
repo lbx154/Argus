@@ -38,6 +38,28 @@ def project_workspace(
     return workspace if workspace.is_dir() else None
 
 
+def artifact_workspace(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> Path | None:
+    """Return the workspace where this session's agent writes artifacts.
+
+    Web/TUI sessions execute inside their isolated ``cwd`` while ``launch_cwd``
+    records where the operator opened Argus.  Artifact reads must prefer the
+    former so a same-named file from the launch folder cannot be exposed.
+    """
+    root = resolve_global_root(global_root)
+    meta = read_session_meta(root, sid)
+    if meta is None or not (meta.cwd.strip() or meta.launch_cwd.strip()):
+        return None
+    try:
+        workspace = Path(meta.cwd or meta.launch_cwd).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    return workspace if workspace.is_dir() else None
+
+
 def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] | None:
     raw = str(relative_path or "").strip().replace("\\", "/")
     if not raw or "\x00" in raw:
@@ -177,7 +199,7 @@ def list_project_artifacts(
 ) -> list[dict[str, Any]] | None:
     if project_life_dir(sid, global_root=global_root) is None:
         return None
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if workspace is None:
         return []
     rows: list[dict[str, Any]] = []
@@ -214,7 +236,7 @@ def get_project_artifact(
     artifacts = list_project_artifacts(sid, global_root=global_root)
     if artifacts is None:
         return None
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if workspace is None:
         return None
     safe_requested = safe_artifact_path(workspace, artifact_path)
@@ -249,7 +271,7 @@ def resolved_project_artifact(
         global_root=global_root,
         preview_bytes=0,
     )
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if info is None or workspace is None:
         return None
     safe = safe_artifact_path(workspace, str(info["path"]))
@@ -314,6 +336,7 @@ def project_git_diff(
 
 
 __all__ = [
+    "artifact_workspace",
     "artifact_metadata",
     "get_project_artifact",
     "latest_evidence_files",

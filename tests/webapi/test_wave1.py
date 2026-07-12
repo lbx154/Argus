@@ -243,6 +243,36 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     assert hidden.json()["path"] == ".review-note"
 
 
+def test_artifacts_use_session_workspace_instead_of_launch_directory(ctx) -> None:
+    root, sid, life, client = ctx
+    launch = root / "launch"
+    (launch / "paper").mkdir(parents=True)
+    (launch / "paper" / "result.md").write_text("wrong project\n", encoding="utf-8")
+    (life / "paper").mkdir()
+    (life / "paper" / "result.md").write_text("current session\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
+    )
+    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "isolated-result",
+            "success": True,
+            "ts": time.time(),
+            "planner_report": {
+                "evidence_files": [{"path": "paper/result.md", "why": "final"}],
+            },
+        }) + "\n")
+
+    preview = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "paper/result.md"},
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["preview"] == "current session\n"
+
+
 def test_artifact_allowlist_is_replaced_by_newest_result(ctx) -> None:
     root, sid, life, client = ctx
     _seed_result_artifacts(root, sid, life)

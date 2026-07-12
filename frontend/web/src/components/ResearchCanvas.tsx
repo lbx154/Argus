@@ -7,9 +7,18 @@ import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 
+const LIVE_ARTIFACT_SOURCES = new Set(['manager_live', 'research_registered']);
+
+export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
+  const declared = (artifacts ?? []).filter((item) =>
+    LIVE_ARTIFACT_SOURCES.has(item.source ?? ''));
+  if (declared.some((item) => item.exists)) return declared;
+  return (artifacts ?? []).filter((item) =>
+    item.source === 'reviewer_evidence' && item.exists);
+}
+
 export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
-  const live = (artifacts ?? []).filter((item) =>
-    ['manager_live', 'research_registered'].includes(item.source ?? '') && item.exists);
+  const live = selectLiveArtifacts(artifacts).filter((item) => item.exists);
   return live.find((item) => item.kind === 'pdf')
     ?? live.find((item) => item.kind === 'image')
     ?? live[0]
@@ -39,8 +48,7 @@ export function ResearchCanvas({
   onCollapse?: () => void;
 }) {
   const live = useMemo(
-    () => (artifacts ?? []).filter((item) =>
-      ['manager_live', 'research_registered'].includes(item.source ?? '')),
+    () => selectLiveArtifacts(artifacts),
     [artifacts],
   );
   const preferred = useMemo(() => selectPreferredLiveArtifact(artifacts), [artifacts]);

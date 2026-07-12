@@ -165,6 +165,11 @@ describe('shared frontend core', () => {
 
     expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.pdf');
     expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
+    expect(selectPreferredLiveArtifact([artifacts[2]])?.path).toBe('review/private.pdf');
+    expect(selectPreferredLiveArtifact([
+      { ...artifacts[0], exists: false },
+      artifacts[2],
+    ])?.path).toBe('review/private.pdf');
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {

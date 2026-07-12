@@ -83,6 +83,16 @@ export function ArtifactModal({
         >
           {downloading ? 'Downloading…' : 'Download'}
         </button>
+        {info?.kind === 'pdf' && previewUrl ? (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-dim transition-colors hover:border-ink-faint hover:bg-surface hover:text-ink"
+          >
+            Open
+          </a>
+        ) : null}
         <button
           type="button"
           aria-label="close artifact preview"
@@ -115,13 +125,17 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
-          <iframe
-            src={previewUrl}
-            title={`PDF preview: ${info.name}`}
-            sandbox=""
-            referrerPolicy="no-referrer"
+          <object
+            data={`${previewUrl}#toolbar=1&navpanes=0&view=FitH`}
+            type="application/pdf"
+            aria-label={`PDF preview: ${info.name}`}
             className="h-[62vh] w-full rounded-lg border border-line bg-white"
-          />
+          >
+            <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-ink-dim">
+              <span>Inline PDF preview is disabled by this browser.</span>
+              <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue underline underline-offset-2">Open PDF</a>
+            </div>
+          </object>
         ) : null}
         {info && ['image', 'pdf'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
