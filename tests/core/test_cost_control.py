@@ -167,6 +167,129 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     recovered.release(reason="test")
 
 
+def test_interrupted_partial_cost_holds_reservation_without_global_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setattr(
+        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        lambda _project_root: False,
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="aborted",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert reservation is not None and reason == ""
+    record = build_usage_record(
+        call_id="aborted",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        started_at=time.time() - 1,
+        completed_at=time.time(),
+        status="error",
+        error="External interrupt: operator abort requested: stop now",
+    )
+    assert record.pricing_status == "partial" and record.cost_usd is None
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["unresolved_calls"] == 1
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(5.0)
+    assert snapshot["reserved_usd"] == pytest.approx(5.0)
+
+    next_reservation, reason = reserve_call_budget(
+        call_id="next",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert next_reservation is not None
+    assert reason == ""
+    next_reservation.release(reason="test")
+
+
+def test_interrupted_unknown_settlement_holds_exact_reservation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="aborted-unknown",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=4.25,
+    )
+    assert reservation is not None and reason == ""
+
+    reservation.settle_unknown(
+        reason="External interrupt: operator abort requested: stop"
+    )
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(4.25)
+    assert snapshot["unresolved"][0]["held_usd"] == pytest.approx(4.25)
+
+
+def test_legacy_interrupt_without_recorded_hold_remains_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_PER_CALL_CAP_USD", "0")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, _ = _reserve(tmp_path, project, "legacy-abort")
+    assert reservation is not None
+    reservation.settle_unknown(
+        reason="External interrupt: operator abort requested: old row"
+    )
+    state_path = tmp_path / COST_CONTROL_STATE_FILE
+    state = json.loads(state_path.read_text())
+    state["unresolved"][0].pop("blocking", None)
+    state["unresolved"][0].pop("held_usd", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    blocked, reason = _reserve(tmp_path, project, "next")
+
+    assert blocked is None
+    assert "unresolved provider cost" in reason
+
+
 def test_unknown_settlement_blocks_and_corrupt_state_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

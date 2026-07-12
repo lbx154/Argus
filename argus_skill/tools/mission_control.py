@@ -45,6 +45,7 @@ def request_mission_abort(
     *,
     reason: str,
     requested_by: str = "manager",
+    target_item_id: str | None = None,
 ) -> Path:
     """Drop a one-shot abort request for whatever mission is currently
     running under ``life_dir``.
@@ -61,6 +62,8 @@ def request_mission_abort(
         "requested_by": requested_by,
         "requested_at": time.time(),
     }
+    if target_item_id:
+        payload["target_item_id"] = str(target_item_id)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     try:
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -68,6 +71,42 @@ def request_mission_abort(
     except OSError:
         log.warning("failed to write mission abort request to %s", path)
     return path
+
+
+def request_current_mission_abort(
+    life_dir: Path | str,
+    *,
+    reason: str,
+    requested_by: str = "manager",
+) -> tuple[bool, str | None]:
+    """Abort the currently running backlog item, never a future item.
+
+    The explicit running-item check prevents an idle ``/abort`` from creating
+    noise. The target id in the durable request is the authoritative race guard:
+    the daemon consumes it only while that exact item remains running.
+    """
+    from ..life.memory import LifeMemory
+
+    root = Path(life_dir)
+    backlog = LifeMemory.open(root).backlog
+
+    def _running_item_id() -> str | None:
+        running = [item for item in backlog.all() if item.status == "running"]
+        if not running:
+            return None
+        running.sort(key=lambda item: (item.started_ts or item.ts, item.id))
+        return running[-1].id
+
+    item_id = _running_item_id()
+    if item_id is None:
+        return False, None
+    request_mission_abort(
+        root,
+        reason=reason,
+        requested_by=requested_by,
+        target_item_id=item_id,
+    )
+    return True, item_id
 
 
 def pop_pending_mission_abort(life_dir: Path | str | None) -> str | None:
@@ -96,6 +135,24 @@ def pop_pending_mission_abort(life_dir: Path | str | None) -> str | None:
         return None
     if not isinstance(data, dict):
         return None
+    target_item_id = str(data.get("target_item_id") or "").strip()
+    if not target_item_id:
+        return None
+    try:
+        from ..life.memory import LifeMemory
+
+        target = next(
+            (
+                item
+                for item in LifeMemory.open(Path(life_dir)).backlog.all()
+                if item.id == target_item_id
+            ),
+            None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if target is None or target.status != "running":
+        return None
     reason = str(data.get("reason") or "").strip()
     return reason or "operator requested abort"
 
@@ -117,11 +174,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "abort":
-        path = request_mission_abort(
-            args.life_dir, reason=args.reason, requested_by=args.requested_by
+        requested, item_id = request_current_mission_abort(
+            args.life_dir,
+            reason=args.reason,
+            requested_by=args.requested_by,
         )
+        if not requested:
+            print("argus-skill: no mission is currently running; nothing was queued.")
+            return 0
         print(
-            f"argus-skill: mission abort requested ({path}). The daemon will "
+            f"argus-skill: mission abort requested for {item_id}. The daemon will "
             "stop the in-flight round on its next watchdog check and remain "
             "running to pick up the next backlog item."
         )
@@ -131,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "request_mission_abort",
+    "request_current_mission_abort",
     "pop_pending_mission_abort",
     "main",
 ]

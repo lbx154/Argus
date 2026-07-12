@@ -957,6 +957,7 @@ class SupervisedEngineer:
         seed_thread_id: str | None = None,
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
+        continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -1613,6 +1614,90 @@ class SupervisedEngineer:
                         failure_cause="environmental",
                         backend_unavailable=True,
                     )
+                reviewer_fatal_error = str(
+                    getattr(review, "backend_fatal_error", "") or ""
+                )
+                reviewer_exit_code = int(
+                    getattr(review, "backend_exit_code", 0) or 0
+                )
+                if (
+                    getattr(review, "backend_unavailable", False)
+                    and fatal_error_looks_like_operator_abort_request(
+                        reviewer_fatal_error
+                    )
+                ):
+                    interrupted_review = operator_abort_review_decision(
+                        fatal_error=reviewer_fatal_error,
+                        exit_code=reviewer_exit_code,
+                    )
+                    interrupted_review = replace(
+                        interrupted_review,
+                        input_tokens=int(getattr(review, "input_tokens", 0) or 0),
+                        cached_input_tokens=int(
+                            getattr(review, "cached_input_tokens", 0) or 0
+                        ),
+                        output_tokens=int(getattr(review, "output_tokens", 0) or 0),
+                        reasoning_output_tokens=int(
+                            getattr(review, "reasoning_output_tokens", 0) or 0
+                        ),
+                        premium_requests=float(
+                            getattr(review, "premium_requests", 0.0) or 0.0
+                        ),
+                    )
+                    if on_event:
+                        on_event(_review_event_payload(
+                            interrupted_review,
+                            round_index=round_index,
+                            round_max=supervised_config.max_rounds,
+                            text="review: skipped (operator abort requested)",
+                            review_skipped=True,
+                        ))
+                    rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=interrupted_review,
+                        fatal_error=reviewer_fatal_error,
+                    ))
+                    return (
+                        "error",
+                        rounds,
+                        last_engineer_message,
+                        interrupted_review.reason,
+                        None,
+                    )
+                if (
+                    getattr(review, "backend_unavailable", False)
+                    and fatal_error_looks_like_daemon_stop_request(
+                        reviewer_fatal_error
+                    )
+                ):
+                    interrupted_review = daemon_stop_review_decision(
+                        fatal_error=reviewer_fatal_error,
+                        exit_code=reviewer_exit_code,
+                    )
+                    if on_event:
+                        on_event(_review_event_payload(
+                            interrupted_review,
+                            round_index=round_index,
+                            round_max=supervised_config.max_rounds,
+                            text="review: skipped (daemon stop requested)",
+                            review_skipped=True,
+                        ))
+                    rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=interrupted_review,
+                        fatal_error=reviewer_fatal_error,
+                    ))
+                    return (
+                        "error",
+                        rounds,
+                        last_engineer_message,
+                        interrupted_review.reason,
+                        None,
+                    )
                 # Reviewer backend death (codex subprocess died / output-schema
                 # missing / runner raised) renders NO verdict. It must NEVER be
                 # laundered into a silent "continue": on 2026-06-25 a stale
@@ -1808,6 +1893,17 @@ class SupervisedEngineer:
                 )
 
             last_next_action = review.next_action or ""
+            if continue_adaptor is not None:
+                try:
+                    adaptive_guidance = str(continue_adaptor(rounds) or "").strip()
+                except Exception:  # noqa: BLE001 — adaptation is advisory
+                    log.debug("continue adaptor failed", exc_info=True)
+                    adaptive_guidance = ""
+                if adaptive_guidance:
+                    last_next_action = (
+                        last_next_action + "\n\n## New Scientist strategy\n"
+                        + adaptive_guidance
+                    ).strip()
 
         return (
             "max_rounds",

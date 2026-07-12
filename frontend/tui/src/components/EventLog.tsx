@@ -3,7 +3,11 @@ import { Box, Static, Text } from 'ink';
 import { toneColor, roleColor, type Rendered } from '../eventRender.js';
 import type { EventMsg } from '../api.js';
 import { rotate, IDLE_LINES } from '../soul.js';
-import { buildEventLines, type EventLine } from '../eventLines.js';
+import {
+  buildEventLines,
+  partitionEventLines,
+  type EventLine,
+} from '../eventLines.js';
 
 function EventRow({ r, compact, width }: { r: Rendered; compact: boolean; width: number }) {
   const label = compact ? `${r.label.slice(0, 1)} ` : r.label.padEnd(9);
@@ -37,10 +41,12 @@ export function EventLog({
   events,
   width,
   mode = 'all',
+  liveMessageId = '',
 }: {
   events: EventMsg[];
   width: number;
   mode?: 'all' | 'conversation';
+  liveMessageId?: string;
 }) {
   const clean = useMemo<EventLine[]>(() => {
     const lines = buildEventLines(events);
@@ -49,12 +55,9 @@ export function EventLog({
       : lines;
   }, [events, mode]);
 
-  // The last line is "live" only while it's a still-streaming message; keep it
-  // out of Static so its growth doesn't spam scrollback. Everything before it is
-  // final → committed to the terminal's native scrollback via <Static>.
-  const lastStreaming = clean.length > 0 && !!clean[clean.length - 1].mid;
-  const committed = lastStreaming ? clean.slice(0, -1) : clean;
-  const live = lastStreaming ? clean[clean.length - 1] : null;
+  // A message_id groups fragments but does not imply that a reply is still
+  // streaming. The request lifecycle explicitly names the one mutable row.
+  const { committed, live } = partitionEventLines(clean, liveMessageId);
 
   const compact = width < 80;
 

@@ -12,9 +12,9 @@ import json
 
 import pytest
 
+from argus_skill.agent_cli import agent_cli_runner as runner_mod
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
-from argus_skill.agent_cli import agent_cli_runner as runner_mod
 
 
 class _FakeStdin:
@@ -51,10 +51,16 @@ def _fake_copilot(monkeypatch: pytest.MonkeyPatch):
         json.dumps({"type": "assistant.message", "data": {"content": "block two"}}),
         json.dumps({"type": "result", "sessionId": "sess-1", "exitCode": 0}),
     ]
-    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *a, **k: _FakeProc(lines))
+    popen_kwargs: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        popen_kwargs.update(kwargs)
+        return _FakeProc(lines)
+
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", _popen)
     # Don't require a real copilot binary on PATH.
     monkeypatch.setattr(AgentCliRunner, "_resolve_executable", staticmethod(lambda x: x))
-    return lines
+    return popen_kwargs
 
 
 def test_on_agent_message_fires_per_block_in_order(_fake_copilot, monkeypatch) -> None:
@@ -89,6 +95,22 @@ def test_none_callback_leaves_turn_unchanged(_fake_copilot, monkeypatch) -> None
     )
     assert result.agent_messages == ["block one", "block two"]
     assert result.exit_code == 0
+
+
+def test_cli_process_starts_in_its_own_posix_session(_fake_copilot, monkeypatch) -> None:
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **_kw: ["copilot", "-p", "x"],
+    )
+    runner = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT)
+    runner.run_exec(
+        prompt="x",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="stream-test",
+    )
+    assert _fake_copilot["start_new_session"] is (runner_mod.os.name != "nt")
 
 
 def test_callback_exception_never_breaks_the_turn(_fake_copilot, monkeypatch) -> None:

@@ -270,7 +270,7 @@ def _front_door_classify(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
-) -> tuple[Any, str]:
+) -> tuple[Any, str | None, str]:
     return _front_door_classify_impl(
         mem,
         text,
@@ -479,7 +479,8 @@ def _free_text_cmd(
         text,
         chat_state,
         hooks=FreeTextHooks(
-            maybe_handle_config_intent=_maybe_handle_config_intent,
+            front_door_classify=_front_door_classify,
+            apply_config_intent=_apply_config_intent,
             life_dir_for=_life_dir_for,
             render_live_role_overlay=_render_live_role_overlay,
             live_cockpit_enabled=_live_cockpit_enabled,

@@ -378,7 +378,14 @@ def test_stop_reason_consumes_mission_abort_when_daemon_runner(
     # Nothing requested yet.
     assert provider() is None
 
-    request_mission_abort(session_root, reason="operator asked to stop")
+    backlog = LifeMemory.open(session_root).backlog
+    item = backlog.add(BacklogItem.new(title="task", objective="work"))
+    backlog.mark_running(item.id)
+    request_mission_abort(
+        session_root,
+        reason="operator asked to stop",
+        target_item_id=item.id,
+    )
     reason = provider()
     assert reason == "operator abort requested: operator asked to stop"
     # One-shot: consumed, so the very next poll sees nothing pending.
@@ -421,7 +428,14 @@ def test_stop_reason_ignores_mission_abort_when_not_daemon_runner(
     provider = captured["interrupt_provider"]
     assert provider is not None  # stop_event alone still installs a provider
 
-    path = request_mission_abort(session_root, reason="operator asked to stop")
+    backlog = LifeMemory.open(session_root).backlog
+    item = backlog.add(BacklogItem.new(title="task", objective="work"))
+    backlog.mark_running(item.id)
+    path = request_mission_abort(
+        session_root,
+        reason="operator asked to stop",
+        target_item_id=item.id,
+    )
     assert provider() is None
     # Untouched — a disabled runner must not even peek at (let alone delete)
     # a request file it has no business consuming.
@@ -741,10 +755,10 @@ def test_front_door_propagates_preallocated_root_task_id(
             text: str,
             *,
             root_task_id: str | None = None,
-        ) -> tuple[None, str]:
+        ) -> tuple[None, None, str]:
             captured["text"] = text
             captured["root_task_id"] = root_task_id
-            return None, "complex"
+            return None, None, "complex"
 
     class _Runner:
         manager = _Manager()
@@ -755,7 +769,7 @@ def test_front_door_propagates_preallocated_root_task_id(
         lambda chat_state, memory: _Runner(),
     )
 
-    intent, route = manager_repl._front_door_classify(
+    intent, control, route = manager_repl._front_door_classify(
         mem,
         "measure this task",
         {"backend": "copilot"},
@@ -763,11 +777,82 @@ def test_front_door_propagates_preallocated_root_task_id(
     )
 
     assert intent is None
+    assert control is None
     assert route == "complex"
     assert captured == {
         "text": "measure this task",
         "root_task_id": "root-task-2",
     }
+
+
+def test_line_repl_natural_abort_never_enqueues(
+    mem: LifeMemory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item = mem.backlog.add(BacklogItem.new(title="long task", objective="work"))
+    mem.backlog.mark_running(item.id)
+    monkeypatch.setattr(
+        manager_repl,
+        "_front_door_classify",
+        lambda *a, **k: (None, "abort", "simple"),
+    )
+    monkeypatch.setattr(
+        manager_repl,
+        "enqueue_mission",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("abort control must not enqueue")
+        ),
+    )
+
+    manager_repl._free_text_cmd(
+        mem,
+        "别做了，停止当前任务",
+        chat_state={"backend": "copilot", "theme": None},
+    )
+
+    assert len(mem.backlog.all()) == 1
+    payload = json.loads(
+        (manager_repl._life_dir_for(mem) / "mission_abort_request.json").read_text()
+    )
+    assert payload["target_item_id"] == item.id
+
+
+def test_line_repl_active_mission_forces_simple_and_never_enqueues(
+    mem: LifeMemory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    item = mem.backlog.add(BacklogItem.new(title="active", objective="work"))
+    mem.backlog.mark_running(item.id)
+    monkeypatch.setattr(
+        manager_repl,
+        "_front_door_classify",
+        lambda *a, **k: (None, None, "complex"),
+    )
+    seen: dict[str, Any] = {}
+
+    def no_reply(*args: Any, **kwargs: Any) -> None:
+        seen["route"] = kwargs.get("route")
+        return None
+
+    monkeypatch.setattr(manager_repl, "manager_triage", no_reply)
+    monkeypatch.setattr(
+        manager_repl,
+        "enqueue_mission",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("active mission message must not enqueue")
+        ),
+    )
+
+    manager_repl._free_text_cmd(
+        mem,
+        "现在进展如何",
+        chat_state={"backend": "copilot", "theme": None},
+    )
+
+    assert seen["route"] == "simple"
+    assert len(mem.backlog.all()) == 1
+    assert "not dispatched" in capsys.readouterr().out
 
 
 def test_manager_triage_propagates_root_id_without_retry(

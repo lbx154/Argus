@@ -386,36 +386,36 @@ class Reviewer:
         # schema-missing / runner-raised returns have no ``result`` → thread_id
         # stays None (the loop must start a fresh reviewer session there).
         rev_tid = getattr(result, "thread_id", None)
+        fatal = str(getattr(result, "fatal_error", "") or "").strip()
+        if fatal or result.exit_code != 0:
+            reason = (
+                "Reviewer backend returned no complete verdict "
+                f"(exit={result.exit_code}"
+                + (f", fatal_error={fatal}" if fatal else "")
+                + ")."
+            )
+            return ReviewDecision(
+                status="blocked",
+                reason=reason,
+                next_action=(
+                    "Reviewer backend ended before a complete verdict — do NOT "
+                    "treat partial output as evidence about the engineer's work."
+                ),
+                round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
+                completion_summary_markdown="",
+                failure_cause="environmental",
+                backend_unavailable=True,
+                input_tokens=rev_in,
+                cached_input_tokens=rev_cached,
+                output_tokens=rev_out,
+                reasoning_output_tokens=rev_reasoning_output_tokens,
+                premium_requests=rev_premium,
+                thread_id=rev_tid,
+                static_fingerprint=new_fp,
+                backend_fatal_error=fatal,
+                backend_exit_code=result.exit_code,
+            )
         if not result.agent_messages:
-            fatal = str(getattr(result, "fatal_error", "") or "").strip()
-            if fatal or result.exit_code != 0:
-                reason = (
-                    "Reviewer backend returned no output "
-                    f"(exit={result.exit_code}"
-                    + (f", fatal_error={fatal}" if fatal else "")
-                    + ")."
-                )
-                return ReviewDecision(
-                    status="blocked",
-                    reason=reason,
-                    next_action=(
-                        "Reviewer backend died before any verdict — do NOT treat "
-                        "this as evidence the engineer completed or failed the "
-                        "task. The supervised loop retries on a fresh session and "
-                        "escalates to the operator if it keeps failing."
-                    ),
-                    round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
-                    completion_summary_markdown="",
-                    failure_cause="environmental",
-                    backend_unavailable=True,
-                    input_tokens=rev_in,
-                    cached_input_tokens=rev_cached,
-                    output_tokens=rev_out,
-                    reasoning_output_tokens=rev_reasoning_output_tokens,
-                    premium_requests=rev_premium,
-                    thread_id=rev_tid,
-                    static_fingerprint=new_fp,
-                )
             return ReviewDecision(
                 status="continue",
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",

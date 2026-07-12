@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 
 import {
@@ -11,7 +11,6 @@ import type { RequestUsage } from '../api.js';
 import { theme } from '../theme.js';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 function cap(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -71,14 +70,6 @@ export function MissionCockpit({
   globalDailyCapUsd?: number | null;
   requestUsage?: RequestUsage | null;
 }) {
-  const [tick, setTick] = useState(0);
-  const active = view.roles.some((role) => role.status === 'active');
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setTick((value) => value + 1), 90);
-    return () => clearInterval(timer);
-  }, [active]);
-
   const mission = view.mission.objective || view.mission.title || 'Waiting for a mission';
   const metric = view.primary_metric;
   const improvement = missionMetricImprovement(metric);
@@ -88,7 +79,7 @@ export function MissionCockpit({
     .map((item) => item.role)
     .filter((role, index, rows) => ROLE_ORDER.includes(role) && (index === 0 || role !== rows[index - 1]));
   const handoff = recentRoles.length > 1
-    ? `${cap(recentRoles[recentRoles.length - 2])} ${tick % 2 ? '⇢' : '→'} ${cap(recentRoles[recentRoles.length - 1])}`
+    ? `${cap(recentRoles[recentRoles.length - 2])} → ${cap(recentRoles[recentRoles.length - 1])}`
     : '';
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
@@ -138,7 +129,7 @@ export function MissionCockpit({
           const role = roleByName.get(name);
           const status = role?.status ?? 'waiting';
           const glyph = status === 'active'
-            ? SPINNER[tick % SPINNER.length]
+            ? '●'
             : status === 'done'
             ? '✓'
             : status === 'rejected' || status === 'error'

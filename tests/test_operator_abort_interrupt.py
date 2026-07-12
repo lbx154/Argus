@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
+from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -27,7 +27,6 @@ from argus_skill.engineer.runner import (
     operator_abort_review_decision,
 )
 from argus_skill.reviewer import ReviewerConfig
-
 
 # --------------------------------------------------------------------------- #
 # Pure predicate: distinct from both "normal backend failure" and "daemon stop"
@@ -127,6 +126,44 @@ class _ExplodingReviewer:
         )
 
 
+class _SuccessfulEngineerRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run_exec(self, **_kwargs):
+        self.calls += 1
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=["implemented and verified"],
+            thread_id="engineer-thread",
+            turn_completed=True,
+        )
+
+
+class _ReviewerAbortedByOperator:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def evaluate(self, **_kwargs):
+        self.calls += 1
+        fatal = (
+            "External interrupt: operator abort requested: "
+            "operator requested: 停止现在的任务"
+        )
+        return ReviewDecision(
+            status="blocked",
+            reason=(
+                "Reviewer backend returned no output "
+                f"(exit=-15, fatal_error={fatal})."
+            ),
+            next_action="",
+            failure_cause="environmental",
+            backend_unavailable=True,
+            backend_fatal_error=fatal,
+            backend_exit_code=-15,
+        )
+
+
 def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
     tmp_path: Path,
 ) -> None:
@@ -165,6 +202,54 @@ def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
         e
         for e in events
         if e.get("type") == "round.review.completed" and e.get("review_skipped")
+    ]
+    assert len(skipped) == 1
+    assert "operator abort requested" in skipped[0].get("text", "")
+
+
+def test_loop_stops_without_backend_retry_when_reviewer_is_operator_aborted(
+    tmp_path: Path,
+) -> None:
+    events: list[dict] = []
+    engineer = _SuccessfulEngineerRunner()
+    reviewer = _ReviewerAbortedByOperator()
+    engine = SupervisedEngineer(
+        engineer_runner=engineer,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+    config = SupervisedConfig(
+        max_rounds=10,
+        backend_failure_threshold=2,
+        backend_failure_backoff_seconds=0.0,
+        effective_progress_timeout_seconds=0,
+        background_subagent_advisory=False,
+    )
+
+    status, rounds, _final_msg, reason, _tid = engine.run(
+        objective="finish the game",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "work",
+        supervised_config=config,
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "error"
+    assert engineer.calls == 1
+    assert reviewer.calls == 1
+    assert len(rounds) == 1
+    assert rounds[0].review.failure_cause == "operator_interrupt"
+    assert "operator" in reason.lower() or "abort" in reason.lower()
+    assert not any(
+        event.get("type") == "round.reviewer_backend_failure"
+        for event in events
+    )
+    skipped = [
+        event
+        for event in events
+        if event.get("type") == "round.review.completed"
+        and event.get("review_skipped")
     ]
     assert len(skipped) == 1
     assert "operator abort requested" in skipped[0].get("text", "")

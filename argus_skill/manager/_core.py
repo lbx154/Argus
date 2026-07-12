@@ -949,23 +949,19 @@ class Manager:
         run_exec: Any = None,
         root_task_id: str | None = None,
     ) -> Any:
-        """Merged cockpit front-door classify: ONE model call returning BOTH
-        ``(config-intent | None, route)`` where route is ``"simple"``/
-        ``"complex"``. Replaces the two sequential ``classify_config_intent`` +
-        ``route`` calls the cockpit used to make, halving that turn's cold-start
-        latency. The Manager owns the decision; ``run_exec`` is the LLM caller.
+        """One fresh model call classifying config, control, and routing.
 
         Same discipline as ``classify_config_intent``: built FRESH on the raw
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
         resume, no pollution), ``resume_thread_id=None``. Effort comes from
-        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a two-axis
+        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a three-axis
         label classification needs no heavy reasoning, and ``low`` is what makes
         this cheap. Biases each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
 
         if run_exec is None:
             if self.runner is None:
-                return None, "complex"
+                return None, None, "complex"
             import os
 
             from ..core.models import RunnerOptions
