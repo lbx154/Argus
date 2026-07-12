@@ -1,5 +1,10 @@
 # Argus Teams Rolling Pool — Implementation Plan
 
+> **Archived:** The detached coordinator and lead-heartbeat design below was
+> superseded on 2026-06-26 by the daemon-resident Curator. Do not execute this
+> plan against current code. The live `pool.json` contract is `{width, state}`;
+> see `../specs/2026-06-26-team-daemon-lifecycle-diagnosis.md` and `CHANGELOG.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the team's per-batch `form→wait→synthesize→next-batch` barrier with a **rolling pool**: a dumb coordinator process keeps N teammates always in flight from a priority backlog the lead maintains, so slots refill the instant they free instead of waiting on the lead's reasoning turn.

@@ -458,15 +458,12 @@ def _scrape_teams(root: Path) -> dict:
             "verified": prog.get("verified", 0),
         })
     agents.sort(key=lambda a: _num_id(a["task"]) or _num_id(a["id"]))
-    now = time.time()
-    lead_hb = pool.get("lead_heartbeat_ts")
     improved = [a for a in agents if a["speedup"] and a["speedup"] > 1.03]
     best_win = max((a["speedup"] for a in improved), default=None)
     return {
         "team_id": team_dir.name,
         "width": pool.get("width"),
         "state": pool.get("state") or "",
-        "lead_age": int(now - lead_hb) if lead_hb else None,
         "running": len(agents),
         "improved": len(improved),
         "best_speedup": best_win,

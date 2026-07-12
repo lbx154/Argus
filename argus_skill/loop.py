@@ -339,7 +339,7 @@ class SkillLoop:
             from .skills.scientist import SkillScientist
 
             self._emit({
-                "type": "skill.scientist.adaptation_started",
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
                 "text": f"{interval} reviewer rejections; seeking a different playbook",
             })
             scientist = SkillScientist(
@@ -361,7 +361,7 @@ class SkillLoop:
             skill_name = distilled.name
             skill_distilled = True
             self._emit({
-                "type": "skill.scientist.adaptation_created",
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
                 "text": f"Scientist created alternative skill {distilled.name}",
             })
             return adaptive_text
@@ -700,15 +700,6 @@ class SkillLoop:
             self.on_event(event)
         except Exception:  # never let UI errors kill the loop
             log.exception("on_event handler raised")
-
-    def _render_skill_playbook(self, skills: list[Skill]) -> str:
-        """Deprecated shim — delegates to the shared role-mission renderer.
-
-        Kept so external callers/tests referencing this method keep working;
-        new code should call ``render_skill_playbook`` directly. Treats every
-        passed skill as a primary (own-role) playbook.
-        """
-        return render_skill_playbook(self.skill_store, skills)
 
     @staticmethod
     def _build_engineer_prompt(

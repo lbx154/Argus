@@ -248,8 +248,6 @@ general
         if label == "scientist.skill_distill"
     )
     assert scientist_options.live_search is True
-
-
 def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue(
@@ -273,48 +271,3 @@ def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
     assert "matcher" not in labels
     assert "scientist.skill_distill" not in labels
     assert not any(event.get("type") == "skill.scientist.started" for event in events)
-
-
-def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> None:
-    from argus_skill.skills.store import Skill
-
-    skills_dir = tmp_path / "skills"
-    store = SkillStore(skills_dir)
-
-    def _mk(name: str, desc: str) -> Skill:
-        return Skill(
-            name=name,
-            description=desc,
-            category="demo",
-            content="## When to use\n- demo tasks\n\n## How to solve\n- step 1\n",
-            version=1,
-            created_at="2026-05-03T00:00:00+00:00",
-        )
-
-    loop = SkillLoop(
-        skills_dir=skills_dir,
-        skill_store=store,
-        engineer_runner=MemoryBackend(),
-        reviewer_runner=MemoryBackend(),
-        config=SkillLoopConfig(max_rounds=1),
-    )
-
-    one = _mk("Alpha Skill", "do alpha")
-    two = _mk("Beta Skill", "do beta")
-
-    # Single match: plain render (content only), no multi-candidate framing.
-    single = loop._render_skill_playbook([one])
-    assert "How to solve" in single
-    assert "candidates, not orders" not in single
-    assert "### Candidate skill:" not in single
-
-    # Multiple high-fit matches: all bodies injected, agent judges relevance.
-    multi = loop._render_skill_playbook([one, two])
-    assert "Alpha Skill" in multi
-    assert "Beta Skill" in multi
-    assert "candidates, not orders" in multi
-    assert "### Candidate skill: Alpha Skill" in multi
-    assert "### Candidate skill: Beta Skill" in multi
-
-    # Empty match: empty playbook.
-    assert loop._render_skill_playbook([]) == ""

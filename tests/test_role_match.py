@@ -13,8 +13,8 @@ import json
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.skills.role_match import match_role_skills
-from argus_skill.skills.store import SkillStore
+from argus_skill.skills.role_match import match_role_skills, render_skill_playbook
+from argus_skill.skills.store import Skill, SkillStore
 
 
 def _write_role_skill(skills_dir: Path, role: str, slug: str,
@@ -32,6 +32,37 @@ def _write_role_skill(skills_dir: Path, role: str, slug: str,
         "## When to use\n- test tasks\n\n## How to solve\n- step 1\n",
         encoding="utf-8",
     )
+
+
+def test_canonical_playbook_renderer_injects_all_high_fit_skills(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path / "skills")
+
+    def make_skill(name: str, description: str) -> Skill:
+        return Skill(
+            name=name,
+            description=description,
+            category="demo",
+            content="## When to use\n- demo tasks\n\n## How to solve\n- step 1\n",
+            version=1,
+            created_at="2026-05-03T00:00:00+00:00",
+        )
+
+    one = make_skill("Alpha Skill", "do alpha")
+    two = make_skill("Beta Skill", "do beta")
+
+    single = render_skill_playbook(store, [one])
+    assert "How to solve" in single
+    assert "candidates, not orders" not in single
+    assert "### Candidate skill:" not in single
+
+    multi = render_skill_playbook(store, [one, two])
+    assert "Alpha Skill" in multi
+    assert "Beta Skill" in multi
+    assert "candidates, not orders" in multi
+    assert "### Candidate skill: Alpha Skill" in multi
+    assert "### Candidate skill: Beta Skill" in multi
+
+    assert render_skill_playbook(store, []) == ""
 
 
 class _CountingBackend(MemoryBackend):
