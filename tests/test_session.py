@@ -12,7 +12,6 @@ import json
 import pytest
 
 from argus_skill.core.session import (
-    SessionMeta,
     SessionResolutionError,
     list_sessions,
     most_recent_session,
@@ -70,7 +69,9 @@ def test_list_sessions_newest_first_and_includes_legacy(tmp_path):
     # the synthetic last_active (= dir mtime) sorts older than session b.
     legacy = tmp_path / "projects" / "07197071cf43"
     legacy.mkdir(parents=True)
-    (legacy / "continuous.json").write_text(json.dumps({"objective": "old work"}))
+    continuous = legacy / "continuous.json"
+    continuous.write_text(json.dumps({"objective": "old work"}))
+    os.utime(continuous, (50, 50))
     os.utime(legacy, (50, 50))
     sessions = list_sessions(tmp_path)
     ids = [s.id for s in sessions]
@@ -78,6 +79,41 @@ def test_list_sessions_newest_first_and_includes_legacy(tmp_path):
     assert "07197071cf43" in ids  # legacy still listed (resumable)
     legacy_meta = next(s for s in sessions if s.id == "07197071cf43")
     assert legacy_meta.objective == "old work"
+
+
+def test_legacy_last_active_ignores_web_projection_writes(tmp_path):
+    import os
+
+    legacy = tmp_path / "projects" / "s-legacy"
+    legacy.mkdir(parents=True)
+    continuous = legacy / "continuous.json"
+    continuous.write_text(json.dumps({"objective": "old work"}))
+    events = legacy / "events.jsonl"
+    events.write_text('{"type":"loop.done"}\n')
+    os.utime(continuous, (100, 100))
+    os.utime(events, (120, 120))
+
+    # Web snapshot projection and lock creation may touch the directory today,
+    # but neither is actual research/session activity.
+    (legacy / "mission-view.json").write_text("{}\n")
+    (legacy / "mission-view.lock").write_text("")
+    (legacy / "usage.jsonl").write_text('{"source":"legacy.events"}\n')
+    os.utime(legacy, (1000, 1000))
+
+    meta = next(item for item in list_sessions(tmp_path) if item.id == "s-legacy")
+    assert meta.last_active == 120
+
+
+def test_contentless_legacy_session_does_not_trust_directory_mtime(tmp_path):
+    import os
+
+    legacy = tmp_path / "projects" / "s-lock-only"
+    legacy.mkdir(parents=True)
+    (legacy / "mission-view.lock").write_text("")
+    os.utime(legacy, (1000, 1000))
+
+    meta = next(item for item in list_sessions(tmp_path) if item.id == "s-lock-only")
+    assert meta.last_active == 0
 
 
 def test_touch_updates_last_active_and_name(tmp_path):
