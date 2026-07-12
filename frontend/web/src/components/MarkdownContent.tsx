@@ -1,5 +1,23 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return <span className="text-xs text-ink-faint">Image unavailable{alt ? ` · ${alt}` : ''}</span>;
+  }
+  return (
+    <img
+      src={src}
+      alt={alt || ''}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className="my-2 h-auto max-w-full rounded-lg"
+    />
+  );
+}
 
 export function MarkdownContent({ children }: { children: string }) {
   return (
@@ -38,6 +56,7 @@ export function MarkdownContent({ children }: { children: string }) {
         th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
         td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
         strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
+        img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
       }}
     >
       {children}
