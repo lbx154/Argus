@@ -24,15 +24,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import subprocess
 import tempfile
 import threading
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ..core.event_catalog import EventType
+from . import source_writeback
 
 log = logging.getLogger(__name__)
 
@@ -41,23 +40,19 @@ _ZERO = {"to_builtin": 0, "to_vertical": 0, "stayed": 0, "errors": 0}
 _SOURCE_LOCKS: dict[str, threading.Lock] = {}
 _SOURCE_LOCKS_GUARD = threading.Lock()
 
+fcntl: Any
 try:  # pragma: no cover - production promotion runs on POSIX
-    import fcntl
+    import fcntl as _fcntl
 except ImportError:  # pragma: no cover
     fcntl = None
-
-
-def _argus_source_root() -> Path:
-    """The argus package dir (``…/argus_skill``) — a path inside the repo."""
-    from ..skills.builtins import builtin_skill_source_path
-
-    return builtin_skill_source_path().resolve().parent
+else:  # pragma: no cover
+    fcntl = _fcntl
 
 
 @contextmanager
 def _source_write_lock() -> Iterator[None]:
     """Serialize source promotion across threads and daemon processes."""
-    source_root = _argus_source_root()
+    source_root = source_writeback.source_root()
     key = str(source_root)
     with _SOURCE_LOCKS_GUARD:
         thread_lock = _SOURCE_LOCKS.setdefault(key, threading.Lock())
@@ -120,22 +115,6 @@ def _collect_source_skill_names() -> set[str]:
     return names
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(
-        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"
-    )
-    try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-
-
 def _target_dir(placement: str, vertical: str) -> Path | None:
     """Source directory for a placement: builtin (global) or a vertical's skills.
     Returns ``None`` for an unknown/invalid vertical (so the caller skips)."""
@@ -168,62 +147,8 @@ def write_skill_to_source(
     while dest.exists():
         dest = role_dir / f"{base}-{idx}.md"
         idx += 1
-    _atomic_write(dest, skill.render())
+    source_writeback.atomic_write(dest, skill.render())
     return dest
-
-
-def _autocommit_enabled() -> bool:
-    """Whether end-of-mission skill tidy-up may git-commit to the argus source repo.
-
-    Default OFF: for an editable install the source root IS the operator's own
-    working tree (often on ``main`` with hand-staged work), and an autonomous
-    commit there collides with a hand-driven git workflow. Opt in with
-    ``ARGUS_SKILL_AUTOCOMMIT_SKILLS=1``.
-    """
-    return os.environ.get("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
-
-
-def commit_to_source(paths: list[Path], message: str) -> bool:
-    """Best-effort ``git add`` + ``git commit`` of ``paths`` in the argus repo.
-
-    Default OFF (``ARGUS_SKILL_AUTOCOMMIT_SKILLS`` unset): the tidied skill files
-    are written but NOT committed, so an autonomous mission never commits to the
-    operator's live editable-install repo. When enabled, commits ONLY the given
-    paths via ``git commit --only`` — never the operator's ambient staged index,
-    so a hand-staged change can never be swept into an automated commit. Returns
-    ``True`` only on an actual commit. Any failure (read-only package, non-git
-    tree, nothing to commit, commit error) → ``False``, logged, never raises. The
-    files are left in the working tree so a later run / the operator can commit.
-    """
-    if not paths:
-        return False
-    if not _autocommit_enabled():
-        log.info(
-            "commit_to_source: skill auto-commit disabled (default); %d skill "
-            "file(s) written, not committed. Set ARGUS_SKILL_AUTOCOMMIT_SKILLS=1 "
-            "to opt in.",
-            len(paths),
-        )
-        return False
-    root = _argus_source_root()
-    strs = [str(p) for p in paths]
-    try:
-        subprocess.run(
-            ["git", "-C", str(root), "add", "--", *strs],
-            check=True, capture_output=True,
-        )
-        # --only: commit ONLY these paths, never the operator's ambient staged
-        # index, so a hand-staged change is never swept into an automated commit.
-        subprocess.run(
-            ["git", "-C", str(root), "commit", "--only", "-m", message, "--", *strs],
-            check=True, capture_output=True,
-        )
-        return True
-    except Exception as exc:  # noqa: BLE001 — commit is best-effort
-        log.warning("commit_to_source failed (%s)", type(exc).__name__)
-        return False
 
 
 def tidy_runtime_skills_to_source(
@@ -358,7 +283,7 @@ def tidy_runtime_skills_to_source(
                 f"chore(skills): tidy {len(written)} distilled skill(s) "
                 f"into argus source [manager]"
             )
-            if not commit_to_source(written, msg):
+            if not source_writeback.commit_to_source(written, msg):
                 log.info(
                     "tidy: wrote %d skill file(s) but could not commit "
                     "(left in working tree)",
@@ -442,5 +367,4 @@ __all__ = [
     "tidy_after_mission",
     "tidy_runtime_skills_to_source",
     "write_skill_to_source",
-    "commit_to_source",
 ]

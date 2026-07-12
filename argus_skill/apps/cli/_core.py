@@ -957,6 +957,34 @@ def _cmd_anti_mediocrity_check(args: argparse.Namespace) -> int:
     return _anti_mediocrity_main(argv)
 
 
+def _resolve_lifecycle_roots(args: argparse.Namespace) -> tuple[Path, Path]:
+    """Return the observable worktree and canonical persisted lifecycle root."""
+    from ...life import MemoryBundle
+
+    worktree = Path(args.project_root).resolve()
+    global_root = _resolve_global_root(args)
+    session_id, _is_new = _resolve_session_id(
+        args,
+        global_root,
+        default_to_new=False,
+    )
+    explicit_session = (
+        bool(getattr(args, "new", False))
+        or bool(getattr(args, "continue_session", False))
+        or getattr(args, "resume", None) is not None
+    )
+    if explicit_session and session_id is None:
+        raise core_paths.PathResolutionError(
+            "explicit session could not be resolved; lifecycle command aborted"
+        )
+    bundle = MemoryBundle.for_cwd(
+        worktree,
+        global_root=global_root,
+        fingerprint=session_id,
+    )
+    return worktree, bundle.project_root
+
+
 def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     """Print the F5 ProjectStatus inferred from current project memory
     plus any persisted quarantine / done / archived state.
@@ -979,27 +1007,28 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
         load_persisted,
     )
 
-    root = Path(args.project_root).resolve()
-    if not root.exists():
-        sys.stderr.write(f"argus-skill: project root not found: {root}\n")
+    worktree, lifecycle_root = _resolve_lifecycle_roots(args)
+    if not worktree.exists():
+        sys.stderr.write(f"argus-skill: project root not found: {worktree}\n")
         return 2
 
-    status = infer_observable_status(root, project_id=root.name)
+    status = infer_observable_status(worktree, project_id=lifecycle_root.name)
     try:
-        persisted = load_persisted(root)
+        persisted = load_persisted(lifecycle_root)
     except LifecycleIOError as exc:
         sys.stderr.write(
-            f"argus-skill: lifecycle sidecar at {root}/lifecycle.json is "
+            f"argus-skill: lifecycle sidecar at {lifecycle_root}/lifecycle.json is "
             f"malformed: {exc}\n"
         )
         persisted = {}
     overlaid = apply_persisted_to_status(status, persisted)
     event = decide_next_state(overlaid)
-    history = load_history(root)
+    history = load_history(lifecycle_root)
     signals = advisory_time_signals(overlaid)
 
     print("argus-skill — project lifecycle (F5)")
-    print(f"  root              : {root}")
+    print(f"  worktree          : {worktree}")
+    print(f"  state_root        : {lifecycle_root}")
     print(f"  observed_state    : {status.state.value}")
     print(
         f"  effective_state   : {overlaid.state.value}"
@@ -1060,14 +1089,14 @@ def _cmd_lifecycle_transition(
         load_persisted,
     )
 
-    root = Path(args.project_root).resolve()
-    if not root.exists():
-        sys.stderr.write(f"argus-skill: project root not found: {root}\n")
+    worktree, lifecycle_root = _resolve_lifecycle_roots(args)
+    if not worktree.exists():
+        sys.stderr.write(f"argus-skill: project root not found: {worktree}\n")
         return 2
 
-    status = infer_observable_status(root, project_id=root.name)
+    status = infer_observable_status(worktree, project_id=lifecycle_root.name)
     try:
-        persisted = load_persisted(root)
+        persisted = load_persisted(lifecycle_root)
     except LifecycleIOError as exc:
         sys.stderr.write(
             f"argus-skill: lifecycle sidecar malformed: {exc}\n"
@@ -1088,7 +1117,7 @@ def _cmd_lifecycle_transition(
         return 1
 
     try:
-        append_event(root, new_status=new_status, event=event)
+        append_event(lifecycle_root, new_status=new_status, event=event)
     except OSError as exc:
         sys.stderr.write(f"argus-skill: cannot persist transition: {exc}\n")
         return 1
@@ -1098,7 +1127,8 @@ def _cmd_lifecycle_transition(
         f"{event.from_state.value} → {event.to_state.value} "
         f"({event.reason})"
     )
-    print(f"  root  : {root}")
+    print(f"  worktree   : {worktree}")
+    print(f"  state_root : {lifecycle_root}")
     print(f"  state : {new_status.state.value}")
     return 0
 
@@ -1146,13 +1176,14 @@ def _read_current_stage(workdir: Path) -> str | None:
         return None
 
 
-def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
+def _render_lifecycle_status_lines(
+    workdir: Path, *, state_root: Path
+) -> list[str]:
     """Render the F5 lifecycle block for --status / cockpit.
 
-    Pure projection of observable + persisted state through the F5
-    state machine. Returns the lines to print (no I/O of its own).
-    Fail-soft: any error returns an empty list — --status must not
-    crash on a missing or corrupt lifecycle sidecar.
+    Observable facts come from ``workdir``; persisted lifecycle authority comes
+    from the canonical project ``state_root`` shared with the daemon. Returns the
+    lines to print. Fail-soft: any error returns an empty list.
     """
     try:
         from ...life.project_lifecycle import (
@@ -1174,9 +1205,9 @@ def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
     # state for a freshly-bound project that hasn't started yet.
 
     try:
-        status = infer_observable_status(workdir, project_id=workdir.name)
+        status = infer_observable_status(workdir, project_id=state_root.name)
         try:
-            persisted = load_persisted(workdir)
+            persisted = load_persisted(state_root)
         except LifecycleIOError:
             persisted = {}
         overlaid = apply_persisted_to_status(status, persisted)
@@ -1448,7 +1479,10 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Both are projections of observable state — surfacing facts the
     # agent already acts on; the harness makes no decision here.
     research_workdir = _resolve_research_workdir(bundle)
-    lifecycle_lines = _render_lifecycle_status_lines(research_workdir)
+    lifecycle_lines = _render_lifecycle_status_lines(
+        research_workdir,
+        state_root=Path(bundle.project.root),
+    )
     for line in lifecycle_lines:
         print(line)
     current_stage = _read_current_stage(research_workdir)

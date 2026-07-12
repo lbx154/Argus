@@ -29,10 +29,44 @@ The checkpoint is the agent's *working* memory, not its archive.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:  # pragma: no cover - production daemons are POSIX
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def _checkpoint_lock(path: Path):
+    lock_path = path.with_suffix(".lock")
+    key = str(lock_path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with thread_lock:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            os.close(fd)
 
 # Hard caps. These are deliberately small: the bound is what compels the
 # reviewer to curate (keep only load-bearing items) instead of appending
@@ -366,12 +400,27 @@ def save_checkpoint(path: Path | None, checkpoint: CheckpointState) -> None:
     """Persist a checkpoint to disk, fail-soft (never break the loop)."""
     if path is None:
         return
+    tmp: Path | None = None
     try:
         p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(
-            json.dumps(checkpoint.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        with _checkpoint_lock(p):
+            fd, tmp_name = tempfile.mkstemp(
+                dir=p.parent,
+                prefix=f".{p.name}.",
+                suffix=".tmp",
+            )
+            tmp = Path(tmp_name)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(checkpoint.to_dict(), handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, p)
     except OSError:
         return
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass

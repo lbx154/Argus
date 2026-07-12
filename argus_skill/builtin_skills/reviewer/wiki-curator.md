@@ -31,55 +31,22 @@ one; bootstrap is an explicit operator decision via
 
 ## Workflow
 
-### Step 0 -- backfill from engineer-produced lit artifacts
+### Step 0 -- respect the write boundary
 
-In practice the engineer often uses codex's native web search and writes
-`paper/refs.bib` plus optional `research/LIT_MATRIX.tsv` directly,
-without invoking the four named ingestion skills that have the per-skill
-wiki hook. The result is that `sources/papers/` stays at 0 even though
-the engineer consulted real papers.
+You never import `WikiStore`, construct `PageCard`, edit a wiki file, rebuild
+indexes, or run validation yourself. The mission-close lifecycle owns those
+mechanics:
 
-Before doing any synthesis, backfill the wiki from whatever literature
-artifacts the engineer produced this mission:
+1. It ingests `paper/refs.bib` and optional `research/LIT_MATRIX.tsv` from the
+   explicit mission workdir.
+2. It performs the mechanical source-to-scratch lift.
+3. It applies your structured `wiki_ops` through `WikiRouter`.
+4. `WikiRouter` verifies quoted evidence against immutable sources, runs the
+   duplicate judge, versions or tombstones pages, emits audit events, and keeps
+   indexes valid.
 
-```python
-from pathlib import Path
-from argus_skill.wiki.store import WikiStore
-from argus_skill.wiki.ingest import ingest_refs_bib, ingest_lit_matrix
-
-wiki_root = Path(".autors/<project>/wiki")
-store = WikiStore(wiki_root)
-
-refs_bib = Path("paper/refs.bib")
-if refs_bib.exists():
-    bib_result = ingest_refs_bib(
-        store,
-        bib_path=refs_bib,
-        ingested_by=f"wiki-curator@mission-{mission_id}",
-    )
-    # bib_result.written is newly created source paths; already-present
-    # sources are skipped because sources are immutable. Treat
-    # bib_result.warnings as isolated warnings, not mission blockers.
-
-lit_matrix = Path("research/LIT_MATRIX.tsv")
-if lit_matrix.exists():
-    lit_result = ingest_lit_matrix(store, tsv_path=lit_matrix)
-    # lit_result.warnings are isolated wiki-maintenance warnings.
-```
-
-This converts each BibTeX entry into an immutable
-`sources/papers/<key>.md` card with the verbatim BibTeX stanza as body.
-The `relevance_to_*` column of `LIT_MATRIX.tsv`, if present, is appended
-to the matching source body as a provenance line. No judgment is added at
-this step; the BibTeX entry is a fact, not a claim about importance.
-Synthesis into `pages/techniques/*` remains your job in Steps 1-2.
-
-Skip Step 0 silently if neither file exists.
-
-**Recovery policy:** backfill warnings are isolated wiki-maintenance
-warnings that should be summarized in your reviewer note. They MUST NOT
-block the mission verdict unless the mission objective is explicitly wiki
-repair or wiki maintenance.
+Backfill warnings are isolated wiki-maintenance warnings. They do not change
+your mission verdict unless wiki repair is the mission objective.
 
 ### Step 1 -- survey what changed
 
@@ -87,36 +54,14 @@ List `sources/papers/`, `sources/repos/`, and `sources/runs/` files
 whose `ingested_at` matches this mission's date OR whose `ingested_by`
 field references this mission's id.
 
-### Step 2 -- mechanical scratch lift + selective candidate promotion
+### Step 2 -- select durable judgments
 
 The wiki is NOT a journal, but the scratch tier exists exactly so the
 wiki can grow without overcommitting to judgment. Be liberal with
 scratch creation; conservative with candidate/stable promotion.
 
-**Mechanical (always do this)**:
-
-For each NEWLY added source this mission (from Step 1):
-
-- `sources/papers/<key>.md` -> create or refresh
-  `pages/techniques/<key>.md` with:
-    - `status: scratch`
-    - `title`: copied from the source title
-    - `sources: ["papers/<key>.md"]`
-    - `tags`: best-effort 1-3 tags from controlled vocab
-      (`.autors/<project>/wiki/data/tags.yaml`); empty list if unclear
-    - `reviewer_note`: the `relevance:` line from the source body
-      (M0.1 ingest_lit_matrix appends it), or empty
-    - `created_at: <today>`, `last_reviewed_at: <today>`
-- `sources/runs/<run-id>.md` with `outcome=failure` and a non-empty
-  `failure_signature` that matches the signature of a prior run in
-  this project -> create or refresh `pages/patterns/<signature>.md`
-  with `status: scratch`, `related_runs` listing both run IDs.
-
-If a scratch page for this source already exists, leave it alone
-(scratch is the agent's first guess; do not overwrite it mechanically
-on every mission).
-
-**Judgment-required (do only when justified)**:
+Do not duplicate the lifecycle's mechanical scratch lift. Emit an operation
+only for a judgment the mechanical path cannot make:
 
 - `scratch -> candidate` promotion: this mission found additional
   evidence (a second source supporting the same technique, a run that
@@ -132,81 +77,36 @@ on every mission).
   evidence undermines the card.
 
 If none of the judgment cases apply this mission, do not force a
-candidate/stable; the mechanical scratch lift above is enough.
+candidate/stable. Return no `wiki_ops`; the mechanical scratch lift is enough.
 
-### Step 3 -- write or update pages
+### Step 3 -- emit structured `wiki_ops`
 
-Use the Python helper:
+Return proposals only through the reviewer verdict:
 
-```python
-from datetime import date
-from pathlib import Path
-from argus_skill.wiki.store import WikiStore
-from argus_skill.wiki.schema import PageCard
-
-store = WikiStore(Path(".autors/<project>/wiki"))
-card = PageCard(
-    id="tech-grpo-asym-clip-2026-06-04",
-    type="technique",
-    status="scratch",  # new cards start at scratch
-    title="Asymmetric clipping in GRPO",
-    tags=["grpo", "clipping"],
-    sources=["papers/2406.12345.md"],  # paths under sources/
-    related_runs=[],
-    related_projects=[],
-    revisit_after=date(2026, 9, 4),
-    created_at=date.today(),
-    last_reviewed_at=date.today(),
-    reviewer_note=(
-        "Two recent papers use asymmetric clipping; worth testing on "
-        "the next training run."
-    ),
-    body="short prose",
-)
-store.write_page(card)
+```json
+{
+  "op": "create_page",
+  "id": "grpo-asymmetric-clipping",
+  "card_type": "technique",
+  "title": "Asymmetric clipping in GRPO",
+  "status": "scratch",
+  "body": "Short project-specific synthesis.",
+  "evidence": [
+    {
+      "source_id": "2406.12345",
+      "quote": "An exact verbatim quote from the immutable source",
+      "locator": "paper section or source line"
+    }
+  ],
+  "why": "Reusable technique supported by this mission's evidence"
+}
 ```
 
-### Step 4 -- consider promoting existing cards
-
-For each `pages/*` card touched by this mission's evidence:
-
-- `scratch -> candidate`: card has structured fields, sources resolve,
-  and the reviewer has now read it. Update `last_reviewed_at`; set
-  `status: candidate`.
-- `candidate -> stable`: at least two independent sources, or at least
-  one run with `outcome=success` or `outcome=partial` referencing the
-  card, support it. Reviewer certifies. Update `last_reviewed_at`; set
-  `status: stable`.
-
-Demotion is also allowed if new evidence undermines a card.
-
-### Step 5 -- fill in RunCard prose
-
-For the RunCard written by the engineer at mission close
-(`sources/runs/<mission-id>.md`):
-
-- The engineer leaves `suspected_cause` and `next_action` empty.
-- Open the file, parse it, fill in those two prose fields based on the
-  mission transcript and your verdict.
-- Write it back. RunCards are a documented exception to source
-  immutability for this single reviewer pass; do not edit later.
-
-### Step 6 -- regenerate indexes
-
-```python
-from argus_skill.wiki.index import rebuild_indexes
-rebuild_indexes(store)
-```
-
-### Step 7 -- validate
-
-```python
-from argus_skill.wiki.validate import validate_wiki
-validate_wiki(store)
-```
-
-If validation raises, the curator pass has produced a broken wiki. Fix
-in place; do not commit a broken tree.
+For `update_page`, return the complete revised page body and exact supporting
+quotes. For `retire_page`, return the stable page `id` and a one-clause `why`;
+the router creates a reversible tombstone. A quote that is absent or
+paraphrased is rejected mechanically. Never work around a rejection by editing
+the wiki directly.
 
 ## Non-applicability
 

@@ -59,7 +59,58 @@ test('shared projector applies structured metric and reviewer verification', () 
   assert.equal(view.primary_metric?.verification_status, 'accepted');
   assert.ok(Math.abs((missionMetricGain(view.primary_metric) ?? 0) - 12.4) < 1e-9);
   assert.equal(view.active_role, 'engineer');
+  assert.equal(view.achievement, null);
 });
+
+
+test('achievement requires an explicit reviewer certification event', () => {
+  const events: EventMsg[] = [
+    {
+      type: 'research.metric.reported',
+      ts: 11,
+      metric_id: 'm1',
+      name: 'sol_percent',
+      baseline: 49.4,
+      value: 61.8,
+      unit: '%',
+      direction: 'maximize',
+      evidence: 'result.json',
+      primary: true,
+    },
+    {
+      type: 'round.review.completed',
+      ts: 12,
+      status: 'done',
+      reason: 'verified metric',
+    },
+    {
+      type: 'life.mission.completed',
+      ts: 13,
+      success: true,
+      item_id: 'task-1',
+      title: 'Kernel v7',
+      objective: 'Optimize kernel',
+    },
+  ];
+  const completed = projectMissionView(snapshot(), events);
+  assert.equal(completed.achievement, null);
+
+  const certified = reduceMissionViewEvent(completed, {
+    type: 'research.achievement.certified',
+    ts: 14,
+    achievement_id: 'achievement-1',
+    title: 'Kernel speedup certified',
+    goal: 'Optimize kernel',
+    metric_id: 'm1',
+    summary: 'Reviewer accepted the measured gain.',
+    reviewer_certified: true,
+  });
+  assert.equal(certified.achievement?.reviewer_certified, true);
+  assert.equal(certified.achievement?.baseline, 49.4);
+  assert.equal(certified.achievement?.best, 61.8);
+  assert.ok(Math.abs((certified.achievement?.gain ?? 0) - 12.4) < 1e-9);
+});
+
 
 test('natural-language progress never invents a metric or review verdict', () => {
   const view = projectMissionView(snapshot(), [{

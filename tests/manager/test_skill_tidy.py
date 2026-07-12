@@ -17,7 +17,7 @@ import pytest
 
 import argus_skill.skills.builtins as builtins_mod
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.manager import skill_tidy
+from argus_skill.manager import skill_tidy, source_writeback
 from argus_skill.manager.skill_review import (
     PlacementVerdict,
     classify_skill_placement,
@@ -309,7 +309,7 @@ def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(builtins_mod, "builtin_skill_source_path", lambda: builtin)
     f = builtin / "x.md"
     f.write_text("x", encoding="utf-8")
-    assert skill_tidy.commit_to_source([f], "msg") is False
+    assert source_writeback.commit_to_source([f], "msg") is False
 
 
 def test_tidy_after_mission_reads_project_layer(tmp_path, monkeypatch) -> None:

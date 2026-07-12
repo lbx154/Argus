@@ -99,6 +99,26 @@ def test_save_and_load(tmp_path):
     assert loaded.round == 2
 
 
+def test_failed_replace_preserves_previous_checkpoint(tmp_path, monkeypatch):
+    path = tmp_path / "state" / "checkpoint.json"
+    save_checkpoint(path, CheckpointState(goal="old", done=["verified"], round=2))
+
+    def fail_replace(*_args) -> None:
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr(
+        "argus_skill.engineer.checkpoint.os.replace",
+        fail_replace,
+    )
+
+    save_checkpoint(path, CheckpointState(goal="new", done=["uncommitted"], round=3))
+
+    loaded = load_checkpoint(path)
+    assert loaded.goal == "old"
+    assert loaded.done == ["verified"]
+    assert list(path.parent.glob("*.tmp")) == []
+
+
 def test_load_missing_is_empty(tmp_path):
     assert load_checkpoint(tmp_path / "nope.json").is_empty()
     assert load_checkpoint(None).is_empty()

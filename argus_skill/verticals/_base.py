@@ -34,11 +34,15 @@ import importlib
 import logging
 import os
 from types import ModuleType
+from typing import TypeAlias
+
+from ._data_domain import DataDomain, load_data_domain
 
 log = logging.getLogger(__name__)
 
 #: The safe fallback vertical: its stages module always imports.
 DEFAULT_VERTICAL = "research"
+VerticalDefinition: TypeAlias = ModuleType | DataDomain
 
 
 def _normalize_vertical_name(name: object) -> str:
@@ -51,7 +55,7 @@ def _normalize_vertical_name(name: object) -> str:
     return cleaned or DEFAULT_VERTICAL
 
 
-def load_vertical(name: object, project_root: object = None) -> ModuleType:
+def load_vertical(name: object, project_root: object = None) -> VerticalDefinition:
     """Return the ``stages`` module (or a ``DataDomain`` shim) for vertical ``name``.
 
     Resolution order:
@@ -94,11 +98,9 @@ def load_vertical(name: object, project_root: object = None) -> ModuleType:
         # No Python package: try a project-local DATA domain before falling back.
         if project_root is not None and cleaned != DEFAULT_VERTICAL:
             try:
-                from ._data_domain import load_data_domain  # late import (cycle)
-
                 domain = load_data_domain(cleaned, project_root)
                 if domain is not None:
-                    return domain  # type: ignore[return-value]  # duck-typed shim
+                    return domain
             except Exception:  # noqa: BLE001 — data-domain load must never break
                 log.debug("load_vertical(%r): data-domain probe failed", name, exc_info=True)
         if cleaned != DEFAULT_VERTICAL:
@@ -127,7 +129,7 @@ def _research_defaults() -> tuple[tuple[str, ...], dict]:
     return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
 
 
-def vertical_checklist_stage_order(mod: ModuleType) -> tuple[str, ...]:
+def vertical_checklist_stage_order(mod: VerticalDefinition) -> tuple[str, ...]:
     """Return ``mod.CHECKLIST_STAGE_ORDER`` or research's canonical order."""
     order = getattr(mod, "CHECKLIST_STAGE_ORDER", None)
     if order:
@@ -135,7 +137,7 @@ def vertical_checklist_stage_order(mod: ModuleType) -> tuple[str, ...]:
     return _research_defaults()[0]
 
 
-def vertical_checklist_items(mod: ModuleType) -> dict:
+def vertical_checklist_items(mod: VerticalDefinition) -> dict:
     """Return ``mod.CHECKLIST_ITEMS`` or research's ``STAGE_CHECKLISTS``."""
     items = getattr(mod, "CHECKLIST_ITEMS", None)
     if isinstance(items, dict):
@@ -143,7 +145,7 @@ def vertical_checklist_items(mod: ModuleType) -> dict:
     return _research_defaults()[1]
 
 
-def vertical_role_banner(mod: ModuleType, role: str) -> str:
+def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
     """Return ``mod.role_banner(role)`` or ``""``.
 
     Fail-open: a vertical with no ``role_banner`` (or one that raises) yields no
@@ -159,7 +161,7 @@ def vertical_role_banner(mod: ModuleType, role: str) -> str:
     return result if isinstance(result, str) else ""
 
 
-def vertical_completion_gate(mod: ModuleType) -> str:
+def vertical_completion_gate(mod: VerticalDefinition) -> str:
     """Return ``mod.completion_gate`` or the default ``"full_paper"``."""
     gate = getattr(mod, "completion_gate", None)
     if isinstance(gate, str) and gate.strip():
@@ -167,7 +169,7 @@ def vertical_completion_gate(mod: ModuleType) -> str:
     return "full_paper"
 
 
-def vertical_search_altitude(mod: ModuleType, project_root: object) -> str:
+def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> str:
     """Return ``mod.search_altitude_context(project_root)`` or ``""``.
 
     Optional hook: a vertical may surface a NO-VERDICT 'where is the search
@@ -187,7 +189,9 @@ def vertical_search_altitude(mod: ModuleType, project_root: object) -> str:
     return result if isinstance(result, str) else ""
 
 
-def vertical_search_altitude_facts(mod: ModuleType, project_root: object) -> dict:
+def vertical_search_altitude_facts(
+    mod: VerticalDefinition, project_root: object
+) -> dict:
     """Return ``mod.search_altitude_facts(project_root)`` or ``{}``.
 
     Structured twin of :func:`vertical_search_altitude` for the meta-control
@@ -206,7 +210,7 @@ def vertical_search_altitude_facts(mod: ModuleType, project_root: object) -> dic
     return result if isinstance(result, dict) else {}
 
 
-def vertical_strategy_pool(mod: ModuleType, project_root: object) -> str:
+def vertical_strategy_pool(mod: VerticalDefinition, project_root: object) -> str:
     """Return ``mod.strategy_pool(project_root)`` or ``""``.
 
     Optional hook: the regime strategy pool a vertical offers when the meta layer
@@ -225,6 +229,7 @@ def vertical_strategy_pool(mod: ModuleType, project_root: object) -> str:
 
 __all__ = [
     "DEFAULT_VERTICAL",
+    "VerticalDefinition",
     "load_vertical",
     "vertical_checklist_stage_order",
     "vertical_checklist_items",

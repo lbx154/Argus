@@ -423,6 +423,20 @@ class SkillLoop:
                 include_static=include_static,
             )
 
+        wiki_mission_id = self.config.session_id or "unknown"
+
+        def prepare_review_context() -> None:
+            if not self.config.wiki_ops_enabled:
+                return
+            from .wiki.auto_hooks import run_post_mission_hooks
+
+            run_post_mission_hooks(
+                workdir,
+                mission_id=wiki_mission_id,
+                success=False,
+                emit=self.on_event,
+            )
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -443,6 +457,7 @@ class SkillLoop:
             seed_thread_id=seed_thread_id,
             scope=scope,
             per_mission_budget=per_mission_budget,
+            prepare_review_context=prepare_review_context,
         )
 
         # Step 4: learn from the OUTCOME. The REVIEWER owns skill AND wiki
@@ -514,11 +529,7 @@ class SkillLoop:
                 rounds=rounds,
                 workdir=workdir,
                 task=skill_task,
-                mission_id=(
-                    self.config.session_id
-                    or (last_thread_id or "")[:12]
-                    or "unknown"
-                ),
+                mission_id=wiki_mission_id,
                 success=(status == "done"),
                 reviewer_runner=self.reviewer_runner,
                 reviewer_model=self.config.resolved_reviewer_model(),

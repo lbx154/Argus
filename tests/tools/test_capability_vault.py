@@ -11,6 +11,7 @@ from argus_skill.tools.capability_vault import (
     ModelApiRoute,
     bootstrap_model_api_vault,
     default_codex_config_path,
+    format_api_context,
     load_model_api_grant,
     load_model_api_route,
     read_codex_default_model,
@@ -232,6 +233,45 @@ def test_status_payload_is_secret_free_and_includes_provider_metadata(tmp_path: 
     assert status["provider"] == "codex"
     assert status["wire_api"] == "responses"
     assert status["base_url"] == "https://vault.invalid/openai/v1/"
+
+
+def test_api_context_exposes_capabilities_without_vault_access_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routes = {
+        "text": ModelApiRoute(
+            name="text",
+            api_key="vault-secret",
+            base_url="https://text.invalid/v1/",
+            model="gpt-test",
+        ),
+        "image": None,
+        "image_review": None,
+    }
+    monkeypatch.setattr(
+        "argus_skill.tools.capability_vault.load_model_api_route",
+        lambda name: routes[name],
+    )
+
+    rendered = format_api_context()
+
+    assert "gpt-test" in rendered
+    assert "load_model_api_route" in rendered
+    assert "vault-secret" not in rendered
+    assert "model_api.json" not in rendered
+    assert "json.load" not in rendered
+    assert "Never open the vault directly" in rendered
+
+
+def test_api_context_is_empty_without_usable_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.tools.capability_vault.load_model_api_route",
+        lambda _name: None,
+    )
+
+    assert format_api_context() == ""
 
 
 def test_v2_routes_can_use_distinct_endpoint_key_and_model(tmp_path: Path) -> None:

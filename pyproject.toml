@@ -114,12 +114,17 @@ packages = ["argus_skill"]
 "frontend/web/dist" = "argus_skill/_frontend/web/dist"
 
 [tool.hatch.build.targets.sdist]
+# ``dist/`` is VCS-ignored even though the production Web bundle is tracked.
+# Mark it as an artifact so a wheel rebuilt from the sdist still has the forced
+# frontend source required by the wheel target.
+artifacts = [
+  "frontend/web/dist/**",
+]
 include = [
   "argus_skill/**",
   "tests/**",
   "docs/**",
   "frontend/tui/bundle/**",
-  "frontend/web/dist/**",
   "README.md",
   "LICENSE",
 ]

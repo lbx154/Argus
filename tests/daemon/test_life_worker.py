@@ -650,12 +650,14 @@ def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
         log_path=tmp_path / "daemon.log",
         continuous=True,
         continuous_objective="keep improving",
+        resume_continuous=True,
         continuous_open_ended=False,
     )
 
     restored = _config_from_payload(_config_payload(cfg))
 
     assert restored == cfg
+    assert restored.resume_continuous is True
     assert restored.continuous_open_ended is False
 
 

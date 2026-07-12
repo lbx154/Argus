@@ -116,7 +116,7 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         kind="data",
         title="Kernel v7 result",
     )
-    view = emit(
+    completed = emit(
         tmp_path,
         "life.mission.completed",
         12,
@@ -125,6 +125,19 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         objective="Optimize FlashAttention on B200",
         status="done",
         success=True,
+    )
+    assert completed["achievement"] is None
+    view = emit(
+        tmp_path,
+        "research.achievement.certified",
+        13,
+        achievement_id="achievement-v7",
+        title="Kernel gain certified",
+        goal="Optimize FlashAttention on B200",
+        summary="Reviewer accepted the official benchmark evidence.",
+        metric_id="metric-v7",
+        evidence=["experiments/run-v7/result.json"],
+        reviewer_certified=True,
     )
 
     assert view["stage"]["id"] == "research"
@@ -138,6 +151,16 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     assert view["achievement"]["skills_learned"] == 1
     assert view["achievement"]["artifacts"] == 1
     assert load_mission_view(tmp_path)["achievement"] == view["achievement"]
+
+
+def test_load_discards_legacy_derived_certification(tmp_path: Path) -> None:
+    (tmp_path / "mission-view.json").write_text(
+        '{"schema_version":1,"bootstrapped":true,'
+        '"achievement":{"id":"derived-old","reviewer_certified":true}}',
+        encoding="utf-8",
+    )
+
+    assert load_mission_view(tmp_path)["achievement"] is None
 
 
 def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path) -> None:

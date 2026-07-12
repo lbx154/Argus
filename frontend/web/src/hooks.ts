@@ -140,7 +140,12 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
         events.push(ev);
       }
     });
-    return { sid: state.sid, events, seen };
+    const retained = events.slice(-MAX_EVENTS);
+    return {
+      sid: state.sid,
+      events: retained,
+      seen: new Set(retained.map((ev, i) => eventKey(ev, i))),
+    };
   }
   // push
   const k = eventKey(action.ev, state.events.length);
@@ -148,7 +153,10 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
   const seen = new Set(state.seen);
   seen.add(k);
   const events = [...state.events, action.ev];
-  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  if (events.length > MAX_EVENTS) {
+    const removed = events.splice(0, events.length - MAX_EVENTS);
+    removed.forEach((ev, i) => seen.delete(eventKey(ev, i)));
+  }
   return { sid: state.sid, events, seen };
 }
 
