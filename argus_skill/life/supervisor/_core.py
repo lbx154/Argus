@@ -25,7 +25,6 @@ agent is doing one thing, then the next, like a person.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -45,26 +44,39 @@ from ._config import (
     reserve_global_daily_budget,
 )
 from ._constants import (
+    FULL_PAPER_GATE_DESCRIPTION as _FULL_PAPER_GATE_DESCRIPTION,  # noqa: F401
+)
+from ._constants import (
     IDLE_BACKOFF_BASE_SECONDS as _IDLE_BACKOFF_BASE_SECONDS,  # noqa: F401
 )
 from ._constants import (
     IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,  # noqa: F401
 )
 from ._constants import (
+    LIFECYCLE_BLOCK_HEARTBEAT_SECONDS as _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,  # noqa: F401
+)
+from ._constants import (
+    PLAN_AWAITING as _PLAN_AWAITING,
+)
+from ._constants import (
     PLAN_TERMINAL_IDLE as _PLAN_TERMINAL_IDLE,
 )
 from ._constants import (
-    PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,
+    PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,  # noqa: F401
 )
 from ._constants import (
     PLANNER_SCOPE_FINAL_SUBMISSION as _PLANNER_SCOPE_FINAL_SUBMISSION,
+)
+from ._constants import (
+    STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS as _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,  # noqa: F401
+)
+from ._constants import (
+    VERIFICATION_PROBE_AFTER_IDLE_CYCLES as _VERIFICATION_PROBE_AFTER_IDLE_CYCLES,  # noqa: F401
 )
 from ._cost import copilot_usd_for_premium_requests
 from ._evolution import EvolutionMixin
 from ._helpers import (
     _entry_task_signature,
-    _legacy_final_submission_marker,
-    _operator_only_external_blocker_wait_reason_for_project,
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
@@ -74,6 +86,7 @@ from ._lifecycle import LifecycleMixin
 from ._mission_execution import MissionExecutionMixin
 from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
+from ._planning_context import PlanningContextMixin
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +114,6 @@ _PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
 _PLANNER_RECENT_HISTORY_WINDOW = 20
 # Compatibility export retained for callers/tests that classify journal failures.
 _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
-_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 # Plan-cycle outcome sentinels returned by ``_plan_next_work`` and consumed
 # by ``run()``. Kept as a small named set (not bare string literals scattered
 # across call sites) so the control flow stays auditable.
@@ -110,7 +122,6 @@ _PLAN_PROJECT_DONE = "project_done"
 _PLAN_RETRY = "planner_retry"
 _PLAN_HANDOFF = "daemon_handoff"
 _PLAN_ERROR = "planner_error"
-_PLAN_AWAITING = "awaiting_external"
 _PLAN_MANAGER_ROLLBACK = "manager_blocked_rollback"
 
 # Idle backoff for the "no new work" outcomes (awaiting-external / planner
@@ -127,8 +138,6 @@ _PLAN_MANAGER_ROLLBACK = "manager_blocked_rollback"
 # verification-probe mission so the agent TESTS its (possibly stale) belief against
 # CURRENT reality instead of waiting forever on a memory of the blocker. Rate-limit
 # repeat probes with the cooldown below.
-_VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
-_VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 
 # Operator escalation: after this many consecutive missions that COMPLETED but the
 # L2 reviewer judged forward_progress=false (work happened, the goal did NOT
@@ -136,10 +145,6 @@ _VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 # operator-notified stall alert. This counts ONLY the reviewer's own signal — the
 # harness never decides what "progress" is; it just refuses to let the agent
 # system loop invisibly without bringing the human in.
-_STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
-_FULL_PAPER_GATE_DESCRIPTION = (
-    "the L2 reviewer's full pipeline checklist (research → submission)"
-)
 
 
 
@@ -160,6 +165,7 @@ class LifeSupervisor(
     IdleCycleMixin,
     MissionExecutionMixin,
     LifecycleMixin,
+    PlanningContextMixin,
     PlannerOrchestrationMixin,
     PlannerRenderingMixin,
 ):
@@ -821,545 +827,6 @@ class LifeSupervisor(
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
-
-    def _planner_task_tags(self, task: Any) -> list[str]:
-        scope = self._normalize_planner_scope(getattr(task, "scope", ""))
-        return ["planner", f"scope:{scope}"]
-
-    @staticmethod
-    def _normalize_planner_scope(scope: object) -> str:
-        normalized = str(scope or _PLANNER_SCOPE_BOUNDED).strip().lower().replace("-", "_")
-        if normalized == _PLANNER_SCOPE_FINAL_SUBMISSION:
-            return _PLANNER_SCOPE_FINAL_SUBMISSION
-        return _PLANNER_SCOPE_BOUNDED
-
-    @staticmethod
-    def _planner_scope_from_item(item: BacklogItem) -> str:
-        for tag in item.tags:
-            normalized = str(tag).strip().lower().replace("-", "_")
-            if normalized in {
-                f"scope:{_PLANNER_SCOPE_FINAL_SUBMISSION}",
-                f"planner_scope:{_PLANNER_SCOPE_FINAL_SUBMISSION}",
-            }:
-                return _PLANNER_SCOPE_FINAL_SUBMISSION
-            if normalized in {
-                f"scope:{_PLANNER_SCOPE_BOUNDED}",
-                f"planner_scope:{_PLANNER_SCOPE_BOUNDED}",
-            }:
-                return _PLANNER_SCOPE_BOUNDED
-        return ""
-
-    @classmethod
-    def _item_is_final_submission(cls, item: BacklogItem) -> bool:
-        """True when a backlog item is a project-final ``final_submission``
-        task. Prefers the structured ``scope:final_submission`` tag; falls back
-        to the legacy objective-prose marker only for items persisted before
-        scope tagging existed (resumed-daemon compatibility)."""
-        if cls._planner_scope_from_item(item) == _PLANNER_SCOPE_FINAL_SUBMISSION:
-            return True
-        return _legacy_final_submission_marker(getattr(item, "objective", "") or "")
-
-    def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
-        scope = self._planner_scope_from_item(item)
-        if not scope and not item.tags:
-            return ""
-        is_paper_long_horizon = self.config.paper_mission
-        lines = ["## Backlog item metadata"]
-        if scope:
-            lines.append(f"- planner_scope: {scope}")
-        if item.tags:
-            lines.append("- tags: " + ", ".join(item.tags))
-        if scope == _PLANNER_SCOPE_FINAL_SUBMISSION:
-            lines.append(
-                f"- final_submission_gate: {_FULL_PAPER_GATE_DESCRIPTION} must be "
-                "fully satisfied (every checklist item certified by the reviewer "
-                "with concrete evidence) before this item can be marked done."
-            )
-        elif scope == _PLANNER_SCOPE_BOUNDED:
-            if is_paper_long_horizon:
-                lines.append(
-                    "- paper_optimization_task: this is a bounded mission, but it is "
-                    "part of a long-horizon paper/submission objective. First satisfy "
-                    "the named acceptance criteria, then continue through adjacent "
-                    "paper blockers while budget allows; do not mark done only because "
-                    "one narrow check passed if the relevant stage checklist items "
-                    "(manuscript, evidence, review, layout, figure/table, citation, "
-                    "manifest, or assurance) are still unmet. Full-pipeline "
-                    "certification is required only for `final_submission`, but fresh "
-                    "concrete evidence for the items you touched is required here."
-                )
-            else:
-                lines.append(
-                    "- bounded_task: judge this item against its own acceptance criteria; "
-                    "do not require the project-final EMNLP gate unless the objective "
-                    "explicitly asks for it."
-                )
-        return "\n".join(lines)
-
-    def _objective_with_item_scope_context(
-        self,
-        item: BacklogItem,
-        objective: str,
-    ) -> str:
-        metadata = self._render_backlog_item_metadata(item)
-        if not metadata:
-            return objective
-        return f"{metadata}\n\nOriginal operator objective:\n{objective.strip()}"
-
-    @staticmethod
-    def _completion_evidence_from_outcome(outcome: Any) -> str:
-        for attr in ("final_message", "completion_summary_markdown", "stop_reason"):
-            value = getattr(outcome, attr, "") or ""
-            if value:
-                return str(value)[:4000]
-        return ""
-
-    def _journal_has_full_paper_gate_success(self) -> bool:
-        """Decide whether the project-final completion gate has passed.
-
-        Source of truth (post-validator-retirement): the event timeline. A
-        ``final_submission`` mission is certified complete only when the
-        reviewer returns a full-pipeline completion verdict, which the
-        supervisor records as a ``life.mission.completed`` event carrying
-        ``final_submission_certified = True``. We no longer call the
-        hardcoded ``validate_full_paper_readiness`` validator — the reviewer's
-        checklist verdict is the single source of truth.
-
-        Fail-closed: only an explicit certified entry counts. We scan the
-        recent event-backed history tail for such an entry.
-        """
-        if self._final_submission_cert_path().exists():
-            return True
-        try:
-            entries = self.memory.journal.tail(50)
-        except Exception:  # noqa: BLE001
-            return False
-        for entry in entries:
-            if getattr(entry, "kind", "") != "mission_complete":
-                continue
-            extra = getattr(entry, "extra", {}) or {}
-            if isinstance(extra, dict) and bool(
-                extra.get("final_submission_certified")
-            ):
-                return True
-        return False
-
-    def _effective_full_paper_gate(self, workdir: object) -> bool:
-        """Whether the full-pipeline final-submission gate applies here.
-
-        Returns ``self.config.full_paper_gate`` AND the active vertical's
-        completion gate being the paper gate (``"full_paper"``). The
-        final-submission completion gate only makes sense for a *research*
-        vertical: a ``speedrun`` mission runs just the optimize+measure stages
-        and has no submission package to certify, so requiring the gate would
-        wedge it forever. AND-ing with the vertical's own completion gate keeps
-        research behavior identical (gate stays on) while letting speedrun
-        missions accept ``project_done`` straight from the run loop (gate off).
-        The read side is deterministic and exception-free, so this never spends
-        a token.
-        """
-        if not self.config.full_paper_gate:
-            return False
-        from ...skills.vertical_select import (
-            VerticalResolutionError,
-            resolve_vertical,
-        )
-        from ...verticals._base import (
-            load_vertical,
-            vertical_completion_gate,
-        )
-
-        try:
-            vertical = resolve_vertical(workdir)
-        except VerticalResolutionError:
-            # The Manager has not decided + persisted the vertical yet. An
-            # undecided mission is definitionally not at its final-submission
-            # gate, so the gate does not apply (keep running); it is NOT a silent
-            # default to research — resolve_vertical still raised loudly, we just
-            # treat "no vertical yet" as "gate not satisfied" for THIS check.
-            return False
-        mod = load_vertical(vertical, project_root=workdir)
-        return vertical_completion_gate(mod) == "full_paper"
-
-    def _final_submission_cert_path(self) -> Path:
-        root = Path(
-            getattr(self.config, "telemetry_dir", None)
-            or getattr(self.memory, "root", None)
-            or "."
-        )
-        return root / "final_submission_certified.json"
-
-    def _persist_final_submission_certification(self, *, title: str) -> None:
-        path = self._final_submission_cert_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-        payload = {
-            "certified_at": time.time(),
-            "title": title,
-        }
-        try:
-            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            os.replace(tmp, path)
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
-
-    def _operator_only_external_blocker_wait_reason(self) -> str:
-        """Return a waiting reason for an operator-only external blocker.
-
-        Generic: scans for operator-only external blocker artifacts,
-        validates that local engineering is exhausted, and returns a human
-        reason string. Empty string when nothing matches or when local action
-        is still required.
-        """
-        return _operator_only_external_blocker_wait_reason_for_project(
-            self._project_workdir()
-        )
-
-    @staticmethod
-    def _operator_external_blocker_short_circuit_decision(
-        *, project_root: Path
-    ) -> Any | None:
-        """Return a waiting verdict before planner runs when operator-only
-        external artifacts are still absent.
-        """
-        reason = _operator_only_external_blocker_wait_reason_for_project(project_root)
-        if not reason:
-            return None
-        from ...planner.planner import PlannerVerdict
-
-        return PlannerVerdict(
-            project_done=False,
-            reason=(
-                f"{reason}; skipping planner cycle to avoid impossible "
-                "repair-task loop"
-            ),
-            waiting=True,
-            waiting_reason=(
-                f"{reason}; skipping planner cycle to avoid impossible "
-                "repair-task loop"
-            ),
-            new_tasks=[],
-            input_tokens=0,
-            cached_input_tokens=0,
-            output_tokens=0,
-        )
-
-    def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
-        if not (
-            getattr(verdict, "project_done", False)
-            and self._effective_full_paper_gate(self._artifact_root())
-            and not self._journal_has_full_paper_gate_success()
-        ):
-            return verdict
-        wait_reason = self._operator_only_external_blocker_wait_reason()
-        if not wait_reason:
-            return verdict
-        return replace(
-            verdict,
-            project_done=False,
-            waiting=True,
-            waiting_reason=wait_reason,
-            reason=wait_reason,
-            new_tasks=[],
-        )
-
-    def _manager_intent_context(self) -> dict[str, Any]:
-        """Latest user-intent interpretation from the canonical events timeline."""
-        try:
-            project = getattr(self.memory, "project", None)
-            root = getattr(project, "root", None)
-            if root is None:
-                root = getattr(self.config, "telemetry_dir", None)
-            if root is None:
-                root = getattr(self.memory, "root", None)
-            if root is None:
-                return {}
-            data: dict[str, Any] | None = None
-            for name in ("events.jsonl", "events.jsonl.1"):
-                path = Path(root) / name
-                try:
-                    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-                except OSError:
-                    continue
-                for raw in reversed(lines):
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(event, dict):
-                        continue
-                    if str(event.get("type") or "").startswith("life.manager.intent."):
-                        data = event
-                        break
-                if data is not None:
-                    break
-            if data is None:
-                return {}
-            keep = (
-                "intent_id", "source", "objective", "vertical", "kind",
-                "regular", "stages", "reason", "text", "error",
-            )
-            return {k: data.get(k) for k in keep if k in data}
-        except Exception:  # noqa: BLE001
-            return {}
-
-    @staticmethod
-    def _manager_intent_prompt_block(intent: dict[str, Any]) -> str:
-        if not intent:
-            return ""
-        parts = [
-            "## Manager intent boundary (authoritative)",
-            f"- intent_id: {intent.get('intent_id') or ''}",
-            f"- source: {intent.get('source') or ''}",
-            f"- user_objective: {intent.get('objective') or ''}",
-            f"- interpreted_vertical: {intent.get('vertical') or ''}",
-            f"- kind: {intent.get('kind') or ''}",
-            f"- stages: {', '.join(str(s) for s in (intent.get('stages') or []))}",
-            f"- reason: {intent.get('reason') or intent.get('text') or ''}",
-            "",
-            "Plan only work consistent with this Manager boundary. If it appears "
-            "wrong, surface a Manager/Planner mismatch instead of silently "
-            "switching scope.",
-        ]
-        return "\n".join(parts)
-
-    # ------------------------------------------------------------------
-    # Hot-reload continuous config
-    # ------------------------------------------------------------------
-
-    def _reload_continuous_config(self) -> None:
-        """Update ``self.config.continuous`` from the config provider.
-
-        Called at the top of every ``run()`` iteration so that changes
-        from the REPL (written to disk) take effect within seconds even
-        when the supervisor is in a long continuous run.
-        """
-        provider = self.config.continuous_config_provider
-        if provider is None:
-            return
-        try:
-            enabled, objective = provider()
-            self.config.continuous = enabled
-            if objective:
-                self.config.continuous_objective = objective
-        except Exception:  # noqa: BLE001
-            log.debug("continuous config provider raised; keeping current values")
-
-    # ------------------------------------------------------------------
-    # Planner — continuous improvement mode
-    # ------------------------------------------------------------------
-
-    def _record_planner_waiting(self, verdict: Any, *, planner_cost_usd: float) -> str:
-        sleep_s = self._enter_idle_backoff()
-        reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
-        self._emit({
-            "type": EventType.LIFE_PLANNER_WAITING,
-            "cycle": self._planning_cycles,
-            "reason": reason,
-            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-            "suggested_sleep_s": sleep_s,
-            "input_tokens": getattr(verdict, "input_tokens", 0),
-            "cached_input_tokens": getattr(verdict, "cached_input_tokens", 0),
-            "output_tokens": getattr(verdict, "output_tokens", 0),
-            "cost_usd": planner_cost_usd,
-        })
-        self._emit_status(f"awaiting external dependency: {reason}")
-        return _PLAN_AWAITING
-
-    def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
-        """Stall-breaker: after K consecutive idle cycles on the same external
-        dependency, enqueue ONE domain-agnostic verification-probe mission so the
-        agent TESTS its (possibly stale) belief against CURRENT reality.
-
-        Returns True iff a probe was enqueued (caller runs it on the next tick).
-        This does NOT judge the environment or override the planner's research
-        judgment — it forces the agent to gather first-hand evidence so reality,
-        not a memory of the blocker, drives the next decision.
-        """
-        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
-        if n < _VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
-            return False
-        now = time.monotonic()
-        if (now - getattr(self, "_last_verification_probe_at", 0.0)) < (
-            _VERIFICATION_PROBE_COOLDOWN_SECONDS
-        ):
-            return False
-        # Never stack a second probe while one is still pending/running.
-        try:
-            for it in self.memory.backlog.all():
-                if "verification_probe" in (getattr(it, "tags", []) or []) and getattr(
-                    it, "status", ""
-                ) in ("pending", "running"):
-                    return False
-        except Exception:  # noqa: BLE001
-            log.exception("verification-probe dedup scan failed; skipping probe")
-            return False
-        reason = (
-            getattr(verdict, "waiting_reason", "")
-            or getattr(verdict, "reason", "")
-            or "an external dependency"
-        )
-        try:
-            item = BacklogItem.new(
-                title="verification probe: re-test the recorded external blocker",
-                objective=(
-                    "Verification-probe mission, dispatched by the harness after the "
-                    f"planner idled {n} consecutive cycles concluding it was blocked. "
-                    "Do NOT trust the journal's record of the blocker as still current. "
-                    f'The recorded blocker was: "{reason}". RIGHT NOW, actually attempt '
-                    "the blocked action — or run the single cheapest decisive probe of "
-                    "it — and report the REAL present outcome with concrete first-hand "
-                    "evidence (command output, file existence, an actual score/metric). "
-                    "State plainly whether it is STILL blocked or has CLEARED. If it has "
-                    "cleared, perform or unblock the smallest concrete next step. This is "
-                    "a perception check, not make-work: completion is judged solely by "
-                    "whether you produced fresh first-hand evidence of the blocker's "
-                    "current state."
-                ),
-                priority=50,
-                tags=["planner", "scope:bounded", "life", "verification_probe"],
-                iterate=True,
-                iteration_max_cycles=1,
-                iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
-            )
-            self.memory.backlog.add(item)
-        except Exception:  # noqa: BLE001
-            log.exception("failed to enqueue verification probe; continuing")
-            return False
-        self._last_verification_probe_at = now
-        # Reset the idle counter so we don't immediately re-escalate before the
-        # probe's real result lands in the event timeline (a real mission run
-        # also resets it via _reset_idle_backoff()).
-        self._consecutive_idle_planner_cycles = 0
-        self._suggested_sleep_s = 0.0
-        self._emit({
-            "type": EventType.LIFE_PLANNER_VERIFICATION_PROBE,
-            "cycle": self._planning_cycles,
-            "reason": reason,
-            "idle_cycles": n,
-        })
-        return True
-
-    def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
-        """Track consecutive 'completed but no forward progress' missions and,
-        once the reviewer-judged streak crosses a threshold, emit an operator
-        attention event (NOT a mission, NOT a verdict).
-
-        Domain-agnostic by construction: it counts ONLY the L2 reviewer's own
-        ``forward_progress`` boolean (agent judgment). The harness never decides
-        what progress is — it only refuses to let the agent system do hollow work
-        forever without surfacing the stall to its human operator. So a project
-        that keeps completing no-score / blocked-archive refuges cannot loop
-        invisibly: after N such missions the operator is pinged.
-        """
-        if kind != "mission_complete":
-            return
-        fp = report.get("forward_progress") if isinstance(report, dict) else None
-        if fp is True:
-            self._consecutive_no_progress_missions = 0
-            return
-        if fp is not False:
-            return  # unknown / not reported — do not punish missing data
-        n = int(getattr(self, "_consecutive_no_progress_missions", 0)) + 1
-        self._consecutive_no_progress_missions = n
-        if n < _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS:
-            return
-        # Threshold crossed: surface to the operator, then reset so the alert
-        # re-fires after another N (not on every subsequent mission).
-        self._consecutive_no_progress_missions = 0
-        self._emit({
-            "type": EventType.LIFE_PLANNER_STALL_ESCALATION,
-            "consecutive_no_progress_missions": n,
-            "objective": (self.config.continuous_objective or "")[:200],
-        })
-
-    def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
-        project_root = self._project_workdir()
-        if not _operator_only_external_blocker_wait_reason_for_project(project_root):
-            return None
-        autors = project_root / ".autors"
-        if not autors.is_dir():
-            return None
-        from datetime import datetime, timezone
-
-        from ...planner import TaskSpec
-        from ...wiki.bootstrap import is_initialized_wiki
-        from ...wiki.bot_state import collect_cooldown_elapsed, load_bot_state
-
-        now = datetime.now(timezone.utc)
-        for candidate in sorted(autors.glob("*/wiki")):
-            if not is_initialized_wiki(candidate):
-                continue
-            state = load_bot_state(candidate / "data" / "bot_state.json")
-            if not collect_cooldown_elapsed(state=state, now=now):
-                continue
-            project_name = candidate.parent.name
-            return TaskSpec(
-                title=f"wiki_collect: refresh {project_name} idea wiki",
-                objective=(
-                    "wiki_collect mission. Use the `wiki-collector` engineer "
-                    "skill to derive 5-10 project-state search queries, ingest "
-                    "new paper/repo sources into `.autors/"
-                    f"{project_name}/wiki/sources/`, and update "
-                    "`data/bot_state.json`. This mission is allowed while the "
-                    "project is externally blocked because it is train-free and "
-                    "uses the shared per-mission budget. Do not run GPU work."
-                ),
-                impact_score=4,
-                impact_area="discovery",
-                evidence="collector cooldown elapsed while project waits on external artifacts",
-                scope=_PLANNER_SCOPE_BOUNDED,
-            )
-        return None
-
-    def _enqueue_wiki_collect_task(self, task: Any) -> bool:
-        item = BacklogItem.new(
-            title=task.title,
-            objective=task.objective,
-            priority=100,
-            tags=[*self._planner_task_tags(task), "wiki_collect"],
-            iterate=True,
-            iteration_max_cycles=1,
-            iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
-        )
-        self.memory.backlog.add(item)
-        self._emit({
-            "type": EventType.LIFE_PLANNER_TASK_ADDED,
-            "cycle": self._planning_cycles,
-            "item_id": item.id,
-            "title": item.title,
-            "objective": item.objective,
-            "deps": list(item.deps),
-            "priority": item.priority,
-            "branch_id": item.id,
-            "parent_branch_id": item.deps[0] if item.deps else None,
-            "impact_score": task.impact_score,
-            "impact_area": task.impact_area,
-        })
-        self._emit({
-            "type": EventType.LIFE_PLANNER_VERDICT,
-            "cycle": self._planning_cycles,
-            "project_done": False,
-            "reason": "external blocker present; scheduling one wiki_collect escape-valve mission",
-            "task_count": 1,
-            "enqueued_tasks": 1,
-            "skipped_duplicate_tasks": 0,
-            "skipped_recent_failure_tasks": 0,
-            "skipped_subagent_family_failure_tasks": 0,
-            "enqueued_titles": [item.title],
-            "enqueued_impact_scores": [task.impact_score],
-            "skipped_duplicate_titles": [],
-            "skipped_recent_failure_titles": [],
-            "skipped_subagent_family_failure_titles": [],
-            "input_tokens": 0,
-            "cached_input_tokens": 0,
-            "output_tokens": 0,
-            "cost_usd": 0.0,
-        })
-        return True
 
     def _resolve_vertical_once(self) -> None:
         """DECIDE + persist the active vertical exactly once per mission, BEFORE
