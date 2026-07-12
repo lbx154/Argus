@@ -561,7 +561,7 @@ def test_daemon_upgrade_restarts_from_current_web_release(ctx, monkeypatch) -> N
     assert calls == [sid]
 
 
-def test_daemon_upgrade_uses_blue_green_handoff_without_force_stop(
+def test_daemon_upgrade_drains_and_restores_continuous_mode(
     ctx, monkeypatch,
 ) -> None:
     root, sid, life = ctx
@@ -577,33 +577,47 @@ def test_daemon_upgrade_uses_blue_green_handoff_without_force_stop(
             pid_path=Path(path) / "daemon.pid",
         ),
     )
+    stops = []
     monkeypatch.setattr(
         server,
         "stop_daemon",
-        lambda *args, **kwargs: pytest.fail("upgrade must not force-stop active work"),
-    )
-    handoffs = []
-    monkeypatch.setattr(
-        "argus_skill.daemon.handoff._source_signature",
-        lambda: "current-source",
+        lambda *args, **kwargs: stops.append(kwargs) or 0,
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.handoff._spawn_handoff_candidate",
-        lambda config, **kwargs: handoffs.append((config, kwargs)) or True,
+        server,
+        "read_continuous_state",
+        lambda path: SimpleNamespace(enabled=True, objective="keep researching"),
     )
-    signals = []
-    monkeypatch.setattr(server.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    writes = []
+    monkeypatch.setattr(
+        server,
+        "write_continuous_config",
+        lambda path, **kwargs: writes.append((path, kwargs)),
+    )
+    starts = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda project_id, **kwargs: starts.append((project_id, kwargs))
+        or {"rc": 0},
+    )
 
     result = server.upgrade_project_daemon(sid, global_root=root)
 
-    assert result == {
-        "rc": 0,
-        "upgraded": True,
-        "handoff_pending": True,
-        "previous_pid": 321,
+    assert result == {"rc": 0, "upgraded": True}
+    assert stops == [{
+        "drain": True,
+        "drain_timeout": 1800.0,
+        "force": False,
+    }]
+    assert writes[0][1] == {
+        "enabled": True,
+        "objective": "keep researching",
     }
-    assert handoffs[0][1]["source_signature"] == "current-source"
-    assert signals and signals[0][0] == 321
+    assert starts == [(
+        sid,
+        {"global_root": root, "resume_continuous": True},
+    )]
 
 
 def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:
@@ -925,6 +939,16 @@ def test_project_management_requires_token(ctx) -> None:
 
     assert client.patch(f"/api/projects/{sid}", json={"name": "x"}).status_code == 401
     assert client.delete(f"/api/projects/{sid}").status_code == 401
+
+
+def test_sensitive_admin_reads_require_token(ctx) -> None:
+    root, sid, _ = ctx
+    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
+
+    assert client.get(f"/api/projects/{sid}/config").status_code == 401
+    assert client.get(f"/api/projects/{sid}/identity").status_code == 401
+    assert client.get("/api/metrics").status_code == 401
+    assert client.get("/api/trash").status_code == 401
 
 
 def test_ws_requires_token_when_configured(ctx) -> None:

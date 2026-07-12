@@ -121,4 +121,23 @@ describe('web API protocol handshake', () => {
     const replaceBody = JSON.parse(String(fetchMock.mock.calls[8][1]?.body));
     expect(replaceBody).toMatchObject({ victim_sid: 's-victim', resume_continuous: false });
   });
+
+  it('rejects HTTP-successful daemon command failures', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+      rc: 2,
+      command_status: 'rejected',
+      error: 'stale command revision',
+    })));
+    const { api } = await import('../api');
+
+    await expect(api.startDaemon('s-test', 1)).rejects.toThrow(
+      'stale command revision',
+    );
+    await expect(api.stopDaemon('s-test', true, 1)).rejects.toThrow(
+      'stale command revision',
+    );
+    await expect(api.upgradeDaemon('s-test', 1)).rejects.toThrow(
+      'stale command revision',
+    );
+  });
 });

@@ -777,34 +777,31 @@ def upgrade_project_daemon(
         )
         return None if started is None else {**started, "upgraded": True}
 
-    import signal
-
-    from ..daemon.handoff import _source_signature, _spawn_handoff_candidate
-
     root = _global_root(global_root)
-    config = _worker_config_from_env(life_dir, root)
     continuous = read_continuous_state(life_dir)
-    if continuous.enabled:
-        config.continuous = True
-        config.continuous_objective = continuous.objective
-        config.resume_continuous = True
-    ready = _spawn_handoff_candidate(
-        config,
-        source_signature=_source_signature(),
-        reason="operator requested Web release upgrade",
+    stop_rc = stop_daemon(
+        life_dir,
+        drain=True,
+        drain_timeout=1800.0,
+        force=False,
     )
-    if not ready:
-        return {"rc": 2, "error": "current-release handoff candidate did not become ready"}
-    try:
-        os.kill(status.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    return {
-        "rc": 0,
-        "upgraded": True,
-        "handoff_pending": True,
-        "previous_pid": status.pid,
-    }
+    if stop_rc not in {0, 1}:
+        return {
+            "rc": 2,
+            "error": "daemon is still draining active work; retry upgrade after it exits",
+        }
+    if continuous.enabled:
+        write_continuous_config(
+            life_dir,
+            enabled=True,
+            objective=continuous.objective,
+        )
+    started = start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=continuous.enabled,
+    )
+    return None if started is None else {**started, "upgraded": True}
 
 
 def update_project(
@@ -2179,11 +2176,17 @@ def create_app(
             get_doctor(sid, global_root=_project_root_or_404(sid)), sid
         )
 
-    @app.get("/api/projects/{sid}/config")
+    @app.get(
+        "/api/projects/{sid}/config",
+        dependencies=[Depends(_require_auth)],
+    )
     def _config(sid: str) -> dict[str, Any]:
         return get_config(global_root=_project_root_or_404(sid))
 
-    @app.get("/api/projects/{sid}/identity")
+    @app.get(
+        "/api/projects/{sid}/identity",
+        dependencies=[Depends(_require_auth)],
+    )
     def _identity(sid: str) -> dict[str, Any]:
         return {
             "identity": _404_if_none(

@@ -157,6 +157,17 @@ async function postJson<T = Record<string, unknown>>(
   return (await r.json()) as T;
 }
 
+function requireDaemonCommand<T>(result: T): T {
+  const row = result && typeof result === 'object'
+    ? result as Record<string, unknown>
+    : {};
+  const status = String(row.command_status ?? '');
+  if (Number(row.rc ?? 0) !== 0 || status === 'failed' || status === 'rejected') {
+    throw new Error(String(row.error || `daemon command ${status || 'failed'}`));
+  }
+  return result;
+}
+
 async function mutationJson<T>(
   method: 'PATCH' | 'DELETE',
   path: string,
@@ -405,24 +416,24 @@ export const api = {
   startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
     command_id: commandId(),
     expected_revision: expectedRevision,
-  }),
+  }).then(requireDaemonCommand),
   stopDaemon: (sid: string, drain = false, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
     drain,
     command_id: commandId(),
     expected_revision: expectedRevision,
-  }),
+  }).then(requireDaemonCommand),
   replaceDaemon: (sid: string, victimSid: string, resumeContinuous = false, expectedRevision?: number) =>
     postJson(P(sid, '/daemon/replace'), {
       victim_sid: victimSid,
       resume_continuous: resumeContinuous,
       command_id: commandId(),
       expected_revision: expectedRevision,
-    }),
+    }).then(requireDaemonCommand),
   upgradeDaemon: (sid: string, expectedRevision?: number) =>
     postJson(P(sid, '/daemon/upgrade'), {
       command_id: commandId(),
       expected_revision: expectedRevision,
-    }),
+    }).then(requireDaemonCommand),
 };
 
 /** Open the live event stream for a project. Returns a close() fn. */

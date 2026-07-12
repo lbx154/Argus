@@ -135,7 +135,7 @@ export function OperationsModal({
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => void run('reset', () => api.resetManager(sid), 'Manager context reset.')} disabled={!!busy} className="rounded border border-line px-3 py-2 text-xs text-ink-dim disabled:opacity-40">Reset Manager</button>
-            <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release handoff started; active work will finish before takeover.')} disabled={!!busy} className={`rounded border px-3 py-2 text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}>{incompatible ? 'Upgrade incompatible daemon' : 'Restart current release'}</button>
+            <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release daemon started after safely draining active work.')} disabled={!!busy} className={`rounded border px-3 py-2 text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}>{incompatible ? 'Upgrade incompatible daemon' : 'Restart current release'}</button>
           </div>
           {snap.daemon.protocol_error ? <p className="mt-2 text-xs text-err">{snap.daemon.protocol_error}</p> : null}
           {replacements.length ? (
