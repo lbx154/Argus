@@ -6,6 +6,17 @@ import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCheck, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
+
+const BUDGET_FIELDS = [
+  { alias: 'per_mission_cap', env: 'ARGUS_SKILL_PER_MISSION_CAP_USD', label: 'Per mission', unit: 'USD' },
+  { alias: 'daily_cap', env: 'ARGUS_SKILL_DAILY_CAP_USD', label: 'Project daily', unit: 'USD' },
+  { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'Global daily', unit: 'USD' },
+  { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'Codex calls / day', unit: 'calls' },
+  { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'Copilot calls / day', unit: 'calls' },
+  { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'Copilot premium / day', unit: 'requests' },
+] as const;
 
 /** Doctor: health checks with the single recommended fix pinned + gold, plus the
  *  daemon.log tail. Read-only diagnostics. */
@@ -57,6 +68,35 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
+  const [budgetBusy, setBudgetBusy] = useState(false);
+  const [budgetResult, setBudgetResult] = useState('');
+  const [budgets, setBudgets] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!open || !data) return;
+    const byName = new Map(data.operator_knobs.map((knob) => [knob.name, knob.value]));
+    setBudgets(Object.fromEntries(
+      BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
+    ));
+  }, [data, open]);
+  const saveBudgets = async () => {
+    if (budgetBusy) return;
+    setBudgetBusy(true);
+    setBudgetResult('');
+    try {
+      const values = Object.fromEntries(BUDGET_FIELDS.map((field) => {
+        const value = String(budgets[field.alias] ?? '').trim();
+        if (!value) throw new Error(`${field.label} is required`);
+        return [field.alias, value];
+      }));
+      await api.setBudgets(sid, values);
+      await refetch();
+      setBudgetResult('Budget limits saved. Restart running daemons to reload their process caps.');
+    } catch (error) {
+      setBudgetResult(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBudgetBusy(false);
+    }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim() || !value.trim() || busy) return;
@@ -80,16 +120,37 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     {},
   );
   return (
-    <Modal open={open} onClose={onClose} label="Runtime settings" width="max-w-4xl">
-      <ModalHeader title="Runtime settings" sub={data ? `resolved ${data.generated_at_utc}` : 'resolved role and operator settings'} />
+    <Modal open={open} onClose={onClose} label="Settings" width="max-w-4xl">
+      <ModalHeader title="Settings" sub={data ? `resolved ${data.generated_at_utc}` : 'budget, roles, and operator settings'} />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
+        <section className="mb-4 rounded-lg border border-gold/40 bg-gold/5 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">Budget and quota limits</div>
+              <p className="mt-0.5 text-[10px] text-ink-faint">Set 0 for an uncapped provider-call limit where supported.</p>
+            </div>
+            <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy || isLoading} title="Save budget limits" aria-label="Save budget limits" className="flex h-9 w-9 items-center justify-center rounded bg-gold text-xs font-semibold text-bg disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {BUDGET_FIELDS.map((field) => (
+              <label key={field.alias} className="rounded border border-line/70 bg-bg/60 p-2">
+                <span className="block text-[10px] text-ink-faint">{field.label}</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <input type="number" min="0" step={field.unit === 'USD' ? '0.1' : '1'} value={budgets[field.alias] ?? ''} onChange={(event) => setBudgets((current) => ({ ...current, [field.alias]: event.target.value }))} className="h-8 min-w-0 flex-1 bg-transparent font-mono text-sm text-ink outline-none" />
+                  <span className="text-[9px] text-ink-faint">{field.unit}</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          {budgetResult ? <div className="mt-2 text-xs text-ink-dim">{budgetResult}</div> : null}
+        </section>
         <form onSubmit={(event) => void submit(event)} className="mb-4 rounded-lg border border-blue/30 bg-blue/5 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-blue">Change setting</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-blue">Advanced setting</div>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="name or alias, e.g. manager_model" className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
             <input value={value} onChange={(event) => setValue(event.target.value)} placeholder="value" className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-            <button disabled={busy || !name.trim() || !value.trim()} className="h-9 rounded bg-blue-deep px-3 text-xs font-medium text-white disabled:opacity-40">{busy ? 'Applying…' : 'Apply'}</button>
+            <button disabled={busy || !name.trim() || !value.trim()} title="Apply advanced setting" aria-label="Apply advanced setting" className="flex h-9 w-9 items-center justify-center rounded bg-blue-deep text-xs font-medium text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
           </div>
           {result ? <div className="mt-2 text-xs text-ink-dim">{result}</div> : null}
         </form>
@@ -170,7 +231,7 @@ export function IdentityModal({ sid, open, onClose }: { sid: string; open: boole
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} className="w-full resize-y rounded-lg border border-line bg-bg p-3 font-sans text-sm leading-relaxed text-ink outline-none focus:border-blue" placeholder="Describe who Argus is working for and durable preferences…" />
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-ink-faint">{result}</span>
-              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} className="rounded bg-blue-deep px-3 py-2 text-xs font-medium text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save identity'}</button>
+              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title="Save identity" aria-label="Save identity" className="flex h-9 w-9 items-center justify-center rounded bg-blue-deep text-xs font-medium text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
             </div>
           </>
         ) : null}

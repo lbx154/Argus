@@ -871,6 +871,53 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
     assert "finite non-negative" in invalid.json()["detail"]
 
 
+def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
+    root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    client = TestClient(server.create_app(global_root=root))
+    values = {
+        "per_mission_cap": "20",
+        "daily_cap": "60",
+        "global_daily_cap": "120",
+        "codex_daily_requests": "400",
+        "copilot_daily_requests": "800",
+        "copilot_daily_premium": "300",
+    }
+
+    invalid = client.post(
+        f"/api/projects/{sid}/config/budget",
+        json={"values": {**values, "copilot_daily_premium": "not-a-number"}},
+    )
+    assert invalid.status_code == 400
+    assert not (root / "config.json").exists()
+
+    saved = client.post(
+        f"/api/projects/{sid}/config/budget",
+        json={"values": values},
+    )
+    assert saved.status_code == 200
+    persisted = json.loads((root / "config.json").read_text())
+    assert persisted["ARGUS_SKILL_PER_MISSION_CAP_USD"] == "20"
+    assert persisted["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP"] == "300"
+
+
+def test_budget_config_does_not_report_success_when_persistence_fails(
+    monkeypatch,
+) -> None:
+    from argus_skill.core import knob_store
+
+    monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda values: False)
+    with pytest.raises(RuntimeError, match="could not be persisted"):
+        server.set_budget_config({
+            "per_mission_cap": "20",
+            "daily_cap": "60",
+            "global_daily_cap": "120",
+            "codex_daily_requests": "400",
+            "copilot_daily_requests": "800",
+            "copilot_daily_premium": "300",
+        })
+
+
 def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
     root, sid, life = ctx
     monkeypatch.setattr(server, "run_skill_command", lambda tokens: "skills:" + " ".join(tokens))
@@ -896,6 +943,7 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
         ("tasks", {"text": "x"}), ("nudge", {"text": "x"}),
         ("continuous", {"enabled": False}), ("daemon/start", None), ("daemon/stop", None),
         ("daemon/replace", {"victim_sid": "s-other"}), ("daemon/upgrade", None),
+        ("config/budget", {"values": {}}),
         ("plan", {"text": "x"}), ("identity", {"text": "x"}),
         ("config/set", {"name": "model", "value": "x"}),
         ("skills", {"args": "ls"}), ("reset", None),

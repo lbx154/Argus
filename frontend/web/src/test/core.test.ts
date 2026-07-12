@@ -24,6 +24,7 @@ import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { Sidebar } from '../components/Sidebar';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
@@ -92,6 +93,28 @@ describe('shared frontend core', () => {
     expect(html).toContain('Which dataset should the process use?');
     expect(html).toContain('Send answer');
     expect(html).toContain('directly to the process');
+  });
+
+  it('renders Settings and icon-only theme controls in the sidebar footer', () => {
+    const html = renderToStaticMarkup(createElement(Sidebar, {
+      projects: [],
+      activeId: null,
+      localCwd: '/workspace',
+      onSelect: () => undefined,
+      onManage: () => undefined,
+      onOpenPanel: () => undefined,
+      onNew: () => undefined,
+      loading: false,
+      collapsed: false,
+      onToggleCollapse: () => undefined,
+      themeMode: 'light',
+      onCycleTheme: () => undefined,
+    }));
+    expect(html).toContain('Settings');
+    expect(html).toContain('data-icon="gear"');
+    expect(html).toContain('data-icon="sun"');
+    expect(html).not.toContain('>Runtime<');
+    expect(html).not.toContain('>light<');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {

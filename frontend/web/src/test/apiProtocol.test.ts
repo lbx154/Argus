@@ -97,6 +97,14 @@ describe('web API protocol handshake', () => {
     await api.trash();
     await api.previewPlan('s-test', 'inspect');
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
+    await api.setBudgets('s-test', {
+      per_mission_cap: '20',
+      daily_cap: '60',
+      global_daily_cap: '120',
+      codex_daily_requests: '400',
+      copilot_daily_requests: '800',
+      copilot_daily_premium: '300',
+    });
     await api.setIdentity('s-test', 'operator');
     await api.resetManager('s-test');
     await api.skills('s-test', 'ls');
@@ -110,6 +118,7 @@ describe('web API protocol handshake', () => {
       '/api/trash?query=&limit=100&offset=0',
       '/api/projects/s-test/plan',
       '/api/projects/s-test/config/set',
+      '/api/projects/s-test/config/budget',
       '/api/projects/s-test/identity',
       '/api/projects/s-test/reset',
       '/api/projects/s-test/skills',
@@ -118,7 +127,7 @@ describe('web API protocol handshake', () => {
       '/api/projects/s-test/daemon/upgrade',
       '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',
     ]);
-    const replaceBody = JSON.parse(String(fetchMock.mock.calls[8][1]?.body));
+    const replaceBody = JSON.parse(String(fetchMock.mock.calls[9][1]?.body));
     expect(replaceBody).toMatchObject({ victim_sid: 's-victim', resume_continuous: false });
   });
 
