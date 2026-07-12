@@ -6,9 +6,10 @@ import json
 from argus_skill.manager.domain_author import (
     DomainProposal,
     build_domain_author_prompt,
+    build_vertical_decision_prompt,
     parse_domain_proposal,
 )
-from argus_skill.skills.vertical_select import VERTICALS
+from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 
 
 def test_parse_happy_path():
@@ -70,3 +71,15 @@ def test_prompt_instructs_grounded_investigation_not_blind_guess():
     assert "investigate" in prompt.lower()
     assert "READ-ONLY" in prompt
     assert "do NOT edit" in prompt
+
+
+def test_vertical_prompt_keeps_math_routes_inside_builtin_math():
+    prompt = build_vertical_decision_prompt(
+        "Investigate an open conjecture with literature, computation, proof, and review",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+    )
+
+    assert "stable, reusable capability contract" in prompt
+    assert "`math_conjecture`" in prompt
+    assert "dynamic Planner backlog/DAG tasks" in prompt
+    assert "they are not competing verticals" in prompt

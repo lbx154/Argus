@@ -181,6 +181,64 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert ready_titles == {"run seed 0", "run seed 1"}
 
 
+def test_planner_can_enqueue_dynamic_math_route_as_a_dag(tmp_path, monkeypatch) -> None:
+    def task(key, deps, title, objective):
+        return {
+            "key": key,
+            "deps": deps,
+            "title": title,
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "the open conjecture needs this problem-specific route",
+            "scope": "bounded",
+            "objective": objective,
+        }
+
+    verdict = json.dumps({
+        "project_done": False,
+        "reason": "use a problem-specific mathematical research route",
+        "restart_daemon": False,
+        "restart_reason": "",
+        "waiting": False,
+        "waiting_reason": "",
+        "new_tasks": [
+            task("literature", [], "literature search", "Find and assess relevant prior results"),
+            task("experiment", [], "computational experiment", "Search examples and counterexamples"),
+            task(
+                "proof",
+                ["literature", "experiment"],
+                "proof construction",
+                "Use the grounded evidence to construct or refute the conjecture",
+            ),
+            task(
+                "review",
+                ["proof"],
+                "independent proof review",
+                "Audit statement fidelity, proof correctness, and remaining uncertainty",
+            ),
+        ],
+    })
+    sup = _make_supervisor(tmp_path, monkeypatch, verdict)
+
+    assert sup._plan_next_work() is True
+    items = {item.title: item for item in sup.memory.backlog.all()}
+    assert set(items) == {
+        "literature search",
+        "computational experiment",
+        "proof construction",
+        "independent proof review",
+    }
+    assert items["proof construction"].deps == [
+        items["literature search"].id,
+        items["computational experiment"].id,
+    ]
+    assert items["independent proof review"].deps == [items["proof construction"].id]
+    assert {item.title for item in sup.memory.backlog.ready()} == {
+        "literature search",
+        "computational experiment",
+    }
+
+
 def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> None:
     sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
     intent = {

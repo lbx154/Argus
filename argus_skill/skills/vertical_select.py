@@ -159,6 +159,16 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
     return None
 
 
+def explicit_builtin_vertical() -> str | None:
+    """Return the built-in vertical explicitly selected by the environment.
+
+    Project-local data domains are intentionally excluded: this signal is the
+    operator choosing a stable built-in capability, not the Manager recovering a
+    previously-authored project route.
+    """
+    return _known_vertical(os.environ.get(ENV_VERTICAL))
+
+
 def require_vertical(value: object, project_root: object = None) -> str:
     """Return the known vertical named by ``value`` or raise ``UnknownVerticalError``.
 
@@ -494,6 +504,7 @@ __all__ = [
     "ENV_VERTICAL",
     "VerticalResolutionError",
     "UnknownVerticalError",
+    "explicit_builtin_vertical",
     "require_vertical",
     "resolve_vertical",
     "persist_vertical",

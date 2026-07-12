@@ -9,7 +9,8 @@ and commits the choice. The existing engine (LifeSupervisor → Planner → Skil
 This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
 the user-facing *division* step:
 
-  * decide     → ``Manager.decide_vertical`` — ONE grounded agent call picks an
+  * decide     → ``Manager.decide_vertical`` — an explicit built-in env choice is
+                 reused directly; otherwise ONE grounded agent call picks an
                  existing vertical/data-domain or authors a new data domain (no
                  keyword classifier; see ``manager/domain_author.py``)
   * stage list → ``verticals/<v>/stages.py`` ``STAGE_ORDER`` via ``load_vertical``
@@ -466,19 +467,25 @@ class Manager:
         *,
         root_task_id: str | None = None,
     ) -> VerticalDecision:
-        """Choose the vertical for ``task`` with ONE grounded Manager agent call.
+        """Choose the vertical for ``task``.
 
-        The agent picks an existing built-in vertical (preferred — built-ins ship
-        expert reviewer checklists) or an existing project data domain, else
-        AUTHORS a new data domain. It has shell/read access pinned to
-        ``project_root`` and is told to investigate the repo before deciding
-        (same ``dangerous_yolo``/``safe_mode`` convention as every other
-        real-work call).
+        A valid built-in named by ``ARGUS_SKILL_VERTICAL`` is an explicit operator
+        decision, so it is reused directly without giving the domain author a
+        chance to replace it with a task-specific DATA domain. Otherwise the agent
+        picks an existing built-in vertical (preferred — built-ins ship expert
+        reviewer checklists) or an existing project data domain, else AUTHORS a
+        new data domain. It has shell/read access pinned to ``project_root`` and is
+        told to investigate the repo before deciding (same
+        ``dangerous_yolo``/``safe_mode`` convention as every other real-work call).
 
-        FAIL-HARD: no backend, or a model reply that is missing / not a valid
-        choice, RAISES ``VerticalDecisionError``. There is NO keyword classifier
-        and NO silent fallback to the research default.
+        FAIL-HARD when agent judgment is needed: no backend, or a model reply that
+        is missing / not a valid choice, RAISES ``VerticalDecisionError``. There is
+        NO keyword classifier and NO silent fallback to the research default.
         """
+        explicit_builtin = vertical_select.explicit_builtin_vertical()
+        if explicit_builtin is not None:
+            return VerticalDecision(choice="existing", vertical=explicit_builtin)
+
         backend = self._session or self.runner
         if backend is None:
             raise VerticalDecisionError(
