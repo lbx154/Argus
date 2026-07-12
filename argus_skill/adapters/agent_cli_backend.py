@@ -55,6 +55,7 @@ from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
+from ..core.runner_errors import result_has_missing_resume_target
 
 log = logging.getLogger(__name__)
 
@@ -1128,6 +1129,19 @@ class AgentCliBackend:
         stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
         fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
         failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+        missing_resume_target = bool(
+            resume_thread_id and result_has_missing_resume_target(argus_result)
+            and translated.total_nano_aiu is None
+            and not translated.model_usage
+            and not translated.premium_requests_present
+            and not any((
+                translated.input_tokens_present,
+                translated.cached_input_tokens_present,
+                translated.cache_write_tokens_present,
+                translated.output_tokens_present,
+                translated.reasoning_output_tokens_present,
+            ))
+        )
 
         # Detect auth/policy failures even when Copilot exits 0 but reports
         # turn_failed=true. Policy denial previously looked "successful" at the
@@ -1190,7 +1204,13 @@ class AgentCliBackend:
         self._log_agent_io(log_path, complete_row)
         return _finalize_result(
             translated,
-            status="error" if failed else "completed",
+            status=(
+                "denied"
+                if missing_resume_target
+                else "error"
+                if failed
+                else "completed"
+            ),
             error=failure_text,
         )
 
