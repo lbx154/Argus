@@ -134,6 +134,23 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     assert "unresolved provider cost" in reason
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 
+    control, reason = reserve_call_budget(
+        call_id="control-1",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert control is not None and reason == ""
+    assert control.amount_usd == pytest.approx(1.0)
+    control.release(reason="test")
+
     usage_path = project / "usage.jsonl"
     row = json.loads(usage_path.read_text().splitlines()[0])
     row.update({

@@ -35,6 +35,16 @@ COST_CONTROL_AUDIT_FILE = "cost-control.jsonl"
 _STATE_VERSION = 1
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
+_CONTROL_PLANE_RUN_LABELS = frozenset({
+    "manager-frontdoor-classify",
+    "router-classify",
+    "simple-1",
+})
+_CONTROL_PLANE_CALL_CAP_USD = 1.0
+
+
+def _is_control_plane_call(run_label: str) -> bool:
+    return str(run_label or "").strip().lower() in _CONTROL_PLANE_RUN_LABELS
 
 
 class CostControlStateError(RuntimeError):
@@ -378,6 +388,7 @@ def reserve_call_budget(
     owner_pid = os.getpid() if pid is None else int(pid)
     project_key = str(project.resolve()) if project is not None else ""
     mission_key = str(mission_id or "")
+    control_plane = _is_control_plane_call(run_label)
 
     try:
         with _locked(root):
@@ -391,7 +402,11 @@ def reserve_call_budget(
             state["reservations"] = reservations
             state["unresolved"] = unresolved
             state["breaches"] = breaches
-            if unresolved and _unpriced_policy() == "block":
+            if (
+                unresolved
+                and _unpriced_policy() == "block"
+                and not control_plane
+            ):
                 first = unresolved[0]
                 reason = (
                     "unresolved provider cost blocks new calls "
@@ -520,6 +535,8 @@ def reserve_call_budget(
                 call_cap = max(0.0, float(per_call_cap_usd))
                 if call_cap > 0:
                     ceiling = min(ceiling, call_cap)
+            if control_plane:
+                ceiling = min(ceiling, _CONTROL_PLANE_CALL_CAP_USD)
             amount = 0.0 if ceiling == float("inf") else max(0.0, ceiling)
             fence = provider_spend_fence(provider, amount)
             reservation_id = uuid.uuid4().hex
