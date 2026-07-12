@@ -68,6 +68,8 @@ def empty_mission_view() -> dict[str, Any]:
             "global_skill_dir": "",
             "project_skill_count": 0,
             "global_skill_count": 0,
+            "skill_history_compressed": 0,
+            "wiki_retired_compressed": 0,
             "wiki_paths": [],
         },
         "achievement": None,
@@ -106,13 +108,18 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         return empty_mission_view()
     if not isinstance(payload, dict) or payload.get("schema_version") != MISSION_VIEW_SCHEMA_VERSION:
         return empty_mission_view()
-    payload.setdefault("storage", {
+    storage_defaults = {
         "project_skill_dir": "",
         "global_skill_dir": "",
         "project_skill_count": 0,
         "global_skill_count": 0,
+        "skill_history_compressed": 0,
+        "wiki_retired_compressed": 0,
         "wiki_paths": [],
-    })
+    }
+    storage = payload.setdefault("storage", {})
+    for key, value in storage_defaults.items():
+        storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
     return payload
 
@@ -169,6 +176,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.SKILL_ARCHIVED,
     EventType.SKILL_TIDIED,
     EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.SKILL_HISTORY_COMPRESSED,
     EventType.WIKI_INITIALIZED,
     EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.WIKI_CREATED,
@@ -176,6 +184,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.WIKI_RETIRED,
     EventType.WIKI_PROMOTION_PROMOTED,
     EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
 })
 
 
@@ -570,6 +579,12 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         for key in ("project_skill_count", "global_skill_count"):
             storage[key] = _integer(event, key)
 
+    elif event_type == EventType.SKILL_HISTORY_COMPRESSED:
+        storage = view.setdefault("storage", {})
+        storage["skill_history_compressed"] = int(
+            storage.get("skill_history_compressed") or 0
+        ) + _integer(event, "count")
+
     elif event_type in {
         EventType.WIKI_INITIALIZED,
         EventType.WIKI_EVOLUTION_COMPLETED,
@@ -585,6 +600,12 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             if value and value not in paths:
                 paths.append(value)
         storage["wiki_paths"] = paths
+
+    elif event_type == EventType.WIKI_RETIRED_COMPRESSED:
+        storage = view.setdefault("storage", {})
+        storage["wiki_retired_compressed"] = int(
+            storage.get("wiki_retired_compressed") or 0
+        ) + _integer(event, "count")
 
     elif event_type in {EventType.WIKI_CREATED, EventType.WIKI_UPDATED}:
         page_id = _text(event, "page_id")

@@ -234,12 +234,16 @@ def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None
         from_status="scratch",
         to_status="candidate",
     )
+    emit(tmp_path, "skill.history.compressed", 5, count=3, keep_hot=20)
+    view = emit(tmp_path, "wiki.retired.compressed", 6, count=2, keep_hot=20)
 
     assert view["storage"] == {
         "project_skill_dir": "/state/project/skills",
         "global_skill_dir": "/state/global/skills",
         "project_skill_count": 3,
         "global_skill_count": 20,
+        "skill_history_compressed": 3,
+        "wiki_retired_compressed": 2,
         "wiki_paths": ["/workspace/.autors/demo/wiki"],
     }
     assert view["learned_wiki_pages"][0]["title"] == "Bounded retry pattern"

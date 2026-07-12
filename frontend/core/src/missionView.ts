@@ -56,6 +56,8 @@ export function emptyMissionView(): MissionView {
       global_skill_dir: '',
       project_skill_count: 0,
       global_skill_count: 0,
+      skill_history_compressed: 0,
+      wiki_retired_compressed: 0,
       wiki_paths: [],
     },
     achievement: null,
@@ -344,6 +346,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.storage.global_skill_dir = S(event, 'global_skill_dir') || view.storage.global_skill_dir;
     view.storage.project_skill_count = N(event, 'project_skill_count') ?? view.storage.project_skill_count;
     view.storage.global_skill_count = N(event, 'global_skill_count') ?? view.storage.global_skill_count;
+  } else if (type === EVENT_TYPES.SKILL_HISTORY_COMPRESSED) {
+    view.storage.skill_history_compressed += N(event, 'count') ?? 0;
   } else if (type === EVENT_TYPES.SKILL_TIDIED) {
     const name = S(event, 'name');
     if (name) {
@@ -364,6 +368,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       S(event, 'path'),
     ].filter(Boolean);
     view.storage.wiki_paths = [...new Set([...view.storage.wiki_paths, ...candidates])];
+  } else if (type === EVENT_TYPES.WIKI_RETIRED_COMPRESSED) {
+    view.storage.wiki_retired_compressed += N(event, 'count') ?? 0;
   } else if ([EVENT_TYPES.WIKI_CREATED, EVENT_TYPES.WIKI_UPDATED].includes(type as never)) {
     const id = S(event, 'page_id');
     if (id) {
@@ -493,6 +499,8 @@ export function projectMissionView(
 ): MissionView {
   const view = snapshot.mission_view ? copyView(snapshot.mission_view) : emptyMissionView();
   view.storage ??= emptyMissionView().storage;
+  view.storage.skill_history_compressed ??= 0;
+  view.storage.wiki_retired_compressed ??= 0;
   view.learned_wiki_pages ??= [];
   const seedTs = view.last_event_ts;
   events

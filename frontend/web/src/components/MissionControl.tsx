@@ -195,13 +195,14 @@ export function MissionControl({
               </div>
             </div>
           ) : null}
-          {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length) ? (
+          {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length || view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Self-evolution storage</div>
               <div className="mt-2 space-y-1 font-mono text-[10px] text-ink-dim">
                 {view.storage.project_skill_dir ? <div className="break-all">project skills ({view.storage.project_skill_count}) · {view.storage.project_skill_dir}</div> : null}
                 {view.storage.global_skill_dir ? <div className="break-all">global skills ({view.storage.global_skill_count}) · {view.storage.global_skill_dir}</div> : null}
                 {view.storage.wiki_paths.map((path) => <div key={path} className="break-all">project wiki · {path}</div>)}
+                {(view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? <div>cold history · skill {view.storage.skill_history_compressed} · wiki {view.storage.wiki_retired_compressed} compressed</div> : null}
               </div>
             </div>
           ) : null}

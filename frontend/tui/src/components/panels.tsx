@@ -204,13 +204,14 @@ function OperationsPanel({
           <Text dimColor>{`${role.backend_label || role.backend} · ${role.model || '—'} · ${role.effort || 'default'}`}</Text>
         </Text>
       ))}
-      {storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length) ? (
+      {storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length || storage.skill_history_compressed || storage.wiki_retired_compressed) ? (
         <>
           <Text> </Text>
           <Text dimColor>self-evolution storage</Text>
           {storage.project_skill_dir ? <Row k="project skills" v={`${storage.project_skill_count} · ${storage.project_skill_dir}`} /> : null}
           {storage.global_skill_dir ? <Row k="global skills" v={`${storage.global_skill_count} · ${storage.global_skill_dir}`} /> : null}
           {storage.wiki_paths.map((path, index) => <Row key={path} k={index ? "" : "project wiki"} v={path} />)}
+          {(storage.skill_history_compressed || storage.wiki_retired_compressed) ? <Row k="cold history" v={`skill ${storage.skill_history_compressed} · wiki ${storage.wiki_retired_compressed} compressed`} /> : null}
         </>
       ) : null}
       {slo?.status === 'degraded' ? (

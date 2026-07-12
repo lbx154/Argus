@@ -252,6 +252,8 @@ export interface MissionStorageView {
   global_skill_dir: string;
   project_skill_count: number;
   global_skill_count: number;
+  skill_history_compressed: number;
+  wiki_retired_compressed: number;
   wiki_paths: string[];
 }
 
