@@ -1177,6 +1177,37 @@ def _resolve_checklist_venue(project_root) -> VenueProfile:
     return resolve_venue_profile(Path(project_root))
 
 
+VENUE_DEPENDENT_STAGES = frozenset({"draft", "review", "submission"})
+
+
+def _unresolved_venue_checklist(
+    header: str,
+    *,
+    role: str,
+    error: KeyError,
+) -> str:
+    """Render a fail-closed venue gate without crashing prompt construction."""
+    if role == "reviewer":
+        instruction = (
+            "Keep this item unchecked and do not return `done`; ask the engineer "
+            "to resolve it in `next_action`."
+        )
+    else:
+        instruction = (
+            "Resolve this item before doing venue-specific drafting, review, or "
+            "submission work."
+        )
+    return (
+        f"{header}\n\n"
+        "### venue resolution\n"
+        f"- [ ] `venue.profile` — {error}. `target_venue` must name a real "
+        "publication venue, not planning commentary. Choose a built-in venue or "
+        "research a non-built-in venue and write `research/VENUE_PROFILE.json` "
+        "from official instructions. Never grade against the EMNLP default while "
+        f"this is unresolved. {instruction}"
+    )
+
+
 def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
     """Rewrite the EMNLP-literal floor items for a non-EMNLP venue.
 
@@ -1473,7 +1504,17 @@ def format_stage_checklist(
         f"{framing}\n\n"
         f"{_render_items(items, annotations)}"
     )
-    body = _apply_venue_to_checklist_body(body, _resolve_checklist_venue(project_root))
+    if stage_norm in VENUE_DEPENDENT_STAGES:
+        try:
+            body = _apply_venue_to_checklist_body(
+                body, _resolve_checklist_venue(project_root)
+            )
+        except KeyError as exc:
+            body = _unresolved_venue_checklist(
+                f"## Stage checklist ({stage_norm})",
+                role=role_norm,
+                error=exc,
+            )
     return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
 
 
@@ -1542,7 +1583,14 @@ def format_full_pipeline_checklist(
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
-    body = _apply_venue_to_checklist_body(
-        "\n\n".join(blocks), _resolve_checklist_venue(project_root)
-    )
+    try:
+        body = _apply_venue_to_checklist_body(
+            "\n\n".join(blocks), _resolve_checklist_venue(project_root)
+        )
+    except KeyError as exc:
+        body = _unresolved_venue_checklist(
+            header,
+            role=role_norm,
+            error=exc,
+        )
     return _augment(body, role_norm, project_root, overlay_present=overlay_present)
