@@ -1056,6 +1056,7 @@ def create_app(
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
     from starlette.concurrency import run_in_threadpool
+    from starlette.middleware.gzip import GZipMiddleware
     from starlette.responses import FileResponse, StreamingResponse
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
@@ -1127,6 +1128,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     def _require_auth(authorization: str | None = Header(default=None)) -> None:
         if not token:

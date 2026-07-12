@@ -1,13 +1,11 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BootSplash } from './components/BootSplash';
+import App from './App';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import '@fontsource-variable/noto-sans-sc';
 import './index.css';
-
-const App = lazy(() => import('./App'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,22 +13,10 @@ const queryClient = new QueryClient({
   },
 });
 
-function WebApp() {
-  const [booting, setBooting] = useState(true);
-  return (
-    <>
-      <Suspense fallback={null}>
-        <App />
-      </Suspense>
-      {booting ? <BootSplash onDone={() => setBooting(false)} /> : null}
-    </>
-  );
-}
-
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <WebApp />
+      <App />
     </QueryClientProvider>
   </React.StrictMode>,
 );

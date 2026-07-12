@@ -79,6 +79,20 @@ def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> Non
     assert server._web_cache_control("/api/projects") == ""
 
 
+def test_static_web_assets_are_gzip_compressed(tmp_path: Path) -> None:
+    assets = Path(__file__).parents[2] / "frontend" / "web" / "dist" / "assets"
+    script = next(path for path in assets.glob("index-*.js") if path.stat().st_size > 1024)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.get(
+            f"/assets/{script.name}",
+            headers={"Accept-Encoding": "gzip"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_frontend_protocol_constants_match_backend_contract() -> None:
     source = (
         Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts"
