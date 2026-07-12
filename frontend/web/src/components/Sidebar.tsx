@@ -15,6 +15,7 @@ export function Sidebar({
   activeId,
   localCwd,
   onSelect,
+  onPrefetch,
   onOpenPanel,
   onNew,
   loading,
@@ -32,6 +33,7 @@ export function Sidebar({
   activeId: string | null;
   localCwd: string;
   onSelect: (id: string) => void;
+  onPrefetch?: (id: string) => void;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onNew: () => void;
   loading: boolean;
@@ -162,6 +164,12 @@ export function Sidebar({
                       key={project.id}
                       type="button"
                       onClick={() => onSelect(project.id)}
+                      onPointerEnter={() => {
+                        if (!active) onPrefetch?.(project.id);
+                      }}
+                      onFocus={() => {
+                        if (!active) onPrefetch?.(project.id);
+                      }}
                       aria-current={active ? 'page' : undefined}
                       title={`${project.label || project.id}${project.objective ? ` — ${project.objective}` : ''}`}
                       className={`group relative mb-1 w-full rounded-md px-3 py-2.5 text-left transition-colors duration-150 ease-panel ${

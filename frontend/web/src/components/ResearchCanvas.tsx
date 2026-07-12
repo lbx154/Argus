@@ -62,7 +62,8 @@ export function ResearchCanvas({
     if (!sid || !selected || !info || !['image', 'pdf'].includes(info.kind)) return;
     let alive = true;
     let objectUrl = '';
-    api.artifactBlob(sid, selected.path).then(
+    const controller = new AbortController();
+    api.artifactBlob(sid, selected.path, false, controller.signal).then(
       (blob) => {
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -72,6 +73,7 @@ export function ResearchCanvas({
     );
     return () => {
       alive = false;
+      controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [sid, selected?.path, info?.kind, info?.mtime]);

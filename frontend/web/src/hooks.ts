@@ -11,7 +11,7 @@ export const useProjects = () =>
 export const useSnapshot = (sid: string | null) =>
   useQuery({
     queryKey: ['snapshot', sid],
-    queryFn: () => api.snapshot(sid!),
+    queryFn: ({ signal }) => api.snapshot(sid!, signal),
     enabled: !!sid,
     refetchInterval: 4_000,
   });
@@ -19,7 +19,7 @@ export const useSnapshot = (sid: string | null) =>
 export const useStatus = (sid: string | null, enabled = true) =>
   useQuery({
     queryKey: ['status', sid],
-    queryFn: () => api.status(sid!),
+    queryFn: ({ signal }) => api.status(sid!, signal),
     enabled: !!sid && enabled,
     refetchInterval: enabled ? 6_000 : false,
   });
@@ -27,27 +27,27 @@ export const useStatus = (sid: string | null, enabled = true) =>
 export const useJournal = (sid: string | null, n = 30, enabled = true) =>
   useQuery({
     queryKey: ['journal', sid, n],
-    queryFn: () => api.journal(sid!, n),
+    queryFn: ({ signal }) => api.journal(sid!, n, signal),
     enabled: !!sid && enabled,
     refetchInterval: enabled ? 8_000 : false,
   });
 
 export const useDoctor = (sid: string | null, enabled: boolean) =>
-  useQuery({ queryKey: ['doctor', sid], queryFn: () => api.doctor(sid!), enabled: !!sid && enabled });
+  useQuery({ queryKey: ['doctor', sid], queryFn: ({ signal }) => api.doctor(sid!, signal), enabled: !!sid && enabled });
 
 export const useConfig = (sid: string | null, enabled: boolean) =>
-  useQuery({ queryKey: ['config', sid], queryFn: () => api.config(sid!), enabled: !!sid && enabled });
+  useQuery({ queryKey: ['config', sid], queryFn: ({ signal }) => api.config(sid!, signal), enabled: !!sid && enabled });
 
 export const useIdentity = (sid: string | null, enabled: boolean) =>
-  useQuery({ queryKey: ['identity', sid], queryFn: () => api.identity(sid!), enabled: !!sid && enabled });
+  useQuery({ queryKey: ['identity', sid], queryFn: ({ signal }) => api.identity(sid!, signal), enabled: !!sid && enabled });
 
 export const useTranscript = (sid: string | null, enabled: boolean, n = 30) =>
-  useQuery({ queryKey: ['transcript', sid, n], queryFn: () => api.transcript(sid!, n), enabled: !!sid && enabled });
+  useQuery({ queryKey: ['transcript', sid, n], queryFn: ({ signal }) => api.transcript(sid!, n, signal), enabled: !!sid && enabled });
 
 export const useArtifacts = (sid: string | null, enabled = true) =>
   useQuery({
     queryKey: ['artifacts', sid],
-    queryFn: () => api.artifacts(sid!),
+    queryFn: ({ signal }) => api.artifacts(sid!, signal),
     enabled: !!sid && enabled,
     refetchInterval: enabled ? 3_000 : false,
   });
@@ -55,7 +55,7 @@ export const useArtifacts = (sid: string | null, enabled = true) =>
 export const useArtifact = (sid: string | null, path: string | null) =>
   useQuery({
     queryKey: ['artifact', sid, path],
-    queryFn: () => api.artifact(sid!, path!),
+    queryFn: ({ signal }) => api.artifact(sid!, path!, signal),
     enabled: !!sid && !!path,
     refetchInterval: sid && path ? 3_000 : false,
   });
@@ -63,7 +63,7 @@ export const useArtifact = (sid: string | null, path: string | null) =>
 export const useGitDiff = (sid: string | null, enabled = true) =>
   useQuery({
     queryKey: ['git-diff', sid],
-    queryFn: () => api.gitDiff(sid!),
+    queryFn: ({ signal }) => api.gitDiff(sid!, signal),
     enabled: !!sid && enabled,
     refetchInterval: enabled ? 5_000 : false,
   });
@@ -71,7 +71,7 @@ export const useGitDiff = (sid: string | null, enabled = true) =>
 export const useBacklogItem = (sid: string | null, itemId: string | null) =>
   useQuery({
     queryKey: ['backlog-item', sid, itemId],
-    queryFn: () => api.backlogItem(sid!, itemId!),
+    queryFn: ({ signal }) => api.backlogItem(sid!, itemId!, signal),
     enabled: !!sid && !!itemId,
   });
 
@@ -119,11 +119,17 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
 
 const MAX_EVENTS = 2_000;
 
-type StreamState = { events: EventMsg[]; seen: Set<string> };
-type StreamAction = { kind: 'seed'; events: EventMsg[] } | { kind: 'push'; ev: EventMsg } | { kind: 'reset' };
+type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string> };
+type StreamAction =
+  | { kind: 'seed'; sid: string; events: EventMsg[] }
+  | { kind: 'push'; sid: string; ev: EventMsg }
+  | { kind: 'reset'; sid: string | null };
 
-function streamReducer(state: StreamState, action: StreamAction): StreamState {
-  if (action.kind === 'reset') return { events: [], seen: new Set() };
+export function streamReducer(state: StreamState, action: StreamAction): StreamState {
+  if (action.kind === 'reset') {
+    return { sid: action.sid, events: [], seen: new Set() };
+  }
+  if (action.sid !== state.sid) return state;
   if (action.kind === 'seed') {
     const seen = new Set<string>();
     const events: EventMsg[] = [];
@@ -134,7 +140,7 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
         events.push(ev);
       }
     });
-    return { events, seen };
+    return { sid: state.sid, events, seen };
   }
   // push
   const k = eventKey(action.ev, state.events.length);
@@ -143,7 +149,7 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
   seen.add(k);
   const events = [...state.events, action.ev];
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
-  return { events, seen };
+  return { sid: state.sid, events, seen };
 }
 
 export interface StreamHandle {
@@ -154,35 +160,61 @@ export interface StreamHandle {
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null): StreamHandle {
-  const [state, dispatch] = useReducer(streamReducer, { events: [], seen: new Set<string>() });
-  const [connected, setConnected] = useState(false);
+  const [state, dispatch] = useReducer(streamReducer, {
+    sid: null,
+    events: [],
+    seen: new Set<string>(),
+  });
+  const [connection, setConnection] = useState({
+    sid: null as string | null,
+    connected: false,
+  });
   const sidRef = useRef(sid);
   sidRef.current = sid;
 
   useEffect(() => {
-    dispatch({ kind: 'reset' });
-    setConnected(false);
+    dispatch({ kind: 'reset', sid });
+    setConnection({ sid, connected: false });
     if (!sid) return;
     let cancelled = false;
+    const controller = new AbortController();
 
     // seed the last window over REST so the feed is populated instantly
     api
-      .events(sid, 120)
+      .events(sid, 120, controller.signal)
       .then((evs) => {
-        if (!cancelled && sidRef.current === sid) dispatch({ kind: 'seed', events: evs });
+        if (!cancelled && sidRef.current === sid) {
+          dispatch({ kind: 'seed', sid, events: evs });
+        }
       })
       .catch(() => {});
 
-    const close = openStream(sid, (ev) => dispatch({ kind: 'push', ev }), {
+    const close = openStream(sid, (ev) => {
+      if (!cancelled && sidRef.current === sid) {
+        dispatch({ kind: 'push', sid, ev });
+      }
+    }, {
       replay: 40,
-      onOpen: () => setConnected(true),
-      onClose: () => setConnected(false),
+      onOpen: () => {
+        if (!cancelled && sidRef.current === sid) {
+          setConnection({ sid, connected: true });
+        }
+      },
+      onClose: () => {
+        if (!cancelled && sidRef.current === sid) {
+          setConnection({ sid, connected: false });
+        }
+      },
     });
     return () => {
       cancelled = true;
+      controller.abort();
       close();
     };
   }, [sid]);
 
-  return { events: state.events, connected };
+  return {
+    events: state.sid === sid ? state.events : [],
+    connected: connection.sid === sid && connection.connected,
+  };
 }

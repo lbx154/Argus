@@ -27,7 +27,8 @@ export function ArtifactModal({
     if (!sid || !path || !info || !['image', 'pdf'].includes(info.kind)) return;
     let alive = true;
     let objectUrl = '';
-    api.artifactBlob(sid, path).then(
+    const controller = new AbortController();
+    api.artifactBlob(sid, path, false, controller.signal).then(
       (blob) => {
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -37,6 +38,7 @@ export function ArtifactModal({
     );
     return () => {
       alive = false;
+      controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [sid, path, info?.kind]);

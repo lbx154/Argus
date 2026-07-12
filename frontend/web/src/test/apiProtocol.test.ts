@@ -65,4 +65,20 @@ describe('web API protocol handshake', () => {
       '/api/projects',
     ]);
   });
+
+  it('passes cancellation signals to project reads', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ events: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+    const controller = new AbortController();
+
+    await expect(api.events('s-test', 120, controller.signal)).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/s-test/events?limit=120',
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });

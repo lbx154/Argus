@@ -113,8 +113,8 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const r = await fetch(path, { headers: authHeaders() });
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return (await r.json()) as T;
 }
@@ -148,8 +148,8 @@ async function mutationJson<T>(
   return (await r.json()) as T;
 }
 
-async function getBlob(path: string): Promise<Blob> {
-  const r = await fetch(path, { headers: authHeaders() });
+async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const r = await fetch(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return r.blob();
 }
@@ -238,35 +238,55 @@ export const api = {
     mutationJson<{ ok: boolean; sid: string; name: string }>('PATCH', P(sid), { name }),
   deleteProject: (sid: string) =>
     mutationJson<{ ok: boolean; sid: string; trash_path: string }>('DELETE', P(sid)),
-  snapshot: async (sid: string) => {
+  snapshot: async (sid: string, signal?: AbortSignal) => {
     await compatibleApiMeta();
-    const value = await getJson<unknown>(P(sid, '/snapshot?compact=true&events_limit=1'));
+    const value = await getJson<unknown>(
+      P(sid, '/snapshot?compact=true&events_limit=1'),
+      signal,
+    );
     return requireSnapshotContract(value);
   },
-  status: (sid: string) => getJson<StatusView>(P(sid, '/status')),
-  journal: (sid: string, n = 20) =>
-    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`)).then((r) => r.journal),
-  doctor: (sid: string) => getJson<DoctorReport>(P(sid, '/doctor')),
-  config: (sid: string) => getJson<ConfigSnapshot>(P(sid, '/config')),
-  identity: (sid: string) => getJson<{ identity: string }>(P(sid, '/identity')).then((r) => r.identity),
-  transcript: (sid: string, n = 30) =>
-    getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`)).then((r) => r.turns),
-  events: (sid: string, limit = 80) =>
-    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}`)).then((r) => r.events),
-  backlogItem: (sid: string, id: string) =>
-    getJson<{ item: BacklogItem }>(P(sid, `/backlog/${encodeURIComponent(id)}`)).then((r) => r.item),
-  artifacts: (sid: string) =>
-    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts')).then((r) => r.artifacts),
-  artifact: (sid: string, path: string) => {
+  status: (sid: string, signal?: AbortSignal) =>
+    getJson<StatusView>(P(sid, '/status'), signal),
+  journal: (sid: string, n = 20, signal?: AbortSignal) =>
+    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`), signal)
+      .then((r) => r.journal),
+  doctor: (sid: string, signal?: AbortSignal) =>
+    getJson<DoctorReport>(P(sid, '/doctor'), signal),
+  config: (sid: string, signal?: AbortSignal) =>
+    getJson<ConfigSnapshot>(P(sid, '/config'), signal),
+  identity: (sid: string, signal?: AbortSignal) =>
+    getJson<{ identity: string }>(P(sid, '/identity'), signal).then((r) => r.identity),
+  transcript: (sid: string, n = 30, signal?: AbortSignal) =>
+    getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`), signal)
+      .then((r) => r.turns),
+  events: (sid: string, limit = 80, signal?: AbortSignal) =>
+    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}`), signal)
+      .then((r) => r.events),
+  backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
+    getJson<{ item: BacklogItem }>(
+      P(sid, `/backlog/${encodeURIComponent(id)}`),
+      signal,
+    ).then((r) => r.item),
+  artifacts: (sid: string, signal?: AbortSignal) =>
+    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
+      .then((r) => r.artifacts),
+  artifact: (sid: string, path: string, signal?: AbortSignal) => {
     const q = new URLSearchParams({ path });
-    return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`));
+    return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
-  artifactBlob: (sid: string, path: string, download = false) => {
+  artifactBlob: (
+    sid: string,
+    path: string,
+    download = false,
+    signal?: AbortSignal,
+  ) => {
     const q = new URLSearchParams({ path });
     if (download) q.set('download', 'true');
-    return getBlob(P(sid, `/artifact/raw?${q}`));
+    return getBlob(P(sid, `/artifact/raw?${q}`), signal);
   },
-  gitDiff: (sid: string) => getJson<GitDiffView>(P(sid, '/git-diff')),
+  gitDiff: (sid: string, signal?: AbortSignal) =>
+    getJson<GitDiffView>(P(sid, '/git-diff'), signal),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),

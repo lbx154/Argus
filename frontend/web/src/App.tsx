@@ -24,6 +24,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
 import { projectMissionView } from '../../core/src/missionView';
+import { useQueryClient } from '@tanstack/react-query';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -104,6 +105,7 @@ function Landing({
 
 export default function App() {
   const params = new URLSearchParams(window.location.search);
+  const queryClient = useQueryClient();
   const projectsQ = useProjects();
   const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
   const localCwd = projectsQ.data?.local_cwd ?? '';
@@ -207,6 +209,14 @@ export default function App() {
     if (locationId !== id) writeProjectLocation(id, mode);
   }, [activateProject]);
 
+  const prefetchProject = useCallback((id: string) => {
+    void queryClient.prefetchQuery({
+      queryKey: ['snapshot', id],
+      queryFn: ({ signal }) => api.snapshot(id, signal),
+      staleTime: 3_000,
+    });
+  }, [queryClient]);
+
   const createDaemon = async (name: string, objective: string): Promise<boolean> => {
     if (creatingDaemonRef.current) return false;
     creatingDaemonRef.current = true;
@@ -283,11 +293,12 @@ export default function App() {
 
   const snapQ = useSnapshot(activeSid);
   const snap = snapQ.data;
+  const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
-  const artifactsQ = useArtifacts(activeSid, true);
-  const gitDiffQ = useGitDiff(activeSid, workspaceView === 'mission');
-  const { events, connected } = useEventStream(activeSid);
-  const transcriptQ = useTranscript(activeSid, true, 120);
+  const artifactsQ = useArtifacts(loadedSid, true);
+  const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
+  const { events, connected } = useEventStream(loadedSid);
+  const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   const activityEvents = useMemo(() => {
     const liveCounts = new Map<string, number>();
@@ -648,6 +659,7 @@ export default function App() {
             selectProject(id);
             setSidebarOpen(false);
           }}
+          onPrefetch={prefetchProject}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}
@@ -764,7 +776,7 @@ export default function App() {
                 />
               </div>
               <ResearchCanvas
-                sid={activeSid}
+                sid={loadedSid}
                 artifacts={artifactsQ.data}
                 error={artifactsQ.isError}
                 onExpand={setArtifactPath}
