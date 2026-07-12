@@ -7,14 +7,8 @@ import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 
-const LIVE_ARTIFACT_SOURCES = new Set(['manager_live', 'research_registered']);
-
 export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
-  const declared = (artifacts ?? []).filter((item) =>
-    LIVE_ARTIFACT_SOURCES.has(item.source ?? ''));
-  if (declared.some((item) => item.exists)) return declared;
-  return (artifacts ?? []).filter((item) =>
-    item.source === 'reviewer_evidence' && item.exists);
+  return (artifacts ?? []).filter((item) => item.source === 'manager_live');
 }
 
 export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {

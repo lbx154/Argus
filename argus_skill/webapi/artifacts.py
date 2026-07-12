@@ -70,10 +70,16 @@ def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] 
     normalized = rel.as_posix()
     if normalized in {"", "."}:
         return None
+    from ..manager.live_view import normalize_live_view_path
+
+    if normalize_live_view_path(normalized) is None:
+        return None
     try:
         resolved = (workspace / normalized).resolve(strict=False)
-        resolved.relative_to(workspace)
+        resolved_relative = resolved.relative_to(workspace).as_posix()
     except (OSError, RuntimeError, ValueError):
+        return None
+    if normalize_live_view_path(resolved_relative) is None:
         return None
     return normalized, resolved
 

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .venue_profiles import VenueProfile, get_venue_profile, resolve_venue_profile
+from .venue_profiles import VenueProfile, resolve_venue_profile
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "research",

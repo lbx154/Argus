@@ -68,6 +68,35 @@ def test_session_resumes_and_persists_thread_id(tmp_path):
     assert sess.thread_id == "t2"
 
 
+def test_session_retries_fresh_when_persisted_resume_target_is_missing(tmp_path):
+    (tmp_path / _SESSION_FILE).write_text(
+        json.dumps({"thread_id": "stale-thread"}), encoding="utf-8"
+    )
+
+    class _MissingThenFreshRunner(_RecordingRunner):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.resumes.append(resume_thread_id)
+            if resume_thread_id:
+                result = _Result(thread_id=resume_thread_id)
+                result.exit_code = 1
+                result.fatal_error = (
+                    "Error: No session, task, or name matched 'stale-thread'."
+                )
+                return result
+            return _Result(thread_id="fresh-thread")
+
+    fake = _MissingThenFreshRunner()
+    result = _ManagerSession(fake, tmp_path).run_exec(
+        prompt="a", options=None, run_label="x"
+    )
+
+    assert fake.resumes == ["stale-thread", None]
+    assert result.thread_id == "fresh-thread"
+    assert json.loads(
+        (tmp_path / _SESSION_FILE).read_text(encoding="utf-8")
+    )["thread_id"] == "fresh-thread"
+
+
 def test_manager_session_root_is_independent_from_project_root(tmp_path):
     project_root = tmp_path / "same-workdir"
     session_root = tmp_path / "sessions" / "s-1"

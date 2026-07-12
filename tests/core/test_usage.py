@@ -100,6 +100,62 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
 
 
+def test_stale_copilot_resume_error_is_read_as_not_billed() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "stale-resume",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "Error: No session, task, or name matched 'old-thread'.",
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.pricing_tier == "not_started"
+    assert record.cost_usd == 0.0
+
+
+def test_daemon_stop_before_provider_start_is_read_as_not_billed() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "stopped-before-start",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "refused before start: daemon stop requested",
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.cost_usd == 0.0
+
+
+def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "billed-resume",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "premium_requests": 1.0,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "Error: No session, task, or name matched 'old-thread'.",
+    })
+
+    assert record.pricing_status == "partial"
+    assert record.cost_usd is None
+
+
 def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     record = build_usage_record(

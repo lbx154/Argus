@@ -20,6 +20,7 @@ from .codex_usage import TokenUsage, extract_token_usage
 from .copilot_usage import NANO_AIU_PER_USD, find_copilot_usage_near
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingStatus, quote_copilot_usage, quote_token_usage
+from .runner_errors import is_pre_provider_refusal_error
 
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
@@ -79,6 +80,35 @@ class UsageRecord:
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "UsageRecord":
         cost = _optional_float(row.get("cost_usd"))
+        pricing_status = _pricing_status(row.get("pricing_status"))
+        pricing_tier = str(row.get("pricing_tier") or "unknown")
+        error = str(row.get("error") or "")
+        if (
+            is_pre_provider_refusal_error(error)
+            and cost is None
+            and row.get("total_nano_aiu") is None
+            and not row.get("model_usage")
+            and not (_optional_float(row.get("premium_requests")) or 0.0)
+            and not (
+                _optional_float(row.get("premium_request_cost_usd")) or 0.0
+            )
+            and all(
+                row.get(field) is None
+                for field in (
+                    "input_tokens",
+                    "cached_input_tokens",
+                    "cache_write_tokens",
+                    "output_tokens",
+                    "reasoning_output_tokens",
+                )
+            )
+        ):
+            # Copilot rejects an unknown local resume ID before starting a
+            # provider turn. Older ledgers called this "partial", which made
+            # strict cost control permanently block every subsequent call.
+            pricing_status = "not_billed"
+            pricing_tier = "not_started"
+            cost = 0.0
         started_at = _float(row.get("started_at"), _float(row.get("ts"), 0.0))
         completed_at = _float(
             row.get("completed_at"),
@@ -102,8 +132,8 @@ class UsageRecord:
                 row.get("reasoning_output_tokens")
             ),
             premium_requests=_optional_float(row.get("premium_requests")),
-            pricing_status=_pricing_status(row.get("pricing_status")),
-            pricing_tier=str(row.get("pricing_tier") or "unknown"),
+            pricing_status=pricing_status,
+            pricing_tier=pricing_tier,
             cost_usd=cost,
             cost_basis=str(row.get("cost_basis") or ""),
             thread_id=_optional_text(row.get("thread_id")),
@@ -117,7 +147,7 @@ class UsageRecord:
             premium_request_cost_usd=_optional_float(
                 row.get("premium_request_cost_usd")
             ),
-            error=str(row.get("error") or ""),
+            error=error,
             source=(
                 "legacy.events"
                 if row.get("source") == "legacy.events"
@@ -170,8 +200,16 @@ def build_usage_record(
     source: UsageSource = "run_exec",
 ) -> UsageRecord:
     usage = token_usage or TokenUsage()
+    normalized_model_usage = _normalize_model_usage(model_usage)
     normalized_provider = str(provider or "").strip().lower()
-    if status == "denied":
+    missing_resume_target = (
+        is_pre_provider_refusal_error(error)
+        and total_nano_aiu is None
+        and not normalized_model_usage
+        and not usage.observed
+        and not (premium_requests or 0.0)
+    )
+    if status == "denied" or missing_resume_target:
         pricing_status: PricingStatus = "not_billed"
         pricing_tier = "not_started"
         cost_usd: float | None = 0.0
@@ -241,7 +279,7 @@ def build_usage_record(
         cost_basis=cost_basis,
         thread_id=_optional_text(thread_id),
         duration_ms=_duration_ms(started_at, completed_at),
-        model_usage=_normalize_model_usage(model_usage),
+        model_usage=normalized_model_usage,
         total_nano_aiu=total_nano_aiu,
         premium_request_cost_usd=quote_copilot_usage(premium_requests).cost_usd,
         error=str(error or "")[:2000],

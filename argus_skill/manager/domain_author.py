@@ -251,7 +251,9 @@ def build_vertical_decision_prompt(
         "— do not guess from the task sentence alone. Read `AGENTS.md`/`README` "
         "if present and look at the project's structure, language, and tooling "
         "so your choice fits what this specific repo actually needs. This is a "
-        "READ-ONLY investigation: do NOT edit, create, or delete any file.\n\n"
+        "Treat project/task artifacts as READ-ONLY: do NOT edit, create, or delete "
+        "files with tools. Manager presentation content is returned in your final "
+        "JSON and written by the harness under `.argus/live/`.\n\n"
         "## Built-in verticals (PREFER one of these when it fits the Task)\n"
         f"{menu}\n\n"
         f"## Existing project data domains (also selectable): {existing}\n\n"
@@ -282,8 +284,11 @@ def build_vertical_decision_prompt(
         "transport (text/image/PDF); it will NOT scan the repo or choose content "
         "for you. Set `live_view` to null when no side view is useful. Otherwise "
         "give a short title, why these files matter, and 1-6 workspace-relative "
-        "paths. You may name a planned output that does not exist yet if it is "
-        "the stable file the team will produce. Never expose secrets, credentials, "
+        "paths. Prefer an existing useful artifact. If the available output is "
+        "missing or unattractive, author a presentation-only Markdown/HTML view "
+        "in the `presentations` JSON field under `.argus/live/`; do not send that "
+        "work to Engineer or write it with tools. Never "
+        "expose secrets, credentials, "
         "private configuration, or a file merely because its extension looks "
         "renderable.\n\n"
         "## Task\n"
@@ -294,13 +299,16 @@ def build_vertical_decision_prompt(
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"live_view": null | {"title": "<short title>", "reason": "<why these '
-        'files>", "paths": ["<relative/path>", ...]}}\n'
+        'files>", "paths": ["<relative/path>", ...]}, "presentations": '
+        '[{"path": ".argus/live/<file>.md", "content": "<presentation>"}]}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
-        '"reason": "<why these files>", "paths": ["<relative/path>", ...]}}\n'
+        '"reason": "<why these files>", "paths": ["<relative/path>", ...]}, '
+        '"presentations": [{"path": ".argus/live/<file>.md", "content": '
+        '"<presentation>"}]}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
 

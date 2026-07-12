@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.runner_errors import result_has_missing_resume_target
 from ..skills import vertical_select
 from ..skills.vertical_select import (
     persist_vertical,
@@ -203,6 +204,17 @@ class _ManagerSession:
                     run_label=run_label,
                     resume_thread_id=tid,
                 )
+                if tid and result_has_missing_resume_target(result):
+                    try:
+                        self._session_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    result = gateway_run_exec(
+                        self.runner,
+                        prompt=prompt,
+                        options=options,
+                        run_label=run_label,
+                    )
                 new = getattr(result, "thread_id", None)
                 if new:
                     try:
@@ -505,7 +517,6 @@ class Manager:
             verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
             existing_data_domains=existing,
         )
-        safe_mode = _manager_safe_mode()
         with self._task_usage_scope(root_task_id):
             result = gateway_run_exec(
                 backend,
@@ -513,14 +524,24 @@ class Manager:
                 options=RunnerOptions(
                     reasoning_effort=_manager_reasoning_effort(),
                     working_dir=str(self.project_root),
-                    dangerous_yolo=not safe_mode,
-                    full_auto=safe_mode,
+                    sandbox_mode="read-only",
                     skip_git_repo_check=True,
                 ),
                 run_label="manager-vertical-decide",
             )
+        detail = str(getattr(result, "fatal_error", "") or "").strip()
+        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+            if not detail:
+                detail = "\n".join(
+                    map(str, getattr(result, "stderr_lines", None) or [])
+                ).strip()
+            raise VerticalDecisionError(
+                "Manager vertical decision backend failed"
+                + (f": {detail}" if detail else "")
+            )
+        answer = extract_answer(result)
         decision = parse_vertical_decision(
-            extract_answer(result),
+            answer,
             known_verticals=list(vertical_select.VERTICALS),
             existing_data_domains=existing,
         )
@@ -529,17 +550,13 @@ class Manager:
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
             )
-        # Rendering is advisory and must never block the task. Persist the
-        # Manager's grounded selection only after the read-only decision call
-        # returns; malformed/legacy responses leave the previous view intact.
+        # Rendering is advisory and must never block task routing. Manager may
+        # author bounded presentation content in its JSON; the harness performs
+        # the only write, confined to .argus/live.
         try:
-            from .live_view import apply_live_view_decision
+            from .live_view import apply_manager_rendering_response
 
-            apply_live_view_decision(
-                self.project_root,
-                decided=decision.live_view_decided,
-                view=decision.live_view,
-            )
+            apply_manager_rendering_response(self.project_root, answer)
         except Exception:  # noqa: BLE001
             log.debug("manager live-view persistence failed", exc_info=True)
         return decision
@@ -1019,6 +1036,8 @@ class Manager:
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort=_manager_reasoning_effort(),
+                        working_dir=str(root),
+                        sandbox_mode="read-only",
                         skip_git_repo_check=True,
                     ),
                     run_label="manager-stage",
@@ -1046,6 +1065,8 @@ class Manager:
             next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             earlier = order[:cur_idx] if cur_idx > 0 else []
             checklist_md = _format_checklist(cur, role="planner", project_root=root)
+            from .live_view import manager_rendering_prompt
+
             prompt = build_stage_decision_prompt(
                 current_stage=cur,
                 next_stage=next_stage,
@@ -1053,6 +1074,7 @@ class Manager:
                 checklist_md=checklist_md,
                 review=review,
                 planner_verdict=planner_verdict,
+                rendering_block=manager_rendering_prompt(root, review=review),
             )
             # Inject the Manager's fixed role skill (+ any matched adaptive
             # manager skill) ahead of the decision prompt. No-op when no
@@ -1084,6 +1106,27 @@ class Manager:
                     review, current_stage=cur, stage_order=order
                 )
             else:
+                try:
+                    from .live_view import (
+                        apply_manager_rendering_response,
+                        parse_live_view_response,
+                    )
+
+                    live_decided, _live_view = parse_live_view_response(raw)
+                    live_view = apply_manager_rendering_response(root, raw)
+                    if live_decided and on_event is not None:
+                        on_event({
+                            "type": "manager.live_view.updated",
+                            "title": live_view.title if live_view else "",
+                            "paths": list(live_view.paths) if live_view else [],
+                            "text": (
+                                f"Manager refreshed right sidebar: {live_view.title}"
+                                if live_view
+                                else "Manager cleared right sidebar"
+                            ),
+                        })
+                except Exception:  # noqa: BLE001 — rendering never blocks stage
+                    log.debug("manager live-view refresh failed", exc_info=True)
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )

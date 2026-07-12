@@ -26,8 +26,10 @@ class _DecisionRunner:
 
     def __init__(self, decision: dict) -> None:
         self._decision = decision
+        self.last_options = None
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.last_options = options
         return _DecisionResult(json.dumps(self._decision))
 
 
@@ -217,8 +219,12 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
         "live_view": {
             "title": "Live manuscript",
             "reason": "The operator should see the paper evolve.",
-            "paths": ["paper/main.tex", "paper/main.pdf"],
+            "paths": [".argus/live/current.md"],
         },
+        "presentations": [{
+            "path": ".argus/live/current.md",
+            "content": "# Current manuscript status\n",
+        }],
     })
 
     Manager(project_root=tmp_path, runner=runner).divide("write the paper")
@@ -227,7 +233,10 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
         (tmp_path / ".argus" / "live-view.json").read_text(encoding="utf-8")
     )
     assert payload["title"] == "Live manuscript"
-    assert payload["paths"] == ["paper/main.tex", "paper/main.pdf"]
+    assert payload["paths"] == [".argus/live/current.md"]
+    assert (tmp_path / ".argus" / "live" / "current.md").exists()
+    assert runner.last_options.sandbox_mode == "read-only"
+    assert runner.last_options.dangerous_yolo is False
 
 
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):

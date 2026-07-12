@@ -22,6 +22,7 @@ import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generat
 import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
+import { PendingReplyDialog } from '../components/PendingReplyDialog';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -40,6 +41,24 @@ describe('shared frontend core', () => {
     expect(typedUsageEvent.payload_schema_version).toBe(2);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
+  });
+
+  it('renders operator questions in a dedicated direct-reply dialog', () => {
+    const html = renderToStaticMarkup(createElement(PendingReplyDialog, {
+      reply: {
+        id: 'blocked-1',
+        title: 'Blocked task',
+        question: 'Which dataset should the process use?',
+      },
+      open: true,
+      busy: false,
+      onClose: () => undefined,
+      onSubmit: () => undefined,
+    }));
+    expect(html).toContain('Answer required');
+    expect(html).toContain('Which dataset should the process use?');
+    expect(html).toContain('Send answer');
+    expect(html).toContain('directly to the process');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {
@@ -165,11 +184,15 @@ describe('shared frontend core', () => {
 
     expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.pdf');
     expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
-    expect(selectPreferredLiveArtifact([artifacts[2]])?.path).toBe('review/private.pdf');
+    expect(selectPreferredLiveArtifact([{
+      ...artifacts[1],
+      source: 'research_registered' as const,
+    }])).toBeNull();
+    expect(selectPreferredLiveArtifact([artifacts[2]])).toBeNull();
     expect(selectPreferredLiveArtifact([
       { ...artifacts[0], exists: false },
       artifacts[2],
-    ])?.path).toBe('review/private.pdf');
+    ])).toBeNull();
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {
