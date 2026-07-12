@@ -780,8 +780,13 @@ def test_codex_quota_events_and_daily_denial(
         for line in (tmp_path / "usage.jsonl").read_text().splitlines()
     ]
     assert len(usage_rows) == 2
+    # The engineer-r1 call pins no model; codex echoes none either. It used to
+    # record an empty model -> "unpriced". Since the empty-model pricing fix it
+    # is attributed to the configured default model, so with no token counts in
+    # this synthetic result it is now "partial" (price known, tokens missing)
+    # rather than "unpriced".
     assert {row["pricing_status"] for row in usage_rows} == {
-        "unpriced",
+        "partial",
         "not_billed",
     }
 

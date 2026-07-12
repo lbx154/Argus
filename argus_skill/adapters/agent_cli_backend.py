@@ -100,6 +100,42 @@ def _compact_agent_io(run_label: str) -> bool:
     return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
 
 
+def resolve_pricing_model(
+    response_model: str | None,
+    request_model: str | None,
+    configured_default: str | None,
+) -> tuple[str, str]:
+    """Pick the model id to record for pricing, with a traceable fallback source.
+
+    Returns ``(model, fallback_source)``.  ``fallback_source`` is ``""`` when the
+    model came straight from the provider response (no fallback needed); it names
+    where the value was recovered from otherwise: ``"request"`` (the caller's
+    configured ``options.model``), ``"configured_default"`` (the backend's
+    resolved default model), or ``"none"`` (nothing usable — recorded empty so
+    pricing still, honestly, marks the call ``unpriced`` and the cost gate can
+    block).
+
+    The bug this fixes: a codex call that does not pin a model — e.g. every
+    ``Manager`` classify call, which builds ``RunnerOptions(...)`` with no
+    ``model=`` — gets no ``model`` echoed back in the codex response, so the
+    usage record used to be written with an empty model.  An empty model is
+    ``unpriced``, and one unresolved ``unpriced`` call trips ``cost_control``'s
+    block guard, freezing every subsequent provider call on the whole root.
+    Falling back to the configured/canonical model prices the call truthfully
+    (it IS the model codex used) instead of silently wedging the gate.
+    """
+    resp = str(response_model or "").strip()
+    if resp:
+        return resp, ""
+    req = str(request_model or "").strip()
+    if req:
+        return req, "request"
+    default = str(configured_default or "").strip()
+    if default:
+        return default, "configured_default"
+    return "", "none"
+
+
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
     """Return True iff any stderr line matches a known auth-failure pattern.
 
@@ -385,6 +421,29 @@ class AgentCliBackend:
         with self._usage_context_lock:
             return self._usage_project_root, self._usage_mission_id
 
+    def _configured_pricing_model(self) -> str:
+        """The model to attribute a call to when neither the provider response nor
+        the request pinned one.
+
+        Only codex needs this backfill: codex does not echo the served model in
+        its response, and the Manager's classify calls do not pin ``options.model``
+        (see :func:`resolve_pricing_model`).  Copilot prices via premium-request
+        counts and sets its own ``usage_model``; claude echoes its model — so both
+        return ``""`` here and keep their existing behaviour unchanged.  Resolves
+        through Argus's model precedence (role override -> ``ARGUS_SKILL_MODEL`` ->
+        persisted switch -> route default); falls back to the canonical codex
+        default only if that lookup fails, and never raises into the accounting
+        path.
+        """
+        if not self._is_codex:
+            return ""
+        try:
+            from ..core.knobs import resolve_role_model
+
+            return str(resolve_role_model("text") or "").strip() or "gpt-5.5"
+        except Exception:  # noqa: BLE001 — accounting must never break the call
+            return "gpt-5.5"
+
     # --- RunnerBackend.run_exec ------------------------------------------
 
     def run_exec(
@@ -464,12 +523,28 @@ class AgentCliBackend:
                         usage_recorded_event,
                     )
 
+                    pricing_model, model_fallback_source = resolve_pricing_model(
+                        result.usage_model,
+                        options.model,
+                        self._configured_pricing_model(),
+                    )
+                    if model_fallback_source == "configured_default":
+                        # Traceability without spamming the durable event tape:
+                        # the provider response AND the request both lacked a
+                        # model, so the call was priced via the configured
+                        # default rather than a model the provider named.
+                        log.debug(
+                            "codex model id empty for %s (call %s); pricing via "
+                            "configured default %s "
+                            "(raw_model_empty=True, model_fallback_source=%s)",
+                            run_label, call_id, pricing_model, model_fallback_source,
+                        )
                     record = build_usage_record(
                         call_id=call_id,
                         project_root=usage_project_root,
                         mission_id=usage_mission_id,
                         provider=self._backend_name,
-                        model=result.usage_model or str(options.model or ""),
+                        model=pricing_model,
                         run_label=run_label,
                         started_at=started_at,
                         completed_at=completed_at,
@@ -588,6 +663,13 @@ class AgentCliBackend:
             self._io_context.current = None
             return result
 
+        # Reservation happens before the provider responds, so there is no
+        # response model yet — attribute it to the request model, falling back to
+        # the configured default (same rule as the settled usage record) so the
+        # reservation ledger and its events never carry an empty codex model.
+        reservation_model = resolve_pricing_model(
+            None, options.model, self._configured_pricing_model(),
+        )[0]
         try:
             from ..core.cost_control import (
                 cost_control_enabled,
@@ -601,7 +683,7 @@ class AgentCliBackend:
                     project_root=usage_project_root,
                     mission_id=usage_mission_id,
                     provider=self._backend_name,
-                    model=str(options.model or ""),
+                    model=reservation_model,
                     run_label=run_label,
                     per_mission_cap_usd=mission_cap_from_guard(
                         self._budget_reason_provider
@@ -613,7 +695,7 @@ class AgentCliBackend:
                         "type": EventType.BUDGET_RESERVATION_DENIED,
                         "call_id": call_id,
                         "provider": self._backend_name,
-                        "model": str(options.model or ""),
+                        "model": reservation_model,
                         "run_label": run_label,
                         "reason": reserve_reason,
                     })
@@ -631,7 +713,7 @@ class AgentCliBackend:
                     "reservation_id": cost_reservation.reservation_id,
                     "call_id": call_id,
                     "provider": self._backend_name,
-                    "model": str(options.model or ""),
+                    "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
                     **cost_reservation.provider_fence.event_fields(),
@@ -642,7 +724,7 @@ class AgentCliBackend:
                 "type": EventType.BUDGET_RESERVATION_DENIED,
                 "call_id": call_id,
                 "provider": self._backend_name,
-                "model": str(options.model or ""),
+                "model": reservation_model,
                 "run_label": run_label,
                 "reason": reason,
             })
