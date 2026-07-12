@@ -107,7 +107,8 @@ __all__ = [
     "replace_project_daemon", "list_running_daemons",
     "update_project", "delete_project",
     "set_continuous", "get_status", "get_journal", "add_project_note",
-    "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
+    "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
+    "get_doctor", "get_config",
     "get_identity", "get_transcript",
     "get_backlog_item",
     "set_operator_config", "set_identity", "run_skill_command",
@@ -945,6 +946,37 @@ def get_backlog_item(
     return item.to_jsonable() if item is not None else None
 
 
+def abort_project_mission(
+    sid: str,
+    *,
+    reason: str = "",
+    requested_by: str = "operator",
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Request an immediate abort for this project's current mission."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    from ..tools.mission_control import request_current_mission_abort
+
+    requested, item_id = request_current_mission_abort(
+        life_dir,
+        reason=reason or "operator requested immediate stop",
+        requested_by=requested_by,
+    )
+    if requested:
+        return {
+            "requested": True,
+            "item_id": item_id,
+            "message": f"Stop requested for running task {item_id}.",
+        }
+    return {
+        "requested": False,
+        "item_id": None,
+        "message": "No running task to abort. Pending tasks were left unchanged.",
+    }
+
+
 def dispose_backlog(
     sid: str, item_id: str, op: str, *, global_root: Path | str | None = None
 ) -> dict[str, Any] | None:
@@ -1348,6 +1380,9 @@ def create_app(
 
     class _AnswerIn(BaseModel):
         text: str
+
+    class _AbortMissionIn(BaseModel):
+        reason: str = ""
 
     class _CommandIn(BaseModel):
         command_id: str = ""
@@ -2027,6 +2062,19 @@ def create_app(
         if item is None:
             raise HTTPException(status_code=404, detail=f"unknown backlog item: {item_id}")
         return {"item": item}
+
+    @app.post("/api/projects/{sid}/mission/abort", dependencies=[Depends(_require_auth)])
+    def _abort_mission(sid: str, body: _AbortMissionIn | None = None) -> dict[str, Any]:
+        request = body or _AbortMissionIn()
+        return _404_if_none(
+            abort_project_mission(
+                sid,
+                reason=request.reason,
+                requested_by="operator",
+                global_root=global_root,
+            ),
+            sid,
+        )
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/stop", dependencies=[Depends(_require_auth)])
     def _stop_item(sid: str, item_id: str) -> dict[str, Any]:

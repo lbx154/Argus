@@ -1,11 +1,6 @@
 """The merged cockpit front-door classifier (life.router.classify_front_door).
 
-ONE model call decides BOTH axes — config-intent (SET.../NONE) and route
-(SELF/TEAM → simple/complex) — replacing the two sequential classify calls the
-cockpit used to make. These drive it with a fake ``run_exec`` and assert the
-PARSING: both axes present, each axis falling to its OWN safe default in
-isolation (a malformed CONFIG never corrupts ROUTE and vice-versa), and the
-shared config-parse staying identical to classify_config_intent's.
+ONE model call decides config intent, operator control, and SELF/TEAM routing.
 """
 from __future__ import annotations
 
@@ -24,55 +19,92 @@ class _FakeResult:
 
 def _exec(answer: str, exit_code: int = 0):
     def run_exec(prompt: str):
-        assert "CONFIG:" in prompt and "ROUTE:" in prompt  # the merged prompt
+        assert all(label in prompt for label in ("CONFIG:", "CONTROL:", "ROUTE:"))
         return _FakeResult(answer, exit_code)
 
     return run_exec
 
 
 def test_both_axes_config_and_self() -> None:
-    intent, route = classify_front_door(
-        "用 copilot", run_exec=_exec("CONFIG: SET backend ALL copilot\nROUTE: SELF")
+    intent, control, route = classify_front_door(
+        "用 copilot",
+        run_exec=_exec(
+            "CONFIG: SET backend ALL copilot\nCONTROL: NONE\nROUTE: SELF"
+        ),
     )
     assert intent == ConfigIntent(knob="backend", roles=(), value="copilot")
+    assert control is None
     assert route == "simple"
 
 
 def test_none_config_and_team() -> None:
-    intent, route = classify_front_door(
-        "优化 kernel", run_exec=_exec("CONFIG: NONE\nROUTE: TEAM")
+    intent, control, route = classify_front_door(
+        "优化 kernel",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM"),
     )
     assert intent is None
+    assert control is None
     assert route == "complex"
 
 
 def test_role_scoped_config_with_route() -> None:
-    intent, route = classify_front_door(
-        "x", run_exec=_exec("CONFIG: SET effort engineer,reviewer high\nROUTE: SELF")
+    intent, control, route = classify_front_door(
+        "x",
+        run_exec=_exec(
+            "CONFIG: SET effort engineer,reviewer high\n"
+            "CONTROL: NONE\nROUTE: SELF"
+        ),
     )
     assert intent == ConfigIntent(knob="effort", roles=("engineer", "reviewer"), value="high")
+    assert control is None
     assert route == "simple"
 
 
 def test_malformed_config_does_not_corrupt_route() -> None:
     # A garbled CONFIG line → None, but ROUTE still parses independently.
-    intent, route = classify_front_door(
-        "hi", run_exec=_exec("CONFIG: total garbage words\nROUTE: SELF")
+    intent, control, route = classify_front_door(
+        "hi",
+        run_exec=_exec("CONFIG: total garbage words\nCONTROL: NONE\nROUTE: SELF"),
     )
     assert intent is None
+    assert control is None
     assert route == "simple"
 
 
 def test_missing_route_line_defaults_complex_config_still_parses() -> None:
-    intent, route = classify_front_door(
+    intent, control, route = classify_front_door(
         "x", run_exec=_exec("CONFIG: SET model engineer claude-sonnet-5")
     )
     assert intent == ConfigIntent(knob="model", roles=("engineer",), value="claude-sonnet-5")
+    assert control is None
     assert route == "complex"  # no ROUTE line → safe default
 
 
 def test_unrecognized_route_token_is_complex() -> None:
-    _, route = classify_front_door("x", run_exec=_exec("CONFIG: NONE\nROUTE: banana"))
+    _, control, route = classify_front_door(
+        "x",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: banana"),
+    )
+    assert control is None
+    assert route == "complex"
+
+
+def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
+    intent, control, route = classify_front_door(
+        "停止现在的任务",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: ABORT\nROUTE: TEAM"),
+    )
+    assert intent is None
+    assert control == "abort"
+    assert route == "simple"
+
+
+def test_question_about_stopping_is_not_a_control() -> None:
+    _, control, route = classify_front_door(
+        "怎么实现停止功能",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM"),
+    )
+    assert control is None
     assert route == "complex"
 
 
@@ -81,10 +113,10 @@ def test_empty_text_no_model_call() -> None:
 
     def _spy(prompt: str):
         called[0] += 1
-        return _FakeResult("CONFIG: NONE\nROUTE: SELF")
+        return _FakeResult("CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF")
 
-    intent, route = classify_front_door("   ", run_exec=_spy)
-    assert (intent, route) == (None, "complex")
+    intent, control, route = classify_front_door("   ", run_exec=_spy)
+    assert (intent, control, route) == (None, None, "complex")
     assert called[0] == 0  # never calls the model on empty input
 
 
@@ -92,29 +124,40 @@ def test_exec_error_is_safe_default() -> None:
     def _boom(prompt: str):
         raise RuntimeError("backend down")
 
-    assert classify_front_door("y", run_exec=_boom) == (None, "complex")
+    assert classify_front_door("y", run_exec=_boom) == (None, None, "complex")
 
 
 def test_nonzero_exit_is_safe_default() -> None:
-    intent, route = classify_front_door(
-        "y", run_exec=_exec("CONFIG: SET backend ALL codex\nROUTE: SELF", exit_code=1)
+    intent, control, route = classify_front_door(
+        "y",
+        run_exec=_exec(
+            "CONFIG: SET backend ALL codex\nCONTROL: NONE\nROUTE: SELF",
+            exit_code=1,
+        ),
     )
-    assert (intent, route) == (None, "complex")
+    assert (intent, control, route) == (None, None, "complex")
 
 
 def test_config_parse_parity_with_classify_config_intent() -> None:
     # The shared _parse_config_line means the merged path and the standalone
     # classifier must produce the SAME ConfigIntent for the same SET line.
     line = "SET effort engineer,reviewer high"
-    merged, _ = classify_front_door("x", run_exec=_exec(f"CONFIG: {line}\nROUTE: TEAM"))
+    merged, _, _ = classify_front_door(
+        "x",
+        run_exec=_exec(f"CONFIG: {line}\nCONTROL: NONE\nROUTE: TEAM"),
+    )
     # standalone uses its own (non-merged) prompt, so a plain run_exec here.
     standalone = classify_config_intent("x", run_exec=lambda p: _FakeResult(line))
     assert merged == standalone == ConfigIntent("effort", ("engineer", "reviewer"), "high")
 
 
 def test_prefixes_are_case_insensitive() -> None:
-    intent, route = classify_front_door(
-        "x", run_exec=_exec("config: SET safe_mode - on\nroute: self")
+    intent, control, route = classify_front_door(
+        "x",
+        run_exec=_exec(
+            "config: SET safe_mode - on\ncontrol: none\nroute: self"
+        ),
     )
     assert intent == ConfigIntent(knob="safe_mode", roles=(), value="on")
+    assert control is None
     assert route == "simple"

@@ -213,6 +213,35 @@ def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
     assert decision.reasoning_output_tokens == 3
 
 
+def test_reviewer_partial_message_with_interrupt_is_not_parsed_as_verdict() -> None:
+    fatal = (
+        "External interrupt: operator abort requested: "
+        "operator requested: stop now"
+    )
+    runner = _StubReviewerRunner(
+        agent_messages=['{"status":"continue"'],
+        in_tok=42,
+        out_tok=7,
+        exit_code=-15,
+        fatal_error=fatal,
+    )
+    decision = Reviewer(runner).evaluate(
+        objective="demo",
+        round_index=1,
+        session_id=None,
+        main_summary="implemented",
+        main_error=None,
+        config=ReviewerConfig(model="stub"),
+    )
+
+    assert decision.status == "blocked"
+    assert decision.backend_unavailable is True
+    assert decision.backend_fatal_error == fatal
+    assert decision.backend_exit_code == -15
+    assert decision.input_tokens == 42
+    assert decision.output_tokens == 7
+
+
 def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
     runner = _StubReviewerRunner(
         agent_messages=["this is not json at all"],

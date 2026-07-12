@@ -895,6 +895,17 @@ class AgentCliBackend:
             if self._is_copilot or codex_quota_active
             else None
         )
+        if interrupted:
+            reason = f"External interrupt: {interrupted}"
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=reason,
+                ),
+                status="denied",
+                error=reason,
+            )
         if self._is_copilot and not interrupted:
             from ..core.copilot_guard import (
                 acquire_copilot_permit,

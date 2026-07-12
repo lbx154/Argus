@@ -98,7 +98,9 @@ export interface CostControlSnapshot {
   day: string;
   active_reservations: number;
   reserved_usd: number;
+  unresolved_held_usd?: number;
   unresolved_calls: number;
+  blocking_unresolved_calls?: number;
   unresolved: Array<Record<string, unknown>>;
   fence_breach_calls?: number;
   fence_breaches?: Array<Record<string, unknown>>;

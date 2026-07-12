@@ -67,6 +67,7 @@ interface ActiveManagerRequest {
   id: number;
   project: string;
   controller: AbortController;
+  messageId: string;
 }
 
 export interface AppProps {
@@ -585,6 +586,12 @@ export function App({
       case '/cancel':
         stopWaiting();
         break;
+      case '/abort':
+        void api.abortMission('operator used /abort').then(
+          (result) => setNotice(result.message),
+          err,
+        );
+        break;
       case '/quit':
         quit();
         break;
@@ -688,7 +695,12 @@ export function App({
     const requestProject = projectRef.current;
     const requestId = ++managerEpochRef.current;
     const controller = new AbortController();
-    managerRequestRef.current = { id: requestId, project: requestProject, controller };
+    managerRequestRef.current = {
+      id: requestId,
+      project: requestProject,
+      controller,
+      messageId: '',
+    };
     const isCurrent = () => {
       const request = managerRequestRef.current;
       return Boolean(
@@ -708,12 +720,12 @@ export function App({
     setPending(true);
     setNotice('');
 
-    const say = (t: string) => {
+    const say = (t: string, messageId = replyId) => {
       if (!isCurrent()) return;
       setEvents((events) => isCurrent()
         ? [
             ...events,
-            { type: 'ui.argus', text: t, message_id: replyId, ts: Date.now() / 1000 } as EventMsg,
+            { type: 'ui.argus', text: t, message_id: messageId, ts: Date.now() / 1000 } as EventMsg,
           ]
         : events);
     };
@@ -726,10 +738,13 @@ export function App({
           onPhase: (label) => {
             if (isCurrent()) setPhase(label);
           },
-          onDelta: (block) => {
+          onDelta: (block, messageId) => {
             if (!isCurrent()) return;
             gotDelta = true;
-            say(block); // same message_id → EventLog merges into the growing reply
+            const activeMessageId = messageId || replyId;
+            const request = managerRequestRef.current;
+            if (request?.id === requestId) request.messageId = activeMessageId;
+            say(block, activeMessageId);
           },
           onDone: (result) => {
             if (!isCurrent()) return;
@@ -1106,7 +1121,12 @@ export function App({
               requestUsage={snap?.request_usage}
             />
           ) : null}
-          <EventLog events={events} width={terminal.columns} mode="conversation" />
+          <EventLog
+            events={events}
+            width={terminal.columns}
+            mode="conversation"
+            liveMessageId={managerRequestRef.current?.messageId}
+          />
           {pending && (
             <ThinkingLine
               tick={tick}
