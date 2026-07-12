@@ -4,6 +4,8 @@
 
 审阅基线：`ecaafa63fe552bb09d4eadb3a3049ead22454b06`（当时最新 `origin/main`）
 
+最终发布基底：`4156770`（完成前重新 fetch/rebase 的最新 `origin/main`）
+
 工作分支：`copilot/architecture-governance-20260712`
 
 独立 worktree：`/home/argustest/argus-architecture-governance`
@@ -15,24 +17,28 @@
 
 本次治理在固定基线上完成了 **847/847 个纳入范围的一方文件、197,114 行**
 全量审阅；随后对全部修改路径和新增模块完成 delta review。最终一方审阅范围为
-**848 个当前文件、197,853 行**，增加的是中立 source-writeback 模块。
+**850 个当前文件、199,951 行**。相对固定基线新增的一方文件是中立
+source-writeback 模块，以及 rebase 后主线新增的 runner-error contract 和
+PendingReply UI；三者均完成 delta review。
 
-本轮在 v1 的 16 个完整增量上继续完成 7 个增量，累计 **23 个**：
+本轮在 v1 的 16 个完整增量上继续完成 10 个增量，累计 **26 个**：
 
 - 用户指定的 4 个低风险问题全部完成。
 - `DOMAIN-TIDY-CYCLE-001` 次低风险问题完成。
 - 实际 sdist 构建发现并修复 Web bundle 发布缺口。
 - 独立 diff review 发现并修复通用 `--status` 生命周期事实源漏接。
+- 发布前独立 review 再发现并修复 achievement 无生产 emitter、sessionless Wiki
+  provenance 为 `unknown`、TOML evidence 被渲染层误拦三个缺口。
 
-最终 Python import 强连通分量由基线 **6 个**、v1 的 **3 个**进一步降至
-**2 个**；`domain_tidy ↔ skill_tidy` 循环已删除。剩余 SCC 为 entry/runtime
-大环和 checklist/vertical 环，没有包装成“整体解耦完成”。
+最终 Python import 强连通分量由基线 **6 个**降至 **2 个**；
+`domain_tidy ↔ skill_tidy` 循环已删除。剩余 SCC 为 entry/runtime 大环和
+checklist/vertical 环，没有包装成“整体解耦完成”。
 
 所有最终测试均针对本 worktree 的代码执行：
 
-- Python：**2,962/2,962**。
-- Web：**44/44**，typecheck 和 production build 通过。
-- TUI：**116/116**，typecheck 和 production build 通过。
+- Python：**2,997/2,997**。
+- Web：**46/46**，typecheck 和 production build 通过。
+- TUI：**117/117**，typecheck 和 production build 通过。
 - sdist → wheel 真实构建通过；隔离安装后可导入新增模块，Web/TUI 生产资源存在。
 
 精确清单见
@@ -56,20 +62,20 @@
 
 | 批次 | 当前文件 | 当前行数 | 变化 |
 | --- | ---: | ---: | --- |
-| B1 | 105 | 28,837 | 修改路径均完成 delta review |
-| B2 | 169 | 53,159 | 新增 `manager/source_writeback.py` |
-| B3 | 220 | 42,964 | 修改路径均完成 delta review |
-| B4 | 125 | 32,868 | 修改路径均完成 delta review |
+| B1 | 106 | 29,114 | 含主线新增 `core/runner_errors.py` 的 delta review |
+| B2 | 169 | 53,833 | 新增 `manager/source_writeback.py` |
+| B3 | 220 | 43,012 | 修改路径均完成 delta review |
+| B4 | 125 | 33,066 | 修改路径均完成 delta review |
 | B5 | 78 | 18,008 | 修改路径均完成 delta review |
-| B6 | 151 | 22,017 | 修改路径均完成 delta review |
-| **合计** | **848** | **197,853** | **全部当前一方文件有审阅证据** |
+| B6 | 152 | 22,918 | 含主线新增 `PendingReplyDialog.tsx` 的 delta review |
+| **合计** | **850** | **199,951** | **全部当前一方文件有审阅证据** |
 
-v2 inventory 有 1,162 行，是基线与最终工作树的审计并集：
+v2 inventory 有 1,166 行，是基线与最终工作树的审计并集：
 
-- 1,101 个路径与基线相同。
-- 57 个路径相对基线修改。
-- 2 个路径删除：旧 hashed Web bundle 和 operator 指定的 `UX_OVERHAUL.md`。
-- 2 个路径新增：`manager/source_writeback.py` 和最终 hashed Web bundle。
+- 1,052 个路径与基线相同。
+- 104 个路径相对基线修改。
+- 4 个路径删除：三个旧 Web 生成资源和 operator 指定的 `UX_OVERHAUL.md`。
+- 6 个路径新增：三个当前一方文件和三个最终 Web 生成资源。
 
 治理报告和 inventory 本身是审计元数据，不递归纳入自身清单。
 
@@ -117,7 +123,7 @@ argus-skill / argus
 | Skill | SkillStore/SkillRouter | project/global skill Markdown | matching summaries |
 | Wiki mutation | Reviewer `wiki_ops` → WikiRouter | `.autors/*/wiki` | planner/reviewer context |
 | Mission view | event projector | project-state `mission-view.json` | Web/TUI |
-| Achievement certification | Reviewer event | `research.achievement.certified` | mission view |
+| Achievement certification | Reviewer 结构化 verdict | `research.achievement.certified` | mission view |
 
 `--status` 现在明确分开两个根：
 
@@ -128,7 +134,7 @@ persisted lifecycle  -> bundle.project.root
 
 CLI、daemon 和 lifecycle admin 命令不再读取不同的 `lifecycle.json`。
 
-## 三、累计完成的 23 个完整增量
+## 三、累计完成的 26 个完整增量
 
 | 增量 | 根因 | 完整改动与删除路径 | 结果 |
 | --- | --- | --- | --- |
@@ -155,6 +161,9 @@ CLI、daemon 和 lifecycle admin 命令不再读取不同的 `lifecycle.json`。
 | INC-021 | `domain_tidy ↔ skill_tidy` | 提取 `manager/source_writeback.py`；迁移所有调用；删除反向 import 和旧导出 | SCC 3 → 2 |
 | INC-022 | sdist 忽略 Web `dist/`，最终 hash bundle 未跟踪，release identity 陈旧 | sdist artifact 显式纳入；强制跟踪最终 hash；按最终索引重建 identity/bundle | clean sdist 可重建可运行 wheel |
 | INC-023 | 通用 `--status` 仍从 worktree 读 persisted lifecycle | helper 显式接收 worktree/state root；增加 CLI 集成回归 | CLI 与 daemon 展示同一状态 |
+| INC-024 | `research.achievement.certified` 只有投影和测试，无生产权威 emitter | Reviewer schema/parser 增加可选结构化 achievement；仅 `done` verdict 由 SkillLoop 发唯一认证事件 | 认证重新由 Reviewer 事实源驱动 |
+| INC-025 | 无 `session_id` 的 Wiki hook 把 provenance 写成 `unknown` | 每次 SkillLoop run 生成稳定且唯一的 run ID，并在 review 前后复用 | sessionless 来源可追踪且不会跨 run 混同 |
+| INC-026 | artifact allowlist 接受 Reviewer 声明的 TOML，但共享渲染层拒绝读取 | 把 `.toml` 纳入统一可渲染文本后缀并补 API 回归 | `pyproject.toml` 等审阅证据可从 Web/TUI 打开 |
 
 ## 四、本轮五个指定问题的成本下降
 
@@ -202,15 +211,16 @@ skill_tidy  -> domain_tidy (单向 orchestration)
 
 ## 五、依赖图变化
 
-延续 v1 的 AST import-graph 口径：
+按“Python 文件为 module、仅记录精确命中的静态 import target、不把 package ancestor
+推断成依赖”的 AST 口径：
 
 ```text
-基线: 293 modules, 833 internal edges, 6 SCCs [23, 6, 5, 2, 2, 2]
-v1:   293 modules, 833 internal edges, 3 SCCs [23, 5, 2]
-v2:   294 modules, 836 internal edges, 2 SCCs [23, 5]
+基线: 293 modules, 799 internal edges, 6 SCCs [22, 6, 5, 2, 2, 2]
+最终: 295 modules, 805 internal edges, 2 SCCs [22, 5]
 ```
 
-边增加 3 条，因为新增中立模块和调用方改成显式依赖；这不是耦合下降指标。可验证的下降是：
+边增加 6 条，因为新增中立模块、主线 runner-error contract 和调用方显式依赖；
+这不是耦合下降指标。可验证的下降是：
 
 - 删除 `agent_cli_runner ↔ copilot_acp`。
 - 删除 supervisor core/helper/mixin 环。
@@ -219,7 +229,7 @@ v2:   294 modules, 836 internal edges, 2 SCCs [23, 5]
 
 剩余：
 
-- 23-module entry/runtime SCC。
+- 22-module entry/runtime SCC。
 - 5-module checklist/vertical SCC。
 
 ## 六、剩余架构 backlog
@@ -267,25 +277,28 @@ v2:   294 modules, 836 internal edges, 2 SCCs [23, 5]
 | --- | --- |
 | 指定五项 targeted Python | 118/118 |
 | Lifecycle SSOT targeted | 68/68 |
-| 全量 Python | **2,962/2,962**，62.47s |
-| Web | **44/44**；typecheck、production build 通过 |
-| TUI | **116/116**；typecheck、production build 通过 |
+| 发布前三个缺口 targeted Python | 52/52 |
+| 全量 Python | **2,997/2,997**，变基后最终树 41.62s |
+| Web | **46/46**；typecheck、production build 通过 |
+| TUI | **117/117**；typecheck、production build 通过 |
 | Event payload generator | `--check` 通过 |
-| Release manifest | `--check` 通过；`0.1.0+a96491553c9a3738` |
+| Release manifest | `--check` 通过；`0.1.0+a4d78c313b790385` |
 | Narrow mypy | 7 个新增/变更架构 seam 无错误 |
 | Changed-file Ruff | 通过 |
 | Diff whitespace | 通过 |
 | Python package | sdist 和由 sdist 重建的 wheel 通过 |
 | Installed wheel | 隔离 cwd/import 解析到 site-packages；Web/TUI 资源存在 |
-| Independent diff review | 两轮发现 3 个发布/SSOT 问题并修复；最终轮无高置信 finding |
+| Independent diff review | 早期轮发现 3 个发布/SSOT 问题，发布前轮再发现 3 个缺口；全部修复后最终独立 agent 无高置信 finding |
 
 一次最初的全量 `pytest` 调用了环境中的 editable
 `/home/argustest/argus-skill`，产生 26 个无效 collection error；该次运行未被计为验证。
-最终全量测试显式使用
+变基后最终全量测试显式使用
 `PYTHONPATH=/home/argustest/argus-architecture-governance`，并打印确认 import 来自本 worktree。
 
 全仓 Ruff/mypy 的既有基线债务没有在本轮顺手修复；本报告只声明 changed-file Ruff 和
-7 个本轮架构 seam 的 narrow mypy 结果。
+7 个本轮架构 seam 的 narrow mypy 结果。对发布前四个 Python 文件的附加 narrow mypy
+没有计为通过：它只报告 `loop.py` 6 个既有错误（两处 optional model 返回值、四处
+untyped usage dict 加法），`git blame` 和基线 diff 均确认不在本轮新增行。
 
 ## 八、交付状态
 
@@ -293,7 +306,8 @@ v2:   294 modules, 836 internal edges, 2 SCCs [23, 5]
 - 所有新增和修改源文件均完成 delta review。
 - 用户指定的低风险、次低风险问题全部闭环。
 - `UX_OVERHAUL.md` 的 operator 删除已纳入同一变更集。
+- 分支已在最终验证前变基到 `origin/main@4156770`。
 - 最终 commit、push 和 PR 信息由该分支的 Git/GitHub 元数据承载。
 
 Inventory SHA-256：
-`28bc2758d806e4dfbfb9a18c9303199db93f6b4f1dfe82232776815bbbe8f977`
+`a0add0f24c6f10bb4b2fcdaece3e5d39ee9c60e66c1ee850e41fb6dcf4210773`
