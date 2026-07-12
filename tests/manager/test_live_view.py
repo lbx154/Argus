@@ -6,6 +6,7 @@ from argus_skill.manager.live_view import (
     LIVE_VIEW_MANIFEST,
     LiveViewDecision,
     apply_live_view_decision,
+    format_live_view_contract,
     load_live_view_decision,
     normalize_live_view_path,
 )
@@ -41,3 +42,21 @@ def test_live_view_round_trip_and_explicit_clear(tmp_path) -> None:
     assert load_live_view_decision(tmp_path) == view
     apply_live_view_decision(tmp_path, decided=True, view=None)
     assert load_live_view_decision(tmp_path) is None
+
+
+def test_live_view_contract_exposes_exact_path_to_engineer(tmp_path) -> None:
+    apply_live_view_decision(
+        tmp_path,
+        decided=True,
+        view=LiveViewDecision(
+            title="赤壁赋",
+            paths=("chibifu.md",),
+            reason="Render the requested composition in the side panel.",
+        ),
+    )
+
+    contract = format_live_view_contract(tmp_path)
+
+    assert "Manager-selected live Web view" in contract
+    assert "`chibifu.md`" in contract
+    assert "Do not silently substitute a different path" in contract

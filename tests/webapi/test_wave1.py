@@ -301,6 +301,34 @@ def test_manager_live_view_is_available_during_active_work(ctx) -> None:
     assert preview.json()["preview"].startswith("# Live progress")
 
 
+def test_artifacts_prefer_executor_cwd_over_launch_metadata(ctx) -> None:
+    root, sid, life, client = ctx
+    launch = root / "launch-context"
+    launch.mkdir()
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Current output",
+            "reason": "Written by the isolated Web executor.",
+            "paths": ["result.md"],
+        }),
+        encoding="utf-8",
+    )
+    (life / "result.md").write_text("# Real executor output\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
+    )
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows[0]["path"] == "result.md"
+    assert rows[0]["exists"] is True
+    assert rows[0]["source"] == "manager_live"
+    assert rows[0]["group_title"] == "Current output"
+
+
 def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> None:
     root, sid, life, client = ctx
     workspace = _seed_result_artifacts(root, sid, life)

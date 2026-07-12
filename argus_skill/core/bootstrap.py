@@ -8,7 +8,6 @@ bootstrap artifacts.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from ..life.research_profile import load_research_profile
 __all__ = [
     "BootstrapPreflight",
     "inspect_project_bootstrap",
+    "structured_research_bootstrap_requested",
 ]
 
 _BUILD_MANIFESTS = (
@@ -66,7 +66,6 @@ _IGNORE_DIRS = {
     "venv",
 }
 
-_PACKAGE_SLUG_RE = re.compile(r"[^a-z0-9]+")
 _RESEARCH_BOOTSTRAP_ARTIFACTS = (
     "research/PIPELINE_STATE.json",
     "research/RESEARCH_BRIEF.md",
@@ -92,17 +91,35 @@ class BootstrapPreflight:
     event_text: str
 
 
+def structured_research_bootstrap_requested(project_root: Path) -> bool:
+    """Whether explicit project state calls for the research scaffold."""
+    if load_research_profile() is not None:
+        return True
+    try:
+        from ..manager import Manager
+        from ..skills.vertical_select import _persisted_vertical
+
+        vertical = _persisted_vertical(Path(project_root).expanduser())
+        return bool(vertical and Manager._kind_for(vertical) == "research")
+    except Exception:  # noqa: BLE001 — absence/corruption means no bootstrap
+        return False
+
+
 def inspect_project_bootstrap(
     project_root: Path,
     *,
     objective_hint: str = "",
+    research_requested: bool | None = None,
 ) -> BootstrapPreflight:
     """Classify ``project_root`` for an empty-project bootstrap task.
 
     ``objective_hint`` is accepted for caller compatibility but intentionally
-    ignored: the harness must not infer mission type from objective prose. The
-    research-vs-generic choice is driven solely by the structured research
-    profile (see ``_should_bootstrap_research``).
+    ignored: the harness must not infer mission type from objective prose.
+    Automatic bootstrap is limited to a structured research signal: either an
+    explicitly configured research profile or ``research_requested=True`` from
+    a caller that will gate the candidate on the Manager's persisted vertical.
+    All other empty workspaces belong to the selected agent vertical; the
+    harness must not force them into a Python-package shape.
     """
     del objective_hint
     root = Path(project_root).expanduser()
@@ -116,7 +133,6 @@ def inspect_project_bootstrap(
         if path.is_file()
     )
     source_files = _find_source_files(root)
-    research_artifacts = _find_research_artifacts(root)
     research_missing_artifacts = _find_missing_research_artifacts(root)
     missing_artifacts: list[str] = []
     if not has_git:
@@ -131,41 +147,31 @@ def inspect_project_bootstrap(
     bootstrap_objective = ""
     event_text = ""
     research_profile = load_research_profile()
-    research_requested = _should_bootstrap_research(research_profile)
+    wants_research = (
+        _should_bootstrap_research(research_profile)
+        if research_requested is None
+        else bool(research_requested)
+    )
     generic_empty = not has_git and not build_manifests and not readmes and not source_files
     research_incomplete = bool(research_missing_artifacts)
-    should_bootstrap = (
-        generic_empty
-        and (
-            (research_requested and research_incomplete)
-            or (not research_requested and not research_artifacts)
-        )
-    )
-    if should_bootstrap and research_requested and research_incomplete:
+    should_bootstrap = wants_research and research_incomplete
+    if should_bootstrap:
         bootstrap_objective = _research_bootstrap_objective(
             root,
             profile_name=research_profile.name if research_profile is not None else "",
         )
         missing_artifacts.extend(research_missing_artifacts)
-        event_text = (
+        prefix = (
             "uninitialized project root detected; missing .git, build manifest, "
-            "README*, and source files; research bootstrap requested; missing "
-            "research artifacts: "
+            "README*, and source files; "
+            if generic_empty
+            else "research scaffold incomplete; "
+        )
+        event_text = (
+            prefix
+            + "research bootstrap requested; missing research artifacts: "
             + ", ".join(research_missing_artifacts)
         )
-    elif should_bootstrap:
-        package_slug = _package_slug(root.name)
-        bootstrap_objective = (
-            "Bootstrap this empty project root: initialize git with `git init`, "
-            "create `pyproject.toml`, `README.md`, `tests/test_smoke.py`, and "
-            f"`src/{package_slug}/__init__.py`, then add a minimal package entry "
-            "pointing at that module."
-        )
-        event_text = (
-            "uninitialized project root detected; missing .git, build manifest, "
-            "README*, and source files"
-        )
-
     return BootstrapPreflight(
         project_root=root,
         has_git=has_git,
@@ -215,11 +221,6 @@ def _should_ignore(path: Path, root: Path) -> bool:
     except ValueError:
         return True
     return any(part in _IGNORE_DIRS or part.startswith(".") for part in rel_parts[:-1])
-
-
-def _package_slug(name: str) -> str:
-    slug = _PACKAGE_SLUG_RE.sub("_", name.strip().lower()).strip("_")
-    return slug or "project"
 
 
 def _should_bootstrap_research(profile: object | None) -> bool:

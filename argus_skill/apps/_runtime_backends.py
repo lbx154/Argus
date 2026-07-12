@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -268,87 +267,23 @@ class _MemoryRunner:
         workdir = self.workdir
         if workdir is None:
             return
-        # Whether (and which kind of) scaffold to seed is decided by the
-        # STRUCTURED preflight + research profile, never by sniffing the
-        # objective text for keywords like "emnlp" / "auto-research". The
-        # harness must not guess mission type from prose — that is the agent's
-        # call, and the research scaffold is opt-in via a configured profile.
-        from ..core.bootstrap import inspect_project_bootstrap
-        from ..life.research_profile import load_research_profile
+        # Only an explicitly configured research profile may trigger a
+        # deterministic scaffold. Other domains own their workspace shape.
+        from ..core.bootstrap import (
+            inspect_project_bootstrap,
+            structured_research_bootstrap_requested,
+        )
 
         root = Path(workdir).expanduser()
-        preflight = inspect_project_bootstrap(root)
+        research_requested = structured_research_bootstrap_requested(root)
+        preflight = inspect_project_bootstrap(
+            root,
+            research_requested=research_requested,
+        )
         if not preflight.should_bootstrap:
             return
-        if load_research_profile() is not None:
+        if research_requested:
             self._materialize_research_bootstrap_seed(objective)
-            return
-        root.mkdir(parents=True, exist_ok=True)
-
-        git_dir = root / ".git"
-        if not git_dir.exists():
-            try:
-                subprocess.run(
-                    ["git", "init"],
-                    cwd=root,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-            except OSError:
-                pass
-        if not git_dir.exists():
-            git_dir.mkdir(parents=True, exist_ok=True)
-
-        package_slug = re.sub(r"[^a-z0-9]+", "_", root.name.lower()).strip("_") or "project"
-        pyproject = root / "pyproject.toml"
-        if not pyproject.exists():
-            pyproject.write_text(
-                "\n".join(
-                    [
-                        "[build-system]",
-                        'requires = ["setuptools>=68", "wheel"]',
-                        'build-backend = "setuptools.build_meta"',
-                        "",
-                        "[project]",
-                        f'name = "{package_slug.replace("_", "-")}"',
-                        'version = "0.1.0"',
-                        'description = "Bootstrap package."',
-                        'readme = "README.md"',
-                        'requires-python = ">=3.10"',
-                        "",
-                        "[tool.setuptools]",
-                        'package-dir = {"" = "src"}',
-                        "",
-                        "[tool.setuptools.packages.find]",
-                        'where = ["src"]',
-                        "",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-        readme = root / "README.md"
-        if not readme.exists():
-            readme.write_text(
-                f"# {root.name}\n\nMinimal Python package bootstrap.\n",
-                encoding="utf-8",
-            )
-        package_init = root / "src" / package_slug / "__init__.py"
-        if not package_init.exists():
-            package_init.parent.mkdir(parents=True, exist_ok=True)
-            package_init.write_text(
-                f'"""{root.name} package."""\n',
-                encoding="utf-8",
-            )
-        smoke_test = root / "tests" / "test_smoke.py"
-        if not smoke_test.exists():
-            smoke_test.parent.mkdir(parents=True, exist_ok=True)
-            smoke_test.write_text(
-                "def test_package_import():\n"
-                f"    import {package_slug}\n\n"
-                f"    assert {package_slug}.__name__ == \"{package_slug}\"\n",
-                encoding="utf-8",
-            )
 
     def execute(
         self,

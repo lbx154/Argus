@@ -37,7 +37,10 @@ except ImportError:  # pragma: no cover - detached daemon is POSIX-only
     _fcntl = None
 
 from ..core import paths as core_paths
-from ..core.bootstrap import inspect_project_bootstrap
+from ..core.bootstrap import (
+    inspect_project_bootstrap,
+    structured_research_bootstrap_requested,
+)
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -426,7 +429,7 @@ class LifeWorker:
         sink: Any,
         preflight: Any,
     ) -> bool:
-        """Enqueue the bootstrap backlog item once per empty project root."""
+        """Enqueue an explicitly requested research bootstrap once."""
         title = "bootstrap empty project root"
         try:
             existing = [
@@ -631,34 +634,18 @@ class LifeWorker:
             verbosity=getattr(cfg, "event_log_verbosity", "signal"),
         )
 
-        # Classify the bootstrap need NOW (before the Manager's divide() below
-        # can write anything to the project root), but DEFER the actual seed
-        # call — see the "bootstrap_preflight_pending" trigger a bit further
-        # down, right after the Manager's divide() has had a chance to persist
-        # the vertical. Splitting classify-now/act-later closes the write-order
-        # race documented in GROUND_TRUTH.md CLASSIFY_BY_VERTICAL §(f): the old
-        # code ran ``_seed_bootstrap_task`` (which synchronously renders
-        # ``AGENTS.md`` via ``_seed_project_agents_and_venv``) unconditionally
-        # here, BEFORE ``mgr.divide()`` had any chance to resolve+persist the
-        # vertical a few dozen lines below — so a fresh project whose objective
-        # should resolve to a research-kind vertical (e.g. ``quant``) still saw
-        # ``vertical=None`` at AGENTS.md-render time and got permanently sealed
-        # onto the lean/optimize contract (the write-once guard at
-        # ``agents_path.exists()`` never re-renders it). The classification
-        # (``inspect_project_bootstrap``) itself MUST stay here, before
-        # ``divide()`` runs: ``divide()``/``persist_vertical`` writes
-        # ``research/PIPELINE_STATE.json``, which is itself one of
-        # ``_RESEARCH_BOOTSTRAP_ARTIFACTS`` (``core/bootstrap.py``) — computing
-        # the preflight AFTER divide() would make a genuinely empty project
-        # look like it already has a "research artifact" and wrongly flip
-        # ``should_bootstrap`` to False, silently skipping the bootstrap
-        # entirely. So: decide-early (before any writes), act-late (after the
-        # vertical is resolved).
+        # Capture an empty-root RESEARCH bootstrap candidate before Manager.divide
+        # writes PIPELINE_STATE, but do not enqueue it yet. After divide, only a
+        # structured research signal (persisted research/quant vertical or an
+        # explicit research profile) may activate it. Custom domains such as
+        # composition own their workspace shape and never receive a Python
+        # package bootstrap from the harness.
         bootstrap_preflight_pending = None
         if cfg.project_workdir is not None:
             bootstrap_preflight = inspect_project_bootstrap(
                 cfg.project_workdir,
                 objective_hint=cfg.continuous_objective,
+                research_requested=True,
             )
             if bootstrap_preflight.should_bootstrap:
                 bootstrap_preflight_pending = bootstrap_preflight
@@ -774,7 +761,12 @@ class LifeWorker:
         # bootstrap seed. ``_seed_project_agents_and_venv`` re-reads the
         # persisted vertical itself, so this ordering is what actually closes
         # the race — no vertical is threaded through by hand here.
-        if bootstrap_preflight_pending is not None:
+        if (
+            bootstrap_preflight_pending is not None
+            and structured_research_bootstrap_requested(
+                Path(bootstrap_preflight_pending.project_root)
+            )
+        ):
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the

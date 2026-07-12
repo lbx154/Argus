@@ -92,6 +92,25 @@ def load_live_view_decision(project_root: Path | str) -> LiveViewDecision | None
     return parse_live_view(payload)
 
 
+def format_live_view_contract(project_root: Path | str) -> str:
+    """Render the Manager's selected operator-facing files for the Engineer."""
+    view = load_live_view_decision(project_root)
+    if view is None:
+        return ""
+    paths = "\n".join(f"- `{path}`" for path in view.paths)
+    reason = f"\nWhy these files: {view.reason}" if view.reason else ""
+    return (
+        "## Manager-selected live Web view\n"
+        f"Panel title: {view.title}\n"
+        "The right sidebar reads exactly these workspace-relative files:\n"
+        f"{paths}{reason}\n\n"
+        "Create or update the selected file(s) when they are deliverables of "
+        "this task. Do not silently substitute a different path: the operator "
+        "would see an empty panel. If a selected path is no longer appropriate, "
+        "state that explicitly for the Manager instead of pretending it rendered."
+    )
+
+
 def apply_live_view_decision(
     project_root: Path | str,
     *,
@@ -137,6 +156,7 @@ __all__ = [
     "MAX_LIVE_VIEW_ITEMS",
     "LiveViewDecision",
     "apply_live_view_decision",
+    "format_live_view_contract",
     "load_live_view_decision",
     "normalize_live_view_path",
     "parse_live_view",

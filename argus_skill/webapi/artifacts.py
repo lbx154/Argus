@@ -29,10 +29,13 @@ def project_workspace(
 ) -> Path | None:
     root = resolve_global_root(global_root)
     meta = read_session_meta(root, sid)
-    if meta is None or not (meta.launch_cwd.strip() or meta.cwd.strip()):
+    if meta is None or not (meta.cwd.strip() or meta.launch_cwd.strip()):
         return None
     try:
-        workspace = Path(meta.launch_cwd or meta.cwd).expanduser().resolve(strict=True)
+        # ``cwd`` is the executor's actual workspace. For isolated Web/TUI
+        # sessions it is the life-dir where Manager, Engineer, and Reviewer
+        # write artifacts; ``launch_cwd`` is operator metadata used for grouping.
+        workspace = Path(meta.cwd or meta.launch_cwd).expanduser().resolve(strict=True)
     except (OSError, RuntimeError):
         return None
     return workspace if workspace.is_dir() else None

@@ -77,18 +77,18 @@ def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> 
     assert status.life_dir == tmp_path
 
 
-def test_inspect_project_bootstrap_detects_empty_repo(tmp_path: Path) -> None:
+def test_inspect_project_bootstrap_leaves_generic_empty_repo_to_agent(
+    tmp_path: Path,
+) -> None:
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
 
     preflight = inspect_project_bootstrap(repo_dir)
 
-    assert preflight.should_bootstrap is True
+    assert preflight.should_bootstrap is False
     assert preflight.missing_artifacts == (".git", "build manifest", "README*", "source files")
-    assert "pyproject.toml" in preflight.bootstrap_objective
-    assert "README.md" in preflight.bootstrap_objective
-    assert f"src/{repo_dir.name.replace('-', '_')}/__init__.py" in preflight.bootstrap_objective
-    assert "uninitialized project root" in preflight.event_text
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
 
 
 def test_inspect_project_bootstrap_detects_research_profile(
@@ -117,8 +117,7 @@ def test_inspect_project_bootstrap_ignores_objective_keywords(
 ) -> None:
     # Philosophy: the harness must NOT sniff the objective text for keywords
     # like "emnlp" / "auto-research" to choose a research scaffold. Without a
-    # structured research profile, a research-sounding objective falls back to
-    # the GENERIC bootstrap — the agent decides the science, not the harness.
+    # structured research profile, workspace shape belongs to the agent.
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
     repo_dir = tmp_path / "empty-repo"
@@ -129,11 +128,28 @@ def test_inspect_project_bootstrap_ignores_objective_keywords(
         objective_hint="EMNLP auto-research bootstrap mission",
     )
 
+    assert preflight.should_bootstrap is False
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
+
+
+def test_structured_research_candidate_does_not_sniff_objective(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+
+    preflight = inspect_project_bootstrap(
+        repo_dir,
+        objective_hint="写一篇赤壁赋",
+        research_requested=True,
+    )
+
     assert preflight.should_bootstrap is True
-    # Generic bootstrap, NOT the research seed.
-    assert "pyproject.toml" in preflight.bootstrap_objective
-    assert "research bootstrap mission" not in preflight.bootstrap_objective.lower()
-    assert "research bootstrap requested" not in preflight.event_text
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
 
 
 def test_inspect_project_bootstrap_heals_partial_research_seed(
@@ -157,6 +173,48 @@ def test_inspect_project_bootstrap_heals_partial_research_seed(
     assert "research/EXPERIMENT_PLAN.md" in preflight.missing_artifacts
     assert "research bootstrap requested" in preflight.event_text
     assert "missing research artifacts" in preflight.event_text
+
+
+def test_explicit_research_profile_repairs_code_bearing_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "existing-code"
+    source = repo_dir / "src" / "package" / "__init__.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is True
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
+    assert preflight.event_text.startswith("research scaffold incomplete")
+    assert "uninitialized project root" not in preflight.event_text
+
+
+def test_memory_runner_repairs_research_after_starter_code_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.apps._runtime_backends import _MemoryRunner
+
+    source = tmp_path / "code" / "experiment_io.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# seeded before backlog execution\n", encoding="utf-8")
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "quant")
+    runner = _MemoryRunner()
+    runner.workdir = tmp_path
+
+    runner._materialize_bootstrap_skeleton("research objective")
+
+    assert (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    assert (tmp_path / "research" / "RESEARCH_BRIEF.md").exists()
+    assert (tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
 
 
 def test_inspect_project_bootstrap_treats_research_seed_as_initialized(
