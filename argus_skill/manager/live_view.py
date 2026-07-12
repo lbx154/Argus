@@ -49,7 +49,7 @@ _RENDERABLE_SUFFIXES = frozenset({
     ".aac", ".bib", ".cfg", ".csv", ".flac", ".gif", ".html", ".ini",
     ".ipynb", ".jpeg", ".jpg", ".json", ".jsonl", ".log", ".m4a", ".m4v",
     ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
-    ".png", ".py", ".rst", ".sh", ".tex", ".ts", ".tsv", ".txt", ".wav",
+    ".png", ".py", ".rst", ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
     ".webm", ".webp", ".yaml", ".yml",
 })
 

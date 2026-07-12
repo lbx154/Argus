@@ -262,7 +262,8 @@
         "scope": {"type": "string"},
         "checklist": {"type": "array", "items": {"type": "object"}},
         "planner_report": {"type": "object"},
-        "checkpoint": {"type": "object"}
+        "checkpoint": {"type": "object"},
+        "achievement": {"type": ["object", "null"]}
       }
     },
     "life.planner.start": {

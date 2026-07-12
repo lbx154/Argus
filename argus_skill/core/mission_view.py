@@ -31,7 +31,7 @@ _THREAD_LOCKS_GUARD = threading.Lock()
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 
 def empty_mission_view() -> dict[str, Any]:
@@ -125,6 +125,12 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     for key, value in storage_defaults.items():
         storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
+    achievement = payload.get("achievement")
+    if (
+        isinstance(achievement, dict)
+        and str(achievement.get("id") or "").startswith("derived-")
+    ):
+        payload["achievement"] = None
     return payload
 
 
@@ -710,12 +716,55 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             )
 
     elif event_type == EventType.RESEARCH_ACHIEVEMENT_CERTIFIED:
+        metric_id = _text(event, "metric_id")
+        metric = next(
+            (
+                row
+                for row in view.get("metrics", [])
+                if str(row.get("id") or "") == metric_id
+            ),
+            None,
+        )
+        baseline = metric.get("baseline") if metric else None
+        metric_value = metric.get("value") if metric else None
+        mission = view.get("mission", {})
+        started = mission.get("started_at")
+        completed = mission.get("completed_at")
+        elapsed = (
+            max(0.0, float(completed) - float(started))
+            if started and completed
+            else 0.0
+        )
         view["achievement"] = {
             "id": _text(event, "achievement_id"),
             "title": _text(event, "title", 240),
             "goal": _text(event, "goal", 2000),
             "summary": _text(event, "summary", 2000),
-            "metric_id": _text(event, "metric_id"),
+            "metric_id": metric_id,
+            "metric_name": metric.get("name") if metric else "",
+            "baseline": baseline,
+            "best": metric_value,
+            "gain": (
+                float(metric_value) - float(baseline)
+                if metric_value is not None and baseline is not None
+                else None
+            ),
+            "unit": metric.get("unit") if metric else "",
+            "experiments_run": sum(
+                1
+                for row in view.get("experiments", [])
+                if row.get("status") == "completed"
+            ),
+            "rejected_attempts": int(
+                view.get("review", {}).get("rejected_attempts") or 0
+            ),
+            "skills_learned": sum(
+                1
+                for row in view.get("learned_skills", [])
+                if row.get("status") == "active"
+            ),
+            "artifacts": len(view.get("artifacts", [])),
+            "elapsed_seconds": elapsed,
             "evidence": list(event.get("evidence") or []),
             "reviewer_certified": True,
             "certified_at": ts,
@@ -732,9 +781,8 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         })
         _set_role(view, "engineer", "done" if success else "error", "Mission complete" if success else "Mission failed", ts)
         _timeline(view, event, role="engineer", title="Mission achievement" if success else "Mission failed", detail=_text(event, "title") or _text(event, "status"), tone="success" if success else "error")
-
     _refresh_primary_metric(view)
-    _refresh_achievement(view)
+    _refresh_primary_metric(view)
     view["updated_at"] = time.time()
     return view
 
@@ -758,41 +806,6 @@ def _refresh_primary_metric(view: dict[str, Any]) -> None:
     else:
         best = max(same, key=lambda metric: float(metric.get("value")))
     view["primary_metric"] = dict(best)
-
-
-def _refresh_achievement(view: dict[str, Any]) -> None:
-    mission = view.get("mission", {})
-    metric = view.get("primary_metric")
-    if mission.get("status") != "complete" or not metric:
-        return
-    if metric.get("verification_status") != "accepted":
-        return
-    if view.get("achievement") and view["achievement"].get("reviewer_certified"):
-        return
-    started = mission.get("started_at")
-    completed = mission.get("completed_at")
-    elapsed = max(0.0, float(completed) - float(started)) if started and completed else 0.0
-    baseline = metric.get("baseline")
-    value = metric.get("value")
-    gain = (float(value) - float(baseline)) if value is not None and baseline is not None else None
-    view["achievement"] = {
-        "id": f"derived-{mission.get('id') or 'mission'}",
-        "title": mission.get("title") or "Argus achievement",
-        "goal": mission.get("objective") or mission.get("title") or "",
-        "metric_id": metric.get("id"),
-        "metric_name": metric.get("name"),
-        "baseline": baseline,
-        "best": value,
-        "gain": gain,
-        "unit": metric.get("unit") or "",
-        "experiments_run": sum(1 for row in view.get("experiments", []) if row.get("status") == "completed"),
-        "rejected_attempts": int(view.get("review", {}).get("rejected_attempts") or 0),
-        "skills_learned": sum(1 for row in view.get("learned_skills", []) if row.get("status") == "active"),
-        "artifacts": len(view.get("artifacts", [])),
-        "elapsed_seconds": elapsed,
-        "reviewer_certified": True,
-        "certified_at": completed,
-    }
 
 
 def update_mission_view_event(root: Path | str, event: Mapping[str, Any]) -> dict[str, Any]:
@@ -902,7 +915,6 @@ def merge_mission_view_snapshot(
         mission["elapsed_seconds"] = max(0.0, float(mission["completed_at"]) - float(mission["started_at"]))
     view["updated_at"] = now
     _refresh_primary_metric(view)
-    _refresh_achievement(view)
     return view
 
 

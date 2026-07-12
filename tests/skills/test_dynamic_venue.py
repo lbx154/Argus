@@ -5,7 +5,6 @@ built-in EMNLP/AAAI venues."""
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,7 @@ import pytest
 from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     EMNLP_PROFILE,
+    FRONTIERS_SLEEP_PROFILE,
     VenueProfile,
     is_builtin_venue,
     load_local_venue_profile,
@@ -20,14 +20,14 @@ from argus_skill.skills.venue_profiles import (
     venue_profile_path,
     write_venue_profile,
 )
+from argus_skill.skills.venue_research import (
+    needs_venue_research,
+    research_venue_profile,
+)
 from argus_skill.verticals.research.stages import (
     REVIEWER_CHECKLISTS_EMNLP,
     build_reviewer_checklists,
     reviewer_checklists_for,
-)
-from argus_skill.skills.venue_research import (
-    needs_venue_research,
-    research_venue_profile,
 )
 
 
@@ -57,7 +57,9 @@ def _project(tmp_path: Path, target_venue: str) -> Path:
 
 # ---- (de)serialization ----------------------------------------------------
 
-@pytest.mark.parametrize("profile", [EMNLP_PROFILE, AAAI_PROFILE])
+@pytest.mark.parametrize(
+    "profile", [EMNLP_PROFILE, AAAI_PROFILE, FRONTIERS_SLEEP_PROFILE]
+)
 def test_venue_profile_json_round_trip(profile):
     rt = VenueProfile.from_dict(json.loads(json.dumps(profile.to_dict())))
     assert rt == profile

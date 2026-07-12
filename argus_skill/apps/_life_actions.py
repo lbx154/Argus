@@ -452,7 +452,8 @@ def render_skills_cmd(tokens: Sequence[str]) -> str:
             to_vertical = rest[i + 1].strip().lower()
 
         from ..core import paths as core_paths
-        from ..manager.skill_tidy import commit_to_source, write_skill_to_source
+        from ..manager.skill_tidy import write_skill_to_source
+        from ..manager.source_writeback import commit_to_source
         from ..skills.store import SkillStore
         from ..skills.vertical_select import VERTICALS
 

@@ -9,6 +9,7 @@ import json
 import types
 
 from argus_skill.manager import domain_tidy as dt
+from argus_skill.manager import source_writeback
 from argus_skill.skills import checklist_store as cs
 from argus_skill.verticals import _data_domain as dd
 
@@ -63,3 +64,25 @@ def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch)
     assert [i.id for i in mod.CHECKLIST_ITEMS["simulate"]] == ["simulate.seeds"]
     assert set(mod.STAGE_CHECKS) == set(mod.STAGE_ORDER)
     assert callable(mod.role_banner)
+
+
+def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
+    _seed_proven_domain(tmp_path)
+    verticals_root = tmp_path / "source" / "verticals"
+    monkeypatch.setattr(dt, "_verticals_root", lambda: verticals_root)
+    committed = []
+    monkeypatch.setattr(
+        source_writeback,
+        "commit_to_source",
+        lambda paths, _message: committed.extend(paths) or True,
+    )
+
+    stages_path = dt.promote_data_domain(
+        tmp_path, "robotics_sim", approved=True
+    )
+
+    assert stages_path == verticals_root / "robotics_sim" / "stages.py"
+    assert stages_path.is_file()
+    assert (stages_path.parent / "__init__.py").is_file()
+    assert committed == [stages_path.parent / "__init__.py", stages_path]

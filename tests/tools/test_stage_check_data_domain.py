@@ -142,8 +142,10 @@ def test_stage_check_knowledge_curation_review_uses_curation_gate(
         encoding="utf-8",
     )
 
-    skills = tmp_path / "skills"
-    skills.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_SKILLS_DIR", raising=False)
+    skills = tmp_path / "argus-home" / "skills"
+    skills.mkdir(parents=True)
     (skills / "grpo-practical-tricks.md").write_text(
         "---\n"
         "name: grpo-practical-tricks\n"
@@ -152,8 +154,6 @@ def test_stage_check_knowledge_curation_review_uses_curation_gate(
         "---\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(skills))
-
     _write_json(
         tmp_path / "research" / "REVIEW_CERTIFICATION.json",
         {

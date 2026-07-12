@@ -28,9 +28,13 @@ spent_usd, etc.) is recomputed from the project tree each tick.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .project_lifecycle import (
     LifecycleEvent,
@@ -38,9 +42,16 @@ from .project_lifecycle import (
     ProjectStatus,
 )
 
+try:  # pragma: no cover - production daemons are POSIX
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
 LIFECYCLE_FILENAME = "lifecycle.json"
 
 _HISTORY_MAX = 200  # cap to keep file size bounded
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
 
 
 class LifecycleIOError(Exception):
@@ -50,6 +61,29 @@ class LifecycleIOError(Exception):
 
 def lifecycle_path(memory_root: Path) -> Path:
     return Path(memory_root) / LIFECYCLE_FILENAME
+
+
+@contextmanager
+def _lifecycle_lock(memory_root: Path) -> Iterator[None]:
+    root = Path(memory_root)
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / "lifecycle.lock"
+    key = str(lock_path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    with thread_lock:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            os.close(fd)
 
 
 def _parse_iso(s: Any) -> datetime | None:
@@ -136,8 +170,21 @@ def write_persisted(
 
     ``history`` is capped at the most recent ``_HISTORY_MAX`` events.
     """
+    with _lifecycle_lock(memory_root):
+        return _write_persisted_unlocked(
+            memory_root,
+            status=status,
+            history=history,
+        )
+
+
+def _write_persisted_unlocked(
+    memory_root: Path,
+    *,
+    status: ProjectStatus,
+    history: list[LifecycleEvent] | None = None,
+) -> Path:
     path = lifecycle_path(memory_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
     history = (history or [])[-_HISTORY_MAX:]
     payload = {
         "state": status.state.value,
@@ -151,9 +198,24 @@ def write_persisted(
         ),
         "history": [e.to_dict() for e in history],
     }
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
     return path
 
 
@@ -168,28 +230,33 @@ def append_event(
     Tolerates a corrupt sidecar by starting fresh — never crashes the
     supervisor on bad persisted state.
     """
-    try:
-        persisted = load_persisted(memory_root)
-    except LifecycleIOError:
-        persisted = {}
-    history_raw = persisted.get("history") or []
-    history: list[LifecycleEvent] = []
-    for entry in history_raw:
-        if not isinstance(entry, dict):
-            continue
+    with _lifecycle_lock(memory_root):
         try:
-            history.append(
-                LifecycleEvent(
-                    at=_parse_iso(entry.get("at")) or datetime.now(timezone.utc),
-                    from_state=ProjectState(entry["from_state"]),
-                    to_state=ProjectState(entry["to_state"]),
-                    reason=str(entry.get("reason", "")),
+            persisted = load_persisted(memory_root)
+        except LifecycleIOError:
+            persisted = {}
+        history_raw = persisted.get("history") or []
+        history: list[LifecycleEvent] = []
+        for entry in history_raw:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                history.append(
+                    LifecycleEvent(
+                        at=_parse_iso(entry.get("at")) or datetime.now(timezone.utc),
+                        from_state=ProjectState(entry["from_state"]),
+                        to_state=ProjectState(entry["to_state"]),
+                        reason=str(entry.get("reason", "")),
+                    )
                 )
-            )
-        except (KeyError, ValueError):
-            continue
-    history.append(event)
-    return write_persisted(memory_root, status=new_status, history=history)
+            except (KeyError, ValueError):
+                continue
+        history.append(event)
+        return _write_persisted_unlocked(
+            memory_root,
+            status=new_status,
+            history=history,
+        )
 
 
 def load_history(memory_root: Path) -> list[LifecycleEvent]:

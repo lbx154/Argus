@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from ..core.sandbox import sandboxed_child_env
-from .models import AgentRunResult
+from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
@@ -132,17 +132,6 @@ def _incomplete_turn_error(stderr_lines: list[str]) -> str:
     if nonempty:
         return nonempty[-1]
     return "Agent CLI exited without completing a model turn."
-
-
-@dataclass
-class InactivitySnapshot:
-    idle_seconds: float
-    command: list[str]
-    thread_id: str | None
-    last_agent_message: str
-    stdout_tail: list[str]
-    stderr_tail: list[str]
-    run_label: str | None = None
 
 
 InactivityCallback = Callable[[InactivitySnapshot], InactivityDecision]

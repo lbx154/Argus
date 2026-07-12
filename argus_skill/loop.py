@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -476,6 +477,20 @@ class SkillLoop:
                 include_static=include_static,
             )
 
+        run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
+
+        def prepare_review_context() -> None:
+            if not self.config.wiki_ops_enabled:
+                return
+            from .wiki.auto_hooks import run_post_mission_hooks
+
+            run_post_mission_hooks(
+                workdir,
+                mission_id=run_id,
+                success=False,
+                emit=self.on_event,
+            )
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -496,6 +511,7 @@ class SkillLoop:
             seed_thread_id=seed_thread_id,
             scope=scope,
             per_mission_budget=per_mission_budget,
+            prepare_review_context=prepare_review_context,
             continue_adaptor=adapt_after_rejections,
         )
 
@@ -558,6 +574,23 @@ class SkillLoop:
             workdir=str(workdir),
             last_thread_id=last_thread_id,
         )
+        final_review = rounds[-1].review if rounds else None
+        achievement = (
+            final_review.achievement
+            if final_review is not None and status == "done"
+            else None
+        )
+        if isinstance(achievement, dict):
+            self._emit({
+                "type": EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
+                "achievement_id": f"reviewer-{run_id}",
+                "title": achievement["title"],
+                "goal": achievement["goal"],
+                "metric_id": achievement.get("metric_id", ""),
+                "summary": achievement.get("summary", ""),
+                "evidence": list(achievement.get("evidence") or []),
+                "reviewer_certified": True,
+            })
         # Step 4c: project-wiki evolution. The lifecycle module owns mechanical
         # source ingestion, scratch lift, reviewer wiki_ops, promotion and optional
         # reversible compaction so this main loop stays orchestration-only.
@@ -568,11 +601,7 @@ class SkillLoop:
                 rounds=rounds,
                 workdir=workdir,
                 task=skill_task,
-                mission_id=(
-                    self.config.session_id
-                    or (last_thread_id or "")[:12]
-                    or "unknown"
-                ),
+                mission_id=run_id,
                 success=(status == "done"),
                 reviewer_runner=self.reviewer_runner,
                 reviewer_model=self.config.resolved_reviewer_model(),

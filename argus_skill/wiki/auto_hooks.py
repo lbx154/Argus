@@ -124,7 +124,13 @@ def _safe(fn: Callable[[], object], *, what: str, emit: EventSink) -> object | N
         return None
 
 
-def _ingest_sources(wiki_root: Path, *, mission_id: str, emit: EventSink) -> int:
+def _ingest_sources(
+    wiki_root: Path,
+    *,
+    source_root: Path,
+    mission_id: str,
+    emit: EventSink,
+) -> int:
     """Step 0 backfill: import paper/refs.bib + LIT_MATRIX.tsv if present.
 
     Returns count of new sources/papers/*.md files written.
@@ -135,7 +141,7 @@ def _ingest_sources(wiki_root: Path, *, mission_id: str, emit: EventSink) -> int
     store = WikiStore(wiki_root)
     written = 0
 
-    refs_bib = Path("paper/refs.bib")
+    refs_bib = source_root / "paper" / "refs.bib"
     if refs_bib.exists():
         r = _safe(
             lambda: ingest_refs_bib(
@@ -149,7 +155,7 @@ def _ingest_sources(wiki_root: Path, *, mission_id: str, emit: EventSink) -> int
         if r is not None:
             written += len(getattr(r, "written", []) or [])
 
-    lit_matrix = Path("research/LIT_MATRIX.tsv")
+    lit_matrix = source_root / "research" / "LIT_MATRIX.tsv"
     if lit_matrix.exists():
         _safe(
             lambda: ingest_lit_matrix(store, tsv_path=lit_matrix),
@@ -257,7 +263,12 @@ def run_post_mission_hooks(
     if not wikis:
         return summary
     for wiki_root in wikis:
-        s_written = _ingest_sources(wiki_root, mission_id=mission_id, emit=emit)
+        s_written = _ingest_sources(
+            wiki_root,
+            source_root=workdir,
+            mission_id=mission_id,
+            emit=emit,
+        )
         t_written = _mechanical_scratch_lift(
             wiki_root, mission_id=mission_id, emit=emit
         )

@@ -243,6 +243,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "checklist"?: Array<Record<string, unknown>>;
   "planner_report"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
+  "achievement"?: Record<string, unknown> | null;
 }
 
 export interface LifePlannerStartEvent extends EventMsg {

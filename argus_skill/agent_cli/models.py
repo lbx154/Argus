@@ -23,3 +23,14 @@ class AgentRunResult:
         if not self.agent_messages:
             return ""
         return self.agent_messages[-1]
+
+
+@dataclass
+class InactivitySnapshot:
+    idle_seconds: float
+    command: list[str]
+    thread_id: str | None
+    last_agent_message: str
+    stdout_tail: list[str]
+    stderr_tail: list[str]
+    run_label: str | None = None

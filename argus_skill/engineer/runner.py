@@ -48,6 +48,7 @@ from .background_subagents import (
     emit_subagent_cost_events,
     find_waitable_subagent,
     parse_wait_sentinel,
+    render_background_subagents_advisory,
     wait_for_subagent_cadence,
 )
 from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
@@ -957,6 +958,7 @@ class SupervisedEngineer:
         seed_thread_id: str | None = None,
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
+        prepare_review_context: Callable[[], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
@@ -1162,7 +1164,13 @@ class SupervisedEngineer:
                     f"{engineer_selected_next_step}\n\n"
                     "After this turn, hand the accumulated work to the Reviewer."
                 )
-            background_advisory = ""
+            background_advisory = (
+                render_background_subagents_advisory(workdir)
+                if supervised_config.background_subagent_advisory
+                else ""
+            )
+            if background_advisory:
+                delta_tail.append(background_advisory)
             if delta_tail:
                 engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
             if on_event:
@@ -1489,6 +1497,11 @@ class SupervisedEngineer:
                     or ""
                 )
 
+            if prepare_review_context is not None:
+                try:
+                    prepare_review_context()
+                except Exception:  # noqa: BLE001 — context prep must not hide a verdict
+                    log.warning("review context preparation failed", exc_info=True)
             if on_event:
                 on_event({
                     "type": EventType.ROUND_REVIEW_STARTED,
@@ -1581,6 +1594,17 @@ class SupervisedEngineer:
                 reviewer_rounds_on_thread = 0
             reviewer_resume_id = reviewer_thread_id
             while True:
+                reviewer_background_context = ""
+                if supervised_config.background_subagent_advisory:
+                    try:
+                        reviewer_background_context = (
+                            render_background_subagents_advisory(workdir)
+                        )
+                    except Exception:  # noqa: BLE001 — advisory is non-critical context
+                        log.debug(
+                            "reviewer subagent advisory refresh failed",
+                            exc_info=True,
+                        )
                 try:
                     review = self.reviewer.evaluate(
                         objective=objective,
@@ -1596,7 +1620,7 @@ class SupervisedEngineer:
                         prev_review_summary=prev_review_summary,
                         scope=scope,
                         prior_checkpoint=checkpoint.to_dict(),
-                        background_context=background_advisory,
+                        background_context=reviewer_background_context,
                         escalate_hint=escalate_hint,
                         engineer_log_path=supervised_config.engineer_log_path,
                         resume_thread_id=reviewer_resume_id,

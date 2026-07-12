@@ -73,6 +73,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         ),
         round_summary_markdown=round_summary_markdown,
         completion_summary_markdown=completion_summary_markdown,
+        achievement=_parse_achievement(parsed, status=status),
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
         planner_report=_parse_planner_report(parsed, status=status, reason=reason),
@@ -83,6 +84,35 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
     )
+
+
+def _parse_achievement(
+    parsed: dict[str, Any], *, status: str
+) -> dict[str, Any] | None:
+    """Parse a reviewer-certified project achievement, fail-closed."""
+    if status != "done":
+        return None
+    raw = parsed.get("achievement")
+    if not isinstance(raw, dict):
+        return None
+    title = str(raw.get("title") or "").strip()[:240]
+    goal = str(raw.get("goal") or "").strip()[:2000]
+    summary = str(raw.get("summary") or "").strip()[:2000]
+    metric_id = str(raw.get("metric_id") or "").strip()[:240]
+    evidence = [
+        str(item).strip()[:500]
+        for item in (raw.get("evidence") or [])[:12]
+        if str(item).strip()
+    ] if isinstance(raw.get("evidence"), list) else []
+    if not title or not goal or not evidence:
+        return None
+    return {
+        "title": title,
+        "goal": goal,
+        "metric_id": metric_id,
+        "summary": summary,
+        "evidence": evidence,
+    }
 
 
 def _parse_step_back(parsed: dict) -> dict[str, Any] | None:

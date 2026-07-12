@@ -7,7 +7,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from argus_skill.manager.skill_tidy import commit_to_source
+from argus_skill.manager import source_writeback
 
 
 def _git(*args: str, cwd: Path) -> str:
@@ -21,7 +21,7 @@ def test_autocommit_is_off_by_default(monkeypatch, tmp_path: Path) -> None:
     p = tmp_path / "skill.md"
     p.write_text("x", encoding="utf-8")
     # Default OFF → does not commit (returns False), and never even touches git.
-    assert commit_to_source([p], "chore: skill") is False
+    assert source_writeback.commit_to_source([p], "chore: skill") is False
 
 
 def test_enabled_commit_only_touches_given_paths_not_the_staged_index(
@@ -43,11 +43,11 @@ def test_enabled_commit_only_touches_given_paths_not_the_staged_index(
     skill.write_text("skill", encoding="utf-8")
 
     monkeypatch.setattr(
-        "argus_skill.manager.skill_tidy._argus_source_root", lambda: tmp_path
+        source_writeback, "source_root", lambda: tmp_path
     )
     monkeypatch.setenv("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "1")
 
-    assert commit_to_source([skill], "chore(skills): tidy") is True
+    assert source_writeback.commit_to_source([skill], "chore(skills): tidy") is True
 
     # The new commit contains ONLY skill.md — the operator's hand-staged file is
     # NOT swept in.

@@ -25,7 +25,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..verticals._base import VerticalDefinition
 
 from .config import REGIME_AXES, MetaConfig, load_meta_config
 
@@ -149,7 +152,7 @@ def from_facts(facts: dict, config: MetaConfig | None = None) -> SaturationSigna
 
 def analyze(
     project_root: object,
-    vmod: ModuleType | None = None,
+    vmod: VerticalDefinition | None = None,
     config: MetaConfig | None = None,
 ) -> SaturationSignal:
     """Detect saturation for a mission (fail-soft to a non-saturated signal).

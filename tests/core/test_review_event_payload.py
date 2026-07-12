@@ -93,6 +93,23 @@ def test_to_event_payload_forwards_operator_question() -> None:
     assert review.to_event_payload()["operator_question"] == "刷哪两道题？"
 
 
+def test_to_event_payload_forwards_reviewer_achievement() -> None:
+    review = ReviewDecision(
+        status="done",
+        reason="official benchmark verified",
+        next_action="",
+        achievement={
+            "title": "Kernel gain certified",
+            "goal": "Optimize the kernel",
+            "metric_id": "sol-percent",
+            "summary": "Official scorer improved.",
+            "evidence": ["experiments/result.json"],
+        },
+    )
+
+    assert review.to_event_payload()["achievement"]["metric_id"] == "sol-percent"
+
+
 def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     """The daemon-stop / backend-failure synthesized verdicts have
     empty structured fields and zero tokens. Helper must not crash and
@@ -108,6 +125,7 @@ def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     assert payload["checklist"] == []
     assert payload["planner_report"] == {}
     assert payload["checkpoint"] == {}
+    assert payload["achievement"] is None
     assert payload["input_tokens"] == 0
     assert payload["reasoning_output_tokens"] == 0
     assert payload["review_skipped"] is True

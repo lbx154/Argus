@@ -161,3 +161,11 @@ def test_payload_schema_is_standard_json_schema_and_generated_types_are_current(
         text=True,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+    root = Path(__file__).parents[2]
+    for package_path in (
+        root / "frontend" / "tui" / "package.json",
+        root / "frontend" / "web" / "package.json",
+    ):
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        assert "generate_event_payload_types.py --check" in package["scripts"]["build"]
