@@ -12,10 +12,12 @@ import json
 import queue
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.webapi import project_state, server
+from argus_skill.manager import front_door
+from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -36,6 +38,28 @@ def _make_project(root: Path, sid: str = "s-msgtest0") -> Path:
 def client(tmp_path: Path) -> TestClient:
     _make_project(tmp_path)
     return TestClient(server.create_app(global_root=tmp_path))
+
+
+@pytest.fixture(autouse=True)
+def _identity_manager_handoff(monkeypatch) -> None:
+    _install_manager(monkeypatch, lambda text: text)
+
+
+def _install_manager(monkeypatch, execution_for) -> None:
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=execution_for(text))
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
 
 
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
@@ -245,6 +269,31 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
         "continuous_objective": "reproduce the recursive kernel task",
         "resume_continuous": True,
     }
+
+
+def test_create_daemon_persists_only_manager_execution_handoff(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    spawned: dict[str, object] = {}
+    _install_manager(monkeypatch, lambda text: "write the MRAM paper")
+    monkeypatch.setattr(
+        server,
+        "spawn_detached_daemon",
+        lambda cfg, quiet=True: spawned.update(
+            objective=cfg.continuous_objective,
+        ) or 0,
+    )
+    raw = "write the MRAM paper; Manager owns the right sidebar"
+
+    result = server.create_daemon(objective=raw, global_root=tmp_path)
+
+    life_dir = tmp_path / "projects" / result["sid"]
+    continuous = json.loads((life_dir / "continuous.json").read_text())
+    session = json.loads((life_dir / "session.json").read_text())
+    assert continuous["objective"] == "write the MRAM paper"
+    assert session["objective"] == "write the MRAM paper"
+    assert spawned["objective"] == "write the MRAM paper"
+    assert raw not in (life_dir / "continuous.json").read_text()
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:

@@ -403,7 +403,7 @@ def _resume_cmd(
 ) -> None:
     """`/resume` — switch into the PREVIOUS conversation (the most recent other
     session with saved chat). ``/resume <id>`` switches into a specific session;
-    ``/resume list`` shows all resumable sessions (labelled by first message).
+    ``/resume list`` shows resumable sessions using Manager-authored metadata.
 
     Switching re-execs ``argus-skill --resume <id>`` (after releasing the
     singleton lock), so it is a REAL switch — session bundle, daemon
@@ -422,9 +422,7 @@ def _resume_cmd(
             return s.display_name
         if s.objective:
             return s.objective[:50]
-        first = _transcript.first_operator_text(_projdir(s.id)).strip()
-        first = " ".join(first.split())
-        return (first[:50] + ("…" if len(first) > 50 else "")) if first else "(unnamed)"
+        return "(unnamed)"
 
     try:
         sessions = list_sessions(global_root, include_empty=False)

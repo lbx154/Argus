@@ -7,11 +7,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import project_state, server
+from argus_skill.manager import front_door
+from argus_skill.manager.front_door import (
+    ManagerHandoffError,
+    ManagerHandoffSupersededError,
+)
+from argus_skill.webapi import manager_bridge, project_state, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -29,6 +35,28 @@ def _make_project(root: Path, sid: str = "s-cmd00001") -> Path:
 def ctx(tmp_path: Path):
     life = _make_project(tmp_path)
     return tmp_path, "s-cmd00001", life
+
+
+@pytest.fixture(autouse=True)
+def _identity_manager_handoff(monkeypatch) -> None:
+    _install_manager(monkeypatch, lambda text: text)
+
+
+def _install_manager(monkeypatch, execution_for) -> None:
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=execution_for(text))
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
 
 
 # ── tasks ─────────────────────────────────────────────────────────────────
@@ -54,6 +82,53 @@ def test_post_task_honours_inline_flags(ctx) -> None:
     assert item["objective"] == "tune it"           # flags stripped
     assert item["iterate"] is False                  # --once
     assert item["max_cost_usd"] == 7.0               # --budget enforced (not the $30 default)
+
+
+def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+    captured = {}
+
+    def fake_handoff(call_sid, text, persist, **kwargs):
+        captured.update(sid=call_sid, text=text, **kwargs)
+        return persist("write the MRAM paper", None)
+
+    monkeypatch.setattr(manager_bridge, "manager_bounded_handoff", fake_handoff)
+    client = TestClient(server.create_app(global_root=root))
+    raw = "write the MRAM paper; Manager owns the right sidebar"
+    response = client.post(
+        f"/api/projects/{sid}/tasks",
+        json={"text": raw, "autostart_daemon": False},
+    )
+
+    assert response.status_code == 200
+    item = response.json()["item"]
+    assert item["objective"] == "write the MRAM paper"
+    assert captured["sid"] == sid
+    assert captured["text"] == raw
+    assert captured["root_task_id"] == item["id"]
+    assert LifeMemory.open(life).backlog.all()[0].objective == "write the MRAM paper"
+
+
+def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+
+    def fail_handoff(*args, **kwargs):
+        raise ManagerHandoffError("safe handoff unavailable")
+
+    monkeypatch.setattr(manager_bridge, "manager_bounded_handoff", fail_handoff)
+    client = TestClient(server.create_app(global_root=root))
+    response = client.post(
+        f"/api/projects/{sid}/tasks",
+        json={
+            "text": "write paper; Manager owns the sidebar",
+            "autostart_daemon": False,
+        },
+    )
+
+    assert response.status_code == 503
+    assert LifeMemory.open(life).backlog.all() == []
 
 
 def test_post_task_empty_400(ctx) -> None:
@@ -244,6 +319,139 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
         "objective": "keep improving X",
         "resume_continuous": True,
     }
+
+
+def test_set_continuous_persists_only_manager_execution_handoff(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    raw = "study MRAM continuously; Manager decides the right sidebar"
+    _install_manager(monkeypatch, lambda text: "study MRAM continuously")
+
+    assert server.set_continuous(
+        sid,
+        enabled=True,
+        objective=raw,
+        global_root=root,
+    ) is True
+
+    cfg = json.loads((life / "continuous.json").read_text())
+    assert cfg["objective"] == "study MRAM continuously"
+    assert raw not in (life / "continuous.json").read_text()
+
+
+def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    server.write_continuous_config(
+        life,
+        enabled=True,
+        objective="clean current objective",
+    )
+
+    def unexpected_handoff(*args, **kwargs):
+        raise AssertionError("disable must not wait for Manager")
+
+    monkeypatch.setattr(
+        manager_bridge,
+        "manager_continuous_handoff",
+        unexpected_handoff,
+    )
+
+    assert server.set_continuous(
+        sid,
+        enabled=False,
+        objective="raw stale UI objective; Manager owns the sidebar",
+        global_root=root,
+    ) is True
+    state = server.read_continuous_state(life)
+    assert state.enabled is False
+    assert state.objective == "clean current objective"
+
+
+def test_enable_continuous_reprocesses_stored_objective(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    raw = "legacy objective; Manager owns the sidebar"
+    server.write_continuous_config(life, enabled=False, objective=raw)
+    seen = {}
+
+    def clean_handoff(text):
+        seen["text"] = text
+        return "clean legacy objective"
+
+    _install_manager(monkeypatch, clean_handoff)
+
+    assert server.set_continuous(
+        sid,
+        enabled=True,
+        objective="",
+        global_root=root,
+    ) is True
+    state = server.read_continuous_state(life)
+    assert seen["text"] == raw
+    assert state.enabled is True
+    assert state.objective == "clean legacy objective"
+
+
+def test_post_continuous_rejects_enable_without_any_objective(ctx) -> None:
+    root, sid, _life = ctx
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(
+        f"/api/projects/{sid}/continuous",
+        json={"enabled": True, "objective": ""},
+    )
+
+    assert response.status_code == 400
+
+
+def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    server.write_continuous_config(
+        life,
+        enabled=False,
+        objective="paused objective",
+    )
+    commits = []
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            server.set_continuous(
+                sid,
+                enabled=False,
+                objective=text,
+                global_root=root,
+            )
+            return SimpleNamespace(execution_task="clean objective")
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            commits.append(text)
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
+
+    with pytest.raises(ManagerHandoffSupersededError):
+        server.set_continuous(
+            sid,
+            enabled=True,
+            objective="new objective",
+            global_root=root,
+        )
+
+    state = server.read_continuous_state(life)
+    assert state.enabled is False
+    assert state.objective == "paused objective"
+    assert commits == []
 
 
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────

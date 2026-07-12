@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from ..apps._life_actions import parse_add_flags
 from ..life import BacklogItem
+from .front_door import ManagerHandoffError
 
 
 @dataclass(frozen=True)
@@ -189,9 +190,16 @@ def dispatch_free_text(
                 root_task_id=root_task_id,
             )
 
-    item, daemon_alive, daemon_pid = hooks.enqueue_mission(
-        mem, body, chat_state, iterate=iterate, max_cycles=max_cycles,
-        budget=budget, theme=theme, root_task_id=root_task_id)
+    try:
+        item, daemon_alive, daemon_pid = hooks.enqueue_mission(
+            mem, body, chat_state, iterate=iterate, max_cycles=max_cycles,
+            budget=budget, theme=theme, root_task_id=root_task_id)
+    except ManagerHandoffError as exc:
+        message = str(exc)
+        print(theme.red(message) if theme is not None else message, flush=True)
+        if _tlife is not None:
+            _transcript.append_turn(_tlife, "argus", message)
+        return
     life_dir = hooks.life_dir_for(mem)
     if _tlife is not None:
         _transcript.append_turn(

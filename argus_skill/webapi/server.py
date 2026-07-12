@@ -64,13 +64,18 @@ from ..daemon.life_worker import (
     LifeWorkerConfig,
     _active_daemon_count,
     _max_active_daemons,
+    disable_continuous_config,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
     stop_daemon,
-    write_continuous_config,
+    write_continuous_config,  # noqa: F401 - compatibility export
 )
-from ..life.memory import LifeMemory, _read_jsonl_tail_history
+from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
+from ..manager.front_door import (
+    ManagerHandoffError,
+    ManagerHandoffSupersededError,
+)
 from ..tools.doctor import run_diagnostics
 from . import artifacts, project_state
 from .protocol import build_api_meta, protocol_header
@@ -230,10 +235,28 @@ def enqueue_task(
         text,
         defaults=_CONFIG_DEFAULTS,
     )
+    objective = cleaned or text.strip()
+    item_id = BacklogItem.new_id()
+    from .manager_bridge import manager_bounded_handoff
+
     mem = LifeMemory.open(life_dir)
-    item = add_backlog_item(
-        mem, cleaned or text.strip(),
-        iterate=iterate, iteration_max_cycles=cycles, iteration_budget_usd=budget,
+
+    def _persist(execution_task: str, _division: Any):
+        return add_backlog_item(
+            mem,
+            execution_task,
+            item_id=item_id,
+            iterate=iterate,
+            iteration_max_cycles=cycles,
+            iteration_budget_usd=budget,
+        )
+
+    item = manager_bounded_handoff(
+        sid,
+        objective,
+        _persist,
+        global_root=global_root,
+        root_task_id=item_id,
     )
     return item.to_jsonable()
 
@@ -587,29 +610,49 @@ def create_daemon(
     root = _global_root(global_root)
     sid = new_session_id()
     now = _time.time()
-    obj = (objective or "").strip()
+    requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
     effective_launch_cwd = (
         str(Path(launch_cwd).expanduser().resolve())
         if launch_cwd
         else str(Path.cwd().resolve())
     )
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid, display_name=(name or "").strip(),
-            created=now, last_active=now, cwd=str(life_dir), objective=obj,
-            launch_cwd=effective_launch_cwd,
-            origin="web",
-        ),
+    meta = SessionMeta(
+        id=sid,
+        display_name=(name or "").strip(),
+        created=now,
+        last_active=now,
+        cwd=str(life_dir),
+        objective="",
+        launch_cwd=effective_launch_cwd,
+        origin="web",
     )
+    # Persist the deliberate Web session before the Manager round-trip so
+    # concurrent empty-project GC cannot remove it while division is running.
+    write_session_meta(root, meta)
     life_dir.mkdir(parents=True, exist_ok=True)
 
     start_result: dict[str, Any] | None = None
+    obj = requested_objective
     if obj:
+        from .manager_bridge import manager_continuous_handoff
+
+        obj = manager_continuous_handoff(sid, obj, global_root=root)
+        write_session_meta(
+            root,
+            SessionMeta(
+                id=meta.id,
+                display_name=meta.display_name,
+                created=meta.created,
+                last_active=meta.last_active,
+                cwd=meta.cwd,
+                objective=obj,
+                launch_cwd=meta.launch_cwd,
+                origin=meta.origin,
+            ),
+        )
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
-        write_continuous_config(life_dir, enabled=True, objective=obj)
         start_result = start_project_daemon(
             sid,
             global_root=root,
@@ -731,7 +774,16 @@ def set_continuous(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    write_continuous_config(life_dir, enabled=enabled, objective=objective)
+    if not enabled:
+        disable_continuous_config(life_dir)
+        return True
+    from .manager_bridge import manager_continuous_handoff
+
+    manager_continuous_handoff(
+        sid,
+        objective.strip(),
+        global_root=global_root,
+    )
     return True
 
 
@@ -1515,9 +1567,22 @@ def create_app(
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty task text")
         project_root = _project_root_or_404(sid)
-        item = _404_if_none(
-            enqueue_task(sid, body.text, global_root=project_root), sid
-        )
+        try:
+            item = _404_if_none(
+                await run_in_threadpool(
+                    enqueue_task,
+                    sid,
+                    body.text,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         resp: dict[str, Any] = {"item": item}
         if body.autostart_daemon:
             # Lazy spawn (like the Python cockpit): queueing a task ensures the
@@ -1719,11 +1784,23 @@ def create_app(
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])
     async def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:
         project_root = _project_root_or_404(sid)
-        _404_if_none(
-            set_continuous(sid, enabled=body.enabled, objective=body.objective,
-                           global_root=project_root),
-            sid,
-        )
+        try:
+            _404_if_none(
+                await run_in_threadpool(
+                    set_continuous,
+                    sid,
+                    enabled=body.enabled,
+                    objective=body.objective,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         response: dict[str, Any] = {"ok": True}
         if body.enabled:
             response["daemon"] = await run_in_threadpool(

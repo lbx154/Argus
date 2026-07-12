@@ -27,6 +27,83 @@ _LOCKS: dict[str, threading.Lock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
+def manager_execution_handoff(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> str:
+    """Resolve a direct Web/TUI command into Manager's role-clean handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_execution_task
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return manager_execution_task(
+            mem,
+            text,
+            chat_state,
+            root_task_id=root_task_id,
+        )
+
+
+def manager_continuous_handoff(
+    sid: str,
+    requested_objective: str,
+    *,
+    global_root: Path | str | None = None,
+) -> str:
+    """Atomically enable a Manager-authored continuous handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_continuous_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(mem, requested_objective, chat_state)
+
+
+def manager_bounded_handoff(
+    sid: str,
+    text: str,
+    persist: Any,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> Any:
+    """Commit Manager state and caller persistence under one pipeline lock."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_bounded_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(
+            mem,
+            text,
+            chat_state,
+            persist,
+            root_task_id=root_task_id,
+        )
+
+
 def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> None:
     """Persist one operator/Manager turn onto the shared live Activity stream."""
     try:
@@ -199,6 +276,8 @@ def manager_message(
     lock = _lock_for(sid)
     with lock:
         chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
         turn_id = f"web-{time.time_ns()}"
 
         # A web-process restart necessarily loses the live ACP process. Resume

@@ -49,6 +49,7 @@ class DomainProposal:
     stages: list[str]
     rationale: str = ""
     confidence: float = 0.0
+    execution_task: str = ""
 
 
 def build_domain_author_prompt(
@@ -181,12 +182,19 @@ def parse_domain_proposal(
     rationale = str(obj.get("rationale") or "").strip()[:600]
     raw_conf = obj.get("confidence")
     confidence = float(raw_conf) if isinstance(raw_conf, (int, float)) else 0.0
+    raw_execution_task = obj.get("execution_task")
+    execution_task = (
+        raw_execution_task.strip()
+        if isinstance(raw_execution_task, str)
+        else ""
+    )
 
     return DomainProposal(
         name=unique,
         stages=stages,
         rationale=rationale,
         confidence=confidence,
+        execution_task=execution_task,
     )
 
 
@@ -220,6 +228,11 @@ class VerticalDecision:
     # that returned the pre-live-view verdict shape (preserve current choice).
     live_view: LiveViewDecision | None = None
     live_view_decided: bool = False
+    # Manager-authored handoff for Planner/Engineer. Presentation/right-sidebar
+    # ownership stays with Manager and is intentionally omitted here.
+    execution_task: str = ""
+    # Raw validated Manager response, applied only when the decision commits.
+    rendering_response: str = ""
 
 
 def build_vertical_decision_prompt(
@@ -248,7 +261,7 @@ def build_vertical_decision_prompt(
         "You have shell access in this repository. Before deciding, INVESTIGATE "
         "— do not guess from the task sentence alone. Read `AGENTS.md`/`README` "
         "if present and look at the project's structure, language, and tooling "
-        "so your choice fits what this specific repo actually needs. This is a "
+        "so your choice fits what this specific repo actually needs. "
         "Treat project/task artifacts as READ-ONLY: do NOT edit, create, or delete "
         "files with tools. Manager presentation content is returned in your final "
         "JSON and written by the harness under `.argus/live/`.\n\n"
@@ -283,11 +296,17 @@ def build_vertical_decision_prompt(
         "renderable.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
+        "Also write `execution_task`: a complete, concise handoff containing only "
+        "the task work Planner/Engineer should perform. Preserve the requested "
+        "substantive deliverable, but omit all Manager-owned presentation, right-"
+        "sidebar, live-view, routing, and Manager-path instructions. Do not mention "
+        "those omitted responsibilities in the handoff.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
+        '"execution_task": "<Planner/Engineer task only>", '
         '"live_view": null | {"title": "<short title>", "reason": "<why these '
         'files>", "paths": ["<relative/path>", ...]}, "presentations": '
         '[{"path": ".argus/live/<file>.md", "content": "<presentation>"}]}\n'
@@ -295,6 +314,7 @@ def build_vertical_decision_prompt(
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
+        '"execution_task": "<Planner/Engineer task only>", '
         '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
         '"reason": "<why these files>", "paths": ["<relative/path>", ...]}, '
         '"presentations": [{"path": ".argus/live/<file>.md", "content": '
@@ -319,6 +339,14 @@ def parse_vertical_decision(
     if not isinstance(obj, dict):
         return None
     parsed_live_view = parse_live_view(obj.get("live_view"))
+    raw_execution_task = obj.get("execution_task")
+    execution_task = (
+        raw_execution_task.strip()
+        if isinstance(raw_execution_task, str)
+        else ""
+    )
+    if not execution_task:
+        return None
     live_view_decided = "live_view" in obj and (
         obj.get("live_view") is None or parsed_live_view is not None
     )
@@ -334,6 +362,7 @@ def parse_vertical_decision(
                 proposal=None,
                 live_view=parsed_live_view,
                 live_view_decided=live_view_decided,
+                execution_task=execution_task,
             )
         return None
     if choice == "new":
@@ -350,5 +379,6 @@ def parse_vertical_decision(
             proposal=proposal,
             live_view=parsed_live_view,
             live_view_decided=live_view_decided,
+            execution_task=execution_task,
         )
     return None

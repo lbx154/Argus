@@ -65,6 +65,8 @@ from .front_door import (
     _maybe_name_session,
     _with_manager_spinner,
     looks_like_do_not_run_request,
+    manager_bounded_handoff,
+    manager_continuous_handoff,
 )
 from .front_door import (
     _manager_divide_user_task as _manager_divide_user_task_impl,
@@ -205,7 +207,7 @@ def _manager_divide_user_task(
     *,
     theme: object | None = None,
     root_task_id: str | None = None,
-) -> None:
+) -> Any:
     return _manager_divide_user_task_impl(
         mem,
         body,
@@ -329,22 +331,22 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
             except Exception:  # noqa: BLE001
                 pass
         body = f"{prior}\n\nOperator reply: {body}"
-    chat_state["last_objective"] = body
-    _manager_divide_user_task(
-        mem,
-        body,
-        chat_state,
-        theme=theme,
-        root_task_id=root_task_id,
-    )
     life_dir = _life_dir_for(mem)
     if chat_state.get("config", {}).get("continuous", False):
         # User task is a PROJECT objective, not an Engineer work item. Arm the
         # planner first; it will decompose into backlog items. This gives the
         # intended chain: User -> Manager -> Planner -> Engineer -> Reviewer.
-        chat_state["continuous_objective"] = body
-        from ..daemon.life_worker import write_continuous_config
-        write_continuous_config(life_dir, enabled=True, objective=body)
+        execution_body = manager_continuous_handoff(
+            mem,
+            body,
+            chat_state,
+            theme=theme,
+            root_task_id=root_task_id,
+            ensure_runner=_ensure_manager_runner,
+        )
+        chat_state["last_objective"] = execution_body
+        chat_state["continuous_objective"] = execution_body
+        _maybe_name_session(chat_state, execution_body)
         daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
         if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
             daemon_alive, daemon_pid = _with_manager_spinner(
@@ -352,13 +354,32 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                 lambda: _autospawn_daemon_for_task(mem, chat_state),
             )
         return None, daemon_alive, daemon_pid
-    pending = mem.backlog.pending()
-    head_priority = min((it.priority for it in pending), default=100)
-    free_priority = min(head_priority - 1, -1)
-    item = _add_only(mem, body, priority=free_priority, iterate=iterate,
-                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget,
-                     item_id=root_task_id)
-    _maybe_name_session(chat_state, body)
+    def _persist(execution_body: str, _division: Any) -> Any:
+        pending = mem.backlog.pending()
+        head_priority = min((it.priority for it in pending), default=100)
+        free_priority = min(head_priority - 1, -1)
+        item = _add_only(
+            mem,
+            execution_body,
+            priority=free_priority,
+            iterate=iterate,
+            iteration_max_cycles=max_cycles,
+            iteration_budget_usd=budget,
+            item_id=root_task_id,
+        )
+        _maybe_name_session(chat_state, execution_body)
+        return item
+
+    item = manager_bounded_handoff(
+        mem,
+        body,
+        chat_state,
+        _persist,
+        theme=theme,
+        root_task_id=root_task_id,
+        ensure_runner=_ensure_manager_runner,
+    )
+    chat_state["last_objective"] = item.objective
     daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
     if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
         daemon_alive, daemon_pid = _with_manager_spinner(
@@ -423,16 +444,17 @@ def _maybe_auto_promote_to_continuous(
     except Exception:  # noqa: BLE001 — classify failure must never force continuous
         return False
 
-    from ..daemon.life_worker import continuous_mode_error, write_continuous_config
+    from ..daemon.life_worker import continuous_mode_error
 
     backend = str(chat_state.get("backend") or "codex")
     if continuous_mode_error(backend, True, body):
         return False
 
-    life_dir = _life_dir_for(mem)
-    write_continuous_config(life_dir, enabled=True, objective=body)
     chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
-    chat_state["continuous_objective"] = body
+    # enqueue_mission performs Manager division next and persists only the
+    # resulting execution_task. Do not briefly expose raw operator text to a
+    # hot-reloading Planner.
+    chat_state["continuous_objective"] = ""
     msg = (
         "Manager decided this is open-ended work with no natural endpoint → "
         "automatically set it as a 7×24 continuous goal (continuous mode); "

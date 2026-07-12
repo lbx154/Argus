@@ -13,6 +13,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -113,6 +114,30 @@ def _assume_daemon_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         manager_repl, "_daemon_alive_for", lambda life_dir: (True, 99999)
+    )
+
+
+@pytest.fixture(autouse=True)
+def _manager_returns_execution_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
+    if request.node.name.startswith("test_ensure_manager_runner_") or request.node.name == (
+        "test_manager_divide_user_task_fallback_uses_session_root_not_worktree"
+    ):
+        return
+
+    class _Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(execution_task=body)
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
     )
 
 
@@ -1319,7 +1344,7 @@ def test_config_cmd_rejects_continuous_without_objective(
     }
     manager_repl._config_cmd(["continuous=true"], chat_state, life_dir=tmp_path)
     out = capsys.readouterr().out
-    assert "non-empty --objective" in out
+    assert "use /continuous start <objective>" in out
     assert chat_state["config"]["continuous"] is False
     assert not (tmp_path / "continuous.json").exists()
 
@@ -1335,7 +1360,7 @@ def test_config_cmd_rejects_continuous_on_memory_backend(
     }
     manager_repl._config_cmd(["continuous=true"], chat_state, life_dir=tmp_path)
     out = capsys.readouterr().out
-    assert "cannot plan" in out
+    assert "use /continuous start <objective>" in out
     assert chat_state["config"]["continuous"] is False
     assert not (tmp_path / "continuous.json").exists()
 
@@ -1357,6 +1382,14 @@ class _FakeManagerRunner:
         self._is_chat = is_chat
         self.last_thread_id = "tid-after-chat"
         self.calls: list[str] = []
+        self.manager = SimpleNamespace(
+            decide_vertical=lambda body, **kwargs: SimpleNamespace(
+                execution_task=body
+            ),
+            commit_vertical_decision=lambda body, decision, **kwargs: SimpleNamespace(
+                execution_task=decision.execution_task
+            ),
+        )
 
     def chat_reply_if_conversational(
         self, *, objective: str, sink: Any, seed_thread_id: Any = None
@@ -1416,10 +1449,12 @@ def test_free_text_task_falls_through_when_not_conversational(
     assert captured["tail_item_id"] == pending[0].id
 
 
-def test_free_text_triage_skipped_when_no_runner(mem: LifeMemory) -> None:
+def test_free_text_without_manager_does_not_dispatch_raw_task(
+    mem: LifeMemory, capsys,
+) -> None:
     """When _ensure_manager_runner returns None (e.g. memory backend / build
-    failure) the input is treated as a task — no classification, straight to
-    backlog + tail. This is the path the existing memory-backend tests rely on."""
+    failure) the input is not dispatched because no Manager-authored execution
+    handoff exists."""
     captured: dict[str, Any] = {}
 
     def fake_tail(life_dir: Any, item_id: str, **kwargs: Any):
@@ -1434,8 +1469,9 @@ def test_free_text_triage_skipped_when_no_runner(mem: LifeMemory) -> None:
         manager_repl._free_text_cmd(mem, "do the work", chat_state=chat_state)
 
     pending = mem.backlog.pending()
-    assert pending and pending[0].objective == "do the work"
-    assert captured["tail_item_id"] == pending[0].id
+    assert pending == []
+    assert "tail_item_id" not in captured
+    assert "Manager handoff failed" in capsys.readouterr().out
 
 
 def test_ensure_manager_runner_memory_backend_returns_none(mem: LifeMemory) -> None:
@@ -1551,12 +1587,18 @@ def test_manager_divide_user_task_fallback_uses_session_root_not_worktree(
         def __init__(self, *, project_root: Any, runner: Any = None) -> None:
             captured["project_root"] = project_root
 
-        def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Any:
+        def decide_vertical(self, task: str, **kwargs: Any) -> Any:
+            return SimpleNamespace(execution_task=task)
+
+        def commit_vertical_decision(
+            self, task: str, decision: Any, **kwargs: Any,
+        ) -> Any:
             class _Division:
                 vertical = "research"
                 kind = "research"
                 regular = True
                 stages: list[str] = []
+                execution_task = decision.execution_task
 
                 @staticmethod
                 def headline() -> str:

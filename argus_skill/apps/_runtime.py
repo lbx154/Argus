@@ -1272,7 +1272,8 @@ def run_life_supervisor(
         # Manager divides the Task first: classify the vertical, split into its
         # Stage template, and COMMIT the choice. The supervisor below then TRUSTS
         # the persisted vertical (life/supervisor/_core.py:2460) and won't
-        # re-classify. Fail-open — division must never block a run.
+        # re-classify. Missing execution handoffs fail closed so raw operator
+        # routing/presentation instructions never reach Planner/Engineer.
         if continuous and str(continuous_objective).strip():
             try:
                 # Prefer the runner's single Manager instance (manager backend);
@@ -1307,11 +1308,23 @@ def run_life_supervisor(
                             f"turn here — committing proposed domain `{division.vertical}`",
                             file=sys.stderr,
                         )
-                    division = mgr.commit_domain(division.task, division.proposed_domain)
+                    division = mgr.commit_domain(
+                        division.task,
+                        division.proposed_domain,
+                        execution_task=division.execution_task,
+                    )
+                from ..manager.front_door import require_manager_execution_task
+
+                continuous_objective = require_manager_execution_task(division)
                 if not quiet:
                     print(division.headline(), file=sys.stderr)
-            except Exception:  # noqa: BLE001 — never block a run on division
-                log.debug("manager division skipped", exc_info=True)
+            except Exception as exc:  # noqa: BLE001 — fail closed, preserve bounded work
+                log.error(
+                    "Manager handoff failed; continuous objective not dispatched: %s",
+                    exc,
+                )
+                continuous = False
+                continuous_objective = ""
         cfg = _build_repl_supervisor_config(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,

@@ -8,12 +8,14 @@ import json
 import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import server
+from argus_skill.manager import front_door
+from argus_skill.webapi import manager_bridge, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -152,8 +154,24 @@ def test_projects_enriched_with_label_and_uptime(ctx) -> None:
     assert "label" in p and "uptime_seconds" in p
 
 
-def test_project_picker_uses_campaign_objective_before_greeting(ctx) -> None:
+def test_project_picker_uses_campaign_objective_before_greeting(
+    ctx, monkeypatch,
+) -> None:
     root, sid, _, client = ctx
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=text)
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
     assert server.set_continuous(
         sid, enabled=True, objective="Write the CO2 paper", global_root=root,
     ) is True

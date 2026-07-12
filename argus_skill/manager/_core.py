@@ -25,7 +25,7 @@ import json
 import logging
 import os
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,6 +55,7 @@ _DEFAULT_MANAGER_REASONING_EFFORT = "xhigh"
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
+_PIPELINE_LOCK = ".manager_pipeline.lock"
 
 def _manager_reasoning_effort() -> str:
     for key in (
@@ -85,6 +86,14 @@ def _session_lock_timeout_s() -> float:
         return 120.0
 
 
+def _pipeline_lock_timeout_s() -> float:
+    raw = os.environ.get("ARGUS_SKILL_MANAGER_PIPELINE_LOCK_TIMEOUT_S", "")
+    try:
+        return max(0.0, float(raw)) if raw.strip() else 1800.0
+    except ValueError:
+        return 1800.0
+
+
 def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
     """Acquire ``LOCK_EX`` non-blocking, retrying up to ``timeout`` seconds.
 
@@ -100,6 +109,49 @@ def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.2)
+
+
+@contextmanager
+def manager_pipeline_lock(root: Path | str):
+    """Serialize Manager pipeline commits with daemon mission execution."""
+    path = Path(root)
+    path.mkdir(parents=True, exist_ok=True)
+    with (path / _PIPELINE_LOCK).open("a+b") as handle:
+        if fcntl is not None and not _acquire_session_lock(
+            handle,
+            timeout=_pipeline_lock_timeout_s(),
+        ):
+            raise TimeoutError("timed out waiting for the current mission boundary")
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _restore_files_on_error(paths: list[Path]):
+    snapshots: dict[Path, bytes | None] = {}
+    for path in paths:
+        try:
+            snapshots[path] = path.read_bytes()
+        except FileNotFoundError:
+            snapshots[path] = None
+    try:
+        yield
+    except Exception:
+        for path, content in snapshots.items():
+            try:
+                if content is None:
+                    path.unlink(missing_ok=True)
+                    continue
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(f".{path.name}.rollback.{os.getpid()}")
+                tmp.write_bytes(content)
+                os.replace(tmp, path)
+            except OSError:
+                log.exception("failed to restore Manager pipeline artifact %s", path)
+        raise
 
 
 class _ManagerSession:
@@ -270,6 +322,7 @@ class Division:
     kind: str                # "research" | "optimize" | "custom"
     regular: bool            # True = maps to a preset pipeline; False = free-form
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
+    execution_task: str = ""
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
     # written yet — the caller (an interactive REPL) must confirm and then call
@@ -423,6 +476,9 @@ class Manager:
             return nullcontext()
         return self._usage_context_factory(root_task_id)
 
+    def pipeline_lock(self):
+        return manager_pipeline_lock(self.manager_session_root)
+
     # ---- skill injection (fixed role skill + matched adaptive block) ----
     def _role_skill_block(self, objective: str, *, match: bool = True) -> str:
         """Build the Manager's injected skill block for a decision prompt.
@@ -543,16 +599,23 @@ class Manager:
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
             )
-        # Rendering is advisory and must never block task routing. Manager may
-        # author bounded presentation content in its JSON; the harness performs
-        # the only write, confined to .argus/live.
+        decision.rendering_response = answer
+        return decision
+
+    def _apply_vertical_decision_rendering(
+        self,
+        decision: VerticalDecision,
+    ) -> None:
+        """Apply Manager-owned presentation only after its decision commits."""
         try:
             from .live_view import apply_manager_rendering_response
 
-            apply_manager_rendering_response(self.project_root, answer)
+            apply_manager_rendering_response(
+                self.project_root,
+                decision.rendering_response,
+            )
         except Exception:  # noqa: BLE001
             log.debug("manager live-view persistence failed", exc_info=True)
-        return decision
 
     @staticmethod
     def _kind_for(vertical: str) -> str:
@@ -649,27 +712,85 @@ class Manager:
         if not (task and task.strip()):
             raise ValueError("Manager.divide requires a non-empty task")
         decision = self.decide_vertical(task, root_task_id=root_task_id)
+        return self.commit_vertical_decision(
+            task,
+            decision,
+            ask_on_new_domain=ask_on_new_domain,
+        )
+
+    def commit_vertical_decision(
+        self,
+        task: str,
+        decision: VerticalDecision,
+        *,
+        ask_on_new_domain: bool = False,
+        _lock_held: bool = False,
+    ) -> Division:
+        """Commit a previously computed decision without another model call."""
+        lock = nullcontext() if _lock_held else self.pipeline_lock()
+        with lock:
+            return self._commit_vertical_decision_locked(
+                task,
+                decision,
+                ask_on_new_domain=ask_on_new_domain,
+            )
+
+    def _commit_vertical_decision_locked(
+        self,
+        task: str,
+        decision: VerticalDecision,
+        *,
+        ask_on_new_domain: bool,
+    ) -> Division:
         old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
             proposal = decision.proposal
             if ask_on_new_domain:
-                return Division(
+                division = Division(
                     task=task, vertical=proposal.name, kind="custom",
                     regular=True, stages=list(proposal.stages),
+                    execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
                 )
-            return self.commit_domain(task, proposal, _old_vertical=old_vertical)
+                self._apply_vertical_decision_rendering(decision)
+                return division
+            division = self._commit_domain_locked(
+                task,
+                proposal,
+                _old_vertical=old_vertical,
+                execution_task=decision.execution_task,
+            )
+            self._apply_vertical_decision_rendering(decision)
+            return division
         vertical = decision.vertical
-        persist_vertical(self.project_root, vertical)   # supervisor reads & trusts this
-        vertical_select.reset_stage_for_new_intent(
-            self.project_root, old_vertical=old_vertical, new_vertical=vertical,
-        )
         stages = self.plan_stages(vertical)
-        return Division(task=task, vertical=vertical, kind=self._kind_for(vertical),
-                        regular=True, stages=stages)
+        pipeline_state = self.project_root / "research" / "PIPELINE_STATE.json"
+        with _restore_files_on_error([pipeline_state]):
+            persist_vertical(self.project_root, vertical)
+            vertical_select.reset_stage_for_new_intent(
+                self.project_root,
+                old_vertical=old_vertical,
+                new_vertical=vertical,
+            )
+        division = Division(
+            task=task,
+            vertical=vertical,
+            kind=self._kind_for(vertical),
+            regular=True,
+            stages=stages,
+            execution_task=decision.execution_task,
+        )
+        self._apply_vertical_decision_rendering(decision)
+        return division
 
     def commit_domain(
-        self, task: str, proposal: Any, *, _old_vertical: str | None = None,
+        self,
+        task: str,
+        proposal: Any,
+        *,
+        _old_vertical: str | None = None,
+        execution_task: str = "",
+        _lock_held: bool = False,
     ) -> Division:
         """Write the authored data domain to disk and persist it as the active
         vertical (so the supervisor trusts it). FAIL-HARD: a write error
@@ -682,24 +803,55 @@ class Manager:
         applies on the new-data-domain path. When called directly (e.g. by the
         REPL after an operator confirms a pending proposal) it is re-read here.
         """
+        lock = nullcontext() if _lock_held else self.pipeline_lock()
+        with lock:
+            return self._commit_domain_locked(
+                task,
+                proposal,
+                _old_vertical=_old_vertical,
+                execution_task=execution_task,
+            )
+
+    def _commit_domain_locked(
+        self,
+        task: str,
+        proposal: Any,
+        *,
+        _old_vertical: str | None,
+        execution_task: str,
+    ) -> Division:
         from ..verticals._data_domain import write_data_domain
 
         if _old_vertical is None:
             _old_vertical = vertical_select._persisted_vertical(self.project_root)
 
-        write_data_domain(
-            self.project_root,
-            proposal.name,
-            stages=list(proposal.stages),
-            created_by="manager",
+        pipeline_state = self.project_root / "research" / "PIPELINE_STATE.json"
+        domain_path = (
+            self.project_root
+            / "research"
+            / "DOMAINS"
+            / f"{proposal.name}.json"
         )
-        persist_vertical(self.project_root, proposal.name)
-        vertical_select.reset_stage_for_new_intent(
-            self.project_root, old_vertical=_old_vertical, new_vertical=proposal.name,
-        )
+        with _restore_files_on_error([pipeline_state, domain_path]):
+            write_data_domain(
+                self.project_root,
+                proposal.name,
+                stages=list(proposal.stages),
+                created_by="manager",
+            )
+            persist_vertical(self.project_root, proposal.name)
+            vertical_select.reset_stage_for_new_intent(
+                self.project_root,
+                old_vertical=_old_vertical,
+                new_vertical=proposal.name,
+            )
         return Division(
             task=task, vertical=proposal.name, kind="custom", regular=True,
             stages=list(proposal.stages), proposed_domain=proposal,
+            execution_task=(
+                execution_task
+                or str(getattr(proposal, "execution_task", "") or "")
+            ),
             pending_confirmation=False,
         )
 

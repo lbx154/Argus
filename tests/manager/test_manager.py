@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import pytest
 
 from argus_skill.manager import Division, Manager
+from argus_skill.manager.domain_author import VerticalDecision, parse_vertical_decision
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
@@ -34,7 +35,11 @@ class _DecisionRunner:
 
 
 def _existing(vertical: str) -> _DecisionRunner:
-    return _DecisionRunner({"choice": "existing", "vertical": vertical})
+    return _DecisionRunner({
+        "choice": "existing",
+        "vertical": vertical,
+        "execution_task": "perform the requested task",
+    })
 
 
 def test_triage_existing_research():
@@ -102,6 +107,39 @@ def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "nanochat"
+
+
+def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_path):
+    mgr = Manager(project_root=tmp_path, runner=_existing("research"))
+
+    decision = mgr.decide_vertical("draft the paper")
+
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    division = mgr.commit_vertical_decision("draft the paper", decision)
+    assert division.execution_task == "perform the requested task"
+    state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
+    assert state["vertical"] == "research"
+
+
+def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
+    manager = Manager(project_root=tmp_path, runner=_existing("research"))
+    manager.divide("seed the research pipeline")
+    pipeline_state = tmp_path / "research" / "PIPELINE_STATE.json"
+    before = pipeline_state.read_bytes()
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="nanochat",
+        execution_task="run nanochat",
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager._core.vertical_select.reset_stage_for_new_intent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="reset failed"):
+        manager.commit_vertical_decision("run nanochat", decision)
+
+    assert pipeline_state.read_bytes() == before
 
 
 def test_divide_research_persists_and_lists_8_stages(tmp_path):
@@ -216,6 +254,7 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
     runner = _DecisionRunner({
         "choice": "existing",
         "vertical": "research",
+        "execution_task": "Write the substantive manuscript.",
         "live_view": {
             "title": "Live manuscript",
             "reason": "The operator should see the paper evolve.",
@@ -227,7 +266,7 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
         }],
     })
 
-    Manager(project_root=tmp_path, runner=runner).divide("write the paper")
+    division = Manager(project_root=tmp_path, runner=runner).divide("write the paper")
 
     payload = json.loads(
         (tmp_path / ".argus" / "live-view.json").read_text(encoding="utf-8")
@@ -235,8 +274,33 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
     assert payload["title"] == "Live manuscript"
     assert payload["paths"] == [".argus/live/current.md"]
     assert (tmp_path / ".argus" / "live" / "current.md").exists()
+    assert division.execution_task == "Write the substantive manuscript."
     assert runner.last_options.sandbox_mode == "read-only"
     assert runner.last_options.dangerous_yolo is False
+
+
+def test_execution_task_parser_is_string_only_and_lossless() -> None:
+    malformed = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "execution_task": {"bad": True},
+        }),
+        known_verticals=["research"],
+    )
+    assert malformed is None
+
+    long_task = "x" * 9000
+    parsed = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "execution_task": long_task,
+        }),
+        known_verticals=["research"],
+    )
+    assert parsed is not None
+    assert parsed.execution_task == long_task
 
 
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):

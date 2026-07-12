@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.core.session import SessionMeta, write_session_meta
+from argus_skill.core.transcript import append_turn
 from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
@@ -26,6 +27,31 @@ from argus_skill.webapi.protocol import (
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
+
+
+def test_project_label_does_not_use_raw_operator_transcript(tmp_path: Path) -> None:
+    sid = "s-rawlabel"
+    life_dir = tmp_path / "projects" / sid
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, created=1, last_active=1, cwd=str(life_dir)),
+    )
+    append_turn(
+        life_dir,
+        "operator",
+        "write paper; Manager owns the right sidebar",
+    )
+
+    project = next(
+        item
+        for item in project_state.list_projects(
+            global_root=tmp_path,
+            include_empty=True,
+        )
+        if item["id"] == sid
+    )
+
+    assert project["label"] == sid
 
 
 def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
