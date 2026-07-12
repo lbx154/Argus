@@ -461,13 +461,15 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     view.mission.status = 'idle';
   }
   snapshot.roles.forEach((role) => {
-    const existing = view.roles.find((row) => row.role === role.role);
     if (role.active) {
       setRole(view, role.role, 'active', role.label || role.status || 'Working', Date.now() / 1000 - (role.age_s ?? 0));
+    } else {
+      setRole(view, role.role, 'waiting', 'Waiting', Date.now() / 1000);
     }
-    const row = view.roles.find((candidate) => candidate.role === role.role) ?? existing;
+    const row = view.roles.find((candidate) => candidate.role === role.role);
     if (row) Object.assign(row, { backend: role.backend, model: role.model, effort: role.effort });
   });
+  view.active_role = snapshot.roles.find((role) => role.active)?.role ?? '';
   snapshot.backlog.forEach((item) => {
     const node: MissionDagNode = {
       id: item.id,

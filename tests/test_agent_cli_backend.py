@@ -593,7 +593,7 @@ def test_run_exec_writes_full_agent_io_log(
         run_label: str,
     ) -> AgentRunResult:
         assert self.event_callback is not None
-        self.event_callback("stdout", '{"type":"agent_message","message":"thinking"}')
+        self.event_callback("manager.stdout", '{"type":"agent_message","message":"thinking"}')
         self.event_callback("stderr", "tool stderr line")
         return _make_argus_result(
             command=["copilot", "-p", "<prompt>"],
@@ -633,6 +633,10 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
+    assert [row["stream"] for row in rows if row["type"] == "agent.io.stream"] == [
+        "stdout",
+        "stderr",
+    ]
     assert rows[1]["stream"] == "stdout"
     assert rows[1]["model"] == "gpt-5.5"
     assert rows[1]["line"].startswith('{"type"')

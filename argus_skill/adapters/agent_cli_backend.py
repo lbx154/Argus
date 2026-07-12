@@ -1242,6 +1242,9 @@ class AgentCliBackend:
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
+        canonical_stream = stream.rsplit(".", 1)[-1]
+        if canonical_stream not in {"stdout", "stderr"}:
+            canonical_stream = "stdout"
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
@@ -1250,7 +1253,7 @@ class AgentCliBackend:
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),
                 "model": ctx.get("model"),
-                "stream": stream,
+                "stream": canonical_stream,
                 "line": line,
                 "ts": time.time(),
             })

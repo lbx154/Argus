@@ -28,7 +28,36 @@ function timelineColor(item: MissionTimelineItem): string | undefined {
   return undefined;
 }
 
-export function MissionCockpit({ view, width }: { view: MissionView; width: number }) {
+export function budgetSummary(
+  spentUsd?: number | null,
+  spendStatus?: string,
+  dailyCapUsd?: number | null,
+  globalDailyCapUsd?: number | null,
+  wide = true,
+): string {
+  const spent = spentUsd == null
+    ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 spent'
+    : `$${spentUsd.toFixed(2)} spent`;
+  const daily = dailyCapUsd ? ` / $${dailyCapUsd.toFixed(0)} daily` : '';
+  const global = globalDailyCapUsd && wide ? ` · $${globalDailyCapUsd.toFixed(0)} global` : '';
+  return spent + daily + global;
+}
+
+export function MissionCockpit({
+  view,
+  width,
+  spentUsd,
+  spendStatus,
+  dailyCapUsd,
+  globalDailyCapUsd,
+}: {
+  view: MissionView;
+  width: number;
+  spentUsd?: number | null;
+  spendStatus?: string;
+  dailyCapUsd?: number | null;
+  globalDailyCapUsd?: number | null;
+}) {
   const [tick, setTick] = useState(0);
   const active = view.roles.some((role) => role.status === 'active');
   useEffect(() => {
@@ -70,6 +99,18 @@ export function MissionCockpit({ view, width }: { view: MissionView; width: numb
           {metricDisplay(metric)}
           {improvement != null ? `  ${improvement >= 0 ? '↑' : '↓'}${Math.abs(improvement).toFixed(1)}${metric?.unit || ''}` : ''}
           {metric && metric.verification_status !== 'accepted' ? ' · reported' : ''}
+        </Text>
+      </Box>
+      <Box>
+        <Text dimColor>BUDGET </Text>
+        <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
+          {budgetSummary(
+            spentUsd,
+            spendStatus,
+            dailyCapUsd,
+            globalDailyCapUsd,
+            width >= 90,
+          )}
         </Text>
       </Box>
 

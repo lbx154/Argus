@@ -333,7 +333,14 @@ export function App({
       (turns) => {
         if (!active) return;
         const persisted = transcriptEvents(turns);
-        setEvents((live) => [...persisted, ...live].slice(-MAX_EVENTS));
+        setEvents((live) =>
+          [...persisted, ...live]
+            .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
+            .reduce(
+              (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
+              [] as EventMsg[],
+            ),
+        );
       },
       () => {
         // Event streaming remains usable when an old project has no transcript.
@@ -1086,7 +1093,16 @@ export function App({
         />
       ) : (
         <>
-          {missionView ? <MissionCockpit view={missionView} width={terminal.columns} /> : null}
+          {missionView ? (
+            <MissionCockpit
+              view={missionView}
+              width={terminal.columns}
+              spentUsd={snap?.spend_usd}
+              spendStatus={snap?.spend_status}
+              dailyCapUsd={snap?.daemon.daily_cap_usd}
+              globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}
+            />
+          ) : null}
           <EventLog events={events} width={terminal.columns} mode="conversation" />
           {pending && (
             <ThinkingLine
