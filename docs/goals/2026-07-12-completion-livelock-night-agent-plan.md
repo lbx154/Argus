@@ -22,12 +22,12 @@ terminal reconciliation and the Supervisor planning-cycle boundaries.
 - Modify: `tests/life/test_manager_stage_hook.py`
 - Modify: `argus_skill/manager/_core.py`
 
-- [ ] Add a failing unit test where the active stage is `submission`, the
+- [x] Add a failing unit test where the active stage is `submission`, the
       reviewer returns `done` with a satisfied evidence-bearing checklist and
       `forward_progress=true`, and all three Manager calls return empty output.
       Assert `StageTransition.action == "complete"` and
       `stages.submission.status == "done"`.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 python -m pytest -o addopts='' -q \
@@ -38,7 +38,7 @@ python -m pytest -o addopts='' -q \
 Expected before the fix: the new test fails with action `hold` and diagnostic
 `empty_output_no_next_stage`.
 
-- [ ] Move the existing `final_stage_completion_decision(...)` call after the
+- [x] Move the existing `final_stage_completion_decision(...)` call after the
       empty/non-empty response branch:
 
 ```python
@@ -59,7 +59,7 @@ if final_decision is not None:
     decision = final_decision
 ```
 
-- [ ] Re-run the two test files and confirm they pass.
+- [x] Re-run the two test files and confirm they pass.
 
 ### Task 2: Derive Bounded Project Completion
 
@@ -67,14 +67,14 @@ if final_decision is not None:
 - Modify: `tests/test_reviewer_completion_contract.py`
 - Modify: `argus_skill/life/supervisor/_planning_cycle.py`
 
-- [ ] Add a failing regression test for a continuous, `open_ended=False`,
+- [x] Add a failing regression test for a continuous, `open_ended=False`,
       non-paper `speedrun` project with
       `current_stage=report` and `stages.report.status=done`. Use a Planner
       runner that raises if called. Assert `_plan_next_work() is False`.
-- [ ] Add or preserve a companion assertion that a `research` project under the
+- [x] Add or preserve a companion assertion that a `research` project under the
       full-paper gate is not considered complete from terminal-stage status
       alone.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 python -m pytest -o addopts='' -q \
@@ -84,7 +84,7 @@ python -m pytest -o addopts='' -q \
 Expected before the fix: the non-paper regression reaches the exploding
 Planner runner.
 
-- [ ] After `_resolve_vertical_once()` and before constructing the Planner,
+- [x] After `_resolve_vertical_once()` and before constructing the Planner,
       resolve the active vertical and call
       `vertical_reached_own_terminal_stage()`. Return project done only when:
 
@@ -97,7 +97,7 @@ and vertical_reached_own_terminal_stage(self._artifact_root(), vertical)
 Emit a zero-token `life.planner.verdict` and a clear status line so the derived
 transition remains observable.
 
-- [ ] Re-run the completion-contract tests.
+- [x] Re-run the completion-contract tests.
 
 ### Task 3: Back Off When Filtering Enqueues Nothing
 
@@ -105,10 +105,10 @@ transition remains observable.
 - Modify: `tests/life/test_planner_subagent_family_circuit_breaker.py`
 - Modify: `argus_skill/life/supervisor/_planning_cycle.py`
 
-- [ ] Change the existing fully-filtered stuck-family regression to expect
+- [x] Change the existing fully-filtered stuck-family regression to expect
       `PLAN_RETRY`, an empty backlog, and a positive suggested backoff.
-- [ ] Add an assertion that the Planner verdict reports zero enqueued tasks.
-- [ ] Run:
+- [x] Add an assertion that the Planner verdict reports zero enqueued tasks.
+- [x] Run:
 
 ```bash
 python -m pytest -o addopts='' -q \
@@ -117,7 +117,7 @@ python -m pytest -o addopts='' -q \
 
 Expected before the fix: `_plan_next_work()` returns `True` and resets backoff.
 
-- [ ] After emitting the Planner verdict and handling daemon restart, add:
+- [x] After emitting the Planner verdict and handling daemon restart, add:
 
 ```python
 if not added_titles:
@@ -130,13 +130,54 @@ if not added_titles:
 
 Keep the existing reset-and-`True` path only for real new work.
 
-### Task 4: Verification And Evidence
+### Task 4: Deduplicate Completed Final-Submission Retry
+
+**Files:**
+- Modify: `tests/test_reviewer_completion_contract.py`
+- Modify: `argus_skill/life/supervisor/_planning_cycle.py`
+
+- [x] Add a regression that creates the canonical
+      `scope:final_submission` task under the uncertified full-paper gate,
+      marks that exact backlog item `done`, then repeats a Planner
+      `project_done=true` verdict. Assert no second final task is added,
+      `_plan_next_work() == PLAN_RETRY`, and suggested backoff is positive.
+- [x] Run:
+
+```bash
+python -m pytest -o addopts='' -q \
+  tests/test_reviewer_completion_contract.py
+```
+
+Observed before the fix:
+
+```text
+1 failed, 33 passed in 0.89s
+```
+
+The second gate cycle returned `True` and re-enqueued the final task.
+
+- [x] Remove only this exemption from the existing-item signature scan:
+
+```python
+if existing.status == "done" and self._item_is_final_submission(existing):
+    continue
+```
+
+- [x] Re-run the completion-contract tests.
+
+Observed after the fix:
+
+```text
+34 passed in 0.73s
+```
+
+### Task 5: Verification And Evidence
 
 **Files:**
 - Modify: `docs/experiment/2026-07-12-completion-livelock/README.md`
 - Modify: `docs/goals/2026-07-12-completion-livelock-night-agent-status.md`
 
-- [ ] Run the focused suites:
+- [x] Run the focused suites:
 
 ```bash
 python -m pytest -o addopts='' -q \
@@ -148,7 +189,7 @@ python -m pytest -o addopts='' -q \
   tests/skills/test_verticals.py
 ```
 
-- [ ] Run the broader supervisor/planner suites:
+- [x] Run the broader supervisor/planner suites:
 
 ```bash
 python -m pytest -o addopts='' -q \
@@ -158,8 +199,10 @@ python -m pytest -o addopts='' -q \
   tests/planner/test_planner.py
 ```
 
-- [ ] Run `git diff --check`.
-- [ ] Record exact test counts, elapsed times, base SHA, final working-tree
+- [x] Run `git diff --check`.
+- [x] Regenerate the release manifest with
+      `python scripts/generate_release_manifest.py` and verify it with
+      `python scripts/generate_release_manifest.py --check`.
+- [x] Record exact test counts, elapsed times, base SHA, final working-tree
       status, and changed files in the experiment ledger.
-- [ ] Report completion to the architect. Do not commit or push.
-
+- [x] Report completion to the architect. Do not commit or push.

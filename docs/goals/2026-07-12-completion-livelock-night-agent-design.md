@@ -38,6 +38,14 @@ to `main`.
    return a no-work retry sentinel after entering idle backoff. Do not report
    that work was added and do not immediately call the Planner again.
 
+4. Completed final-submission dedup:
+   a completed `scope:final_submission` backlog item must participate in the
+   same signature dedup as every other completed Planner item. If the
+   uncertified full-paper guard regenerates that identical task, filtering must
+   remove it so the zero-enqueue backoff path returns `PLAN_RETRY` instead of
+   adding another final task. Remove only the completed-final-submission dedup
+   exemption; do not weaken the certification gate.
+
 No prompt expansion, schema relaxation, completion-quality downgrade, broad
 refactor, or new state file is allowed.
 
@@ -72,13 +80,14 @@ worker and is escalated to the operator.
 
 ## Completion Criteria
 
-- All three regressions have tests that failed before their production fixes.
+- All four regressions have tests that failed before their production fixes.
 - The final-stage empty-response reproduction completes the final stage.
 - A bounded non-paper terminal stage bypasses the Planner and returns project
   done; full-paper behavior remains certification-gated.
 - A fully filtered Planner batch enters backoff and does not report work added.
+- An uncertified completed final-submission item is not re-enqueued; the
+  identical regenerated task is deduplicated and enters backoff.
 - Targeted and relevant supervisor suites pass.
 - Experiment evidence records commands, outputs, base/final Git checkpoints,
   and states that no ML model checkpoint was used.
 - The verified commit is present on `origin/main`.
-
