@@ -11,6 +11,7 @@ import { ArgusMark } from './Wordmark';
 type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
+const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
 function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
@@ -133,8 +134,18 @@ function RoleLogGroup({
 function ConversationThread({ group, latest }: { group: ConversationGroup; latest: boolean }) {
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
-  const replies = group.rows.filter((row) => row.ev.type === 'ui.argus' && !isSystemMessage(row));
-  const systemMessages = group.rows.filter(isSystemMessage);
+  const replyParts = group.rows
+    .filter((row) => row.ev.type === 'ui.argus')
+    .map((row) => {
+      const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
+      const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
+      return {
+        reply: text && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
+        messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
+      };
+    });
+  const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
+  const systemMessages = replyParts.flatMap((part) => part.messages);
   const operational = group.rows.filter(({ ev }) => ev.type !== 'ui.argus');
   const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
     manager: [],
@@ -167,9 +178,9 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
     <section className="border-b border-line/60">
       <ConversationRow ev={group.operator.ev} r={group.operator.r} />
       {replies.map((row) => <ConversationRow key={row.key} ev={row.ev} r={row.r} />)}
-      {systemMessages.map((row) => (
-        <div key={row.key} className="mx-auto w-full max-w-[760px] px-6 py-1.5 text-center text-xs text-ink-faint">
-          {row.r.text}
+      {systemMessages.map((message, index) => (
+        <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-[760px] px-6 py-1.5 text-center text-xs text-ink-faint">
+          {message}
         </div>
       ))}
       {logCount > 0 ? (
