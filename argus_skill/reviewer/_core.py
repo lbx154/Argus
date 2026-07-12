@@ -538,6 +538,7 @@ class Reviewer:
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
+            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root(working_dir)
@@ -827,7 +828,10 @@ class Reviewer:
         # resume). ``search_altitude_block`` and the per-round checkpoint/
         # escalation/log-audit blocks were REORDERED out of here into the delta.
         static = (
-            ground_truth_mandate("reviewer")
+            ground_truth_mandate(
+                "reviewer",
+                workflow_mode=vertical_workflow_mode(_vmod),
+            )
             + optimize_banner
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"

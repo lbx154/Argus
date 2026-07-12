@@ -94,6 +94,9 @@ class SkillLoopConfig:
     dangerous_yolo: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
+    # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
+    # deliverable; the Engineer and Reviewer still run normally.
+    workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
     # submission task. When True the engineer prompt carries the
     # long-horizon paper execution contract. Replaces the old keyword-based
@@ -231,7 +234,8 @@ class SkillLoop:
         Falls back to ``task`` when not supplied for back-compat.
         """
         workdir = Path(workdir) if workdir else Path.cwd()
-        if self.config.wiki_ops_enabled:
+        direct_workflow = self.config.workflow_mode == "direct"
+        if self.config.wiki_ops_enabled and not direct_workflow:
             from .wiki.lifecycle import ensure_project_wiki
 
             ensure_project_wiki(
@@ -253,9 +257,14 @@ class SkillLoop:
         # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        match = self.skill_router.select(
-            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
-        )
+        if direct_workflow:
+            from .skills.role_match import RoleSkillMatch
+
+            match = RoleSkillMatch(role="engineer")
+        else:
+            match = self.skill_router.select(
+                skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+            )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
@@ -271,7 +280,7 @@ class SkillLoop:
 
         # Scientist tool on miss: author one reusable playbook, persist it in the
         # project layer immediately, and inject that exact version into this mission.
-        if skill is None:
+        if skill is None and not direct_workflow:
             try:
                 from .skills.scientist import SkillScientist
 

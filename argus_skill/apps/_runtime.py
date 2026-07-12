@@ -698,6 +698,11 @@ class _SkillLoopRunner(SelfReplyMixin):
         config_kwargs["paper_mission"] = (
             _paper_allowed and _paper_mission_for_project_root(_proot)
         )
+        config_kwargs["workflow_mode"] = _workflow_mode_for_project_root(_proot)
+        if config_kwargs["workflow_mode"] == "direct":
+            config_kwargs["skill_ops_enabled"] = False
+            config_kwargs["wiki_ops_enabled"] = False
+            config_kwargs["auto_init_wiki"] = False
         try:
             from inspect import signature
 
@@ -796,7 +801,10 @@ class _SkillLoopRunner(SelfReplyMixin):
             # items set ``preplanned=True`` and skip this call, avoiding a second
             # redundant planning pass. The plan is advisory context, not a gate:
             # if drafting fails, Engineer still receives the immutable objective.
-            if not preplanned:
+            if (
+                not preplanned
+                and getattr(config, "workflow_mode", "staged") != "direct"
+            ):
                 try:
                     from ..manager.plan_mode import draft_plan
 
@@ -910,11 +918,15 @@ class _SkillLoopRunner(SelfReplyMixin):
         # pipeline stage. After this round's reviewer verdict, the Manager makes
         # its OWN judgment (advance / hold / rollback) and writes
         # PIPELINE_STATE.json. See ``_decide_stage_transition``.
-        stage_transition = self._decide_stage_transition(
-            rounds_list=rounds_list,
-            workdir=workdir,
-            sink=sink,
-            root_task_id=mission_id,
+        stage_transition = (
+            {}
+            if getattr(config, "workflow_mode", "staged") == "direct"
+            else self._decide_stage_transition(
+                rounds_list=rounds_list,
+                workdir=workdir,
+                sink=sink,
+                root_task_id=mission_id,
+            )
         )
         return _Outcome(
             success=outcome.successful,
@@ -1177,6 +1189,21 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
         )
     except Exception:  # noqa: BLE001 — mission typing must fail safe
         return False
+
+
+def _workflow_mode_for_project_root(project_root: Path | str) -> str:
+    """Resolve the Manager-selected workflow contract; fail safe to staged."""
+    try:
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import load_vertical, vertical_workflow_mode
+
+        root = Path(project_root).expanduser()
+        vertical = resolve_vertical(root)
+        return vertical_workflow_mode(
+            load_vertical(vertical, project_root=root)
+        )
+    except Exception:  # noqa: BLE001
+        return "staged"
 
 
 def _build_repl_supervisor_config(
