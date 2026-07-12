@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.knobs import resolve_role_model
+from ..core.runner_errors import is_pre_provider_refusal_error
 
 
 class ManagerHandoffError(RuntimeError):
@@ -572,6 +573,13 @@ _DO_NOT_RUN_SAFE_REPLY = (
 )
 
 
+def _pre_provider_refusal_reply(exc: Exception) -> str:
+    return (
+        "[not dispatched] The Manager could not classify this message because "
+        f"the provider call was refused before start: {exc}"
+    )
+
+
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
                    route: str | None = None,
@@ -713,16 +721,20 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
                 return captured[0] if captured else "(no reply)"
-        except Exception:  # noqa: BLE001 — triage failure
+        except Exception as exc:  # noqa: BLE001 — triage failure
             if looks_like_do_not_run_request(body):
                 return _DO_NOT_RUN_SAFE_REPLY
+            if is_pre_provider_refusal_error(exc):
+                return _pre_provider_refusal_reply(exc)
             return None
-    except Exception:  # noqa: BLE001 — triage failure: bias to task ("never drop
+    except Exception as exc:  # noqa: BLE001 — triage failure: bias to task ("never drop
         # work to a bad classify") UNLESS the operator explicitly forbade running
         # (status-only / do-not-run). Dispatching a real mission on a classify we
         # could not even complete is how a status request reached the Engineer.
         if looks_like_do_not_run_request(body):
             return _DO_NOT_RUN_SAFE_REPLY
+        if is_pre_provider_refusal_error(exc):
+            return _pre_provider_refusal_reply(exc)
         return None
     return None
 
