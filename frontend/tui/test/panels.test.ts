@@ -155,6 +155,8 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   missionView.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
   missionView.storage.skill_history_compressed = 4;
   missionView.storage.wiki_retired_compressed = 2;
+  missionView.storage.skill_history_bytes_saved = 1024;
+  missionView.storage.wiki_retired_bytes_saved = 512;
   const snap = {
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
@@ -183,7 +185,7 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   assert.match(output, /self-evolution storage/);
   assert.match(output, /\/state\/project\/skills/);
   assert.match(output, /\.autors\/demo\/wiki/);
-  assert.match(output, /skill 4 · wiki 2 compressed/);
+  assert.match(output, /skill 4 · wiki 2 · 1\.5 KB saved/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 

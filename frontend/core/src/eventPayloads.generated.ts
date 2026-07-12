@@ -482,6 +482,9 @@ export interface SkillHistoryCompressedEvent extends EventMsg {
   "keep_hot": number;
   "paths"?: Array<string>;
   "truncated"?: boolean;
+  "bytes_before"?: number;
+  "bytes_after"?: number;
+  "bytes_saved"?: number;
   "text"?: string;
 }
 
@@ -496,6 +499,7 @@ export interface SkillEvolutionCompletedEvent extends EventMsg {
   "compaction_clusters"?: number;
   "compacted"?: number;
   "history_compressed"?: number;
+  "history_bytes_saved"?: number;
   "errors"?: number;
   "project_skill_dir"?: string;
   "global_skill_dir"?: string;
@@ -657,6 +661,9 @@ export interface WikiRetiredCompressedEvent extends EventMsg {
   "keep_hot": number;
   "paths"?: Array<string>;
   "truncated"?: boolean;
+  "bytes_before"?: number;
+  "bytes_after"?: number;
+  "bytes_saved"?: number;
   "text"?: string;
 }
 
@@ -677,6 +684,7 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   "compaction_clusters"?: number;
   "compacted"?: number;
   "retired_compressed"?: number;
+  "retired_bytes_saved"?: number;
   "errors"?: number;
   "paths"?: Array<string>;
   "text"?: string;

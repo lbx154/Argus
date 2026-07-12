@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from ..core.cold_storage import compact_wiki_retired
+from ..core.cold_storage import cold_storage_stats, compact_wiki_retired
 from ..core.event_catalog import EventType
 from ..core.knobs import resolve_knob
 from ..core.models import RoundRecord
@@ -239,6 +239,8 @@ def evolve_wikis_after_mission(
             compact_wiki_retired(wiki_root, keep_hot=keep_hot)
         )
     totals["retired_compressed"] = len(compressed_retired)
+    retired_stats = cold_storage_stats(compressed_retired)
+    totals["retired_bytes_saved"] = retired_stats["bytes_saved"]
     if compressed_retired:
         shown = [str(path) for path in compressed_retired[:20]]
         _emit(on_event, {
@@ -247,6 +249,7 @@ def evolve_wikis_after_mission(
             "keep_hot": keep_hot,
             "paths": shown,
             "truncated": len(shown) < len(compressed_retired),
+            **retired_stats,
             "text": f"compressed {len(compressed_retired)} cold wiki tombstones",
         })
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Barrier, Lock, Thread
 
 from argus_skill.core.cold_storage import (
+    cold_storage_stats,
     compact_skill_histories,
     compact_wiki_retired,
 )
@@ -18,7 +19,7 @@ def _write(path: Path, text: str) -> None:
 def test_skill_history_compression_is_lossless_and_idempotent(tmp_path: Path) -> None:
     history = tmp_path / "skills" / "_history" / "skill-1"
     for version in range(1, 6):
-        _write(history / f"v{version}.md", f"version {version}\n")
+        _write(history / f"v{version}.md", f"version {version}\n" * 100)
 
     compressed = compact_skill_histories(tmp_path / "skills", keep_hot=2)
 
@@ -26,8 +27,11 @@ def test_skill_history_compression_is_lossless_and_idempotent(tmp_path: Path) ->
     assert {path.name for path in history.glob("*.md")} == {"v4.md", "v5.md"}
     for version in range(1, 4):
         assert gzip.decompress((history / f"v{version}.md.gz").read_bytes()) == (
-            f"version {version}\n".encode()
+            (f"version {version}\n" * 100).encode()
         )
+    stats = cold_storage_stats(compressed)
+    assert stats["bytes_before"] > stats["bytes_after"]
+    assert stats["bytes_saved"] == stats["bytes_before"] - stats["bytes_after"]
     assert compact_skill_histories(tmp_path / "skills", keep_hot=2) == []
 
 

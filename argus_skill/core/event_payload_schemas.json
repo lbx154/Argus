@@ -524,6 +524,9 @@
         "keep_hot": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "items": {"type": "string"}},
         "truncated": {"type": "boolean"},
+        "bytes_before": {"type": "integer", "minimum": 0},
+        "bytes_after": {"type": "integer", "minimum": 0},
+        "bytes_saved": {"type": "integer", "minimum": 0},
         "text": {"type": "string"}
       }
     },
@@ -539,6 +542,7 @@
         "compaction_clusters": {"type": "integer", "minimum": 0},
         "compacted": {"type": "integer", "minimum": 0},
         "history_compressed": {"type": "integer", "minimum": 0},
+        "history_bytes_saved": {"type": "integer", "minimum": 0},
         "errors": {"type": "integer", "minimum": 0},
         "project_skill_dir": {"type": "string"},
         "global_skill_dir": {"type": "string"},
@@ -716,6 +720,9 @@
         "keep_hot": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "items": {"type": "string"}},
         "truncated": {"type": "boolean"},
+        "bytes_before": {"type": "integer", "minimum": 0},
+        "bytes_after": {"type": "integer", "minimum": 0},
+        "bytes_saved": {"type": "integer", "minimum": 0},
         "text": {"type": "string"}
       }
     },
@@ -737,6 +744,7 @@
         "compaction_clusters": {"type": "integer", "minimum": 0},
         "compacted": {"type": "integer", "minimum": 0},
         "retired_compressed": {"type": "integer", "minimum": 0},
+        "retired_bytes_saved": {"type": "integer", "minimum": 0},
         "errors": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"}

@@ -211,7 +211,7 @@ function OperationsPanel({
           {storage.project_skill_dir ? <Row k="project skills" v={`${storage.project_skill_count} · ${storage.project_skill_dir}`} /> : null}
           {storage.global_skill_dir ? <Row k="global skills" v={`${storage.global_skill_count} · ${storage.global_skill_dir}`} /> : null}
           {storage.wiki_paths.map((path, index) => <Row key={path} k={index ? "" : "project wiki"} v={path} />)}
-          {(storage.skill_history_compressed || storage.wiki_retired_compressed) ? <Row k="cold history" v={`skill ${storage.skill_history_compressed} · wiki ${storage.wiki_retired_compressed} compressed`} /> : null}
+          {(storage.skill_history_compressed || storage.wiki_retired_compressed) ? <Row k="cold history" v={`skill ${storage.skill_history_compressed} · wiki ${storage.wiki_retired_compressed} · ${formatBytes(storage.skill_history_bytes_saved + storage.wiki_retired_bytes_saved)} saved`} /> : null}
         </>
       ) : null}
       {slo?.status === 'degraded' ? (

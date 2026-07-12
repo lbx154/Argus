@@ -70,6 +70,8 @@ def empty_mission_view() -> dict[str, Any]:
             "global_skill_count": 0,
             "skill_history_compressed": 0,
             "wiki_retired_compressed": 0,
+            "skill_history_bytes_saved": 0,
+            "wiki_retired_bytes_saved": 0,
             "wiki_paths": [],
         },
         "achievement": None,
@@ -115,6 +117,8 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         "global_skill_count": 0,
         "skill_history_compressed": 0,
         "wiki_retired_compressed": 0,
+        "skill_history_bytes_saved": 0,
+        "wiki_retired_bytes_saved": 0,
         "wiki_paths": [],
     }
     storage = payload.setdefault("storage", {})
@@ -584,6 +588,9 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         storage["skill_history_compressed"] = int(
             storage.get("skill_history_compressed") or 0
         ) + _integer(event, "count")
+        storage["skill_history_bytes_saved"] = int(
+            storage.get("skill_history_bytes_saved") or 0
+        ) + _integer(event, "bytes_saved")
 
     elif event_type in {
         EventType.WIKI_INITIALIZED,
@@ -606,6 +613,9 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         storage["wiki_retired_compressed"] = int(
             storage.get("wiki_retired_compressed") or 0
         ) + _integer(event, "count")
+        storage["wiki_retired_bytes_saved"] = int(
+            storage.get("wiki_retired_bytes_saved") or 0
+        ) + _integer(event, "bytes_saved")
 
     elif event_type in {EventType.WIKI_CREATED, EventType.WIKI_UPDATED}:
         page_id = _text(event, "page_id")

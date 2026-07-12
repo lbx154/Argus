@@ -26,6 +26,8 @@ describe('MissionControl', () => {
     view.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
     view.storage.skill_history_compressed = 4;
     view.storage.wiki_retired_compressed = 2;
+    view.storage.skill_history_bytes_saved = 1024;
+    view.storage.wiki_retired_bytes_saved = 512;
     view.learned_wiki_pages = [{ id: 'page-1', title: 'Fused epilogue evidence', status: 'candidate' }];
     view.timeline = [{
       id: 'event-1', ts: 1, type: 'research.metric.reported', role: 'engineer',
@@ -53,7 +55,7 @@ describe('MissionControl', () => {
     expect(markup).toContain('Fused epilogue evidence');
     expect(markup).toContain('/state/project/skills');
     expect(markup).toContain('/workspace/.autors/demo/wiki');
-    expect(markup).toContain('cold history · skill 4 · wiki 2 compressed');
+    expect(markup).toContain('cold history · skill 4 · wiki 2 · 1.5 KB saved');
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('Git changes · main');
   });

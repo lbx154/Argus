@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ..core.cold_storage import compact_skill_histories
+from ..core.cold_storage import cold_storage_stats, compact_skill_histories
 from ..core.event_catalog import EventType
 from ..core.knobs import resolve_knob
 from ..core.models import RoundRecord
@@ -136,6 +136,7 @@ def evolve_skills_after_mission(
         project_skill_dir,
         keep_hot=keep_hot,
     )
+    history_stats = cold_storage_stats(compressed_history)
     if compressed_history:
         shown = [str(path) for path in compressed_history[:20]]
         _emit(on_event, {
@@ -144,6 +145,7 @@ def evolve_skills_after_mission(
             "keep_hot": keep_hot,
             "paths": shown,
             "truncated": len(shown) < len(compressed_history),
+            **history_stats,
             "text": f"compressed {len(compressed_history)} cold skill versions",
         })
 
@@ -153,6 +155,7 @@ def evolve_skills_after_mission(
         "compaction_clusters": compact["clusters"],
         "compacted": compact["archived"],
         "history_compressed": len(compressed_history),
+        "history_bytes_saved": history_stats["bytes_saved"],
         "errors": compact["errors"],
         **_store_snapshot(skill_store),
     }

@@ -129,4 +129,22 @@ def compact_wiki_retired(wiki_root: Path | str, *, keep_hot: int) -> list[Path]:
     return compressed
 
 
-__all__ = ["compact_skill_histories", "compact_wiki_retired"]
+def cold_storage_stats(paths: list[Path]) -> dict[str, int]:
+    """Return lossless compression byte accounting for newly-created gzip files."""
+    before = 0
+    after = 0
+    for path in paths:
+        try:
+            payload = path.read_bytes()
+            after += len(payload)
+            before += len(gzip.decompress(payload))
+        except (OSError, EOFError, gzip.BadGzipFile):
+            continue
+    return {
+        "bytes_before": before,
+        "bytes_after": after,
+        "bytes_saved": max(0, before - after),
+    }
+
+
+__all__ = ["cold_storage_stats", "compact_skill_histories", "compact_wiki_retired"]

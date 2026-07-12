@@ -5,6 +5,7 @@ import {
   metricDisplay,
   missionMetricImprovement,
 } from '../../../core/src/missionView';
+import { formatBytes } from '../lib/format';
 import { theme } from '../lib/theme';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
@@ -202,7 +203,7 @@ export function MissionControl({
                 {view.storage.project_skill_dir ? <div className="break-all">project skills ({view.storage.project_skill_count}) · {view.storage.project_skill_dir}</div> : null}
                 {view.storage.global_skill_dir ? <div className="break-all">global skills ({view.storage.global_skill_count}) · {view.storage.global_skill_dir}</div> : null}
                 {view.storage.wiki_paths.map((path) => <div key={path} className="break-all">project wiki · {path}</div>)}
-                {(view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? <div>cold history · skill {view.storage.skill_history_compressed} · wiki {view.storage.wiki_retired_compressed} compressed</div> : null}
+                {(view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? <div>cold history · skill {view.storage.skill_history_compressed} · wiki {view.storage.wiki_retired_compressed} · {formatBytes(view.storage.skill_history_bytes_saved + view.storage.wiki_retired_bytes_saved)} saved</div> : null}
               </div>
             </div>
           ) : null}

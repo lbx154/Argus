@@ -113,8 +113,8 @@ test('evolution events expose skill and wiki storage locations', () => {
     vertical: 'kernelbench',
     path: '/source/verticals/kernelbench/skills/bounded-retry.md',
   });
-  view = reduceMissionViewEvent(view, { type: 'skill.history.compressed', ts: 6, count: 3 });
-  view = reduceMissionViewEvent(view, { type: 'wiki.retired.compressed', ts: 7, count: 2 });
+  view = reduceMissionViewEvent(view, { type: 'skill.history.compressed', ts: 6, count: 3, bytes_saved: 1024 });
+  view = reduceMissionViewEvent(view, { type: 'wiki.retired.compressed', ts: 7, count: 2, bytes_saved: 512 });
 
   assert.equal(view.storage.project_skill_count, 2);
   assert.equal(view.storage.global_skill_dir, '/state/global/skills');
@@ -124,4 +124,6 @@ test('evolution events expose skill and wiki storage locations', () => {
   assert.equal(view.learned_skills[0]?.source_vertical, 'kernelbench');
   assert.equal(view.storage.skill_history_compressed, 3);
   assert.equal(view.storage.wiki_retired_compressed, 2);
+  assert.equal(view.storage.skill_history_bytes_saved, 1024);
+  assert.equal(view.storage.wiki_retired_bytes_saved, 512);
 });

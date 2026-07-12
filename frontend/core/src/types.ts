@@ -254,6 +254,8 @@ export interface MissionStorageView {
   global_skill_count: number;
   skill_history_compressed: number;
   wiki_retired_compressed: number;
+  skill_history_bytes_saved: number;
+  wiki_retired_bytes_saved: number;
   wiki_paths: string[];
 }
 
