@@ -120,6 +120,7 @@ class EventType(StrEnum):
     SKILL_DISTILL_REJECTED = "skill.distill.rejected"
     SKILL_REVISED = "skill.revised"
     SKILL_USE_RECORDED = "skill.use.recorded"
+    SKILL_HISTORY_COMPRESSED = "skill.history.compressed"
     SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
     WIKI_INITIALIZED = "wiki.initialized"
     WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
@@ -136,6 +137,7 @@ class EventType(StrEnum):
     WIKI_SOURCE_SKIPPED = "wiki.source.skipped"
     WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
     WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
+    WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
     WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
     OPERATOR_ALERT = "operator_alert"
 
@@ -173,6 +175,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_DISTILL_REJECTED,
     EventType.SKILL_REVISED,
     EventType.SKILL_USE_RECORDED,
+    EventType.SKILL_HISTORY_COMPRESSED,
     EventType.SKILL_EVOLUTION_COMPLETED,
     EventType.WIKI_INITIALIZED,
     EventType.WIKI_INITIALIZATION_FAILED,
@@ -189,6 +192,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.WIKI_SOURCE_SKIPPED,
     EventType.WIKI_PROMOTION_PROMOTED,
     EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
     EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,

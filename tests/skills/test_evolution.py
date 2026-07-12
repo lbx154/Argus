@@ -18,7 +18,7 @@ def test_collect_skill_ops_deduplicates_repeated_reviewer_proposals() -> None:
     assert collect_skill_ops([_round(op), _round(dict(op))]) == [op]
 
 
-def test_skill_evolution_applies_ops_and_emits_summary(tmp_path) -> None:
+def test_skill_evolution_applies_ops_and_emits_summary(tmp_path, monkeypatch) -> None:
     class _Router:
         def __init__(self) -> None:
             self.ops = []
@@ -30,6 +30,11 @@ def test_skill_evolution_applies_ops_and_emits_summary(tmp_path) -> None:
     router = _Router()
     events = []
     op = {"op": "create", "content": "new reusable skill"}
+    monkeypatch.setenv("ARGUS_SKILL_HISTORY_HOT_VERSIONS", "1")
+    history = tmp_path / "_history" / "skill-1"
+    history.mkdir(parents=True)
+    (history / "v1.md").write_text("v1", encoding="utf-8")
+    (history / "v2.md").write_text("v2", encoding="utf-8")
 
     summary = evolve_skills_after_mission(
         skill_store=SimpleNamespace(skills_dir=tmp_path),
@@ -49,6 +54,8 @@ def test_skill_evolution_applies_ops_and_emits_summary(tmp_path) -> None:
     assert summary["ops_proposed"] == 1
     assert summary["created"] == 1
     assert summary["project_skill_dir"] == str(tmp_path)
+    assert summary["history_compressed"] == 1
+    assert any(event["type"] == "skill.history.compressed" for event in events)
     assert events[-1]["type"] == "skill.evolution.completed"
 
 

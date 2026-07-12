@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.cold_storage import compact_wiki_retired
 from ..core.event_catalog import EventType
+from ..core.knobs import resolve_knob
 from ..core.models import RoundRecord
 from .auto_hooks import discover_wikis, run_post_mission_hooks
 
@@ -182,6 +184,7 @@ def evolve_wikis_after_mission(
         "demoted": 0,
         "compaction_clusters": 0,
         "compacted": 0,
+        "retired_compressed": 0,
         "errors": 0,
         "paths": [str(path) for path in wiki_roots],
     }
@@ -222,6 +225,30 @@ def evolve_wikis_after_mission(
             totals["compacted"] += int(compact.get("retired", 0) or 0)
             totals["skipped"] += int(compact.get("skipped", 0) or 0)
             totals["errors"] += int(compact.get("errors", 0) or 0)
+
+    try:
+        keep_hot = max(
+            0,
+            int(resolve_knob("ARGUS_SKILL_WIKI_RETIRED_HOT_VERSIONS", "20").value),
+        )
+    except ValueError:
+        keep_hot = 20
+    compressed_retired: list[Path] = []
+    for wiki_root in wiki_roots:
+        compressed_retired.extend(
+            compact_wiki_retired(wiki_root, keep_hot=keep_hot)
+        )
+    totals["retired_compressed"] = len(compressed_retired)
+    if compressed_retired:
+        shown = [str(path) for path in compressed_retired[:20]]
+        _emit(on_event, {
+            "type": EventType.WIKI_RETIRED_COMPRESSED,
+            "count": len(compressed_retired),
+            "keep_hot": keep_hot,
+            "paths": shown,
+            "truncated": len(shown) < len(compressed_retired),
+            "text": f"compressed {len(compressed_retired)} cold wiki tombstones",
+        })
 
     _emit(
         on_event,

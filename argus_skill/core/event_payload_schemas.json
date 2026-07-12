@@ -508,6 +508,17 @@
         "text": {"type": "string"}
       }
     },
+    "skill.history.compressed": {
+      "version": 1,
+      "required": ["count", "keep_hot"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 1},
+        "keep_hot": {"type": "integer", "minimum": 0},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "truncated": {"type": "boolean"},
+        "text": {"type": "string"}
+      }
+    },
     "skill.evolution.completed": {
       "version": 1,
       "required": ["ops_proposed", "created", "updated", "archived", "rejected"],
@@ -519,6 +530,7 @@
         "rejected": {"type": "integer", "minimum": 0},
         "compaction_clusters": {"type": "integer", "minimum": 0},
         "compacted": {"type": "integer", "minimum": 0},
+        "history_compressed": {"type": "integer", "minimum": 0},
         "errors": {"type": "integer", "minimum": 0},
         "project_skill_dir": {"type": "string"},
         "global_skill_dir": {"type": "string"},
@@ -688,6 +700,17 @@
         "text": {"type": "string"}
       }
     },
+    "wiki.retired.compressed": {
+      "version": 1,
+      "required": ["count", "keep_hot"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 1},
+        "keep_hot": {"type": "integer", "minimum": 0},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "truncated": {"type": "boolean"},
+        "text": {"type": "string"}
+      }
+    },
     "wiki.evolution.completed": {
       "version": 1,
       "required": ["wiki_count", "ops_proposed"],
@@ -705,6 +728,7 @@
         "demoted": {"type": "integer", "minimum": 0},
         "compaction_clusters": {"type": "integer", "minimum": 0},
         "compacted": {"type": "integer", "minimum": 0},
+        "retired_compressed": {"type": "integer", "minimum": 0},
         "errors": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"}

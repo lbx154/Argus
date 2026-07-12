@@ -468,6 +468,16 @@ export interface SkillUseRecordedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface SkillHistoryCompressedEvent extends EventMsg {
+  type: "skill.history.compressed";
+  payload_schema_version?: 1;
+  "count": number;
+  "keep_hot": number;
+  "paths"?: Array<string>;
+  "truncated"?: boolean;
+  "text"?: string;
+}
+
 export interface SkillEvolutionCompletedEvent extends EventMsg {
   type: "skill.evolution.completed";
   payload_schema_version?: 1;
@@ -478,6 +488,7 @@ export interface SkillEvolutionCompletedEvent extends EventMsg {
   "rejected": number;
   "compaction_clusters"?: number;
   "compacted"?: number;
+  "history_compressed"?: number;
   "errors"?: number;
   "project_skill_dir"?: string;
   "global_skill_dir"?: string;
@@ -632,6 +643,16 @@ export interface WikiPromotionDemotedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface WikiRetiredCompressedEvent extends EventMsg {
+  type: "wiki.retired.compressed";
+  payload_schema_version?: 1;
+  "count": number;
+  "keep_hot": number;
+  "paths"?: Array<string>;
+  "truncated"?: boolean;
+  "text"?: string;
+}
+
 export interface WikiEvolutionCompletedEvent extends EventMsg {
   type: "wiki.evolution.completed";
   payload_schema_version?: 1;
@@ -648,6 +669,7 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   "demoted"?: number;
   "compaction_clusters"?: number;
   "compacted"?: number;
+  "retired_compressed"?: number;
   "errors"?: number;
   "paths"?: Array<string>;
   "text"?: string;
@@ -820,6 +842,7 @@ export interface EventPayloadByType {
   "skill.distill.rejected": SkillDistillRejectedEvent;
   "skill.revised": SkillRevisedEvent;
   "skill.use.recorded": SkillUseRecordedEvent;
+  "skill.history.compressed": SkillHistoryCompressedEvent;
   "skill.evolution.completed": SkillEvolutionCompletedEvent;
   "wiki.initialized": WikiInitializedEvent;
   "wiki.initialization.failed": WikiInitializationFailedEvent;
@@ -836,6 +859,7 @@ export interface EventPayloadByType {
   "wiki.source.skipped": WikiSourceSkippedEvent;
   "wiki.promotion.promoted": WikiPromotionPromotedEvent;
   "wiki.promotion.demoted": WikiPromotionDemotedEvent;
+  "wiki.retired.compressed": WikiRetiredCompressedEvent;
   "wiki.evolution.completed": WikiEvolutionCompletedEvent;
   "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
   "research.experiment.started": ResearchExperimentStartedEvent;
