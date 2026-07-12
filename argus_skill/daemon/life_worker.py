@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,9 @@ from .state import (
     _point_active_daemon_log,
     _process_alive,
     _redirect_std_to_log,
+    compare_and_swap_continuous_config,
     continuous_mode_error,
+    disable_continuous_config,
     read_continuous_config,
     read_continuous_state,
     read_daemon_status,
@@ -117,6 +120,7 @@ __all__ = [
     "DaemonStatus",
     "ContinuousConfigState",
     "continuous_mode_error",
+    "disable_continuous_config",
     "format_budget_status",
     "resolve_effective_budget",
     "read_daemon_status",
@@ -216,19 +220,25 @@ def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
 
 
 def _apply_continuous_suppression(
-    state: dict, enabled: bool, objective: str
+    state: dict,
+    enabled: bool,
+    objective: str,
+    *,
+    generation: int | None = None,
 ) -> tuple[bool, str]:
     """Gate a persisted continuous read against a fresh-daemon suppression.
 
-    ``state`` is a mutable ``{"active": bool, "objective": str}``. While active,
-    a still-identical stale-boot campaign (enabled + same objective) is reported
-    disabled, so a daemon that did NOT opt to resume never silently adopts the
-    project's ambient campaign. Any change from the suppressed boot state (the
-    operator re-arming with a different objective, or the campaign being
-    disabled) lifts the suppression permanently — runtime arming is honored.
+    A generation-aware caller lifts suppression on every explicit rewrite,
+    including re-arming the same objective. ``generation=None`` retains the
+    legacy value-based behavior for compatibility callers.
     """
     if state.get("active"):
-        if enabled and (objective or "").strip() == state.get("objective", ""):
+        same_generation = (
+            generation == state.get("generation")
+            if generation is not None
+            else (objective or "").strip() == state.get("objective", "")
+        )
+        if enabled and same_generation:
             return False, objective
         state["active"] = False
     return enabled, objective
@@ -247,6 +257,8 @@ class LifeWorker:
     def __init__(self, config: LifeWorkerConfig) -> None:
         self.config = config
         self._stop = threading.Event()
+        self._operator_stop_requested = False
+        self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
         self._missions_completed = 0
         self._source_signature = (
@@ -262,6 +274,7 @@ class LifeWorker:
     def _install_signal_handlers(self) -> None:
         def _handler(signum: int, _frame: Any) -> None:  # noqa: ANN401
             log.info("daemon: received signal %s, requesting stop", signum)
+            self._operator_stop_requested = True
             self._stop.set()
 
         signal.signal(signal.SIGTERM, _handler)
@@ -661,6 +674,7 @@ class LifeWorker:
         _suppress = {
             "active": bool(_boot.enabled) and not resume_intent,
             "objective": (_boot.objective or "").strip(),
+            "generation": _boot.generation,
         }
         if _suppress["active"]:
             log.warning(
@@ -676,10 +690,18 @@ class LifeWorker:
         # is running — no daemon restart needed. A suppressed stale-boot
         # campaign stays off until the operator re-arms it (any change from the
         # boot state lifts the suppression and is then honored live).
+        _latest_continuous_state = _boot
+
         def _continuous_provider() -> tuple[bool, str]:
-            enabled, objective = read_continuous_config(runtime_root)
+            nonlocal _latest_continuous_state
+            current = read_continuous_state(runtime_root)
+            _latest_continuous_state = current
+            enabled, objective = current.enabled, current.objective
             enabled, objective = _apply_continuous_suppression(
-                _suppress, enabled, objective
+                _suppress,
+                enabled,
+                objective,
+                generation=current.generation,
             )
             if continuous_mode_error(cfg.backend, enabled, objective):
                 if enabled:
@@ -689,19 +711,20 @@ class LifeWorker:
                         objective=objective,
                     )
                 return False, objective
+            if not self._operator_stop_requested:
+                self._adopted_continuous_generation = (
+                    current.generation if enabled else None
+                )
             return enabled, objective
 
         # Seed continuous config from disk (or CLI flags).
         init_continuous, init_objective = _continuous_provider()
+        init_source_state = _latest_continuous_state
         if cfg.continuous:
-            # CLI flags override disk — also persist them so REPL sees.
+            # CLI flags override disk. Persist only after Manager has produced a
+            # role-clean execution handoff.
             init_continuous = True
             init_objective = cfg.continuous_objective or init_objective
-            write_continuous_config(
-                runtime_root,
-                enabled=True,
-                objective=init_objective,
-            )
 
         # New daemon = fresh isolation generation: drop the Manager's persistent
         # codex session so it does NOT resume the PRIOR daemon's accumulated
@@ -723,13 +746,24 @@ class LifeWorker:
         # Manager divides the task before the supervisor starts — same as the
         # REPL path (apps/_runtime.run_life_supervisor): classify the vertical,
         # split into Stages, and commit it so the supervisor trusts the persisted
-        # vertical. Fail-open: daemon start must never be blocked by division.
-        if str(init_objective or "").strip():
+        # vertical. A missing handoff fails closed: raw operator text never reaches
+        # Planner/Engineer.
+        if init_continuous and str(init_objective or "").strip() and not _suppress["active"]:
+            source_objective = str(init_objective).strip()
+            expected_state = init_source_state
+            intent_id = f"intent-daemon-{time.time_ns()}"
+            sink.append({
+                "type": "life.manager.intent.started",
+                "agent_layer": "manager",
+                "intent_id": intent_id,
+                "source": "daemon_boot",
+                "objective": source_objective,
+                "text": "manager interpreting daemon objective",
+            })
             try:
                 # Prefer the runner's single Manager instance (manager backend);
                 # fall back to an ad-hoc Manager only when the runner has none
-                # (e.g. the memory runner in tests). Fail-open either way —
-                # daemon start must never be blocked by division.
+                # (e.g. the memory runner in tests).
                 mgr = getattr(runner, "manager", None)
                 if mgr is None:
                     from ..manager import Manager
@@ -740,24 +774,114 @@ class LifeWorker:
                         or getattr(runner, "backend", None),
                         manager_session_root=runtime_root,
                     )
-                _ask = str(os.environ.get("ARGUS_SKILL_DOMAIN_ASK", "")).strip().lower() in (
-                    "1", "true", "yes", "on",
+                from ..manager.front_door import require_manager_execution_task
+
+                decision = mgr.decide_vertical(source_objective)
+                execution_task = require_manager_execution_task(decision)
+                if self._operator_stop_requested:
+                    raise RuntimeError("operator stop requested during Manager handoff")
+                target_enabled = True if cfg.continuous else expected_state.enabled
+                committed: dict[str, Any] = {}
+
+                def _commit_decision() -> None:
+                    committed["division"] = mgr.commit_vertical_decision(
+                        source_objective,
+                        decision,
+                        ask_on_new_domain=False,
+                        _lock_held=True,
+                    )
+
+                lock_factory = getattr(mgr, "pipeline_lock", None)
+                pipeline_lock = (
+                    lock_factory() if callable(lock_factory) else nullcontext()
                 )
-                division = mgr.divide(init_objective, ask_on_new_domain=_ask)
-                # Daemon is headless: an ask-mode proposal has no operator to
-                # confirm, so commit the authored domain directly.
-                if (
-                    getattr(division, "pending_confirmation", False)
-                    and getattr(division, "proposed_domain", None) is not None
-                ):
-                    mgr.commit_domain(division.task, division.proposed_domain)
-            except Exception:  # noqa: BLE001 — never block daemon start on division
-                pass
+                with pipeline_lock:
+                    swapped = compare_and_swap_continuous_config(
+                        runtime_root,
+                        expected=expected_state,
+                        enabled=target_enabled,
+                        objective=execution_task,
+                        before_write=_commit_decision,
+                    )
+                if swapped:
+                    division = committed["division"]
+                    init_continuous = target_enabled
+                    init_objective = execution_task
+                    if not self._operator_stop_requested:
+                        self._adopted_continuous_generation = (
+                            expected_state.generation + 1
+                            if target_enabled
+                            else None
+                        )
+                    sink.append({
+                        "type": "life.manager.intent.completed",
+                        "agent_layer": "manager",
+                        "intent_id": intent_id,
+                        "source": "daemon_boot",
+                        "continuous_generation": expected_state.generation + 1,
+                        "execution_task": execution_task,
+                        "vertical": getattr(division, "vertical", ""),
+                        "kind": getattr(division, "kind", ""),
+                        "stages": list(getattr(division, "stages", []) or []),
+                        "text": "manager completed daemon objective handoff",
+                    })
+                else:
+                    if (
+                        read_continuous_state(runtime_root).generation
+                        == expected_state.generation
+                    ):
+                        init_continuous, init_objective = False, ""
+                        if expected_state.enabled:
+                            _suppress.update({
+                                "active": True,
+                                "objective": expected_state.objective,
+                                "generation": expected_state.generation,
+                            })
+                        sink.append({
+                            "type": "life.manager.intent.failed",
+                            "agent_layer": "manager",
+                            "intent_id": intent_id,
+                            "source": "daemon_boot",
+                            "error": "failed to persist Manager execution handoff",
+                            "text": "manager daemon objective handoff was not persisted",
+                        })
+                    else:
+                        init_continuous, init_objective = _continuous_provider()
+                        sink.append({
+                            "type": "life.manager.intent.superseded",
+                            "agent_layer": "manager",
+                            "intent_id": intent_id,
+                            "source": "daemon_boot",
+                            "text": "daemon objective changed during Manager handoff",
+                        })
+                cfg.continuous_objective = init_objective
+            except Exception as exc:  # noqa: BLE001 — fail closed, keep daemon available
+                current_state = read_continuous_state(runtime_root)
+                if current_state.generation == expected_state.generation:
+                    init_continuous = False
+                    init_objective = current_state.objective
+                    if current_state.enabled:
+                        _suppress.update({
+                            "active": True,
+                            "objective": current_state.objective,
+                            "generation": current_state.generation,
+                        })
+                else:
+                    init_continuous, init_objective = _continuous_provider()
+                cfg.continuous_objective = init_objective
+                log.error("daemon Manager handoff failed; objective not dispatched: %s", exc)
+                sink.append({
+                    "type": "life.manager.intent.failed",
+                    "agent_layer": "manager",
+                    "intent_id": intent_id,
+                    "source": "daemon_boot",
+                    "objective": source_objective,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "text": "manager daemon objective handoff failed",
+                })
 
         # Now that the Manager's divide() above has had its chance to resolve
-        # and persist the real vertical (fail-open: if it raised or the
-        # objective was blank, ``vertical`` simply stays unresolved, exactly
-        # matching today's fallback behavior), perform the previously-deferred
+        # and persist the real vertical, perform the previously-deferred
         # bootstrap seed. ``_seed_project_agents_and_venv`` re-reads the
         # persisted vertical itself, so this ordering is what actually closes
         # the race — no vertical is threaded through by hand here.
@@ -872,7 +996,13 @@ class LifeWorker:
             while not self._stop.is_set():
                 summary: dict = {}
                 try:
-                    summary = sup.run()
+                    manager = getattr(runner, "manager", None)
+                    lock_factory = getattr(manager, "pipeline_lock", None)
+                    pipeline_lock = (
+                        lock_factory() if callable(lock_factory) else nullcontext()
+                    )
+                    with pipeline_lock:
+                        summary = sup.run()
                     test_signature_path = os.environ.get(
                         _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
                     ).strip()
@@ -887,12 +1017,21 @@ class LifeWorker:
                     # When planner declares project done, persist to disk
                     # so we don't re-plan the same objective next loop.
                     if summary.get("stopped_by") == "project_done":
-                        write_continuous_config(
-                            runtime_root,
-                            enabled=False,
-                            objective=sup.config.continuous_objective,
-                            done_reason="planner declared project done",
-                        )
+                        current = read_continuous_state(runtime_root)
+                        if (
+                            current.enabled
+                            and self._adopted_continuous_generation is not None
+                            and current.generation
+                            == self._adopted_continuous_generation
+                            and compare_and_swap_continuous_config(
+                                runtime_root,
+                                expected=current,
+                                enabled=False,
+                                objective=current.objective,
+                                done_reason="planner declared project done",
+                            )
+                        ):
+                            self._adopted_continuous_generation = None
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
                     # (the shutdown distillation below runs) — the session model
@@ -933,9 +1072,10 @@ class LifeWorker:
         # daemon launch. A crash (SIGKILL / power loss) never reaches here, so
         # continuous stays enabled and the campaign auto-resumes — the intended
         # crash-recovery.
-        if self._stop.is_set():
+        if self._operator_stop_requested:
             self._quiesce_continuous_on_operator_stop(
-                runtime_root, sup.config.continuous_objective
+                runtime_root,
+                self._adopted_continuous_generation,
             )
 
         log.info(
@@ -947,7 +1087,9 @@ class LifeWorker:
         return 0
 
     def _quiesce_continuous_on_operator_stop(
-        self, runtime_root: Path, objective: str
+        self,
+        runtime_root: Path,
+        adopted_generation: int | None,
     ) -> None:
         """Operator clock-out (别干了): disable continuous mode on a graceful stop.
 
@@ -962,15 +1104,20 @@ class LifeWorker:
         recovery. No-op for a non-continuous daemon. Best-effort: never blocks
         shutdown.
         """
-        if not getattr(self.config, "continuous", False):
+        if adopted_generation is None:
             return
         try:
-            write_continuous_config(
+            current = read_continuous_state(runtime_root)
+            if not current.enabled or current.generation != adopted_generation:
+                return
+            if not compare_and_swap_continuous_config(
                 runtime_root,
+                expected=current,
                 enabled=False,
-                objective=objective,
+                objective=current.objective,
                 done_reason="operator stop (graceful SIGTERM/SIGINT — clock out)",
-            )
+            ):
+                return
             log.info("daemon: quiesced continuous mode on operator stop (clock out)")
         except Exception:  # noqa: BLE001 — quiesce is best-effort
             log.exception("daemon: failed to quiesce continuous on operator stop")

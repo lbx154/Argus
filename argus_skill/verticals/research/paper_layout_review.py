@@ -25,6 +25,7 @@ from argus_skill.tools.image_tool import (
     _require_route,
 )
 
+from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 from ._review_contract_constants import (
     LAYOUT_REVIEW_GENERATED_BY,
     LAYOUT_REVIEW_HISTORY_PATH,
@@ -34,7 +35,6 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
-from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
@@ -1067,8 +1067,8 @@ def _vision_prompt(
 ) -> str:
     allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
     if venue.key == "EMNLP":
-        # EMNLP keeps the EXACT original prompt so the model input and the
-        # persisted prompt_sha256 / input hash are byte-identical.
+        # EMNLP keeps a venue-specific literal; policy changes intentionally
+        # invalidate the persisted prompt/input hashes.
         return _vision_prompt_emnlp_literal(
             deterministic=deterministic, threshold=threshold
         )
@@ -1193,7 +1193,7 @@ def _vision_prompt(
         f"page {rmin}.\n\n"
         f"Submission contract to enforce: conclusion by page {cmax}, {end_matter}, "
         f"References before Appendix, References/Appendix on page {rmin} or later with no total-page cap, "
-        "no Overfull hbox above 5pt, <=5 body figures, at most one "
+        f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
@@ -1296,7 +1296,7 @@ def _vision_prompt_emnlp_literal(
         "page 9.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
-        "no Overfull hbox above 5pt, <=5 body figures, at most one "
+        f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "

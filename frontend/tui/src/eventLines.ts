@@ -9,6 +9,11 @@ export interface EventLine {
   mid: string;
 }
 
+export interface EventLinePartition {
+  committed: EventLine[];
+  live: EventLine | null;
+}
+
 /** Whitelist + coalesce the same way for the live log and searchable panel. */
 export function buildEventLines(events: EventMsg[]): EventLine[] {
   const list: EventLine[] = [];
@@ -30,4 +35,17 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
     list.push({ ev, r, key, mid });
   });
   return list;
+}
+
+/** Keep only the explicitly active Manager message mutable in Ink's live area. */
+export function partitionEventLines(
+  lines: EventLine[],
+  liveMessageId = '',
+): EventLinePartition {
+  const last = lines.at(-1);
+  const live = liveMessageId && last?.mid === liveMessageId ? last : null;
+  return {
+    committed: live ? lines.slice(0, -1) : lines,
+    live,
+  };
 }

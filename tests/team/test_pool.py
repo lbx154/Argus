@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from argus_skill.team import pool
@@ -12,14 +13,28 @@ def test_read_default_when_missing(tmp_path: Path) -> None:
     assert pool.read(tmp_path) == {"state": "running"}
 
 
-def test_update_merges_without_heartbeat(tmp_path: Path) -> None:
-    pool.update(tmp_path, width=8, state="running")
+def test_update_drops_retired_lead_heartbeat(tmp_path: Path) -> None:
+    path = tmp_path / "pool.json"
+    path.write_text(
+        json.dumps({
+            "width": 4,
+            "state": "running",
+            "lead_heartbeat_ts": 10.0,
+        }),
+        encoding="utf-8",
+    )
+
+    assert pool.read(tmp_path) == {"width": 4, "state": "running"}
+    pool.update(tmp_path, width=8)
     assert pool.read(tmp_path) == {"width": 8, "state": "running"}
-    # partial update keeps width, flips state; never stamps a heartbeat
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "width": 8,
+        "state": "running",
+    }
+
     pool.update(tmp_path, state="draining")
     p = pool.read(tmp_path)
     assert p["width"] == 8 and p["state"] == "draining"
-    assert "lead_heartbeat_ts" not in p
 
 
 def test_width_zero_is_explicit_pause_not_unset(tmp_path: Path) -> None:

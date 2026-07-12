@@ -6,9 +6,8 @@ sets it**; an explicit ``0`` means *pause* (target zero in flight) — distinct
 from unset, which lets the Curator fall back to its own default width.
 ``state`` is ``running``/``draining``.
 
-There is no lead heartbeat: the M2 ``lead_heartbeat_ts`` orphan-protection is
-obsolete because the Curator is daemon-resident and can never be orphaned by a
-dead lead mission.
+The daemon-resident Curator owns teammate process lifetime, so this control
+plane contains no liveness timestamp.
 """
 from __future__ import annotations
 
@@ -33,16 +32,20 @@ def read(root: Path) -> dict[str, Any]:
     merged = dict(_DEFAULT)
     if isinstance(doc, dict):
         merged.update(doc)
+        merged.pop("lead_heartbeat_ts", None)
     return merged
 
 
-def update(root: Path, *, width: int | None = None, state: str | None = None,
-           now: float | None = None) -> dict[str, Any]:  # noqa: ARG001 — now: keyword compat, see docstring
+def update(
+    root: Path,
+    *,
+    width: int | None = None,
+    state: str | None = None,
+) -> dict[str, Any]:
     """Merge-write the lead's width/state intent.
 
-    ``now`` is accepted for caller stability but no longer used (the heartbeat
-    is gone). ``width=0`` is a real value (pause), so it is written like any
-    other; only ``None`` (the default) leaves width untouched.
+    ``width=0`` is a real value (pause), so it is written like any other; only
+    ``None`` (the default) leaves width untouched.
     """
     with _store.locked(_lock(root)):
         doc = read(root)

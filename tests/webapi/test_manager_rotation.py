@@ -13,6 +13,7 @@ import json
 import time
 from pathlib import Path
 
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.webapi import manager_bridge
 
 
@@ -164,6 +165,90 @@ def test_manager_stream_announces_classification_before_model_call(
     assert result == {"kind": "chat", "reply": "done"}
 
 
+def test_manager_stream_and_persisted_reply_share_message_id(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path, "s-stream001")
+    manager_bridge._STATES.clear()
+    fragments: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(
+        "argus_skill.manager.repl._front_door_classify",
+        lambda *a, **k: (None, "simple"),
+    )
+
+    def _triage(*args, on_fragment=None, **kwargs):
+        assert on_fragment is not None
+        on_fragment("delta", {"text": "done", "message_id": "internal-id"})
+        return "done"
+
+    monkeypatch.setattr("argus_skill.manager.repl.manager_triage", _triage)
+
+    result = manager_bridge.manager_message(
+        "s-stream001",
+        "what now?",
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result == {"kind": "chat", "reply": "done"}
+    delta = next(payload for kind, payload in fragments if kind == "delta")
+    persisted = [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    reply = next(event for event in persisted if event["type"] == "ui.argus")
+    assert delta["message_id"] == reply["message_id"]
+    assert delta["message_id"].startswith("web-")
+    assert delta["message_id"].endswith("-argus")
+
+
+def test_natural_language_abort_is_control_not_backlog_work(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path, "s-abort001")
+    memory = LifeMemory.open(life)
+    item = memory.backlog.add(
+        BacklogItem.new(title="long task", objective="run a long task")
+    )
+    memory.backlog.mark_running(item.id)
+    manager_bridge._STATES.clear()
+
+    monkeypatch.setattr(
+        "argus_skill.manager.repl._front_door_classify",
+        lambda *a, **k: (None, "abort", "simple"),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.repl.manager_triage",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("abort control must not enter Manager reply work")
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.repl.enqueue_mission",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("abort control must never enqueue a mission")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-abort001",
+        "停止现在的所有任务",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "control"
+    assert result["control"] == "abort"
+    assert result["requested"] is True
+    assert result["item_id"] == item.id
+    assert len(memory.backlog.all()) == 1
+    request = json.loads((life / "mission_abort_request.json").read_text())
+    assert "停止现在的所有任务" in request["reason"]
+
+
 def test_web_process_restart_seeds_one_startup_handoff(
     tmp_path: Path,
     monkeypatch,
@@ -249,3 +334,50 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
     r2 = manager_bridge.manager_message("s-cfg00001", "how's it going?", global_root=tmp_path)
     assert r2["kind"] == "chat"
     assert triaged == ["how's it going?"]
+
+
+def test_active_mission_config_change_is_still_applied_inline(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path, "s-cfg-active")
+    memory = LifeMemory.open(life)
+    item = memory.backlog.add(
+        BacklogItem.new(title="active", objective="work")
+    )
+    memory.backlog.mark_running(item.id)
+    manager_bridge._STATES.clear()
+    applied: list[object] = []
+
+    intent = object()
+    monkeypatch.setattr(
+        "argus_skill.manager.repl._front_door_classify",
+        lambda *a, **k: (intent, None, "complex"),
+    )
+
+    def _apply(mem, candidate, chat_state, *, on_confirm=None):
+        applied.append(candidate)
+        if on_confirm:
+            on_confirm("Set budget to $20.")
+        return True
+
+    monkeypatch.setattr(
+        "argus_skill.manager.repl._apply_config_intent",
+        _apply,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.repl.manager_triage",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("config intent must short-circuit triage")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-cfg-active",
+        "set the budget to 20",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert applied == [intent]
+    assert len(memory.backlog.all()) == 1

@@ -459,6 +459,18 @@ export class ApiClient {
     return (await this.post(`/backlog/${encodeURIComponent(id)}/stop`)).item as BacklogItem;
   }
 
+  async abortMission(reason = ''): Promise<{
+    requested: boolean;
+    item_id: string | null;
+    message: string;
+  }> {
+    return await this.post('/mission/abort', { reason }) as {
+      requested: boolean;
+      item_id: string | null;
+      message: string;
+    };
+  }
+
   /**
    * Open the live event stream. Returns the socket so the caller can close it.
    * The token (if any) rides the query string — browsers/ws can't set WS headers.

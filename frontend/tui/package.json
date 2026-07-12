@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "python ../../scripts/generate_release_manifest.py --check && tsc -p tsconfig.json && npm run build:bundle",
+    "build": "python ../../scripts/generate_event_payload_types.py --check && python ../../scripts/generate_release_manifest.py --check && tsc -p tsconfig.json && npm run build:bundle",
     "build:bundle": "node scripts/build-bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",

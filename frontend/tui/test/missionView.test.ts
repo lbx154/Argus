@@ -7,6 +7,10 @@ import {
   projectMissionView,
   reduceMissionViewEvent,
 } from '../../core/src/missionView.js';
+import {
+  budgetSummary,
+  requestSummary,
+} from '../src/components/MissionCockpit.js';
 import type { EventMsg, Snapshot } from '../../core/src/types.js';
 
 function snapshot(): Snapshot {
@@ -59,7 +63,58 @@ test('shared projector applies structured metric and reviewer verification', () 
   assert.equal(view.primary_metric?.verification_status, 'accepted');
   assert.ok(Math.abs((missionMetricGain(view.primary_metric) ?? 0) - 12.4) < 1e-9);
   assert.equal(view.active_role, 'engineer');
+  assert.equal(view.achievement, null);
 });
+
+
+test('achievement requires an explicit reviewer certification event', () => {
+  const events: EventMsg[] = [
+    {
+      type: 'research.metric.reported',
+      ts: 11,
+      metric_id: 'm1',
+      name: 'sol_percent',
+      baseline: 49.4,
+      value: 61.8,
+      unit: '%',
+      direction: 'maximize',
+      evidence: 'result.json',
+      primary: true,
+    },
+    {
+      type: 'round.review.completed',
+      ts: 12,
+      status: 'done',
+      reason: 'verified metric',
+    },
+    {
+      type: 'life.mission.completed',
+      ts: 13,
+      success: true,
+      item_id: 'task-1',
+      title: 'Kernel v7',
+      objective: 'Optimize kernel',
+    },
+  ];
+  const completed = projectMissionView(snapshot(), events);
+  assert.equal(completed.achievement, null);
+
+  const certified = reduceMissionViewEvent(completed, {
+    type: 'research.achievement.certified',
+    ts: 14,
+    achievement_id: 'achievement-1',
+    title: 'Kernel speedup certified',
+    goal: 'Optimize kernel',
+    metric_id: 'm1',
+    summary: 'Reviewer accepted the measured gain.',
+    reviewer_certified: true,
+  });
+  assert.equal(certified.achievement?.reviewer_certified, true);
+  assert.equal(certified.achievement?.baseline, 49.4);
+  assert.equal(certified.achievement?.best, 61.8);
+  assert.ok(Math.abs((certified.achievement?.gain ?? 0) - 12.4) < 1e-9);
+});
+
 
 test('natural-language progress never invents a metric or review verdict', () => {
   const view = projectMissionView(snapshot(), [{
@@ -71,6 +126,52 @@ test('natural-language progress never invents a metric or review verdict', () =>
   }]);
   assert.equal(view.primary_metric, null);
   assert.equal(view.review.status, '');
+});
+
+test('idle snapshot clears stale role activity from historical events', () => {
+  const idle = snapshot();
+  idle.session.objective = '';
+  idle.daemon.alive = false;
+  idle.backlog = [];
+  idle.roles = [{
+    role: 'manager', backend: 'copilot', backend_label: 'Copilot', model: 'gpt',
+    effort: 'high', active: false, label: 'idle', status: 'idle', age_s: 200,
+  }];
+  const view = projectMissionView(idle, [{
+    type: 'engineer.progress',
+    ts: 10,
+    kind: 'assistant_message',
+    agent_layer: 'manager',
+    text: '你好。',
+  }]);
+  assert.equal(view.active_role, '');
+  assert.equal(view.roles.find((role) => role.role === 'manager')?.status, 'waiting');
+});
+
+test('budget summary is always visible with spent and daily cap', () => {
+  assert.equal(
+    budgetSummary(0.26285125, 'priced', 50, 300, true),
+    '$0.26 spent / $50 daily · $300 global',
+  );
+  assert.equal(budgetSummary(null, 'empty', 50, 300, false), '$0.00 spent / $50 daily');
+});
+
+test('request summary includes Codex, Copilot, and premium usage', () => {
+  assert.equal(
+    requestSummary({
+      day: '2026-07-12',
+      codex: {
+        provider: 'codex', day: '2026-07-12', daily_calls: 34, daily_cap: 300,
+        remaining: 266, completed_calls: 32, failed_calls: 2,
+      },
+      copilot: {
+        provider: 'copilot', day: '2026-07-12', daily_calls: 246, daily_cap: 1000,
+        remaining: 754, premium_requests: 360, premium_cap: 1000,
+        premium_remaining: 640, blocked_until: 0, blocked_reason: '',
+      },
+    }),
+    'Codex 34/300 · Copilot 246/1000 · premium 360.0/1000',
+  );
 });
 
 test('evolution events expose skill and wiki storage locations', () => {

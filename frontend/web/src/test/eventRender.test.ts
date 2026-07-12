@@ -105,6 +105,10 @@ describe('renderEvent', () => {
       text: 'I am rerunning the tests.',
     } as EventMsg)!.text).toBe('I am rerunning the tests.');
     expect(renderEvent({ type: 'life.phase.started', agent_layer: 'reviewer' } as EventMsg)).toBeNull();
+    expect(renderEvent({
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner',
+      text: '{"steps":[{"title":"draft"}]}',
+    } as EventMsg)).toBeNull();
   });
 
   it('renders the manager target_stage field', () => {

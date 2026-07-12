@@ -8,12 +8,14 @@ import json
 import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import server
+from argus_skill.manager import front_door
+from argus_skill.webapi import artifacts, manager_bridge, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -152,8 +154,24 @@ def test_projects_enriched_with_label_and_uptime(ctx) -> None:
     assert "label" in p and "uptime_seconds" in p
 
 
-def test_project_picker_uses_campaign_objective_before_greeting(ctx) -> None:
+def test_project_picker_uses_campaign_objective_before_greeting(
+    ctx, monkeypatch,
+) -> None:
     root, sid, _, client = ctx
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=text)
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
     assert server.set_continuous(
         sid, enabled=True, objective="Write the CO2 paper", global_root=root,
     ) is True
@@ -166,6 +184,7 @@ def _seed_result_artifacts(root: Path, sid: str, life: Path) -> Path:
     workspace = root / "workspace"
     (workspace / "paper").mkdir(parents=True)
     (workspace / "paper" / "result.md").write_text("# Certified\nreal result\n", encoding="utf-8")
+    (workspace / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     (workspace / ".review-note").write_text("hidden evidence\n", encoding="utf-8")
     (workspace / "secret.txt").write_text("not allowlisted", encoding="utf-8")
     outside = root / "outside.txt"
@@ -182,6 +201,7 @@ def _seed_result_artifacts(root: Path, sid: str, life: Path) -> Path:
             "planner_report": {
                 "evidence_files": [
                     {"path": "paper/result.md", "why": "reviewed output"},
+                    {"path": "pyproject.toml", "why": "runtime configuration"},
                     {"path": "paper/missing.json", "why": "declared but missing"},
                     {"path": "./.review-note", "why": "dotfile path must survive normalization"},
                     {"path": "../outside.txt", "why": "must be rejected"},
@@ -199,10 +219,11 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
 
     rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
     assert [row["path"] for row in rows] == [
-        "paper/result.md", "paper/missing.json",
+        "paper/result.md", "pyproject.toml", "paper/missing.json",
     ]
     assert rows[0]["exists"] is True
-    assert rows[1]["exists"] is False
+    assert rows[1]["exists"] is True
+    assert rows[2]["exists"] is False
     assert client.get(f"/api/projects/{sid}/artifacts").headers["cache-control"] == "private, no-store"
 
     info = client.get(
@@ -210,8 +231,14 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     )
     assert info.status_code == 200
     assert info.json()["preview"].startswith("# Certified")
-    assert info.json()["kind"] == "text"
+    assert info.json()["kind"] == "markdown"
     assert info.headers["cache-control"] == "private, no-store"
+
+    toml = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "pyproject.toml"},
+    )
+    assert toml.status_code == 200
+    assert toml.json()["kind"] == "text"
 
     raw = client.get(
         f"/api/projects/{sid}/artifact/raw", params={"path": "paper/result.md"},
@@ -444,10 +471,35 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
 
     html = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "report.html"})
     svg = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "figure.svg"})
+    html_info = client.get(
+        f"/api/projects/{sid}/artifact",
+        params={"path": "report.html"},
+    )
+    assert html_info.status_code == 200
+    assert html_info.json()["kind"] == "html"
+    assert html_info.json()["preview"] == "<script>alert(1)</script>"
     assert html.status_code == 200
     assert html.headers["content-type"].startswith("text/plain")
     assert html.headers["x-content-type-options"] == "nosniff"
     assert svg.status_code == 404
+
+
+def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None:
+    expected = {
+        "view.md": "markdown",
+        "data.json": "json",
+        "events.jsonl": "json",
+        "table.csv": "table",
+        "table.tsv": "table",
+        "sound.mp3": "audio",
+        "clip.mp4": "video",
+        "image.png": "image",
+        "paper.pdf": "pdf",
+    }
+    for name, kind in expected.items():
+        (tmp_path / name).write_bytes(b"x")
+        row = artifacts.artifact_metadata(tmp_path, name, preview_bytes=1024)
+        assert row is not None and row["kind"] == kind
 
 
 def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:

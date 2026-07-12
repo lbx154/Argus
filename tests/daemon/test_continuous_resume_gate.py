@@ -46,6 +46,22 @@ def test_suppression_lifts_on_operator_rearm():
     )
 
 
+def test_suppression_lifts_on_same_objective_new_generation():
+    state = {
+        "active": True,
+        "objective": "run the campaign",
+        "generation": 4,
+    }
+
+    assert _apply_continuous_suppression(
+        state,
+        True,
+        "run the campaign",
+        generation=5,
+    ) == (True, "run the campaign")
+    assert state["active"] is False
+
+
 def test_suppression_lifts_when_campaign_disabled():
     state = {"active": True, "objective": "run the campaign"}
     # The campaign being turned off is also a change -> lifts suppression.

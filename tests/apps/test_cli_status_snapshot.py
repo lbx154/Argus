@@ -109,14 +109,17 @@ def test_lifecycle_lines_safe_on_missing_workdir(tmp_path: Path) -> None:
     # INCUBATING with `now` as created_at), so a missing workdir is
     # actually the normal "fresh project not yet on disk" case — render
     # the lifecycle block normally rather than silently skipping it.
-    lines = _render_lifecycle_status_lines(tmp_path / "does-not-exist")
+    lines = _render_lifecycle_status_lines(
+        tmp_path / "does-not-exist",
+        state_root=tmp_path / "state",
+    )
     text = "\n".join(lines)
     assert "lifecycle:" in text
     assert "state         : incubating" in text
 
 
 def test_lifecycle_lines_show_state_and_allocatability(tmp_path: Path) -> None:
-    lines = _render_lifecycle_status_lines(tmp_path)
+    lines = _render_lifecycle_status_lines(tmp_path, state_root=tmp_path)
     text = "\n".join(lines)
     # Fresh tmp dir → incubating, allocatable.
     assert "lifecycle:" in text
@@ -130,14 +133,17 @@ def test_lifecycle_lines_mark_persisted_state(tmp_path: Path) -> None:
     from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
     from argus_skill.life.project_lifecycle_io import write_persisted
 
+    worktree = tmp_path / "code"
+    worktree.mkdir()
+    state_root = tmp_path / "state"
     status = ProjectStatus(
-        project_id=tmp_path.name,
+        project_id=state_root.name,
         state=ProjectState.QUARANTINED,
         created_at=datetime.now(timezone.utc),
     )
-    write_persisted(tmp_path, status=status, history=[])
+    write_persisted(state_root, status=status, history=[])
 
-    lines = _render_lifecycle_status_lines(tmp_path)
+    lines = _render_lifecycle_status_lines(worktree, state_root=state_root)
     text = "\n".join(lines)
     assert "state         : quarantined  (persisted)" in text
     assert "allocatable   : False" in text

@@ -103,6 +103,29 @@ export interface ProjectIndex {
   projects: ProjectRow[];
   local_cwd: string;
 }
+export interface PlanPreview {
+  steps: Array<{ title: string; detail?: string }>;
+  notes: string[];
+  error: string;
+}
+export interface TrashEntry {
+  trash_id: string;
+  sid: string;
+  label: string;
+  launch_cwd: string;
+  trash_path: string;
+  trashed_at: number;
+}
+export interface MetricsSnapshot {
+  schema_version?: number;
+  slo?: { status?: string; [key: string]: unknown };
+  web?: Record<string, unknown>;
+  provider?: Record<string, unknown>;
+  daemon_commands?: Record<string, unknown>;
+  event_validation_failures?: number;
+  cost_control?: Record<string, unknown>;
+  [key: string]: unknown;
+}
 
 const token = (): string | null =>
   new URLSearchParams(window.location.search).get('token') ||
@@ -132,6 +155,17 @@ async function postJson<T = Record<string, unknown>>(
   });
   await ensureResponseOk(r, 'POST', path);
   return (await r.json()) as T;
+}
+
+function requireDaemonCommand<T>(result: T): T {
+  const row = result && typeof result === 'object'
+    ? result as Record<string, unknown>
+    : {};
+  const status = String(row.command_status ?? '');
+  if (Number(row.rc ?? 0) !== 0 || status === 'failed' || status === 'rejected') {
+    throw new Error(String(row.error || `daemon command ${status || 'failed'}`));
+  }
+  return result;
 }
 
 async function mutationJson<T>(
@@ -290,6 +324,21 @@ export const api = {
   },
   gitDiff: (sid: string, signal?: AbortSignal) =>
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
+  metrics: (signal?: AbortSignal) =>
+    getJson<MetricsSnapshot>('/api/metrics', signal),
+  trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
+    const params = new URLSearchParams({
+      query,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return getJson<{ entries: TrashEntry[]; total: number }>(
+      `/api/trash?${params}`,
+      signal,
+    );
+  },
+  restoreTrash: (trashId: string) =>
+    postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
@@ -356,6 +405,18 @@ export const api = {
   },
   nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
+  previewPlan: (sid: string, text: string) =>
+    postJson<PlanPreview>(P(sid, '/plan'), { text }),
+  setConfig: (sid: string, name: string, value: string) =>
+    postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
+  setIdentity: (sid: string, text: string) =>
+    postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
+  resetManager: (sid: string) =>
+    postJson<{ ok: boolean }>(P(sid, '/reset')),
+  skills: (sid: string, args = 'ls') =>
+    postJson<{ text: string }>(P(sid, '/skills'), { args }).then((result) => result.text),
+  setLaunchCwd: (sid: string, launchCwd: string) =>
+    postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   disposeBacklog: (sid: string, id: string, op: 'done' | 'skip' | 'rm') =>
     postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
@@ -364,12 +425,24 @@ export const api = {
   startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
     command_id: commandId(),
     expected_revision: expectedRevision,
-  }),
+  }).then(requireDaemonCommand),
   stopDaemon: (sid: string, drain = false, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
     drain,
     command_id: commandId(),
     expected_revision: expectedRevision,
-  }),
+  }).then(requireDaemonCommand),
+  replaceDaemon: (sid: string, victimSid: string, resumeContinuous = false, expectedRevision?: number) =>
+    postJson(P(sid, '/daemon/replace'), {
+      victim_sid: victimSid,
+      resume_continuous: resumeContinuous,
+      command_id: commandId(),
+      expected_revision: expectedRevision,
+    }).then(requireDaemonCommand),
+  upgradeDaemon: (sid: string, expectedRevision?: number) =>
+    postJson(P(sid, '/daemon/upgrade'), {
+      command_id: commandId(),
+      expected_revision: expectedRevision,
+    }).then(requireDaemonCommand),
 };
 
 /** Open the live event stream for a project. Returns a close() fn. */

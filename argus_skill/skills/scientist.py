@@ -32,10 +32,16 @@ class SkillScientist:
 
     def distill(self, task: str) -> str:
         """Return skill markdown, or ``""`` on failure/no useful skill."""
+        return self._run(_build_scientist_prompt(task))
+
+    def distill_alternative(self, task: str, reviewer_evidence: str) -> str:
+        """Author a different playbook after the current one proves ineffective."""
+        return self._run(_build_alternative_prompt(task, reviewer_evidence))
+
+    def _run(self, prompt: str) -> str:
         if self.runner is None:
             return ""
         self.last_result = None
-        prompt = _build_scientist_prompt(task)
         try:
             result = gateway_run_exec(
                 self.runner,
@@ -97,6 +103,22 @@ def _build_scientist_prompt(task: str) -> str:
         "## Pitfalls\n"
         "- ...\n\n"
         f"## Task\n{task.strip()}\n"
+    )
+
+
+def _build_alternative_prompt(task: str, reviewer_evidence: str) -> str:
+    return (
+        "You are the Scientist / Distiller role for argus-skill. A matched "
+        "playbook has repeatedly failed independent review. Use live web search "
+        "and author ONE genuinely different reusable playbook for the task family.\n\n"
+        "Do not merely rephrase the existing approach. Treat the reviewer evidence "
+        "as failed mechanisms to avoid. Do not solve the task directly or claim "
+        "success; provide an operational strategy the Engineer can try next. If no "
+        "defensible alternative exists, output exactly NONE.\n\n"
+        "Required markdown sections: Description, Category, When to use, When NOT "
+        "to use, How to solve, Pitfalls.\n\n"
+        f"## Task\n{task.strip()}\n\n"
+        f"## Reviewer evidence from failed rounds\n{reviewer_evidence.strip()}\n"
     )
 
 

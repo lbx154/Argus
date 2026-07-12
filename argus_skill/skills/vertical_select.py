@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "research", "math", "quant", "speedrun",
+    "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam",
 )
@@ -75,6 +75,9 @@ VERTICALS: tuple[str, ...] = (
 #: expert per-stage reviewer checklists) over authoring a fresh, checklist-less
 #: data domain. Keys must stay in sync with ``VERTICALS``.
 VERTICAL_PURPOSES: dict[str, str] = {
+    "direct": "bounded one-off deliverable that an Engineer can produce and a "
+    "Reviewer can judge in one mission, without a staged research lifecycle "
+    "(creative composition, focused edits, small standalone artifacts)",
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
     "math": "mathematical conjectures, proofs, and open research problems; dynamically "

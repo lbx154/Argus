@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 
 def build_route_prompt(text: str) -> str:
     return (
         "Reply with exactly one word: SELF or TEAM.\n"
-        "SELF = one worker can carry it out end-to-end on its own.\n"
-        "TEAM = needs Argus's Planner/Engineer/Reviewer coordination — "
-        "multi-step research or engineering, or a change to Argus itself.\n"
+        "SELF = conversational or read-only Manager work: greetings, acks, "
+        "capability/status questions, explanations with no durable side effect, "
+        "or operator control of the mission already running.\n"
+        "TEAM = any request to create or modify a persistent file/artifact, run "
+        "commands, perform research/engineering, or change Argus itself. Small "
+        "one-shot artifacts still use TEAM; the `direct` workflow keeps them lean.\n"
         "When in doubt, answer TEAM — never route work that needs review to a "
         "lone worker.\n\n"
         f"Message:\n{(text or '').strip()}\n\n"
@@ -238,6 +241,9 @@ class ConfigIntent:
     value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
 
+ControlIntent = Literal["abort"]
+
+
 def build_config_intent_prompt(text: str) -> str:
     return (
         "You decide whether an operator's message asks to CHANGE one of Argus's "
@@ -364,15 +370,10 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
 
 
 def build_front_door_prompt(text: str) -> str:
-    """Merged cockpit front-door classifier: decide BOTH axes in ONE call —
-    (1) is this a settings change, and (2) can one worker handle it (SELF) or
-    does it need the Planner/Engineer/Reviewer team (TEAM). Reuses the exact
-    per-axis wording of ``build_config_intent_prompt`` + ``build_route_prompt``
-    so each axis's semantics are byte-for-byte unchanged; only the OUTPUT shape
-    differs (two labelled lines instead of one classifier per call)."""
+    """Merged cockpit front-door classifier: config, control, and routing."""
     cleaned = (text or "").strip()
     return (
-        "Classify one operator message on TWO independent axes.\n\n"
+        "Classify one operator message on THREE independent axes.\n\n"
         "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
         "runtime settings (its cockpit knobs), as opposed to a research task, a "
         "question, or small talk?\n"
@@ -402,15 +403,26 @@ def build_front_door_prompt(text: str) -> str:
         'model/backend/effort/budget asked for WITHIN a single task ("这轮" / '
         '"do THIS on claude with high effort") is part of the task — CONFIG is '
         "NONE. When in doubt, NONE.\n\n"
-        "AXIS 2 — ROUTE: SELF or TEAM?\n"
-        "  SELF = one worker can carry it out end-to-end on its own (a greeting, "
-        "an ack, a capability question, a trivial one-shot).\n"
-        "  TEAM = needs Argus's Planner/Engineer/Reviewer coordination — "
-        "multi-step research or engineering, or a change to Argus itself.\n"
+        "AXIS 2 — CONTROL: does the operator clearly ask Argus to stop, cancel, "
+        "or abort the mission that is already running?\n"
+        "  ABORT = immediately stop the current in-flight mission. This is an "
+        "operator control action, never a new task.\n"
+        "  NONE = every other message, including questions about how stopping "
+        "works, requests to implement a stop feature, and tasks that merely "
+        "mention stopping something as part of their objective.\n"
+        "  When in doubt, answer NONE. If CONTROL is ABORT, ROUTE must be SELF.\n\n"
+        "AXIS 3 — ROUTE: SELF or TEAM?\n"
+        "  SELF = conversational or read-only Manager work: a greeting, ack, "
+        "capability/status question, explanation with no durable side effect, "
+        "or an operator control action.\n"
+        "  TEAM = any request to create or modify a persistent file/artifact, "
+        "run commands, or perform research/engineering. Small one-shot artifacts "
+        "still use TEAM; the `direct` workflow keeps them lean.\n"
         "  When in doubt, answer TEAM — never route work that needs review to a "
         "lone worker.\n\n"
-        "Reply with EXACTLY two lines and nothing else:\n"
+        "Reply with EXACTLY three lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
+        "CONTROL: <ABORT | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
         "daily_cap | max_daemons | codex_daily_requests | "
@@ -428,35 +440,37 @@ def classify_front_door(
     text: str,
     *,
     run_exec: Callable[[str], Any],
-) -> "tuple[ConfigIntent | None, str]":
-    """One model call, two axes: ``(config-intent | None, route)`` where route
-    is ``"simple"``/``"complex"``. Merges ``classify_config_intent`` +
-    ``classify_route`` so the cockpit front-door pays ONE round-trip (one
-    ``copilot`` invocation) instead of two. Each axis falls to its OWN safe
-    default in isolation — ``None`` for config, ``"complex"`` for route — so a
-    malformed/absent CONFIG line never corrupts the ROUTE verdict and vice-versa,
-    and any exec error / nonzero exit yields ``(None, "complex")``."""
+) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
+    """One model call for config, current-mission control, and route."""
     cleaned = (text or "").strip()
     if not cleaned:
-        return None, "complex"
+        return None, None, "complex"
     try:
         result = run_exec(build_front_door_prompt(cleaned))
     except Exception:  # noqa: BLE001
-        return None, "complex"
+        return None, None, "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
-        return None, "complex"
+        return None, None, "complex"
     answer = _extract_answer(result)
     config_line = _line_after_prefix(answer, "CONFIG:")
+    control_line = _line_after_prefix(answer, "CONTROL:")
     route_line = _line_after_prefix(answer, "ROUTE:")
     intent = _parse_config_line(config_line) if config_line is not None else None
+    control_token = _first_alpha_token(control_line) if control_line is not None else ""
+    control: ControlIntent | None = (
+        "abort" if control_token.upper() == "ABORT" else None
+    )
     route = (
         _route_from_token(_first_alpha_token(route_line)) if route_line is not None else "complex"
     )
-    return intent, route
+    if control == "abort":
+        route = "simple"
+    return intent, control, route
 
 
 __all__ = [
     "ConfigIntent",
+    "ControlIntent",
     "classify_is_conversational",
     "classify_route",
     "classify_needs_persistence",

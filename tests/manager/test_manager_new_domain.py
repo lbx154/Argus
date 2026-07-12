@@ -43,11 +43,13 @@ _NEW_DOMAIN_DECISION = {
     "stages": ["scope", "simulate", "measure", "report"],
     "rationale": "novel",
     "confidence": 0.8,
+    "execution_task": "Build and evaluate the MuJoCo controller.",
 }
 _EXISTING_RESEARCH_DECISION = {
     "choice": "existing",
     "vertical": "research",
     "rationale": "the task is a paper with a literature review and submission",
+    "execution_task": "Write the paper and prepare it for submission.",
 }
 _NEW_MATH_DOMAIN_DECISION = {
     "choice": "new",
@@ -87,6 +89,7 @@ def test_ask_mode_defers_write(tmp_path, monkeypatch):
     # Operator confirms.
     committed = mgr.commit_domain(div.task, div.proposed_domain)
     assert committed.vertical == "robotics_sim"
+    assert committed.execution_task == "Build and evaluate the MuJoCo controller."
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
 
 

@@ -83,6 +83,8 @@ def dispatch_command(
         repl._backlog_list_cmd(mem, include_all=include_all)
         return None
     if cmd == "/add":
+        from .front_door import ManagerHandoffError
+
         if not rest_text:
             print(theme.gray(
                 "usage: /add <objective>  "
@@ -97,14 +99,39 @@ def dispatch_command(
         if not body:
             print(theme.gray("/add: empty objective after flags"))
             return None
-        repl._manager_divide_user_task(mem, body, chat_state, theme=theme)
-        repl._add_only(
-            mem,
-            body,
-            iterate=iterate,
-            iteration_max_cycles=max_cycles,
-            iteration_budget_usd=budget,
+        try:
+            repl.manager_bounded_handoff(
+                mem,
+                body,
+                chat_state,
+                lambda execution_body, division: repl._add_only(
+                    mem,
+                    execution_body,
+                    iterate=iterate,
+                    iteration_max_cycles=max_cycles,
+                    iteration_budget_usd=budget,
+                ),
+                theme=theme,
+                ensure_runner=repl._ensure_manager_runner,
+            )
+        except ManagerHandoffError as exc:
+            print(theme.red(str(exc)) if theme is not None else str(exc))
+            return None
+        return None
+    if cmd == "/abort":
+        from ..tools.mission_control import request_current_mission_abort
+
+        requested, item_id = request_current_mission_abort(
+            repl._life_dir_for(mem),
+            reason=rest_text or "operator used /abort",
+            requested_by="operator",
         )
+        message = (
+            f"Stop requested for running task {item_id}."
+            if requested
+            else "No running task to abort. Pending tasks were left unchanged."
+        )
+        print(theme.gray(message) if theme is not None else message)
         return None
     if cmd == "/stop":
         if not rest:

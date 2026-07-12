@@ -242,56 +242,59 @@ class VenueProfile:
         """Build a profile from a plain dict (e.g. a researched
         ``research/VENUE_PROFILE.json``), fail-soft per field.
 
-        Each field is coerced to its declared type (inferred from the field's
-        default; required fields — ``key``/``display_name`` and the four page
-        numbers — are coerced by name). Unknown keys are ignored; missing
-        optional fields keep the dataclass default. Raises ``ValueError`` on a
-        non-dict payload or a missing required field.
+        Each field is coerced to its declared type. Unknown keys are ignored;
+        missing optional fields keep the dataclass default. Explicit ``null`` is
+        preserved for nullable fields. Raises ``ValueError`` on a non-dict
+        payload or a missing required field.
         """
         import dataclasses
+        from typing import get_args, get_origin, get_type_hints
 
         if not isinstance(payload, dict):
             raise ValueError("VenueProfile payload must be a dict")
-        _REQUIRED_INT = {
-            "body_page_limit",
-            "conclusion_underfill_page",
-            "conclusion_max_page",
-            "references_min_page",
-        }
+        type_hints = get_type_hints(cls)
         kwargs: dict = {}
         for f in dataclasses.fields(cls):
             name = f.name
             has_default = (
                 f.default is not dataclasses.MISSING
-                or f.default_factory is not dataclasses.MISSING  # type: ignore[misc]
+                or f.default_factory is not dataclasses.MISSING
             )
             raw = payload.get(name)
-            if name not in payload or raw is None:
+            annotation = type_hints[name]
+            annotation_args = get_args(annotation)
+            declared_types = set(annotation_args) or {annotation}
+            if name not in payload:
                 if has_default:
                     continue  # let the dataclass supply its own default
                 raise ValueError(f"VenueProfile requires field {name!r}")
+            if raw is None:
+                if type(None) in declared_types:
+                    kwargs[name] = None
+                    continue
+                if has_default:
+                    continue
+                raise ValueError(f"VenueProfile requires non-null field {name!r}")
             if f.default is not dataclasses.MISSING:
                 default = f.default
-            elif f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
-                default = f.default_factory()  # type: ignore[misc]
+            elif f.default_factory is not dataclasses.MISSING:
+                default = f.default_factory()
             else:
                 default = None
-            if isinstance(default, bool):  # bool before int (bool subclasses int)
+            if bool in declared_types:
                 kwargs[name] = bool(raw)
-            elif isinstance(default, int):
+            elif int in declared_types:
                 kwargs[name] = int(raw)
-            elif isinstance(default, tuple):
+            elif get_origin(annotation) is tuple:
                 kwargs[name] = (
                     tuple(str(x).strip() for x in raw if str(x).strip())
                     if isinstance(raw, (list, tuple))
                     else default
                 )
-            elif isinstance(default, str):
+            elif str in declared_types:
                 kwargs[name] = str(raw)
-            elif name in _REQUIRED_INT:
-                kwargs[name] = int(raw)
-            else:  # required str fields (key, display_name)
-                kwargs[name] = str(raw)
+            else:
+                kwargs[name] = raw
         return cls(**kwargs)
 
     @classmethod

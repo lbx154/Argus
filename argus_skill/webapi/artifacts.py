@@ -14,10 +14,12 @@ from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
-    ".bib", ".cfg", ".csv", ".html", ".ini", ".json", ".jsonl", ".log",
-    ".md", ".py", ".rst", ".sh", ".tex", ".toml", ".tsv", ".txt", ".yaml",
-    ".yml",
+    ".bib", ".cfg", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
+    ".ts", ".txt", ".yaml", ".yml",
 }
+_MARKDOWN_ARTIFACT_SUFFIXES = {".md", ".markdown"}
+_JSON_ARTIFACT_SUFFIXES = {".ipynb", ".json", ".jsonl"}
+_TABLE_ARTIFACT_SUFFIXES = {".csv", ".tsv"}
 _INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 _GIT_DIFF_LIMIT = 128 * 1024
 
@@ -171,9 +173,15 @@ def artifact_metadata(
     mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     suffix = resolved.suffix.lower()
     kind = (
-        "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
+        "html" if suffix == ".html"
+        else "markdown" if suffix in _MARKDOWN_ARTIFACT_SUFFIXES
+        else "json" if suffix in _JSON_ARTIFACT_SUFFIXES
+        else "table" if suffix in _TABLE_ARTIFACT_SUFFIXES
+        else "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
         else "image" if mime in _INLINE_IMAGE_MIMES
         else "pdf" if mime == "application/pdf"
+        else "audio" if mime.startswith("audio/")
+        else "video" if mime.startswith("video/")
         else "binary"
     )
     row: dict[str, Any] = {
@@ -186,7 +194,9 @@ def artifact_metadata(
         "size": int(stat.st_size) if stat is not None else 0,
         "mtime": float(stat.st_mtime) if stat is not None else None,
     }
-    if preview_bytes > 0 and exists and kind == "text":
+    if preview_bytes > 0 and exists and kind in {
+        "text", "html", "markdown", "json", "table",
+    }:
         try:
             with resolved.open("rb") as handle:
                 raw = handle.read(preview_bytes + 1)

@@ -16,6 +16,7 @@ from argus_skill.verticals.research.paper_layout_review import (
     MAX_BODY_WIDE_FIGURES,
     _deterministic_assessment,
     _single_column_wide_role_figures,
+    _vision_prompt,
 )
 
 
@@ -77,6 +78,13 @@ def test_three_wide_figures_still_flagged() -> None:
     )
     codes = _assess(_TEASER + _PIPELINE_WIDE + extra, EMNLP_PROFILE)
     assert "too_many_wide_figures" in codes
+
+
+def test_vision_prompt_uses_the_deterministic_wide_figure_cap() -> None:
+    for venue in (EMNLP_PROFILE, AAAI_PROFILE):
+        prompt = _vision_prompt(deterministic={}, threshold=3.5, venue=venue)
+        assert f"at most {MAX_BODY_WIDE_FIGURES} full-width figure*" in prompt
+        assert "at most one full-width figure*" not in prompt
 
 
 # ---- single-column teaser/pipeline advisory --------------------------------

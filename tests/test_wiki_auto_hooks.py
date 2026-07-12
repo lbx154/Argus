@@ -27,9 +27,8 @@ SAMPLE_BIB = """
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def project(tmp_path: Path) -> Path:
     init_wiki(project="demo", base=tmp_path)
-    monkeypatch.chdir(tmp_path)
     return tmp_path
 
 

@@ -727,7 +727,12 @@ class SkillStore:
         premium_requests = 0.0
         for batch in batches:
             prompt = Prompts.skill_match(
-                task_description, batch, requesting_role=role
+                task_description,
+                batch,
+                requesting_role=role,
+                primary_pool=(
+                    ROLE_SKILL_POOLS.get(role, frozenset()) if role else frozenset()
+                ),
             )
             try:
                 result: RunnerResult = gateway_run_exec(

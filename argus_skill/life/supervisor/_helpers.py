@@ -6,7 +6,7 @@ import unicodedata
 from pathlib import Path
 
 from ..memory import JournalEntry
-from . import _core
+from ._constants import PLANNER_RECENT_FAILURE_STATUS
 
 
 def _resolve_task_dep_ids(
@@ -197,5 +197,4 @@ def _is_recent_no_progress_failure(entry: JournalEntry) -> bool:
         or extra.get("failure_status")
         or ""
     ).strip().casefold()
-    return terminal_status == _core._PLANNER_RECENT_FAILURE_STATUS
-
+    return terminal_status == PLANNER_RECENT_FAILURE_STATUS

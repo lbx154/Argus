@@ -103,6 +103,40 @@ def test_status_separates_active_queue_from_history(
     ) in out
 
 
+def test_status_reads_lifecycle_from_canonical_project_state(
+    monkeypatch: pytest.MonkeyPatch,
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from datetime import datetime, timezone
+
+    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus_skill.life.project_lifecycle_io import write_persisted
+
+    life_root, repo = project_with_history
+    monkeypatch.delenv("ARGUS_SKILL_WORKDIR", raising=False)
+    bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
+    worktree = bundle.project.root / "code"
+    worktree.mkdir()
+    write_persisted(
+        bundle.project.root,
+        status=ProjectStatus(
+            project_id=bundle.project.root.name,
+            state=ProjectState.QUARANTINED,
+            created_at=datetime.now(timezone.utc),
+        ),
+        history=[],
+    )
+    assert not (worktree / "lifecycle.json").exists()
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "state         : quarantined  (persisted)" in out
+    assert "allocatable   : False" in out
+
+
 def test_status_shows_active_work_when_present(
     monkeypatch: pytest.MonkeyPatch,
     project_with_active_and_history: tuple[Path, Path],

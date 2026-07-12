@@ -28,11 +28,12 @@ export const SLASH_COMMANDS: SlashCmd[] = [
   { name: '/artifact', arg: '<path>', desc: 'preview one approved result file', group: 'Everyday', kind: 'panel' },
   { name: '/events', arg: '[filter] [query]', desc: 'search feed: all / watch / milestones / messages', group: 'Everyday', kind: 'panel' },
   { name: '/find', arg: '<text>', desc: 'search the current event buffer', group: 'Everyday', kind: 'panel' },
-  { name: '/cancel', desc: 'stop waiting for the current Manager reply', aliases: ['/abort'], group: 'Everyday', kind: 'local' },
+  { name: '/cancel', desc: 'stop waiting for the current Manager reply', group: 'Everyday', kind: 'local' },
   // ── task management (actions) ──
   { name: '/task', arg: '<text>', desc: 'queue work directly', aliases: ['/add'], group: 'Task management', kind: 'action' },
   { name: '/plan', arg: '<objective>', desc: 'preview a Planner-authored execution plan', group: 'Task management', kind: 'action' },
   { name: '/nudge', arg: '<text>', desc: 'inject guidance into the running mission', aliases: ['/inject', '/notify'], group: 'Task management', kind: 'action' },
+  { name: '/abort', desc: 'immediately stop the running mission', group: 'Task management', kind: 'action' },
   { name: '/note', arg: '<text>', desc: 'append a manual note to the timeline', group: 'Task management', kind: 'action' },
   { name: '/done', arg: '<id>', desc: 'mark a task done', group: 'Task management', kind: 'action' },
   { name: '/skip', arg: '<id>', desc: 'skip a task', aliases: ['/rm'], group: 'Task management', kind: 'action' },

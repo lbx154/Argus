@@ -341,9 +341,9 @@ def _continuous_cmd(
     from ..daemon.life_worker import (
         ContinuousConfigState,
         continuous_mode_error,
+        disable_continuous_config,
         read_continuous_config,
         read_continuous_state,
-        write_continuous_config,
     )
 
     tokens = shlex.split(arg_text) if arg_text.strip() else []
@@ -357,12 +357,23 @@ def _continuous_cmd(
         _, current_objective = read_continuous_config(mem.project.root)
 
     if sub in {"start", "on", "enable"}:
-        objective = " ".join(tokens[1:]).strip() or current_objective
+        requested_objective = " ".join(tokens[1:]).strip()
+        objective = requested_objective or current_objective
         error = continuous_mode_error(backend, True, objective)
         if error:
             print(error)
             return
-        write_continuous_config(mem.project.root, enabled=True, objective=objective)
+        from .front_door import ManagerHandoffError, manager_continuous_handoff
+
+        try:
+            objective = manager_continuous_handoff(
+                mem,
+                requested_objective,
+                chat_state,
+            )
+        except ManagerHandoffError as exc:
+            print(str(exc))
+            return
         updated = read_continuous_state(mem.project.root)
         chat_state["continuous_state"] = updated
         chat_state["continuous_objective"] = updated.objective
@@ -374,8 +385,7 @@ def _continuous_cmd(
         return
 
     if sub in {"stop", "off", "pause"}:
-        objective = " ".join(tokens[1:]).strip() or current_objective
-        write_continuous_config(mem.project.root, enabled=False, objective=objective)
+        disable_continuous_config(mem.project.root)
         updated = read_continuous_state(mem.project.root)
         chat_state["continuous_state"] = updated
         chat_state["continuous_objective"] = updated.objective

@@ -208,7 +208,11 @@ def test_operator_stop_quiesces_continuous(tmp_path):
 
     worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
     worker.config = _Cfg(continuous=True)
-    worker._quiesce_continuous_on_operator_stop(tmp_path, "run the campaign")
+    adopted = life_worker.read_continuous_state(tmp_path)
+    worker._quiesce_continuous_on_operator_stop(
+        tmp_path,
+        adopted.generation,
+    )
 
     enabled, objective = read_continuous_config(tmp_path)
     assert enabled is False  # clocked out — stays dead
@@ -226,7 +230,31 @@ def test_operator_stop_noop_when_not_continuous(tmp_path):
     write_continuous_config(tmp_path, enabled=True, objective="someone else's campaign")
     worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
     worker.config = _Cfg(continuous=False)
-    worker._quiesce_continuous_on_operator_stop(tmp_path, "someone else's campaign")
+    worker._quiesce_continuous_on_operator_stop(tmp_path, None)
 
     enabled, _ = read_continuous_config(tmp_path)
     assert enabled is True  # untouched
+
+
+def test_operator_stop_does_not_overwrite_newer_same_value_rearm(tmp_path):
+    from argus_skill.daemon import life_worker
+
+    life_worker.write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="run the campaign",
+    )
+    adopted = life_worker.read_continuous_state(tmp_path)
+    life_worker.write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="run the campaign",
+    )
+    worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
+
+    worker._quiesce_continuous_on_operator_stop(
+        tmp_path,
+        adopted.generation,
+    )
+
+    assert life_worker.read_continuous_state(tmp_path).enabled is True

@@ -98,7 +98,9 @@ export interface CostControlSnapshot {
   day: string;
   active_reservations: number;
   reserved_usd: number;
+  unresolved_held_usd?: number;
   unresolved_calls: number;
+  blocking_unresolved_calls?: number;
   unresolved: Array<Record<string, unknown>>;
   fence_breach_calls?: number;
   fence_breaches?: Array<Record<string, unknown>>;
@@ -299,6 +301,7 @@ export interface Snapshot {
     objective: string;
     last_active: number;
     cwd: string;
+    launch_cwd?: string;
   };
   daemon: Daemon;
   roles: Role[];
@@ -344,7 +347,17 @@ export interface ProjectRow {
   continuous_objective?: string;
 }
 
-export type ArtifactKind = 'text' | 'image' | 'pdf' | 'binary';
+export type ArtifactKind =
+  | 'text'
+  | 'markdown'
+  | 'html'
+  | 'json'
+  | 'table'
+  | 'image'
+  | 'pdf'
+  | 'audio'
+  | 'video'
+  | 'binary';
 
 /** Reviewer-approved result file exposed by the protected artifact API. */
 export interface ArtifactInfo {
@@ -358,7 +371,7 @@ export interface ArtifactInfo {
   mtime: number | null;
   source?: 'manager_live' | 'reviewer_evidence' | 'research_registered';
   group_title?: string;
-  /** Included by the single-artifact endpoint for text files only. */
+  /** Included by the single-artifact endpoint for text/HTML files only. */
   preview?: string;
   truncated?: boolean;
 }

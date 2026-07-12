@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from ..core.sandbox import sandboxed_child_env
-from .models import AgentRunResult
+from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
@@ -133,17 +134,6 @@ def _incomplete_turn_error(stderr_lines: list[str]) -> str:
     return "Agent CLI exited without completing a model turn."
 
 
-@dataclass
-class InactivitySnapshot:
-    idle_seconds: float
-    command: list[str]
-    thread_id: str | None
-    last_agent_message: str
-    stdout_tail: list[str]
-    stderr_tail: list[str]
-    run_label: str | None = None
-
-
 InactivityCallback = Callable[[InactivitySnapshot], InactivityDecision]
 ExternalInterruptProvider = Callable[[], str | None]
 
@@ -258,6 +248,7 @@ class AgentCliRunner:
             bufsize=1,
             cwd=options.working_dir or None,
             env=sandboxed_child_env() if options.sandbox_mode else None,
+            start_new_session=os.name != "nt",
         )
         if self._prompt_via_stdin():
             self._write_prompt(process=process, prompt=prompt)
@@ -1078,7 +1069,56 @@ class AgentCliRunner:
         return "\n".join(parts).strip()
 
     @staticmethod
-    def _terminate_process(process: subprocess.Popen[str]) -> None:
+    def _process_group_alive(process_group_id: int) -> bool:
+        try:
+            os.killpg(process_group_id, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    @classmethod
+    def _wait_process_group_exit(cls, process_group_id: int, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not cls._process_group_alive(process_group_id):
+                return True
+            time.sleep(0.05)
+        return not cls._process_group_alive(process_group_id)
+
+    @classmethod
+    def _terminate_process(cls, process: subprocess.Popen[str]) -> None:
+        if os.name != "nt":
+            process_group_id = process.pid
+            try:
+                os.killpg(process_group_id, signal.SIGTERM)
+            except ProcessLookupError:
+                return
+            except OSError:
+                if process.poll() is not None:
+                    return
+                process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except (subprocess.TimeoutExpired, ChildProcessError):
+                pass
+            if not cls._wait_process_group_exit(process_group_id, 2.0):
+                try:
+                    os.killpg(process_group_id, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    if process.poll() is None:
+                        process.kill()
+                cls._wait_process_group_exit(process_group_id, 5.0)
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=0.1)
+                except (subprocess.TimeoutExpired, ChildProcessError):
+                    pass
+            return
+
         if process.poll() is not None:
             return
         process.terminate()

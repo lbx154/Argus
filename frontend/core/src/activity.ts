@@ -244,6 +244,17 @@ export function reduceOperatorEvent(
 ): EventMsg[] {
   const event = normalizeOperatorEvent(wireEvent);
   if (!event) return events;
+  if (event.type === 'ui.operator' || event.type === 'ui.argus') {
+    const text = S(event, 'text');
+    const ts = N(event, 'ts');
+    const duplicate = events.some(
+      (candidate) =>
+        candidate.type === event.type
+        && S(candidate, 'text') === text
+        && Math.abs(N(candidate, 'ts') - ts) <= 2,
+    );
+    if (duplicate) return events;
+  }
   if (event.type === 'role.activity') {
     const id = S(event, 'activity_id');
     const index = events.findIndex(

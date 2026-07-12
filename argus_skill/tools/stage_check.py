@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..core.paths import skills_global_root
+
 # --------------------------------------------------------------------------
 # Stage definitions live in the research vertical. The shell-check runner
 # in this module is generic across verticals; the stage list / per-stage
@@ -120,7 +122,13 @@ def _knowledge_curation_review_gate(project_root: Path) -> tuple[bool, str, str]
     wiki_root = project_root / ".autors" / "learning" / "wiki"
     wiki_card_path = wiki_root / "pages" / "techniques" / "grpo-practical-tricks.md"
     by_status_path = wiki_root / "queries" / "by-status.md"
-    skill_path = Path(os.environ.get("ARGUS_SKILL_SKILLS_DIR") or "/tmp/learn-skills") / "grpo-practical-tricks.md"
+    configured_skills_root = os.environ.get("ARGUS_SKILL_SKILLS_DIR")
+    skills_root = (
+        Path(configured_skills_root).expanduser()
+        if configured_skills_root
+        else skills_global_root()
+    )
+    skill_path = skills_root / "grpo-practical-tricks.md"
     pipeline_state_path = project_root / "research" / "PIPELINE_STATE.json"
 
     require(cert.get("verdict") == "review_gate_ready", "verdict", "review certification verdict is review_gate_ready")

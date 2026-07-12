@@ -4,6 +4,8 @@ import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint } from './primitives';
 import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
+import { useEffect, useState, type FormEvent } from 'react';
+import { api } from '../api';
 
 /** Doctor: health checks with the single recommended fix pinned + gold, plus the
  *  daemon.log tail. Read-only diagnostics. */
@@ -49,11 +51,27 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
   );
 }
 
-/** Config: per-role backend·model·effort + knobs. READ-ONLY — there is no PATCH
- *  endpoint and the backend is intentionally unchanged, so this is presented
- *  honestly as "set via env / restart to apply". */
 export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
-  const { data, isLoading } = useConfig(sid, open);
+  const { data, isLoading, refetch } = useConfig(sid, open);
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !value.trim() || busy) return;
+    setBusy(true);
+    setResult('');
+    try {
+      await api.setConfig(sid, name.trim(), value.trim());
+      await refetch();
+      setResult('Applied. Restart affected daemons to reload process-scoped settings.');
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
   const knobGroups = (data?.operator_knobs ?? []).reduce<Record<string, ConfigKnob[]>>(
     (groups, knob) => {
       (groups[knob.group] ??= []).push(knob);
@@ -66,6 +84,15 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
       <ModalHeader title="Runtime settings" sub={data ? `resolved ${data.generated_at_utc}` : 'resolved role and operator settings'} />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
+        <form onSubmit={(event) => void submit(event)} className="mb-4 rounded-lg border border-blue/30 bg-blue/5 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-blue">Change setting</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="name or alias, e.g. manager_model" className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
+            <input value={value} onChange={(event) => setValue(event.target.value)} placeholder="value" className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
+            <button disabled={busy || !name.trim() || !value.trim()} className="h-9 rounded bg-blue-deep px-3 text-xs font-medium text-white disabled:opacity-40">{busy ? 'Applying…' : 'Apply'}</button>
+          </div>
+          {result ? <div className="mt-2 text-xs text-ink-dim">{result}</div> : null}
+        </form>
         <div className="grid gap-2 sm:grid-cols-2">
           {(data?.roles ?? []).map((r) => (
             <div key={r.role} className="rounded-lg border border-line bg-surface p-3">
@@ -112,17 +139,41 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
 
 /** Identity: the operator identity text on a wordmarked panel. */
 export function IdentityModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
-  const { data, isLoading } = useIdentity(sid, open);
+  const { data, isLoading, refetch } = useIdentity(sid, open);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
+  useEffect(() => {
+    if (open && data != null) setDraft(data);
+  }, [data, open]);
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setResult('');
+    try {
+      await api.setIdentity(sid, draft);
+      await refetch();
+      setResult('Identity saved.');
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Modal open={open} onClose={onClose} label="Identity" width="max-w-2xl">
       <ModalHeader title="Identity" sub="who argus is working for on this project" />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-5">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-        {data ? (
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink-dim">{data}</pre>
-        ) : (
-          !isLoading && <EmptyHint>no identity configured</EmptyHint>
-        )}
+        {!isLoading ? (
+          <>
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} className="w-full resize-y rounded-lg border border-line bg-bg p-3 font-sans text-sm leading-relaxed text-ink outline-none focus:border-blue" placeholder="Describe who Argus is working for and durable preferences…" />
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-xs text-ink-faint">{result}</span>
+              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} className="rounded bg-blue-deep px-3 py-2 text-xs font-medium text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save identity'}</button>
+            </div>
+          </>
+        ) : null}
       </div>
     </Modal>
   );

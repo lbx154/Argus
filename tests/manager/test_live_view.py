@@ -18,6 +18,7 @@ from argus_skill.manager.live_view import (
 
 def test_live_view_paths_are_workspace_relative_and_secret_safe() -> None:
     assert normalize_live_view_path("paper/main.pdf") == "paper/main.pdf"
+    assert normalize_live_view_path("pyproject.toml") == "pyproject.toml"
     assert normalize_live_view_path(".argus/live/current.md") == ".argus/live/current.md"
     for unsafe in (
         "../secret.txt",
@@ -114,6 +115,25 @@ def test_manager_presentation_is_written_by_confined_harness(tmp_path) -> None:
     assert (tmp_path / ".argus" / "live" / "current.md").read_text(
         encoding="utf-8"
     ).startswith("# Current result")
+
+
+@pytest.mark.parametrize("suffix", ["md", "markdown", "html", "json", "csv", "tsv", "txt"])
+def test_manager_can_author_supported_presentation_formats(
+    tmp_path, suffix: str,
+) -> None:
+    path = f".argus/live/current.{suffix}"
+    raw = json.dumps({
+        "live_view": {
+            "title": "Manager-created view",
+            "reason": "Best operator-facing representation",
+            "paths": [path],
+        },
+        "presentations": [{"path": path, "content": "content"}],
+    })
+
+    apply_manager_rendering_response(tmp_path, raw)
+
+    assert (tmp_path / path).read_text(encoding="utf-8") == "content"
 
 
 def test_manager_presentation_refuses_symlinked_live_directory(tmp_path) -> None:

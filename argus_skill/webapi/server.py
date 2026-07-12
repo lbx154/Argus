@@ -64,13 +64,18 @@ from ..daemon.life_worker import (
     LifeWorkerConfig,
     _active_daemon_count,
     _max_active_daemons,
+    disable_continuous_config,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
     stop_daemon,
-    write_continuous_config,
+    write_continuous_config,  # noqa: F401 - compatibility export
 )
-from ..life.memory import LifeMemory, _read_jsonl_tail_history
+from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
+from ..manager.front_door import (
+    ManagerHandoffError,
+    ManagerHandoffSupersededError,
+)
 from ..tools.doctor import run_diagnostics
 from . import artifacts, project_state
 from .protocol import build_api_meta, protocol_header
@@ -100,9 +105,11 @@ __all__ = [
     "enqueue_task", "enqueue_nudge", "answer_pending_question",
     "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
-    "update_project", "delete_project",
+    "update_project", "delete_project", "list_trashed_projects",
+    "restore_trashed_project", "upgrade_project_daemon",
     "set_continuous", "get_status", "get_journal", "add_project_note",
-    "dispose_backlog", "stop_backlog_iteration", "get_doctor", "get_config",
+    "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
+    "get_doctor", "get_config",
     "get_identity", "get_transcript",
     "get_backlog_item",
     "set_operator_config", "set_identity", "run_skill_command",
@@ -120,8 +127,6 @@ _WEB_UI_DROPPED_EVENT_TYPES = frozenset({
     EventType.AGENT_IO_STREAM,
     EventType.AGENT_IO_COMPLETE,
     EventType.USAGE_RECORDED,
-    EventType.PROVIDER_REQUEST_STARTED,
-    EventType.PROVIDER_REQUEST_COMPLETED,
     EventType.CODEX_UTIL_COMPLETED,
     EventType.SKILL_COST_COMPLETED,
     EventType.BUDGET_RESERVATION_CREATED,
@@ -231,10 +236,28 @@ def enqueue_task(
         text,
         defaults=_CONFIG_DEFAULTS,
     )
+    objective = cleaned or text.strip()
+    item_id = BacklogItem.new_id()
+    from .manager_bridge import manager_bounded_handoff
+
     mem = LifeMemory.open(life_dir)
-    item = add_backlog_item(
-        mem, cleaned or text.strip(),
-        iterate=iterate, iteration_max_cycles=cycles, iteration_budget_usd=budget,
+
+    def _persist(execution_task: str, _division: Any):
+        return add_backlog_item(
+            mem,
+            execution_task,
+            item_id=item_id,
+            iterate=iterate,
+            iteration_max_cycles=cycles,
+            iteration_budget_usd=budget,
+        )
+
+    item = manager_bounded_handoff(
+        sid,
+        objective,
+        _persist,
+        global_root=global_root,
+        root_task_id=item_id,
     )
     return item.to_jsonable()
 
@@ -416,6 +439,7 @@ def _clear_daemon_admission(life_dir: Path) -> None:
 def start_project_daemon(
     sid: str, *, global_root: Path | str | None = None,
     resume_continuous: bool = False,
+    reclaim_idle: bool = False,
 ) -> dict[str, Any] | None:
     """Spawn this project's detached daemon (if not already alive). Blocking-ish
     (subprocess spawn) — call from a threadpool in the async endpoint."""
@@ -437,6 +461,28 @@ def start_project_daemon(
     daemon_limit = _max_active_daemons(config)
     active_count = _active_daemon_count(config)
     if daemon_limit > 0 and active_count >= daemon_limit:
+        if reclaim_idle:
+            running = list_running_daemons(global_root=root, exclude_sid=sid)
+            idle = [
+                row for row in running
+                if int(row.get("unfinished_tasks") or 0) == 0
+                and not row.get("active_role")
+                and not row.get("continuous_enabled")
+            ]
+            if idle:
+                victim = min(
+                    idle,
+                    key=lambda row: float(row.get("last_active") or 0.0),
+                )
+                replaced = replace_project_daemon(
+                    sid,
+                    str(victim.get("id") or ""),
+                    global_root=root,
+                    resume_continuous=resume_continuous,
+                )
+                if replaced is not None and int(replaced.get("rc") or 0) == 0:
+                    replaced["auto_parked_idle"] = str(victim.get("id") or "")
+                    return replaced
         return {
             **_admission_required(
                 root=root,
@@ -615,29 +661,49 @@ def create_daemon(
     root = _global_root(global_root)
     sid = new_session_id()
     now = _time.time()
-    obj = (objective or "").strip()
+    requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
     effective_launch_cwd = (
         str(Path(launch_cwd).expanduser().resolve())
         if launch_cwd
         else str(Path.cwd().resolve())
     )
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid, display_name=(name or "").strip(),
-            created=now, last_active=now, cwd=str(life_dir), objective=obj,
-            launch_cwd=effective_launch_cwd,
-            origin="web",
-        ),
+    meta = SessionMeta(
+        id=sid,
+        display_name=(name or "").strip(),
+        created=now,
+        last_active=now,
+        cwd=str(life_dir),
+        objective="",
+        launch_cwd=effective_launch_cwd,
+        origin="web",
     )
+    # Persist the deliberate Web session before the Manager round-trip so
+    # concurrent empty-project GC cannot remove it while division is running.
+    write_session_meta(root, meta)
     life_dir.mkdir(parents=True, exist_ok=True)
 
     start_result: dict[str, Any] | None = None
+    obj = requested_objective
     if obj:
+        from .manager_bridge import manager_continuous_handoff
+
+        obj = manager_continuous_handoff(sid, obj, global_root=root)
+        write_session_meta(
+            root,
+            SessionMeta(
+                id=meta.id,
+                display_name=meta.display_name,
+                created=meta.created,
+                last_active=meta.last_active,
+                cwd=meta.cwd,
+                objective=obj,
+                launch_cwd=meta.launch_cwd,
+                origin=meta.origin,
+            ),
+        )
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
-        write_continuous_config(life_dir, enabled=True, objective=obj)
         start_result = start_project_daemon(
             sid,
             global_root=root,
@@ -691,6 +757,51 @@ def stop_project_daemon(
         return None
     rc = stop_daemon(life_dir, drain=drain, force=force)
     return {"rc": rc}
+
+
+def upgrade_project_daemon(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Restart one executor from the currently loaded checkout."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    status = read_daemon_status(life_dir)
+    if not status.alive or status.pid is None:
+        started = start_project_daemon(
+            sid,
+            global_root=global_root,
+            resume_continuous=True,
+        )
+        return None if started is None else {**started, "upgraded": True}
+
+    root = _global_root(global_root)
+    continuous = read_continuous_state(life_dir)
+    stop_rc = stop_daemon(
+        life_dir,
+        drain=True,
+        drain_timeout=1800.0,
+        force=False,
+    )
+    if stop_rc not in {0, 1}:
+        return {
+            "rc": 2,
+            "error": "daemon is still draining active work; retry upgrade after it exits",
+        }
+    if continuous.enabled:
+        write_continuous_config(
+            life_dir,
+            enabled=True,
+            objective=continuous.objective,
+        )
+    started = start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=continuous.enabled,
+    )
+    return None if started is None else {**started, "upgraded": True}
 
 
 def update_project(
@@ -750,6 +861,99 @@ def delete_project(
     }
 
 
+def list_trashed_projects(
+    *, global_root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    root = _global_root(global_root)
+    trash_root = root / "projects_trash"
+    out: list[dict[str, Any]] = []
+    try:
+        candidates = [
+            path
+            for date_dir in trash_root.iterdir()
+            if date_dir.is_dir()
+            for path in date_dir.iterdir()
+            if path.is_dir()
+        ]
+    except OSError:
+        candidates = []
+    for path in candidates:
+        payload: dict[str, Any] = {}
+        try:
+            value = json.loads((path / "session.json").read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                payload = value
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        sid = str(payload.get("id") or path.name.split(".", 1)[0]).strip()
+        label = str(
+            payload.get("display_name")
+            or payload.get("objective")
+            or sid
+        ).strip()
+        try:
+            trashed_at = path.stat().st_mtime
+        except OSError:
+            trashed_at = 0.0
+        out.append({
+            "sid": sid,
+            "label": label or sid,
+            "launch_cwd": str(payload.get("launch_cwd") or ""),
+            "trash_path": str(path.relative_to(root)),
+            "trashed_at": trashed_at,
+        })
+    out.sort(key=lambda row: float(row.get("trashed_at") or 0.0), reverse=True)
+    return out
+
+
+def restore_trashed_project(
+    trash_path: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    root = _global_root(global_root).resolve()
+    trash_root = (root / "projects_trash").resolve()
+    try:
+        source = (root / trash_path).resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        relative = source.relative_to(trash_root)
+    except ValueError:
+        return None
+    if (
+        len(relative.parts) != 2
+        or len(relative.parts[0]) != 8
+        or not relative.parts[0].isdigit()
+        or source.is_symlink()
+        or source.parent.is_symlink()
+        or not source.is_dir()
+    ):
+        return None
+    payload: dict[str, Any] = {}
+    try:
+        value = json.loads((source / "session.json").read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            payload = value
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    sid = str(payload.get("id") or source.name.split(".", 1)[0]).strip()
+    if not sid or Path(sid).name != sid:
+        return None
+    destination = (root / "projects" / sid).resolve()
+    if destination.parent != (root / "projects").resolve():
+        return None
+    if destination.exists():
+        return {
+            "ok": False,
+            "sid": sid,
+            "error": "a live session with this id already exists",
+        }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(destination))
+    return {"ok": True, "sid": sid}
+
+
 def set_continuous(
     sid: str, *, enabled: bool, objective: str = "",
     global_root: Path | str | None = None,
@@ -759,7 +963,16 @@ def set_continuous(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    write_continuous_config(life_dir, enabled=enabled, objective=objective)
+    if not enabled:
+        disable_continuous_config(life_dir)
+        return True
+    from .manager_bridge import manager_continuous_handoff
+
+    manager_continuous_handoff(
+        sid,
+        objective.strip(),
+        global_root=global_root,
+    )
     return True
 
 
@@ -870,6 +1083,37 @@ def get_backlog_item(
     except Exception:  # noqa: BLE001
         return None
     return item.to_jsonable() if item is not None else None
+
+
+def abort_project_mission(
+    sid: str,
+    *,
+    reason: str = "",
+    requested_by: str = "operator",
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Request an immediate abort for this project's current mission."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    from ..tools.mission_control import request_current_mission_abort
+
+    requested, item_id = request_current_mission_abort(
+        life_dir,
+        reason=reason or "operator requested immediate stop",
+        requested_by=requested_by,
+    )
+    if requested:
+        return {
+            "requested": True,
+            "item_id": item_id,
+            "message": f"Stop requested for running task {item_id}.",
+        }
+    return {
+        "requested": False,
+        "item_id": None,
+        "message": "No running task to abort. Pending tasks were left unchanged.",
+    }
 
 
 def dispose_backlog(
@@ -1276,6 +1520,9 @@ def create_app(
     class _AnswerIn(BaseModel):
         text: str
 
+    class _AbortMissionIn(BaseModel):
+        reason: str = ""
+
     class _CommandIn(BaseModel):
         command_id: str = ""
         expected_revision: int | None = None
@@ -1362,6 +1609,82 @@ def create_app(
             "projects": _machine_projects(limit=limit, include_empty=include_empty),
             "local_cwd": str(Path.cwd().resolve()),
         }
+
+    @app.get("/api/trash", dependencies=[Depends(_require_auth)])
+    def _trash(
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        query: str = Query("", max_length=200),
+    ) -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        for index, root in enumerate(roots):
+            for entry in list_trashed_projects(global_root=root):
+                entries.append({
+                    **entry,
+                    "trash_id": f"{index}:{entry['trash_path']}",
+                })
+        entries.sort(
+            key=lambda entry: float(entry.get("trashed_at") or 0.0),
+            reverse=True,
+        )
+        needle = query.strip().casefold()
+        if needle:
+            entries = [
+                entry
+                for entry in entries
+                if needle in " ".join((
+                    str(entry.get("sid") or ""),
+                    str(entry.get("label") or ""),
+                    str(entry.get("launch_cwd") or ""),
+                    str(entry.get("trash_path") or ""),
+                )).casefold()
+            ]
+        return {
+            "entries": entries[offset:offset + limit],
+            "total": len(entries),
+            "offset": offset,
+            "limit": limit,
+        }
+
+    @app.post(
+        "/api/trash/{trash_id:path}/restore",
+        dependencies=[Depends(_require_auth)],
+    )
+    async def _restore_trash(trash_id: str) -> dict[str, Any]:
+        prefix, separator, relative = trash_id.partition(":")
+        if not separator or not prefix.isdigit():
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        index = int(prefix)
+        if index < 0 or index >= len(roots):
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        entry = next(
+            (
+                item
+                for item in list_trashed_projects(global_root=roots[index])
+                if item["trash_path"] == relative
+            ),
+            None,
+        )
+        if entry is None:
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        if any(
+            project_life_dir(str(entry["sid"]), global_root=root) is not None
+            for root in roots
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="a session with this id already exists",
+            )
+        result = await run_in_threadpool(
+            restore_trashed_project,
+            relative,
+            global_root=roots[index],
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="unknown trash entry")
+        if not result.get("ok"):
+            raise HTTPException(status_code=409, detail=result.get("error"))
+        return result
 
     @app.post("/api/daemons", dependencies=[Depends(_require_auth)])
     async def _create_daemon(body: _CreateDaemonIn) -> dict[str, Any]:
@@ -1508,7 +1831,7 @@ def create_app(
         if resolved is None:
             raise HTTPException(status_code=404, detail="artifact unavailable or not allowlisted")
         info, file_path = resolved
-        safe_inline = info["kind"] in {"image", "pdf"}
+        safe_inline = info["kind"] in {"image", "pdf", "audio", "video"}
         media_type = (
             "application/octet-stream" if download
             else str(info["mime"]) if safe_inline
@@ -1546,9 +1869,22 @@ def create_app(
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty task text")
         project_root = _project_root_or_404(sid)
-        item = _404_if_none(
-            enqueue_task(sid, body.text, global_root=project_root), sid
-        )
+        try:
+            item = _404_if_none(
+                await run_in_threadpool(
+                    enqueue_task,
+                    sid,
+                    body.text,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         resp: dict[str, Any] = {"item": item}
         if body.autostart_daemon:
             # Lazy spawn (like the Python cockpit): queueing a task ensures the
@@ -1556,7 +1892,10 @@ def create_app(
             # a daemon is already alive. In a threadpool because spawn touches
             # the filesystem / forks a detached process.
             resp["daemon"] = await run_in_threadpool(
-                start_project_daemon, sid, global_root=project_root
+                start_project_daemon,
+                sid,
+                global_root=project_root,
+                reclaim_idle=True,
             )
         return resp
 
@@ -1599,6 +1938,7 @@ def create_app(
             start_project_daemon,
             sid,
             global_root=project_root,
+            reclaim_idle=True,
         )
         return result
 
@@ -1622,6 +1962,7 @@ def create_app(
             result["daemon"] = await run_in_threadpool(
                 start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
+                reclaim_idle=True,
             )
         return result
 
@@ -1667,6 +2008,7 @@ def create_app(
                             sid,
                             global_root=project_root,
                             resume_continuous=bool(result.get("continuous")),
+                            reclaim_idle=True,
                         )
                     except Exception as exc:  # noqa: BLE001 — surface failure in done frame
                         result["daemon"] = {
@@ -1777,14 +2119,49 @@ def create_app(
         )
         return _command_response(receipt)
 
+    @app.post("/api/projects/{sid}/daemon/upgrade", dependencies=[Depends(_require_auth)])
+    async def _daemon_upgrade(
+        sid: str,
+        body: _CommandIn | None = None,
+    ) -> dict[str, Any]:
+        command = body or _CommandIn()
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="upgrade",
+            args={},
+            command_id=command.command_id or None,
+            expected_revision=command.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                upgrade_project_daemon(sid, global_root=project_root),
+                sid,
+            ),
+        )
+        return _command_response(receipt)
+
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(_require_auth)])
     async def _post_continuous(sid: str, body: _ContinuousIn) -> dict[str, Any]:
         project_root = _project_root_or_404(sid)
-        _404_if_none(
-            set_continuous(sid, enabled=body.enabled, objective=body.objective,
-                           global_root=project_root),
-            sid,
-        )
+        try:
+            _404_if_none(
+                await run_in_threadpool(
+                    set_continuous,
+                    sid,
+                    enabled=body.enabled,
+                    objective=body.objective,
+                    global_root=project_root,
+                ),
+                sid,
+            )
+        except ManagerHandoffSupersededError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ManagerHandoffError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         response: dict[str, Any] = {"ok": True}
         if body.enabled:
             response["daemon"] = await run_in_threadpool(
@@ -1820,11 +2197,17 @@ def create_app(
             get_doctor(sid, global_root=_project_root_or_404(sid)), sid
         )
 
-    @app.get("/api/projects/{sid}/config")
+    @app.get(
+        "/api/projects/{sid}/config",
+        dependencies=[Depends(_require_auth)],
+    )
     def _config(sid: str) -> dict[str, Any]:
         return get_config(global_root=_project_root_or_404(sid))
 
-    @app.get("/api/projects/{sid}/identity")
+    @app.get(
+        "/api/projects/{sid}/identity",
+        dependencies=[Depends(_require_auth)],
+    )
     def _identity(sid: str) -> dict[str, Any]:
         return {
             "identity": _404_if_none(
@@ -1923,6 +2306,19 @@ def create_app(
         if item is None:
             raise HTTPException(status_code=404, detail=f"unknown backlog item: {item_id}")
         return {"item": item}
+
+    @app.post("/api/projects/{sid}/mission/abort", dependencies=[Depends(_require_auth)])
+    def _abort_mission(sid: str, body: _AbortMissionIn | None = None) -> dict[str, Any]:
+        request = body or _AbortMissionIn()
+        return _404_if_none(
+            abort_project_mission(
+                sid,
+                reason=request.reason,
+                requested_by="operator",
+                global_root=global_root,
+            ),
+            sid,
+        )
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/stop", dependencies=[Depends(_require_auth)])
     def _stop_item(sid: str, item_id: str) -> dict[str, Any]:

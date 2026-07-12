@@ -59,7 +59,11 @@ from ._constants import (
 )
 from ._constants import (
     PLAN_ERROR as _PLAN_ERROR,  # noqa: F401
+)
+from ._constants import (
     PLAN_HANDOFF as _PLAN_HANDOFF,  # noqa: F401
+)
+from ._constants import (
     PLAN_RETRY as _PLAN_RETRY,  # noqa: F401
 )
 from ._constants import (
@@ -67,6 +71,9 @@ from ._constants import (
 )
 from ._constants import (
     PLANNER_DEDUP_STATUSES as _PLANNER_DEDUP_STATUSES,  # noqa: F401
+)
+from ._constants import (
+    PLANNER_RECENT_FAILURE_STATUS as _PLANNER_RECENT_FAILURE_STATUS,  # noqa: F401
 )
 from ._constants import (
     PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,  # noqa: F401
@@ -112,8 +119,6 @@ _price_for = price_for
 
 # Compatibility constants re-exported from ``life.supervisor``.
 _PLANNER_RECENT_HISTORY_WINDOW = 20
-# Compatibility export retained for callers/tests that classify journal failures.
-_PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 # Plan-cycle outcome sentinels returned by ``_plan_next_work`` and consumed
 # by ``run()``. Kept as a small named set (not bare string literals scattered
 # across call sites) so the control flow stays auditable.
@@ -561,6 +566,7 @@ class LifeSupervisor(
                 "budget_pause",
                 "iteration_cap",
                 "lifecycle_block",
+                "stage_hold",
             }:
                 # No mission actually ran — this is a held/paused outcome. Escalate
                 # the wait like the idle path (15→300s) instead of resetting to
@@ -604,6 +610,7 @@ class LifeSupervisor(
                 "budget_pause",
                 "iteration_cap",
                 "lifecycle_block",
+                "stage_hold",
             }:
                 stopped_by = outcome.get("status", "")
                 break

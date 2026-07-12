@@ -25,11 +25,12 @@ import { SplitHandle } from './components/SplitHandle';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
+import { OperationsModal } from './components/OperationsModal';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
 interface ActiveMessageRequest {
   id: number;
@@ -582,8 +583,21 @@ export default function App() {
     setManagerPhase('');
     setManagerStartedAt(Date.now());
 
-    const dispatchTask = () => {
+    const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
+      const daemon = result.daemon && typeof result.daemon === 'object'
+        ? result.daemon as Record<string, unknown>
+        : null;
+      if (daemon?.admission_required) {
+        notify(
+          'error',
+          `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+        );
+      } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
+        notify('error', `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+      } else if (daemon?.auto_parked_idle) {
+        notify('success', `Started · parked idle session ${String(daemon.auto_parked_idle)}`);
+      }
       snapQ.refetch?.();
     };
 
@@ -601,7 +615,7 @@ export default function App() {
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            if (result.kind === 'task') dispatchTask();
+            if (result.kind === 'task') dispatchTask(result);
             void transcriptQ.refetch();
           },
           onError: (err) => {
@@ -619,7 +633,7 @@ export default function App() {
         try {
           const result = await api.message(requestSid, text, controller.signal);
           if (!isCurrent()) return;
-          if (result.kind === 'task') dispatchTask();
+          if (result.kind === 'task') dispatchTask(result);
           void transcriptQ.refetch();
         } catch (error) {
           if (!isCurrent()) return;
@@ -666,6 +680,7 @@ export default function App() {
       { id: 'identity', label: 'Open Identity', hint: '/identity', group: 'View', run: () => setOverlay('identity') },
       { id: 'transcript', label: 'Open Transcript', hint: '/transcript', group: 'View', run: () => setOverlay('transcript') },
       { id: 'inspector', label: 'Open Project', hint: 'work · memory · agents', group: 'View', run: () => setOverlay('inspector') },
+      { id: 'operations', label: 'Open Operations', hint: 'backend controls', group: 'View', run: () => setOverlay('operations') },
       { id: 'help', label: 'Keyboard shortcuts', hint: '?', group: 'View', run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -783,7 +798,8 @@ export default function App() {
               <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
                 <button type="button" onClick={() => setWorkspaceView('mission')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'mission' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Mission</button>
                 <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
-                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : null}
+                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : <span className="ml-auto" />}
+                {!kiosk ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">Operations</button> : null}
               </div>
               <GuardianBanner alert={guardianAlert} />
               {workspaceView === 'mission' && missionView ? (
@@ -909,6 +925,22 @@ export default function App() {
           onDispose={requestDispose}
           onStop={requestStopIteration}
           onInspect={setTaskItemId}
+        />
+      ) : null}
+      {activeSid && snap ? (
+        <OperationsModal
+          open={overlay === 'operations'}
+          sid={activeSid}
+          snap={snap}
+          onClose={() => setOverlay('none')}
+          onChanged={() => {
+            void snapQ.refetch();
+            void projectsQ.refetch();
+          }}
+          onRestored={async (restoredSid) => {
+            await projectsQ.refetch();
+            selectProject(restoredSid);
+          }}
         />
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} onClose={() => setArtifactPath(null)} />

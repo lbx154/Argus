@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.core.session import SessionMeta, write_session_meta
+from argus_skill.core.transcript import append_turn
 from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
@@ -26,6 +27,31 @@ from argus_skill.webapi.protocol import (
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
+
+
+def test_project_label_does_not_use_raw_operator_transcript(tmp_path: Path) -> None:
+    sid = "s-rawlabel"
+    life_dir = tmp_path / "projects" / sid
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, created=1, last_active=1, cwd=str(life_dir)),
+    )
+    append_turn(
+        life_dir,
+        "operator",
+        "write paper; Manager owns the right sidebar",
+    )
+
+    project = next(
+        item
+        for item in project_state.list_projects(
+            global_root=tmp_path,
+            include_empty=True,
+        )
+        if item["id"] == sid
+    )
+
+    assert project["label"] == sid
 
 
 def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
@@ -585,6 +611,11 @@ def test_get_events_ui_view_filters_raw_transport_frames(
     life = tmp_path / "projects" / "s-testaaaa"
     with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "agent.io.stream", "line": "large raw frame"}) + "\n")
+        handle.write(json.dumps({
+            "type": "provider.request.started",
+            "call_id": "call-1",
+            "run_label": "scientist.skill_distill",
+        }) + "\n")
         handle.write(json.dumps({"type": "ui.argus", "text": "visible reply"}) + "\n")
 
     body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
@@ -592,6 +623,7 @@ def test_get_events_ui_view_filters_raw_transport_frames(
     assert [event["type"] for event in body["events"]] == [
         "mission.started",
         "round.review.completed",
+        "provider.request.started",
         "ui.argus",
     ]
 

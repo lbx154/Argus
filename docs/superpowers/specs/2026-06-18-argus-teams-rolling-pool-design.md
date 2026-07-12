@@ -1,5 +1,10 @@
 # Argus Agent Teams — 滚动池 / Coordinator 时序系统（M2 设计文档）
 
+> **归档说明：** 下述 detached coordinator + lead heartbeat 设计已于
+> 2026-06-26 被 daemon-resident Curator 取代，不能再作为当前实现说明。
+> 当前 `pool.json` 只包含 `{width, state}`；本文仅保留作历史审计。现状见
+> `2026-06-26-team-daemon-lifecycle-diagnosis.md` 与仓库 `CHANGELOG.md`。
+
 - **日期**: 2026-06-18
 - **状态**: Draft（brainstorming 产出，待写 implementation plan）
 - **作者**: msra + Claude

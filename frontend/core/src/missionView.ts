@@ -140,32 +140,6 @@ function refreshPrimaryMetric(view: MissionView): void {
     : same.reduce((best, metric) => metric.value > best.value ? metric : best);
 }
 
-function refreshAchievement(view: MissionView): void {
-  const metric = view.primary_metric;
-  if (view.mission.status !== 'complete' || metric?.verification_status !== 'accepted') return;
-  if (view.achievement?.reviewer_certified) return;
-  const baseline = metric.baseline;
-  const gain = baseline == null ? null : metric.value - baseline;
-  view.achievement = {
-    id: `derived-${view.mission.id || 'mission'}`,
-    title: view.mission.title || 'Argus achievement',
-    goal: view.mission.objective || view.mission.title,
-    metric_id: metric.id,
-    metric_name: metric.name,
-    baseline,
-    best: metric.value,
-    gain,
-    unit: metric.unit,
-    experiments_run: view.experiments.filter((row) => row.status === 'completed').length,
-    rejected_attempts: view.review.rejected_attempts,
-    skills_learned: view.learned_skills.filter((row) => row.status === 'active').length,
-    artifacts: view.artifacts.length,
-    elapsed_seconds: view.mission.elapsed_seconds,
-    reviewer_certified: true,
-    certified_at: view.mission.completed_at,
-  };
-}
-
 export function reduceMissionViewEvent(view: MissionView, event: EventMsg): MissionView {
   const type = canonicalEventType(event.type);
   const ts = Number(event.ts ?? Date.now() / 1000);
@@ -410,12 +384,25 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       addTimeline(view, event, 'reviewer', promoted ? 'Knowledge promoted' : 'Knowledge demoted', `${id} → ${S(event, 'to_status')}`, promoted ? 'success' : 'neutral');
     }
   } else if (type === EVENT_TYPES.RESEARCH_ACHIEVEMENT_CERTIFIED) {
+    const metricId = S(event, 'metric_id');
+    const metric = view.metrics.find((row) => row.id === metricId);
+    const baseline = metric?.baseline;
     view.achievement = {
       id: S(event, 'achievement_id'),
       title: S(event, 'title'),
       goal: S(event, 'goal'),
       summary: S(event, 'summary'),
-      metric_id: S(event, 'metric_id'),
+      metric_id: metricId,
+      metric_name: metric?.name,
+      baseline,
+      best: metric?.value,
+      gain: metric && baseline != null ? metric.value - baseline : null,
+      unit: metric?.unit,
+      experiments_run: view.experiments.filter((row) => row.status === 'completed').length,
+      rejected_attempts: view.review.rejected_attempts,
+      skills_learned: view.learned_skills.filter((row) => row.status === 'active').length,
+      artifacts: view.artifacts.length,
+      elapsed_seconds: view.mission.elapsed_seconds,
       reviewer_certified: true,
       certified_at: ts,
     };
@@ -428,9 +415,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.mission.completed_at = ts;
     addTimeline(view, event, 'engineer', success ? 'Mission achievement' : 'Mission failed', S(event, 'title') || S(event, 'status'), success ? 'success' : 'error');
   }
-
   refreshPrimaryMetric(view);
-  refreshAchievement(view);
+  refreshPrimaryMetric(view);
   view.updated_at = Date.now() / 1000;
   return view;
 }
@@ -461,13 +447,15 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     view.mission.status = 'idle';
   }
   snapshot.roles.forEach((role) => {
-    const existing = view.roles.find((row) => row.role === role.role);
     if (role.active) {
       setRole(view, role.role, 'active', role.label || role.status || 'Working', Date.now() / 1000 - (role.age_s ?? 0));
+    } else {
+      setRole(view, role.role, 'waiting', 'Waiting', Date.now() / 1000);
     }
-    const row = view.roles.find((candidate) => candidate.role === role.role) ?? existing;
+    const row = view.roles.find((candidate) => candidate.role === role.role);
     if (row) Object.assign(row, { backend: role.backend, model: role.model, effort: role.effort });
   });
+  view.active_role = snapshot.roles.find((role) => role.active)?.role ?? '';
   snapshot.backlog.forEach((item) => {
     const node: MissionDagNode = {
       id: item.id,
@@ -498,7 +486,6 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     view.mission.elapsed_seconds = Math.max(0, view.mission.completed_at - view.mission.started_at);
   }
   refreshPrimaryMetric(view);
-  refreshAchievement(view);
 }
 
 export function projectMissionView(

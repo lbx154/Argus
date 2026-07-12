@@ -245,12 +245,18 @@ def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> N
         "intent_id": "intent-1",
         "source": "user",
         "objective": "study B200 skill",
+        "execution_task": "study the B200 skill artifacts",
+        "continuous_generation": 7,
         "vertical": "learning",
         "kind": "custom",
         "stages": ["ingest", "study"],
         "reason": "manager routed to learning",
     }
     sup.memory.root.mkdir(parents=True, exist_ok=True)
+    (sup.memory.root / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "x", "generation": 7}),
+        encoding="utf-8",
+    )
     (sup.memory.root / "events.jsonl").write_text(
         json.dumps({"type": "life.manager.intent.completed", **intent}) + "\n",
         encoding="utf-8",
@@ -265,6 +271,61 @@ def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> N
     assert planner_start["manager_intent"]["vertical"] == "learning"
     assert task_added["manager_intent"]["intent_id"] == "intent-1"
     assert verdict["manager_intent"]["reason"] == "manager routed to learning"
+    block = sup._manager_intent_prompt_block(planner_start["manager_intent"])
+    assert "execution_objective: study the B200 skill artifacts" in block
+    assert "study B200 skill" not in block
+
+
+def test_planner_ignores_newer_uncompleted_manager_intent(
+    tmp_path, monkeypatch,
+) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    sup.memory.root.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "type": "life.manager.intent.completed",
+            "intent_id": "completed",
+            "objective": "raw completed request",
+            "execution_task": "clean completed handoff",
+            "continuous_generation": 8,
+        },
+        {
+            "type": "life.manager.intent.started",
+            "intent_id": "in-flight",
+            "objective": "raw in-flight request; Manager owns the sidebar",
+        },
+    ]
+    (sup.memory.root / "events.jsonl").write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+    (sup.memory.root / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "x", "generation": 8}),
+        encoding="utf-8",
+    )
+
+    intent = sup._manager_intent_context()
+    assert intent["intent_id"] == "completed"
+    block = sup._manager_intent_prompt_block(intent)
+    assert "clean completed handoff" in block
+    assert "raw in-flight request" not in block
+
+
+def test_planner_ignores_legacy_completed_intent_without_execution_task(
+    tmp_path, monkeypatch,
+) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    sup.memory.root.mkdir(parents=True, exist_ok=True)
+    (sup.memory.root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.manager.intent.completed",
+            "intent_id": "legacy",
+            "objective": "raw request; Manager owns the sidebar",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    assert sup._manager_intent_context() == {}
 
 
 def test_dag_topological_claim_order(tmp_path, monkeypatch) -> None:
