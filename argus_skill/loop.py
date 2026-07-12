@@ -414,21 +414,12 @@ class SkillLoop:
                 })
 
         # Step 3: supervised round-loop
-        live_view_contract = ""
-        try:
-            from .manager.live_view import format_live_view_contract
-
-            live_view_contract = format_live_view_contract(workdir)
-        except Exception:  # noqa: BLE001 — operator view must not break execution
-            pass
-
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:
             return self._build_engineer_prompt(
                 task=task,
                 skill_text=skill_text,
                 next_action=next_action,
                 original_request=request_anchor,
-                live_view_contract=live_view_contract,
                 include_static=include_static,
             )
 
@@ -672,7 +663,6 @@ class SkillLoop:
         skill_text: str,
         next_action: str | None,
         original_request: str = "",
-        live_view_contract: str = "",
         include_static: bool = True,
     ) -> str:
         # STATIC = byte-stable prefix (constant within a mission: task / skill)
@@ -694,8 +684,6 @@ class SkillLoop:
                 + original_request.strip()
             )
         sections.append("## Current mission task\n" + task)
-        if live_view_contract:
-            sections.append(live_view_contract)
         if next_action:
             delta_sections.append(
                 "## Reviewer guidance from prior round\n"

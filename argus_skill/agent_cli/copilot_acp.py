@@ -31,13 +31,14 @@ from .models import AgentRunResult
 
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_MANAGER_TIMEOUT_S = 300.0
+_CANCEL_GRACE_S = 5.0
 _DEFAULT_SESSION_RECYCLE = 50
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
 _TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
 
 
 def _prompt_timeout(run_label: str | None) -> float:
-    """Keep cheap classification bounded without truncating Manager replies."""
+    """Return the maximum ACP inactivity allowed for this Manager role."""
     if run_label == _FRONT_DOOR_LABEL:
         env_name = "ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S"
         default = _DEFAULT_TIMEOUT_S
@@ -423,7 +424,12 @@ class CopilotAcpClient:
             proc.stdin.flush()
 
     def _request(
-        self, method: str, params: dict[str, Any], *, timeout: float
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        timeout: float | None,
+        cancel_event: threading.Event | None = None,
     ) -> "dict[str, Any] | None":
         rid = next(self._ids)
         ev = threading.Event()
@@ -432,7 +438,37 @@ class CopilotAcpClient:
             self._pending[rid] = slot
         try:
             self._write({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
-            got = ev.wait(timeout)
+            if cancel_event is None:
+                got = ev.wait(timeout)
+            else:
+                got = False
+                deadline = (
+                    time.monotonic() + timeout
+                    if timeout is not None
+                    else None
+                )
+                cancel_deadline: float | None = None
+                while not got:
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline:
+                        break
+                    if cancel_event.is_set():
+                        if cancel_deadline is None:
+                            cancel_deadline = now + _CANCEL_GRACE_S
+                        elif now >= cancel_deadline:
+                            break
+                    wait_for = 0.05
+                    active_deadlines = [
+                        value
+                        for value in (deadline, cancel_deadline)
+                        if value is not None
+                    ]
+                    if active_deadlines:
+                        wait_for = min(
+                            wait_for,
+                            max(0.001, min(active_deadlines) - now),
+                        )
+                    got = ev.wait(wait_for)
             return slot["msg"] if got else None
         finally:
             with self._pending_lock:
@@ -539,7 +575,7 @@ class CopilotAcpClient:
         emit: Callable[[str], None] | None = None,
         on_block: Callable[[str], None] | None = None,
     ) -> AgentRunResult:
-        timeout = _prompt_timeout(run_label)
+        idle_timeout = _prompt_timeout(run_label)
         _cwd = cwd or getattr(options, "working_dir", None) or os.getcwd()
 
         with self._turn_lock:
@@ -558,6 +594,7 @@ class CopilotAcpClient:
             self._active_turn = turn
             cancelled = {"v": False}
             cancel_reason = {"v": ""}
+            cancel_event = threading.Event()
             stop = threading.Event()
             prov = getattr(options, "external_interrupt_reason_provider", None)
             inactivity_cb = getattr(options, "inactivity_callback", None)
@@ -575,9 +612,12 @@ class CopilotAcpClient:
                 hard_idle = 0.0
 
             def _watchdog() -> None:
-                deadline = time.monotonic() + timeout
                 last_soft_check_at = turn.last_activity_at
-                active_thresholds = [v for v in (soft_idle, hard_idle) if v > 0]
+                active_thresholds = [
+                    value
+                    for value in (soft_idle, hard_idle, idle_timeout)
+                    if value > 0
+                ]
                 poll_s = (
                     min(0.25, max(0.01, min(active_thresholds) / 2.0))
                     if active_thresholds
@@ -587,6 +627,7 @@ class CopilotAcpClient:
                 def _cancel(reason: str) -> None:
                     cancelled["v"] = True
                     cancel_reason["v"] = reason
+                    cancel_event.set()
                     self._invalidate_session(sid)
                     try:
                         self._notify("session/cancel", {"sessionId": sid})
@@ -603,9 +644,6 @@ class CopilotAcpClient:
                     now = time.monotonic()
                     if reason:
                         _cancel(f"External interrupt: {reason}")
-                        return
-                    if now > deadline:
-                        _cancel(f"ACP prompt timed out after {timeout:g}s")
                         return
 
                     idle_seconds = max(0.0, now - turn.last_activity_at)
@@ -648,6 +686,13 @@ class CopilotAcpClient:
                             f"(last ACP event: {turn.last_event})"
                         )
                         return
+                    if idle_timeout > 0 and idle_seconds >= idle_timeout:
+                        _cancel(
+                            "ACP prompt idle timeout after "
+                            f"{idle_timeout:g}s without an ACP event "
+                            f"(last ACP event: {turn.last_event})"
+                        )
+                        return
 
             wd = threading.Thread(target=_watchdog, name="copilot-acp-watchdog", daemon=True)
             wd.start()
@@ -655,7 +700,8 @@ class CopilotAcpClient:
                 resp = self._request(
                     "session/prompt",
                     {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]},
-                    timeout=timeout + 5,
+                    timeout=None,
+                    cancel_event=cancel_event,
                 )
             except KeyboardInterrupt:
                 cancelled["v"] = True
@@ -676,8 +722,16 @@ class CopilotAcpClient:
             text = turn.text.strip()
             if resp is None:
                 self._invalidate_session(sid)
+                if cancel_event.is_set():
+                    self.close()
+                    return self._fail_result(
+                        cancel_reason["v"] or "acp prompt cancelled",
+                        sid=sid,
+                        text=text,
+                        tool_activity_observed=turn.tool_activity_observed,
+                    )
                 return self._fail_result(
-                    "acp prompt timed out",
+                    "acp prompt ended without a response",
                     sid=sid,
                     text=text,
                     tool_activity_observed=turn.tool_activity_observed,

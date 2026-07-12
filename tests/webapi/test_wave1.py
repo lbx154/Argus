@@ -197,11 +197,10 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
 
     rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
     assert [row["path"] for row in rows] == [
-        "paper/result.md", "paper/missing.json", ".review-note",
+        "paper/result.md", "paper/missing.json",
     ]
     assert rows[0]["exists"] is True
     assert rows[1]["exists"] is False
-    assert rows[2]["exists"] is True
     assert client.get(f"/api/projects/{sid}/artifacts").headers["cache-control"] == "private, no-store"
 
     info = client.get(
@@ -239,8 +238,7 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     hidden = client.get(
         f"/api/projects/{sid}/artifact", params={"path": ".review-note"},
     )
-    assert hidden.status_code == 200
-    assert hidden.json()["path"] == ".review-note"
+    assert hidden.status_code == 404
 
 
 def test_artifact_allowlist_is_replaced_by_newest_result(ctx) -> None:
@@ -329,6 +327,69 @@ def test_artifacts_prefer_executor_cwd_over_launch_metadata(ctx) -> None:
     assert rows[0]["group_title"] == "Current output"
 
 
+def test_manager_live_symlink_cannot_expose_sensitive_workspace_file(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / ".env").write_text("SECRET=do-not-serve\n", encoding="utf-8")
+    live = life / ".argus" / "live"
+    live.mkdir(parents=True)
+    (live / "current.md").symlink_to(life / ".env")
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Unsafe",
+            "reason": "Must be rejected after symlink resolution.",
+            "paths": [".argus/live/current.md"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
+def test_sensitive_symlink_alias_is_rejected_even_with_safe_target(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / "public.md").write_text("not secret\n", encoding="utf-8")
+    (life / "credentials.json").symlink_to(life / "public.md")
+    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "sensitive-alias",
+            "success": True,
+            "ts": time.time() + 1,
+            "planner_report": {
+                "evidence_files": [{"path": "credentials.json"}],
+            },
+        }) + "\n")
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
+def test_manager_live_cannot_select_common_credential_file(ctx) -> None:
+    root, sid, life, client = ctx
+    (life / ".npmrc").write_text("//registry/:_authToken=secret\n", encoding="utf-8")
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Unsafe",
+            "reason": "Credential files are never renderable.",
+            "paths": [".npmrc"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert rows == []
+
+
 def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> None:
     root, sid, life, client = ctx
     workspace = _seed_result_artifacts(root, sid, life)
@@ -351,10 +412,10 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
 
     html = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "report.html"})
     svg = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "figure.svg"})
-    for response in (html, svg):
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/plain")
-        assert response.headers["x-content-type-options"] == "nosniff"
+    assert html.status_code == 200
+    assert html.headers["content-type"].startswith("text/plain")
+    assert html.headers["x-content-type-options"] == "nosniff"
+    assert svg.status_code == 404
 
 
 def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:

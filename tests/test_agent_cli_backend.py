@@ -43,6 +43,7 @@ class ArgusRunnerOptions:
     max_budget_usd: float | None = None
     max_ai_credits: int | None = None
     skip_git_repo_check: bool = False
+    sandbox_mode: str | None = None
     extra_args: list[str] | None = None
     working_dir: str | None = None
     output_schema_path: str | None = None
@@ -212,6 +213,7 @@ def test_run_exec_translates_options_and_result(
         working_dir=str(tmp_path),
         extra_args=["-c", "config_profile=tb"],
         full_auto=True,
+        sandbox_mode="read-only",
         skip_git_repo_check=True,
         dangerous_yolo=False,
         output_schema_path="/tmp/schema.json",
@@ -230,6 +232,7 @@ def test_run_exec_translates_options_and_result(
     assert forwarded.working_dir == str(tmp_path)
     assert forwarded.extra_args == ["-c", "config_profile=tb"]
     assert forwarded.full_auto is True
+    assert forwarded.sandbox_mode == "read-only"
     assert forwarded.skip_git_repo_check is True
     assert forwarded.dangerous_yolo is False
     assert forwarded.output_schema_path == "/tmp/schema.json"

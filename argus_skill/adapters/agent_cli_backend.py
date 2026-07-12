@@ -1277,6 +1277,8 @@ class AgentCliBackend:
         # field; then we degrade gracefully to no live search rather than crash.
         if "live_search" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["live_search"] = getattr(options, "live_search", False)
+        if "sandbox_mode" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
         # Forward the live assistant-block callback the same guarded way — only
         # the Manager chat front-door sets it, and a vendored copy without the
         # field degrades to no streaming rather than crashing.

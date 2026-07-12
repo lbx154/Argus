@@ -35,6 +35,10 @@ class RunnerOptions:
     # idea discovery does real live literature search instead of cached/recalled
     # results. No-op on backends that do not build a codex command.
     live_search: bool = False
+    # Explicit subprocess sandbox. Used by Manager rendering/stage calls to
+    # inspect project state without granting write access; None preserves each
+    # backend's existing default behavior.
+    sandbox_mode: str | None = None
     full_auto: bool = False
     dangerous_yolo: bool = False
     # Internal provider-side spend fences. These are populated from the atomic

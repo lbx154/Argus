@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.manager import Manager, StageTransition
+from argus_skill.manager.live_view import load_live_view_decision
 from argus_skill.manager.stage_decider import (
     fallback_empty_stage_decision,
     parse_stage_decision,
@@ -33,9 +34,13 @@ class _StubRunner:
     def __init__(self, verdict: dict | str) -> None:
         self._text = verdict if isinstance(verdict, str) else json.dumps(verdict)
         self.calls = 0
+        self.last_prompt = ""
+        self.last_options = None
 
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         self.calls += 1
+        self.last_prompt = prompt
+        self.last_options = options
         return _Result(self._text)
 
 
@@ -144,6 +149,41 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     assert st.action == "hold"
     assert st.diagnostic == "intentional_hold"
     assert _read_stage(root) == "research"  # untouched
+
+
+def test_decide_stage_refreshes_manager_owned_live_view(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    backend = _StubRunner({
+        "action": "hold",
+        "target_stage": "research",
+        "reason": "more work",
+        "live_view": {
+            "title": "Manager view",
+            "reason": "Polished intermediate result",
+            "paths": [".argus/live/current.md"],
+        },
+        "presentations": [{
+            "path": ".argus/live/current.md",
+            "content": "# Current result\n",
+        }],
+    })
+    mgr = Manager(project_root=root, runner=backend)
+
+    st = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert st.action == "hold"
+    view = load_live_view_decision(root)
+    assert view is not None
+    assert view.paths == (".argus/live/current.md",)
+    assert (root / ".argus" / "live" / "current.md").exists()
+    assert backend.last_options.working_dir == str(root)
+    assert backend.last_options.sandbox_mode == "read-only"
+    assert backend.last_options.dangerous_yolo is False
+    assert "MANAGER ownership" in backend.last_prompt
+    assert "Do not assign" in backend.last_prompt
 
 
 def test_decide_rollback_writes_state(tmp_path: Path) -> None:

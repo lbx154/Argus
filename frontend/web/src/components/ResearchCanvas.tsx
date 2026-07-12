@@ -9,7 +9,7 @@ import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 
 export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
   const live = (artifacts ?? []).filter((item) =>
-    ['manager_live', 'research_registered'].includes(item.source ?? '') && item.exists);
+    item.source === 'manager_live' && item.exists);
   return live.find((item) => item.kind === 'pdf')
     ?? live.find((item) => item.kind === 'image')
     ?? live[0]
@@ -40,7 +40,7 @@ export function ResearchCanvas({
 }) {
   const live = useMemo(
     () => (artifacts ?? []).filter((item) =>
-      ['manager_live', 'research_registered'].includes(item.source ?? '')),
+      item.source === 'manager_live'),
     [artifacts],
   );
   const preferred = useMemo(() => selectPreferredLiveArtifact(artifacts), [artifacts]);
