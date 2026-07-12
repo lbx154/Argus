@@ -347,17 +347,23 @@ def manager_message(
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
-        classify_kwargs = (
-            {"root_task_id": root_task_id}
-            if _accepts_keyword(_front_door_classify, "root_task_id")
-            else {}
-        )
-        intent, route = _front_door_classify(
-            mem,
-            body,
-            chat_state,
-            **classify_kwargs,
-        )
+        from ..manager.front_door import mission_is_running
+
+        if mission_is_running(mem):
+            _phase("Manager · responding while the current mission continues")
+            intent, route = None, "simple"
+        else:
+            classify_kwargs = (
+                {"root_task_id": root_task_id}
+                if _accepts_keyword(_front_door_classify, "root_task_id")
+                else {}
+            )
+            intent, route = _front_door_classify(
+                mem,
+                body,
+                chat_state,
+                **classify_kwargs,
+            )
 
         cfg_lines: list[str] = []
         if intent is not None:

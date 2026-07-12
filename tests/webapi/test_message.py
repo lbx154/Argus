@@ -18,6 +18,8 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.manager import front_door
+from argus_skill.manager import repl as manager_repl
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
@@ -98,6 +100,42 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert spawned.get("sid") == "s-msgtest0"  # lazy spawn fired
     assert spawned.get("resume_continuous") is False
     assert "daemon" in body
+
+
+def test_active_mission_message_bypasses_front_door_classification(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-active001"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(
+        title="current work",
+        objective="finish current work",
+    ))
+    assert memory.backlog.claim_next() is not None
+    manager_bridge._STATES.clear()
+    seen = {}
+
+    def unexpected_classify(*args, **kwargs):
+        raise AssertionError("active mission must not start another classify call")
+
+    def direct_manager_reply(mem, body, state, **kwargs):
+        seen["route"] = kwargs.get("route")
+        return "current mission is still running"
+
+    monkeypatch.setattr(manager_repl, "_front_door_classify", unexpected_classify)
+    monkeypatch.setattr(manager_repl, "manager_triage", direct_manager_reply)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "你怎么不动了？",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["reply"] == "current mission is still running"
+    assert seen["route"] == "simple"
+    assert len(memory.backlog.all()) == 1
 
 
 def test_message_empty_400(client: TestClient) -> None:

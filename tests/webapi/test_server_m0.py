@@ -611,6 +611,11 @@ def test_get_events_ui_view_filters_raw_transport_frames(
     life = tmp_path / "projects" / "s-testaaaa"
     with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "agent.io.stream", "line": "large raw frame"}) + "\n")
+        handle.write(json.dumps({
+            "type": "provider.request.started",
+            "call_id": "call-1",
+            "run_label": "scientist.skill_distill",
+        }) + "\n")
         handle.write(json.dumps({"type": "ui.argus", "text": "visible reply"}) + "\n")
 
     body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
@@ -618,6 +623,7 @@ def test_get_events_ui_view_filters_raw_transport_frames(
     assert [event["type"] for event in body["events"]] == [
         "mission.started",
         "round.review.completed",
+        "provider.request.started",
         "ui.argus",
     ]
 

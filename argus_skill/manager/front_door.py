@@ -54,6 +54,16 @@ def _life_dir_for(mem: Any) -> Path:
     return Path(project_root)
 
 
+def mission_is_running(mem: Any) -> bool:
+    try:
+        return any(
+            str(getattr(item, "status", "") or "") == "running"
+            for item in mem.backlog.all()
+        )
+    except Exception:  # noqa: BLE001 - routing must remain available
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Slash-command helpers (in-process; mirror the public CLI subcommands)
 # ---------------------------------------------------------------------------
@@ -602,6 +612,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     {"role", "label"})`` at each phase transition. Opt-in: default ``None``
     leaves triage behaving exactly as the line REPL.
     """
+    if route is None and mission_is_running(mem):
+        route = "simple"
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
@@ -772,6 +784,7 @@ __all__ = [
     "manager_bounded_handoff",
     "manager_continuous_handoff",
     "manager_triage",
+    "mission_is_running",
     "prepare_manager_execution_task",
     "require_manager_execution_task",
 ]

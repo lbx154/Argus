@@ -13,6 +13,18 @@ type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
+export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
+  const active = new Map<string, EventMsg>();
+  events.forEach((event) => {
+    const type = String(event.type ?? '');
+    const callId = String(event.call_id ?? '');
+    if (!callId) return;
+    if (type === 'provider.request.started') active.set(callId, event);
+    else if (type === 'provider.request.completed' || type === 'provider.request.denied') active.delete(callId);
+  });
+  return Array.from(active.values()).at(-1) ?? null;
+}
+
 function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
@@ -249,7 +261,18 @@ export function EventStream({
 }) {
   const [following, setFollowing] = useState(true);
   const [earlierOpen, setEarlierOpen] = useState(true);
+  const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
+  const activeProvider = useMemo(() => activeProviderRequest(events), [events]);
+  useEffect(() => {
+    if (!activeProvider) return;
+    setActivityTick(Date.now());
+    const id = window.setInterval(() => setActivityTick(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [activeProvider]);
+  const providerElapsed = activeProvider
+    ? Math.max(0, Math.floor((activityTick - Number(activeProvider.ts ?? 0) * 1_000) / 1_000))
+    : 0;
 
   // render + whitelist + COALESCE streaming message fragments once per change.
   // engineer.progress message events stream in fragments sharing a message_id
@@ -351,6 +374,17 @@ export function EventStream({
           </div>
         }
       />
+      {activeProvider ? (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
+          <span className="truncate">
+            {String(activeProvider.run_label ?? 'provider call')} · working
+          </span>
+          <span className="ml-auto shrink-0 font-mono tabular-nums text-ink-faint">
+            {providerElapsed}s
+          </span>
+        </div>
+      ) : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
         {rows.list.length === 0 ? (
           <EmptyHint>{rotate(IDLE_LINES)}</EmptyHint>

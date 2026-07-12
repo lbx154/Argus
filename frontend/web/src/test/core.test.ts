@@ -23,6 +23,7 @@ import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { activeProviderRequest } from '../components/EventStream';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -36,6 +37,16 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('tracks the still-running provider request across concurrent calls', () => {
+    const first = { type: 'provider.request.started', call_id: 'a', run_label: 'engineer-r1' };
+    const second = { type: 'provider.request.started', call_id: 'b', run_label: 'manager' };
+    expect(activeProviderRequest([
+      first,
+      second,
+      { type: 'provider.request.completed', call_id: 'b' },
+    ])).toEqual(first);
+  });
+
   it('uses the canonical event catalog and explicit legacy aliases', () => {
     expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
     expect(typedUsageEvent.payload_schema_version).toBe(2);
