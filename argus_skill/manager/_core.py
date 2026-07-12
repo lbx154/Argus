@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.runner_errors import result_has_missing_resume_target
 from ..skills import vertical_select
 from ..skills.vertical_select import (
     persist_vertical,
@@ -202,6 +203,17 @@ class _ManagerSession:
                     run_label=run_label,
                     resume_thread_id=tid,
                 )
+                if tid and result_has_missing_resume_target(result):
+                    try:
+                        self._session_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    result = gateway_run_exec(
+                        self.runner,
+                        prompt=prompt,
+                        options=options,
+                        run_label=run_label,
+                    )
                 new = getattr(result, "thread_id", None)
                 if new:
                     try:
@@ -509,6 +521,16 @@ class Manager:
                     skip_git_repo_check=True,
                 ),
                 run_label="manager-vertical-decide",
+            )
+        detail = str(getattr(result, "fatal_error", "") or "").strip()
+        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+            if not detail:
+                detail = "\n".join(
+                    map(str, getattr(result, "stderr_lines", None) or [])
+                ).strip()
+            raise VerticalDecisionError(
+                "Manager vertical decision backend failed"
+                + (f": {detail}" if detail else "")
             )
         answer = extract_answer(result)
         decision = parse_vertical_decision(

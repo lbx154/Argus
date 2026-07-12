@@ -517,6 +517,66 @@ def test_unpriced_call_blocks_next_provider_spawn(
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
 
 
+def test_missing_copilot_resume_target_does_not_poison_cost_control(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda *args, **kwargs: None,
+    )
+    backend = AgentCliBackend(backend="copilot")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+    resumes: list[str | None] = []
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        resume = kwargs["resume_thread_id"]
+        resumes.append(resume)
+        if resume:
+            return _make_argus_result(
+                exit_code=1,
+                thread_id=resume,
+                fatal_error=(
+                    "Error: No session, task, or name matched 'stale-thread'."
+                ),
+            )
+        return _make_argus_result(thread_id="fresh-thread")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+
+    stale = backend.run_exec(
+        prompt="resume",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+        resume_thread_id="stale-thread",
+    )
+    fresh = backend.run_exec(
+        prompt="fresh",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+    )
+
+    assert resumes == ["stale-thread", None]
+    assert stale.pricing_status == "not_billed"
+    assert stale.cost_usd == 0.0
+    assert fresh.exit_code == 0
+
+
 def test_run_exec_writes_full_agent_io_log(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
