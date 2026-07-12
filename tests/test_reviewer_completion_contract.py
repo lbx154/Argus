@@ -25,6 +25,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
+from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.planner import PlannerVerdict, TaskSpec
 from argus_skill.reviewer import _find_decision_in_messages
 
@@ -217,6 +218,23 @@ def _events(sup: LifeSupervisor) -> list[dict]:
         if line.strip():
             out.append(json.loads(line))
     return out
+
+
+class _ExplodingPlannerRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run_exec(
+        self, *, prompt, options, run_label, resume_thread_id=None  # noqa: ANN001
+    ):
+        self.calls += 1
+        raise AssertionError("planner should not run for a bounded terminal project")
+
+
+def _write_pipeline_state(root: Path, payload: dict) -> None:
+    path = root / "research" / "PIPELINE_STATE.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_backlog_metadata_paper_guidance_driven_by_explicit_flag(tmp_path: Path) -> None:
@@ -457,6 +475,143 @@ def test_non_open_ended_project_done_stops_normally(
         for event in events
     )
     assert not any(event.get("type") == "life.planner.terminal_idle" for event in events)
+
+
+def test_bounded_non_paper_terminal_stage_stops_without_planner(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="bounded speedrun",
+        open_ended=False,
+        paper_mission=False,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "speedrun",
+            "current_stage": "report",
+            "stages": {"report": {"status": "done"}},
+        },
+    )
+    planner_runner = _ExplodingPlannerRunner()
+    sup.planner_runner = planner_runner
+
+    assert sup._plan_next_work() is False
+    assert planner_runner.calls == 0
+
+    verdict = next(
+        event
+        for event in _events(sup)
+        if event.get("type") == "life.planner.verdict"
+    )
+    assert verdict["project_done"] is True
+    assert verdict["enqueued_tasks"] == 0
+    assert verdict["input_tokens"] == 0
+    assert verdict["cached_input_tokens"] == 0
+    assert verdict["output_tokens"] == 0
+    assert verdict["cost_usd"] == 0.0
+    assert any(
+        event.get("type") == "life.status"
+        and "bounded speedrun vertical reached terminal stage" in event.get("text", "")
+        for event in _events(sup)
+    )
+
+
+def test_full_paper_terminal_stage_still_requires_certification(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="finish the research paper",
+        open_ended=False,
+        paper_mission=True,
+        full_paper_gate=True,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "research",
+            "current_stage": "submission",
+            "stages": {"submission": {"status": "done"}},
+        },
+    )
+    sup.planner_runner = object()
+    planner_calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal planner_calls
+        planner_calls += 1
+        return PlannerVerdict(project_done=True, reason="paper ready")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() is True
+    assert planner_calls == 1
+    assert any(
+        "scope:final_submission" in (item.tags or [])
+        for item in sup.memory.backlog.all()
+    )
+
+
+def test_done_final_submission_is_deduplicated_before_uncertified_gate_retry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="finish the research paper",
+        open_ended=False,
+        paper_mission=True,
+        full_paper_gate=True,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "research",
+            "current_stage": "submission",
+            "stages": {"submission": {"status": "done"}},
+        },
+    )
+    sup.planner_runner = object()
+    planner_calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal planner_calls
+        planner_calls += 1
+        return PlannerVerdict(project_done=True, reason="paper ready")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() is True
+    [final_item] = sup.memory.backlog.all()
+    assert "scope:final_submission" in (final_item.tags or [])
+    sup.memory.backlog.mark_done(final_item.id)
+
+    assert sup._plan_next_work() == PLAN_RETRY
+    assert planner_calls == 2
+    items = sup.memory.backlog.all()
+    assert len(items) == 1
+    assert items[0].id == final_item.id
+    assert items[0].status == "done"
+    assert sup._suggested_sleep_s > 0
 
 
 def test_open_ended_project_change_replans_and_enqueues_tasks(

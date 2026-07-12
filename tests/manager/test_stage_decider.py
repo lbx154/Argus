@@ -88,10 +88,30 @@ def _project(tmp_path: Path, *, current: str) -> Path:
     return tmp_path
 
 
+def _submission_project(tmp_path: Path) -> Path:
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "submission",
+                "stages": {"submission": {"status": "pending"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 def _read_stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["current_stage"]
+
+
+def _read_stage_status(root: Path, stage: str) -> str:
+    return json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )["stages"][stage]["status"]
 
 
 # --- decide_stage_transition: writes -------------------------------------
@@ -278,6 +298,23 @@ def test_decide_persistent_empty_done_satisfied_advances(
     assert st.target_stage == "plan"
     assert st.diagnostic == "empty_output_certified_advance"
     assert _read_stage(root) == "plan"
+
+
+def test_decide_persistent_empty_done_satisfied_completes_final_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _submission_project(tmp_path)
+    backend = _StubRunner("")
+    mgr = Manager(project_root=root, runner=backend)
+
+    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+
+    assert backend.calls == 3
+    assert st.action == "complete"
+    assert st.target_stage == "submission"
+    assert st.diagnostic == "empty_output_no_next_stage"
+    assert _read_stage_status(root, "submission") == "done"
 
 
 def test_decide_persistent_empty_unsatisfied_checklist_holds(

@@ -20,6 +20,7 @@ from pathlib import Path
 from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
+from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.life.supervisor._core import LifeSupervisor
 
 
@@ -144,7 +145,8 @@ def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     result = sup._plan_next_work()
-    assert result is True  # cycle completes; task was skipped, not enqueued
+    assert result == PLAN_RETRY
+    assert sup._suggested_sleep_s > 0
 
     assert sup.memory.backlog.all() == []
     events = sup._test_sink.events  # type: ignore[attr-defined]
@@ -267,7 +269,7 @@ def test_underscore_and_hyphen_family_slugs_both_match(tmp_path, monkeypatch) ->
     ))
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
-    assert sup._plan_next_work() is True
+    assert sup._plan_next_work() == PLAN_RETRY
     assert sup.memory.backlog.all() == []
     events = sup._test_sink.events  # type: ignore[attr-defined]
     skipped = [e for e in events if e["type"] == "life.planner.task_skipped"]

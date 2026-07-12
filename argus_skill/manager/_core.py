@@ -1278,15 +1278,15 @@ class Manager:
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )
-                final_decision = final_stage_completion_decision(
-                    review,
-                    current_stage=cur,
-                    stage_order=order,
-                    trigger_diagnostic=decision.diagnostic,
-                    trigger_reason=decision.reason,
-                )
-                if final_decision is not None:
-                    decision = final_decision
+            final_decision = final_stage_completion_decision(
+                review,
+                current_stage=cur,
+                stage_order=order,
+                trigger_diagnostic=decision.diagnostic,
+                trigger_reason=decision.reason,
+            )
+            if final_decision is not None:
+                decision = final_decision
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(

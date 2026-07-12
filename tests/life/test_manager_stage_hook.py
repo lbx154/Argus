@@ -373,6 +373,32 @@ def test_hook_persistent_empty_done_satisfied_advances(
     assert event["diagnostic"] == "empty_output_certified_advance"
 
 
+def test_hook_persistent_empty_done_satisfied_completes_final_stage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _submission_project(tmp_path)
+    backend = _EmptyThenRunner({}, empties=99)
+    runner = _runner_with(backend)
+    sink = _Sink()
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review())], workdir=root, sink=sink
+    )
+
+    assert backend.calls == 3
+    assert decision["action"] == "complete"
+    assert decision["target_stage"] == "submission"
+    assert decision["diagnostic"] == "empty_output_no_next_stage"
+    state = json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["stages"]["submission"]["status"] == "done"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "complete"
+    assert event["diagnostic"] == "empty_output_no_next_stage"
+
+
 def test_hook_persistent_empty_unsatisfied_checklist_holds(
     tmp_path: Path, monkeypatch
 ) -> None:
