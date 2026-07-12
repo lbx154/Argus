@@ -69,34 +69,43 @@ def _front_door_classify(
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     accepts_keyword: Callable[[Any, str], bool] | None = None,
-) -> "tuple[Any, str]":
+) -> "tuple[Any, str | None, str]":
     """ONE merged LLM call for the cockpit front-door: returns
-    ``(ConfigIntent | None, route)`` where route is ``"simple"``/``"complex"``.
+    ``(ConfigIntent | None, control | None, route)``.
 
     Replaces the old sequential config-intent + route classify (two copilot
     cold-starts → one) — see ``Manager.classify_front_door`` /
     ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
-    error → ``(None, "complex")`` so the message flows through the normal
+    error → ``(None, None, "complex")`` so the message flows through the normal
     task path unchanged (never swallow real work on a classify hiccup)."""
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
         if mgr is None or not hasattr(mgr, "classify_front_door"):
-            return None, "complex"
+            return None, None, "complex"
         accepts = accepts_keyword or _accepts_keyword
         if root_task_id is None or not accepts(
             mgr.classify_front_door,
             "root_task_id",
         ):
-            intent, route = mgr.classify_front_door(text)
+            decision = mgr.classify_front_door(text)
         else:
-            intent, route = mgr.classify_front_door(
+            decision = mgr.classify_front_door(
                 text,
                 root_task_id=root_task_id,
             )
-        return intent, (route if route in ("simple", "complex") else "complex")
+        if isinstance(decision, tuple) and len(decision) == 3:
+            intent, control, route = decision
+        else:
+            intent, route = decision
+            control = None
+        return (
+            intent,
+            control if control == "abort" else None,
+            route if route in ("simple", "complex") else "complex",
+        )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
-        return None, "complex"
+        return None, None, "complex"
 
 
 def _maybe_handle_config_intent(

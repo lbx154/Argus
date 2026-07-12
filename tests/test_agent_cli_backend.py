@@ -1206,6 +1206,44 @@ def test_run_exec_forwards_watchdog_hooks(
     assert forwarded.watchdog_hard_idle_seconds == 600
 
 
+def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "0")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    backend = AgentCliBackend(backend="copilot")
+    provider_calls = 0
+
+    def one_shot_interrupt() -> str | None:
+        nonlocal provider_calls
+        provider_calls += 1
+        return "operator abort requested: stop now" if provider_calls == 1 else None
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider must not start after interrupt is consumed")
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="x",
+        options=RunnerOptions(
+            model="gpt-5.6-sol",
+            external_interrupt_reason_provider=one_shot_interrupt,
+        ),
+        run_label="engineer-r1",
+    )
+
+    assert provider_calls == 1
+    assert result.exit_code == -1
+    assert result.fatal_error == (
+        "External interrupt: operator abort requested: stop now"
+    )
+
+
 def test_run_exec_applies_default_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

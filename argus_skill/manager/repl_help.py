@@ -21,6 +21,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/backlog", "pending tasks (/backlog all to include done/skipped)"),
     ("/add", "queue a task: /add <objective> [--once] [--cycles=N] [--budget=$X]"),
     ("/plan", "preview how an objective would be broken down, without queuing it"),
+    ("/abort", "immediately stop the currently running mission"),
     ("/stop", "stop a task's auto-continue: /stop <item_id>"),
     ("/done", "mark a task done: /done <item_id>"),
     ("/skip", "alias of /done"),
@@ -50,7 +51,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
 #: so a forgotten entry degrades to "unsorted", never to "invisible".
 _HELP_SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Everyday", ("/status", "/roles", "/journal", "/backlog")),
-    ("Task management", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
+    ("Task management", ("/add", "/plan", "/abort", "/stop", "/done", "/note", "/nudge", "/run")),
     ("Daemon & diagnostics", ("/daemon", "/daemons", "/attach", "/resume", "/doctor")),
     ("Configuration", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
     ("Other", ("/help", "/exit")),

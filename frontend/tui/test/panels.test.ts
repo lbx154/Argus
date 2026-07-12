@@ -145,6 +145,8 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   assert.match(output, /AI RESEARCH TEAM/);
   assert.match(output, /LIVE RESEARCH TIMELINE/);
   assert.match(output, /Comparing 3 branches/);
+  assert.match(output, /● Comparing 3 branches/);
+  assert.doesNotMatch(output, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 

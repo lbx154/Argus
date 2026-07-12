@@ -2,7 +2,7 @@
 — never resume the persistent Manager session, and with a LOW-effort classify.
 
 Same discipline as ``classify_config_intent`` (see test_config_intent_fresh):
-the merged front-door classify is a stateless two-axis label call. It must go to
+the merged front-door classify is a stateless three-axis label call. It must go to
 ``self.runner`` with ``resume_thread_id=None`` (no giant-session resume, which is
 what made every cockpit message slow), at the cheap ``low`` effort by default.
 """
@@ -43,11 +43,15 @@ def _manager(answer: str, tmp_path) -> tuple[Manager, _RecordingBackend]:
 
 def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", raising=False)
-    mgr, backend = _manager("CONFIG: NONE\nROUTE: SELF", tmp_path)
+    mgr, backend = _manager(
+        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF",
+        tmp_path,
+    )
 
-    intent, route = mgr.classify_front_door("你好")
+    intent, control, route = mgr.classify_front_door("你好")
 
     assert intent is None
+    assert control is None
     assert route == "simple"
     assert len(backend.calls) == 1
     call = backend.calls[0]
@@ -58,27 +62,43 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
 
 def test_front_door_effort_env_override(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "medium")
-    mgr, backend = _manager("CONFIG: NONE\nROUTE: TEAM", tmp_path)
+    mgr, backend = _manager(
+        "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM",
+        tmp_path,
+    )
     mgr.classify_front_door("optimize as many kernels as possible")
     assert backend.calls[0]["options"].reasoning_effort == "medium"
 
 
 def test_front_door_config_axis(tmp_path) -> None:
-    mgr, backend = _manager("CONFIG: SET backend ALL copilot\nROUTE: SELF", tmp_path)
-    intent, route = mgr.classify_front_door("用 copilot")
+    mgr, backend = _manager(
+        "CONFIG: SET backend ALL copilot\nCONTROL: NONE\nROUTE: SELF",
+        tmp_path,
+    )
+    intent, control, route = mgr.classify_front_door("用 copilot")
     assert intent is not None and intent.knob == "backend" and intent.value == "copilot"
+    assert control is None
     # the exploding session was never touched (else the assertion above would fire)
 
 
 def test_explicit_run_exec_still_honoured(tmp_path) -> None:
-    mgr, backend = _manager("CONFIG: NONE\nROUTE: SELF", tmp_path)
+    mgr, backend = _manager(
+        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF",
+        tmp_path,
+    )
     seen: list[str] = []
 
     def _explicit(prompt: str) -> _FakeResult:
         seen.append(prompt)
-        return _FakeResult("CONFIG: SET safe_mode - on\nROUTE: SELF")
+        return _FakeResult(
+            "CONFIG: SET safe_mode - on\nCONTROL: NONE\nROUTE: SELF"
+        )
 
-    intent, route = mgr.classify_front_door("be careful", run_exec=_explicit)
+    intent, control, route = mgr.classify_front_door(
+        "be careful",
+        run_exec=_explicit,
+    )
     assert intent is not None and intent.knob == "safe_mode"
+    assert control is None
     assert route == "simple"
     assert seen and not backend.calls  # used the explicit run_exec, not the default

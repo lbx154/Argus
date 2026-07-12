@@ -118,6 +118,21 @@ def dispatch_command(
             print(theme.red(str(exc)) if theme is not None else str(exc))
             return None
         return None
+    if cmd == "/abort":
+        from ..tools.mission_control import request_current_mission_abort
+
+        requested, item_id = request_current_mission_abort(
+            repl._life_dir_for(mem),
+            reason=rest_text or "operator used /abort",
+            requested_by="operator",
+        )
+        message = (
+            f"Stop requested for running task {item_id}."
+            if requested
+            else "No running task to abort. Pending tasks were left unchanged."
+        )
+        print(theme.gray(message) if theme is not None else message)
+        return None
     if cmd == "/stop":
         if not rest:
             print(theme.gray("usage: /stop <item_id>"))

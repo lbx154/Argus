@@ -101,7 +101,7 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert "daemon" in body
 
 
-def test_active_mission_message_bypasses_front_door_classification(
+def test_active_mission_message_cannot_enqueue_even_if_classified_team(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-active001"
@@ -113,16 +113,17 @@ def test_active_mission_message_bypasses_front_door_classification(
     ))
     assert memory.backlog.claim_next() is not None
     manager_bridge._STATES.clear()
-    seen = {}
+    seen = {"classify": 0}
 
-    def unexpected_classify(*args, **kwargs):
-        raise AssertionError("active mission must not start another classify call")
+    def classify(*args, **kwargs):
+        seen["classify"] += 1
+        return None, None, "complex"
 
     def direct_manager_reply(mem, body, state, **kwargs):
         seen["route"] = kwargs.get("route")
         return "current mission is still running"
 
-    monkeypatch.setattr(manager_repl, "_front_door_classify", unexpected_classify)
+    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
     monkeypatch.setattr(manager_repl, "manager_triage", direct_manager_reply)
 
     result = manager_bridge.manager_message(
@@ -133,7 +134,45 @@ def test_active_mission_message_bypasses_front_door_classification(
 
     assert result["kind"] == "chat"
     assert result["reply"] == "current mission is still running"
+    assert seen["classify"] == 1
     assert seen["route"] == "simple"
+    assert len(memory.backlog.all()) == 1
+
+
+def test_mission_claimed_during_classification_cannot_enqueue_second_item(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-active-race"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    manager_bridge._STATES.clear()
+
+    def classify(*args, **kwargs):
+        item = memory.backlog.add(
+            BacklogItem.new(title="concurrent work", objective="work")
+        )
+        assert memory.backlog.mark_running(item.id) is not None
+        return None, None, "complex"
+
+    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
+    monkeypatch.setattr(manager_repl, "manager_triage", lambda *a, **k: None)
+    monkeypatch.setattr(
+        manager_repl,
+        "enqueue_mission",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("claim-during-classification must not enqueue")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "start another task",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert "not dispatched" in str(result["reply"])
     assert len(memory.backlog.all()) == 1
 
 

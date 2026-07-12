@@ -14,7 +14,8 @@ from .front_door import ManagerHandoffError
 
 @dataclass(frozen=True)
 class FreeTextHooks:
-    maybe_handle_config_intent: Callable[..., bool]
+    front_door_classify: Callable[..., tuple[Any, str | None, str]]
+    apply_config_intent: Callable[..., bool]
     life_dir_for: Callable[[Any], Any]
     render_live_role_overlay: Callable[..., str]
     live_cockpit_enabled: Callable[[], bool]
@@ -56,16 +57,53 @@ def dispatch_free_text(
     theme = chat_state.get("theme")
     root_task_id = BacklogItem.new_id()
 
-    # Natural-language change to one of Argus's own runtime knobs (backend /
-    # model / effort / budget cap / a toggle)? One LLM intent call decides —
-    # no keyword/regex matching — before the text becomes research work.
-    if hooks.maybe_handle_config_intent(
+    # One Manager-authored structured decision handles config, current-mission
+    # control, and SELF/TEAM routing. No keyword/regex lifecycle guesses.
+    intent, control, route = hooks.front_door_classify(
         mem,
         body,
         chat_state,
         root_task_id=root_task_id,
+    )
+    if control == "abort":
+        from ..core import transcript as _control_transcript
+        from ..tools.mission_control import request_current_mission_abort
+
+        life_dir = hooks.life_dir_for(mem)
+        requested, item_id = request_current_mission_abort(
+            life_dir,
+            reason=f"operator requested: {body}",
+            requested_by="manager",
+        )
+        reply = (
+            f"Stop requested for running task {item_id}."
+            if requested
+            else "No running task to abort. Pending tasks were left unchanged."
+        )
+        try:
+            _control_transcript.append_turn(life_dir, "operator", body)
+            _control_transcript.append_turn(life_dir, "argus", reply)
+        except Exception:  # noqa: BLE001
+            pass
+        print(
+            (
+                "  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply
+                if theme is not None
+                else f"  argus ↳ {reply}"
+            ),
+            flush=True,
+        )
+        return
+    if intent is not None and hooks.apply_config_intent(
+        mem,
+        intent,
+        chat_state,
     ):
         return
+    from .front_door import mission_is_running
+
+    if mission_is_running(mem):
+        route = "simple"
 
     # Persist this turn to the session transcript (for /resume replay + labels).
     # The config-switch handlers above already returned, so only real chat/task
@@ -153,6 +191,7 @@ def dispatch_free_text(
                     body,
                     chat_state,
                     on_phase=_on_phase,
+                    route=route,
                     root_task_id=root_task_id,
                 )
         finally:
@@ -172,6 +211,18 @@ def dispatch_free_text(
             print(line, flush=True)
             if _tlife is not None:
                 _transcript.append_turn(_tlife, "argus", reply)
+            return
+        if mission_is_running(mem):
+            message = (
+                "[not dispatched] A mission is already running; "
+                "this message was not added to the backlog."
+            )
+            print(
+                theme.gray(message) if theme is not None else message,
+                flush=True,
+            )
+            if _tlife is not None:
+                _transcript.append_turn(_tlife, "argus", message)
             return
 
         # TEAM work reached this point — let the Manager judge whether it is

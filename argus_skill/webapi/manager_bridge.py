@@ -260,6 +260,8 @@ def manager_message(
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
             return
+        if kind == "delta":
+            payload = {**payload, "message_id": f"{turn_id}-argus"}
         try:
             on_fragment(kind, payload)
         except Exception:  # noqa: BLE001 — UI progress must never break a turn
@@ -349,21 +351,59 @@ def manager_message(
         # only in the conversational reply session below.
         from ..manager.front_door import mission_is_running
 
-        if mission_is_running(mem):
-            _phase("Manager · responding while the current mission continues")
-            intent, route = None, "simple"
+        active_mission = mission_is_running(mem)
+        classify_kwargs = (
+            {"root_task_id": root_task_id}
+            if _accepts_keyword(_front_door_classify, "root_task_id")
+            else {}
+        )
+        decision = _front_door_classify(
+            mem,
+            body,
+            chat_state,
+            **classify_kwargs,
+        )
+        if isinstance(decision, tuple) and len(decision) == 3:
+            intent, control, route = decision
         else:
-            classify_kwargs = (
-                {"root_task_id": root_task_id}
-                if _accepts_keyword(_front_door_classify, "root_task_id")
-                else {}
+            intent, route = decision
+            control = None
+
+        if (active_mission or mission_is_running(mem)) and control != "abort":
+            _phase("Manager · responding while the current mission continues")
+            route = "simple"
+
+        if control == "abort":
+            from ..tools.mission_control import request_current_mission_abort
+
+            requested, item_id = request_current_mission_abort(
+                life_dir,
+                reason=f"operator requested: {body}",
+                requested_by="manager",
             )
-            intent, route = _front_door_classify(
-                mem,
-                body,
-                chat_state,
-                **classify_kwargs,
+            reply = (
+                f"Stop requested for running task {item_id}."
+                if requested
+                else "No running task to abort. Pending tasks were left unchanged."
             )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {
+                "kind": "control",
+                "control": "abort",
+                "reply": reply,
+                "requested": requested,
+                "item_id": item_id,
+            }
 
         cfg_lines: list[str] = []
         if intent is not None:
@@ -391,7 +431,7 @@ def manager_message(
                 mem,
                 send_body,
                 chat_state,
-                on_fragment=on_fragment,
+                on_fragment=_fragment if callable(on_fragment) else None,
                 route=route,
                 root_task_id=root_task_id,
             )
@@ -404,6 +444,23 @@ def manager_message(
             except Exception:  # noqa: BLE001
                 pass
             _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
+            return {"kind": "chat", "reply": reply}
+        if mission_is_running(mem):
+            reply = (
+                "[not dispatched] A mission became active while this message "
+                "was being handled; it was not added to the backlog."
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
             return {"kind": "chat", "reply": reply}
 
         # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
