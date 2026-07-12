@@ -119,6 +119,24 @@ def test_stale_copilot_resume_error_is_read_as_not_billed() -> None:
     assert record.cost_usd == 0.0
 
 
+def test_daemon_stop_before_provider_start_is_read_as_not_billed() -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": "stopped-before-start",
+        "project_id": "s-1",
+        "provider": "copilot",
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "premium_request_only",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": "refused before start: daemon stop requested",
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.cost_usd == 0.0
+
+
 def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
     record = UsageRecord.from_jsonable({
         "call_id": "billed-resume",
