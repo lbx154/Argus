@@ -65,6 +65,10 @@ class SkillLoopConfig:
     hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
+    # Repeated reviewer rejection is evidence that a matched playbook is not
+    # enough. Ask the Scientist for a genuinely different strategy every N
+    # non-terminal rounds; 0 disables.
+    adaptive_skill_interval: int = 4
     # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
     # (create/update/delete/archive) and the loop applies them via
     # SkillRouter — no Manager approval gate. Off by default; the daemon
@@ -322,6 +326,46 @@ class SkillLoop:
         )
         skill_name = skill.name if skill else None
 
+        def adapt_after_rejections(rounds: list) -> str:
+            nonlocal skill_text, skill_name, skill_distilled, distill_result
+            interval = max(0, int(self.config.adaptive_skill_interval or 0))
+            if skill is None or interval == 0 or len(rounds) % interval:
+                return ""
+            evidence = "\n".join(
+                f"- Round {rec.round_index}: {rec.review.reason}; next: "
+                f"{rec.review.next_action}"
+                for rec in rounds[-interval:]
+            )
+            from .skills.scientist import SkillScientist
+
+            self._emit({
+                "type": "skill.scientist.adaptation_started",
+                "text": f"{interval} reviewer rejections; seeking a different playbook",
+            })
+            scientist = SkillScientist(
+                self.engineer_runner,
+                model=self.config.engineer_model,
+                reasoning_effort=self.config.engineer_reasoning_effort,
+            )
+            raw_skill = scientist.distill_alternative(skill_task, evidence)
+            distill_result = scientist.last_result
+            if not raw_skill:
+                return ""
+            distilled = self.skill_router.create_from_scientist(
+                raw_skill, task=skill_task, on_event=self._emit
+            )
+            if distilled is None:
+                return ""
+            adaptive_text = render_skill_playbook(self.skill_store, [distilled], [])
+            skill_text = skill_text + "\n\n" + adaptive_text
+            skill_name = distilled.name
+            skill_distilled = True
+            self._emit({
+                "type": "skill.scientist.adaptation_created",
+                "text": f"Scientist created alternative skill {distilled.name}",
+            })
+            return adaptive_text
+
         # Candidate SOURCE augmentation: on the "research" VERTICAL's research
         # stage only, run ONE codex live-web-search ideation and APPEND its
         # candidates to research/IDEA_CANDIDATES.md so idea-creator ranks over a
@@ -452,6 +496,7 @@ class SkillLoop:
             seed_thread_id=seed_thread_id,
             scope=scope,
             per_mission_budget=per_mission_budget,
+            continue_adaptor=adapt_after_rejections,
         )
 
         # Step 4: learn from the OUTCOME. The REVIEWER owns skill AND wiki

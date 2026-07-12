@@ -957,6 +957,7 @@ class SupervisedEngineer:
         seed_thread_id: str | None = None,
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
+        continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -1892,6 +1893,17 @@ class SupervisedEngineer:
                 )
 
             last_next_action = review.next_action or ""
+            if continue_adaptor is not None:
+                try:
+                    adaptive_guidance = str(continue_adaptor(rounds) or "").strip()
+                except Exception:  # noqa: BLE001 — adaptation is advisory
+                    log.debug("continue adaptor failed", exc_info=True)
+                    adaptive_guidance = ""
+                if adaptive_guidance:
+                    last_next_action = (
+                        last_next_action + "\n\n## New Scientist strategy\n"
+                        + adaptive_guidance
+                    ).strip()
 
         return (
             "max_rounds",

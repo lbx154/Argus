@@ -170,6 +170,36 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
+def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    for i in range(1, 5):
+        backend.queue(f"engineer-r{i}", CannedResponse(message=f"attempt {i}"))
+        backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("scientist.skill_distill", CannedResponse(message=SKILL_MD.replace(
+        "Write a hello message", "Alternative greeting strategy"
+    )))
+    backend.queue("engineer-r5", CannedResponse(message="new strategy succeeded"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    events: list[dict] = []
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=5, adaptive_skill_interval=4),
+        on_event=events.append,
+    )
+    outcome = loop.run("say hi to the user", workdir=tmp_path)
+
+    assert outcome.successful
+    r5_prompt = next(p for label, p, _ in backend.history if label == "engineer-r5")
+    assert "Alternative greeting strategy" in r5_prompt
+    assert any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
+
+
 def test_skill_loop_scientist_distills_active_skill_on_miss(tmp_path: Path) -> None:
     """A matcher miss authors an active skill and records its reviewed use."""
     backend = MemoryBackend()
