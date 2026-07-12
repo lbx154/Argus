@@ -437,6 +437,7 @@ def _clear_daemon_admission(life_dir: Path) -> None:
 def start_project_daemon(
     sid: str, *, global_root: Path | str | None = None,
     resume_continuous: bool = False,
+    reclaim_idle: bool = False,
 ) -> dict[str, Any] | None:
     """Spawn this project's detached daemon (if not already alive). Blocking-ish
     (subprocess spawn) — call from a threadpool in the async endpoint."""
@@ -458,6 +459,28 @@ def start_project_daemon(
     daemon_limit = _max_active_daemons(config)
     active_count = _active_daemon_count(config)
     if daemon_limit > 0 and active_count >= daemon_limit:
+        if reclaim_idle:
+            running = list_running_daemons(global_root=root, exclude_sid=sid)
+            idle = [
+                row for row in running
+                if int(row.get("unfinished_tasks") or 0) == 0
+                and not row.get("active_role")
+                and not row.get("continuous_enabled")
+            ]
+            if idle:
+                victim = min(
+                    idle,
+                    key=lambda row: float(row.get("last_active") or 0.0),
+                )
+                replaced = replace_project_daemon(
+                    sid,
+                    str(victim.get("id") or ""),
+                    global_root=root,
+                    resume_continuous=resume_continuous,
+                )
+                if replaced is not None and int(replaced.get("rc") or 0) == 0:
+                    replaced["auto_parked_idle"] = str(victim.get("id") or "")
+                    return replaced
         return {
             **_admission_required(
                 root=root,
@@ -1619,7 +1642,10 @@ def create_app(
             # a daemon is already alive. In a threadpool because spawn touches
             # the filesystem / forks a detached process.
             resp["daemon"] = await run_in_threadpool(
-                start_project_daemon, sid, global_root=project_root
+                start_project_daemon,
+                sid,
+                global_root=project_root,
+                reclaim_idle=True,
             )
         return resp
 
@@ -1662,6 +1688,7 @@ def create_app(
             start_project_daemon,
             sid,
             global_root=project_root,
+            reclaim_idle=True,
         )
         return result
 
@@ -1685,6 +1712,7 @@ def create_app(
             result["daemon"] = await run_in_threadpool(
                 start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
+                reclaim_idle=True,
             )
         return result
 
@@ -1730,6 +1758,7 @@ def create_app(
                             sid,
                             global_root=project_root,
                             resume_continuous=bool(result.get("continuous")),
+                            reclaim_idle=True,
                         )
                     except Exception as exc:  # noqa: BLE001 — surface failure in done frame
                         result["daemon"] = {

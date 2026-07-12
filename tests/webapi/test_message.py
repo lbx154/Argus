@@ -17,14 +17,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import front_door
 from argus_skill.manager import repl as manager_repl
-from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
-from argus_skill.life.memory import BacklogItem, LifeMemory  # noqa: E402
 
 
 def _make_project(root: Path, sid: str = "s-msgtest0") -> Path:
@@ -89,7 +88,7 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "optimize the matmul kernel fully"})
@@ -169,7 +168,7 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             started.append(sid) or {"rc": 0},
     )
     client = TestClient(server.create_app(global_root=tmp_path))
@@ -296,7 +295,7 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "optimize the matmul kernel"})
@@ -326,7 +325,7 @@ def test_message_stream_standing_task_starts_continuous_executor(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post(

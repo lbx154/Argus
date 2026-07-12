@@ -428,7 +428,7 @@ def manager_message(
         "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
     title = str(result["item"].get("title") or result["item"].get("objective") or body)
-    _emit_ui_turn(life_dir, "argus", f"Started · {title}", message_id=f"{turn_id}-argus")
+    _emit_ui_turn(life_dir, "argus", f"Queued · {title}", message_id=f"{turn_id}-argus")
     return result
 
 

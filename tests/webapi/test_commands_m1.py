@@ -210,6 +210,60 @@ def test_start_project_daemon_returns_replacement_candidates_at_cap(
     assert snapshot["daemon_admission"]["requested_at"] == persisted["requested_at"]
 
 
+def test_lazy_task_start_reclaims_oldest_safe_idle_daemon(
+    tmp_path, monkeypatch,
+) -> None:
+    target = _make_project(tmp_path, "s-target001")
+    victim = _make_project(tmp_path, "s-idle0001")
+    replaced = {}
+
+    def fake_status(path):
+        path = Path(path)
+        alive = path == victim
+        return server.DaemonStatus(
+            alive=alive,
+            pid=44 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=path,
+            pid_path=path / "daemon.pid",
+        )
+
+    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
+    monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
+    monkeypatch.setattr(
+        server,
+        "list_running_daemons",
+        lambda **kwargs: [{
+            "id": "s-idle0001",
+            "last_active": 1,
+            "unfinished_tasks": 0,
+            "active_role": "",
+            "continuous_enabled": False,
+        }],
+    )
+    monkeypatch.setattr(
+        server,
+        "replace_project_daemon",
+        lambda sid, victim_sid, **kwargs: replaced.update(
+            sid=sid,
+            victim_sid=victim_sid,
+        ) or {"rc": 0},
+    )
+
+    result = server.start_project_daemon(
+        "s-target001",
+        global_root=tmp_path,
+        reclaim_idle=True,
+    )
+
+    assert result is not None and result["rc"] == 0
+    assert result["auto_parked_idle"] == "s-idle0001"
+    assert replaced == {"sid": "s-target001", "victim_sid": "s-idle0001"}
+    assert target.exists()
+
+
 def test_replace_project_daemon_parks_state_then_starts_target(
     tmp_path, monkeypatch,
 ) -> None:
