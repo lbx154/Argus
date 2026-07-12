@@ -116,7 +116,9 @@ export default function App() {
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
   const [showReasoning, setShowReasoning] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>('mission');
+  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>(
+    () => localStorage.getItem('argus.workspace.view') === 'mission' ? 'mission' : 'activity',
+  );
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -158,6 +160,10 @@ export default function App() {
     localStorage.setItem('argus.sidebar.width.v2', String(leftWidth));
     localStorage.setItem('argus.preview.width.v2', String(rightWidth));
   }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('argus.workspace.view', workspaceView);
+  }, [workspaceView]);
 
   useEffect(() => {
     localStorage.setItem('argus.theme', themeMode);

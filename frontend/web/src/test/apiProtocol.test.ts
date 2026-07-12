@@ -77,7 +77,7 @@ describe('web API protocol handshake', () => {
 
     await expect(api.events('s-test', 120, controller.signal)).resolves.toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/projects/s-test/events?limit=120',
+      '/api/projects/s-test/events?limit=120&view=ui',
       expect.objectContaining({ signal: controller.signal }),
     );
   });

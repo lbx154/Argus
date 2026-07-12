@@ -261,7 +261,10 @@ export const api = {
     getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`), signal)
       .then((r) => r.turns),
   events: (sid: string, limit = 80, signal?: AbortSignal) =>
-    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}`), signal)
+    getJson<{ events: EventMsg[] }>(
+      P(sid, `/events?limit=${limit}&view=ui`),
+      signal,
+    )
       .then((r) => r.events),
   backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
     getJson<{ item: BacklogItem }>(
@@ -369,6 +372,7 @@ export function openStream(
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
+  q.set('view', 'ui');
   const t = token();
   if (t) q.set('token', t);
   const url = `${proto}//${window.location.host}${P(sid, '/stream')}?${q}`;
