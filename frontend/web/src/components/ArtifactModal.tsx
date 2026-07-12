@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
+import { HtmlPreview } from './HtmlPreview';
+import { JsonPreview, TablePreview } from './DataPreview';
+import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 
@@ -24,7 +27,7 @@ export function ArtifactModal({
   useEffect(() => {
     setPreviewUrl(null);
     setPreviewError('');
-    if (!sid || !path || !info || !['image', 'pdf'].includes(info.kind)) return;
+    if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();
@@ -119,6 +122,25 @@ export function ArtifactModal({
             {info.truncated ? '\n\n… preview truncated · download to inspect the complete file' : ''}
           </pre>
         ) : null}
+        {info?.kind === 'markdown' ? (
+          <div className="min-h-52 overflow-auto rounded-lg border border-line bg-bg p-4 text-sm text-ink-dim scroll-thin">
+            <MarkdownContent>{info.preview || '(empty file)'}</MarkdownContent>
+          </div>
+        ) : null}
+        {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
+        {info?.kind === 'table' ? (
+          <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
+        ) : null}
+        {info?.kind === 'html' && !info.truncated ? (
+          <div className="flex min-h-[60vh] overflow-hidden rounded-lg border border-line">
+            <HtmlPreview html={info.preview || ''} title={`HTML preview: ${info.name}`} />
+          </div>
+        ) : null}
+        {info?.kind === 'html' && info.truncated ? (
+          <div className="m-auto text-sm text-warn">
+            HTML preview is too large to render safely. Download the complete file.
+          </div>
+        ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
             <img src={previewUrl} alt={info.why || info.name} className="max-h-[62vh] max-w-full object-contain" />
@@ -137,7 +159,17 @@ export function ArtifactModal({
             </div>
           </object>
         ) : null}
-        {info && ['image', 'pdf'].includes(info.kind) && !previewUrl && !previewError ? (
+        {info?.kind === 'audio' && previewUrl ? (
+          <div className="m-auto w-full max-w-xl">
+            <audio controls preload="metadata" src={previewUrl} className="w-full" />
+          </div>
+        ) : null}
+        {info?.kind === 'video' && previewUrl ? (
+          <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-black">
+            <video controls playsInline preload="metadata" src={previewUrl} className="max-h-[62vh] max-w-full" />
+          </div>
+        ) : null}
+        {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
         ) : null}
         {info?.kind === 'binary' ? (

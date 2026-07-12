@@ -418,6 +418,7 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
                                      status="idle", age_s=None)
             continue
         label, status = _describe_event(ev)
+        status = status or "idle"
         ts = ev.get("ts") or ev.get("time")
         age = (now - float(ts)) if isinstance(ts, (int, float)) else None
         active = (
@@ -431,7 +432,7 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
             label = "idle"
         out[role] = RoleActivity(role=role, active=active,
                                  label=label or "idle",
-                                 status=status or "idle", age_s=age)
+                                 status=status, age_s=age)
     return out
 
 

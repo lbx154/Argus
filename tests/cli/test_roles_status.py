@@ -342,6 +342,20 @@ def test_activity_does_not_put_assistant_prose_in_role_bar(tmp_path):
     assert role_activity(tmp_path, now=now)["reviewer"].label == "reporting progress"
 
 
+def test_completed_manager_reply_is_idle_immediately(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "ui.argus",
+        "agent_layer": "manager",
+        "text": "你好，我是 Argus Manager。",
+        "ts": now - 1,
+    }])
+
+    manager = role_activity(tmp_path, now=now)["manager"]
+    assert manager.active is False
+    assert manager.status == "idle"
+
+
 # ── panel rendering ────────────────────────────────────────────────────────
 
 def test_panel_default_is_compact_activity_only(tmp_path):

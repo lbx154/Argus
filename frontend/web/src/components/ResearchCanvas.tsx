@@ -6,6 +6,9 @@ import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
+import { HtmlPreview } from './HtmlPreview';
+import { JsonPreview, TablePreview } from './DataPreview';
+import { MarkdownContent } from './MarkdownContent';
 
 export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
   return (artifacts ?? []).filter((item) => item.source === 'manager_live');
@@ -13,10 +16,7 @@ export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] 
 
 export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
   const live = selectLiveArtifacts(artifacts).filter((item) => item.exists);
-  return live.find((item) => item.kind === 'pdf')
-    ?? live.find((item) => item.kind === 'image')
-    ?? live[0]
-    ?? null;
+  return live[0] ?? null;
 }
 
 function artifactLabel(item: ArtifactInfo): string {
@@ -61,7 +61,7 @@ export function ResearchCanvas({
   useEffect(() => {
     setPreviewUrl(null);
     setPreviewError('');
-    if (!sid || !selected || !info || !['image', 'pdf'].includes(info.kind)) return;
+    if (!sid || !selected || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();
@@ -198,6 +198,23 @@ export function ResearchCanvas({
             {info.truncated ? '\n\n… live preview truncated · expand to inspect the complete file' : ''}
           </pre>
         ) : null}
+        {info?.kind === 'markdown' ? (
+          <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
+            <MarkdownContent>{info.preview || '(empty file)'}</MarkdownContent>
+          </div>
+        ) : null}
+        {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
+        {info?.kind === 'table' ? (
+          <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
+        ) : null}
+        {info?.kind === 'html' && !info.truncated ? (
+          <HtmlPreview html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
+        ) : null}
+        {info?.kind === 'html' && info.truncated ? (
+          <div className="m-auto max-w-sm px-8 text-center text-sm text-warn">
+            HTML preview is too large to render safely. Download the complete file.
+          </div>
+        ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">
             <img src={previewUrl} alt={info.why || info.name} className="max-h-full max-w-full object-contain" />
@@ -211,12 +228,22 @@ export function ResearchCanvas({
             className="min-h-0 flex-1 bg-white"
           />
         ) : null}
+        {info?.kind === 'audio' && previewUrl ? (
+          <div className="m-auto w-full max-w-xl px-6">
+            <audio controls preload="metadata" src={previewUrl} className="w-full" />
+          </div>
+        ) : null}
+        {info?.kind === 'video' && previewUrl ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black p-2">
+            <video controls playsInline preload="metadata" src={previewUrl} className="max-h-full max-w-full" />
+          </div>
+        ) : null}
         {info?.kind === 'binary' ? (
           <div className="m-auto max-w-sm px-8 text-center text-sm text-ink-dim">
             Preview unavailable for this file.
           </div>
         ) : null}
-        {info && ['image', 'pdf'].includes(info.kind) && !previewUrl && !previewError ? (
+        {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
         ) : null}
         {previewError ? <div className="m-auto px-6 text-center text-sm text-err">{previewError}</div> : null}

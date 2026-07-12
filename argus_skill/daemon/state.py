@@ -9,13 +9,19 @@ import signal
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..core.usage import format_usage_cost
 from ..life.supervisor import LifeBudget, global_daily_spend, global_daily_usage_summary
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 _GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
@@ -34,6 +40,7 @@ class ContinuousConfigState:
     objective: str = ""
     done_reason: str = ""
     done_at: str = ""
+    generation: int = field(default=0, compare=False)
 
 
 def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
@@ -55,7 +62,20 @@ def _continuous_config_path(life_dir: Path) -> Path:
     return life_dir / "continuous.json"
 
 
-def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
+@contextmanager
+def _continuous_config_lock(life_dir: Path):
+    life_dir.mkdir(parents=True, exist_ok=True)
+    with (life_dir / ".continuous.lock").open("a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_continuous_state_unlocked(life_dir: Path) -> ContinuousConfigState:
     path = _continuous_config_path(life_dir)
     if not path.exists():
         return ContinuousConfigState()
@@ -70,9 +90,15 @@ def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
             objective=_text(data.get("objective", "")),
             done_reason=_text(data.get("done_reason", "")),
             done_at=_text(data.get("done_at", "")),
+            generation=max(0, int(data.get("generation", 0) or 0)),
         )
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return ContinuousConfigState()
+
+
+def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
+    with _continuous_config_lock(life_dir):
+        return _read_continuous_state_unlocked(life_dir)
 
 
 def read_continuous_config(life_dir: Path) -> tuple[bool, str]:
@@ -91,18 +117,105 @@ def write_continuous_config(
     if enabled and not objective:
         log.warning("refusing to write invalid continuous config to %s", life_dir)
         return
+    with _continuous_config_lock(life_dir):
+        current = _read_continuous_state_unlocked(life_dir)
+        _write_continuous_config_unlocked(
+            life_dir,
+            enabled=enabled,
+            objective=objective,
+            done_reason=done_reason,
+            generation=current.generation + 1,
+        )
+
+
+def _write_continuous_config_unlocked(
+    life_dir: Path,
+    *,
+    enabled: bool,
+    objective: str,
+    done_reason: str = "",
+    done_at: str = "",
+    generation: int,
+) -> bool:
     life_dir.mkdir(parents=True, exist_ok=True)
     path = _continuous_config_path(life_dir)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    data = {"enabled": enabled, "objective": objective}
+    data = {
+        "enabled": enabled,
+        "objective": objective,
+        "generation": max(0, int(generation)),
+    }
     if done_reason:
         data["done_reason"] = done_reason
-        data["done_at"] = datetime.now(timezone.utc).isoformat()
+        data["done_at"] = done_at or datetime.now(timezone.utc).isoformat()
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
         os.replace(str(tmp), str(path))
+        return True
     except OSError:
         log.warning("failed to write continuous config to %s", path)
+        return False
+
+
+def compare_and_swap_continuous_config(
+    life_dir: Path,
+    *,
+    expected: ContinuousConfigState,
+    enabled: bool,
+    objective: str,
+    done_reason: str = "",
+    before_write: Callable[[], None] | None = None,
+) -> bool:
+    """Atomically replace continuous state only if no command changed it."""
+    objective = objective.strip()
+    if enabled and not objective:
+        return False
+    with _continuous_config_lock(life_dir):
+        current = _read_continuous_state_unlocked(life_dir)
+        if not _same_continuous_state(current, expected):
+            return False
+        if before_write is not None:
+            before_write()
+        return _write_continuous_config_unlocked(
+            life_dir,
+            enabled=enabled,
+            objective=objective,
+            done_reason=done_reason,
+            generation=current.generation + 1,
+        )
+
+
+def disable_continuous_config(
+    life_dir: Path,
+    *,
+    done_reason: str = "",
+) -> ContinuousConfigState:
+    """Atomically disable the latest generation while preserving its objective."""
+    with _continuous_config_lock(life_dir):
+        current = _read_continuous_state_unlocked(life_dir)
+        generation = current.generation + 1
+        if not _write_continuous_config_unlocked(
+            life_dir,
+            enabled=False,
+            objective=current.objective,
+            done_reason=done_reason,
+            generation=generation,
+        ):
+            return current
+        return _read_continuous_state_unlocked(life_dir)
+
+
+def _same_continuous_state(
+    left: ContinuousConfigState,
+    right: ContinuousConfigState,
+) -> bool:
+    return (
+        left.enabled == right.enabled
+        and left.objective == right.objective
+        and left.done_reason == right.done_reason
+        and left.done_at == right.done_at
+        and left.generation == right.generation
+    )
 
 def _daemon_pid_path(life_dir: Path) -> Path:
     return life_dir / "daemon.pid"
@@ -457,11 +570,8 @@ def stop_daemon(
         # preserving the objective so the operator can resume later. The daemon
         # hot-reloads continuous.json, so this lands without a restart.
         try:
-            _enabled, objective = read_continuous_config(resolved_dir)
-            write_continuous_config(
+            disable_continuous_config(
                 resolved_dir,
-                enabled=False,
-                objective=objective,
                 done_reason="operator drain-stop",
             )
         except Exception:  # noqa: BLE001 — quiesce is best-effort

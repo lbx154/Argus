@@ -11,6 +11,7 @@ const KEYS: Array<[string, string]> = [
   ['/', 'slash commands (autocompletes)'],
   ['? · /help', 'this help'],
   ['Esc · /cancel', 'stop waiting for Manager reply'],
+  ['/abort', 'immediately stop the running mission'],
   ['Ctrl-C', 'quit (daemon keeps running)'],
 ];
 

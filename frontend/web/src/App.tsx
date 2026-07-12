@@ -582,8 +582,21 @@ export default function App() {
     setManagerPhase('');
     setManagerStartedAt(Date.now());
 
-    const dispatchTask = () => {
+    const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
+      const daemon = result.daemon && typeof result.daemon === 'object'
+        ? result.daemon as Record<string, unknown>
+        : null;
+      if (daemon?.admission_required) {
+        notify(
+          'error',
+          `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+        );
+      } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
+        notify('error', `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+      } else if (daemon?.auto_parked_idle) {
+        notify('success', `Started · parked idle session ${String(daemon.auto_parked_idle)}`);
+      }
       snapQ.refetch?.();
     };
 
@@ -601,7 +614,7 @@ export default function App() {
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            if (result.kind === 'task') dispatchTask();
+            if (result.kind === 'task') dispatchTask(result);
             void transcriptQ.refetch();
           },
           onError: (err) => {
@@ -619,7 +632,7 @@ export default function App() {
         try {
           const result = await api.message(requestSid, text, controller.signal);
           if (!isCurrent()) return;
-          if (result.kind === 'task') dispatchTask();
+          if (result.kind === 'task') dispatchTask(result);
           void transcriptQ.refetch();
         } catch (error) {
           if (!isCurrent()) return;

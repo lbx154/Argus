@@ -27,6 +27,83 @@ _LOCKS: dict[str, threading.Lock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
+def manager_execution_handoff(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> str:
+    """Resolve a direct Web/TUI command into Manager's role-clean handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_execution_task
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return manager_execution_task(
+            mem,
+            text,
+            chat_state,
+            root_task_id=root_task_id,
+        )
+
+
+def manager_continuous_handoff(
+    sid: str,
+    requested_objective: str,
+    *,
+    global_root: Path | str | None = None,
+) -> str:
+    """Atomically enable a Manager-authored continuous handoff."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_continuous_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(mem, requested_objective, chat_state)
+
+
+def manager_bounded_handoff(
+    sid: str,
+    text: str,
+    persist: Any,
+    *,
+    global_root: Path | str | None = None,
+    root_task_id: str | None = None,
+) -> Any:
+    """Commit Manager state and caller persistence under one pipeline lock."""
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_bounded_handoff as commit_handoff
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        return commit_handoff(
+            mem,
+            text,
+            chat_state,
+            persist,
+            root_task_id=root_task_id,
+        )
+
+
 def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> None:
     """Persist one operator/Manager turn onto the shared live Activity stream."""
     try:
@@ -183,6 +260,8 @@ def manager_message(
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
             return
+        if kind == "delta":
+            payload = {**payload, "message_id": f"{turn_id}-argus"}
         try:
             on_fragment(kind, payload)
         except Exception:  # noqa: BLE001 — UI progress must never break a turn
@@ -199,6 +278,8 @@ def manager_message(
     lock = _lock_for(sid)
     with lock:
         chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
         turn_id = f"web-{time.time_ns()}"
 
         # A web-process restart necessarily loses the live ACP process. Resume
@@ -268,17 +349,61 @@ def manager_message(
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
+        from ..manager.front_door import mission_is_running
+
+        active_mission = mission_is_running(mem)
         classify_kwargs = (
             {"root_task_id": root_task_id}
             if _accepts_keyword(_front_door_classify, "root_task_id")
             else {}
         )
-        intent, route = _front_door_classify(
+        decision = _front_door_classify(
             mem,
             body,
             chat_state,
             **classify_kwargs,
         )
+        if isinstance(decision, tuple) and len(decision) == 3:
+            intent, control, route = decision
+        else:
+            intent, route = decision
+            control = None
+
+        if (active_mission or mission_is_running(mem)) and control != "abort":
+            _phase("Manager · responding while the current mission continues")
+            route = "simple"
+
+        if control == "abort":
+            from ..tools.mission_control import request_current_mission_abort
+
+            requested, item_id = request_current_mission_abort(
+                life_dir,
+                reason=f"operator requested: {body}",
+                requested_by="manager",
+            )
+            reply = (
+                f"Stop requested for running task {item_id}."
+                if requested
+                else "No running task to abort. Pending tasks were left unchanged."
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {
+                "kind": "control",
+                "control": "abort",
+                "reply": reply,
+                "requested": requested,
+                "item_id": item_id,
+            }
 
         cfg_lines: list[str] = []
         if intent is not None:
@@ -306,7 +431,7 @@ def manager_message(
                 mem,
                 send_body,
                 chat_state,
-                on_fragment=on_fragment,
+                on_fragment=_fragment if callable(on_fragment) else None,
                 route=route,
                 root_task_id=root_task_id,
             )
@@ -319,6 +444,23 @@ def manager_message(
             except Exception:  # noqa: BLE001
                 pass
             _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
+            return {"kind": "chat", "reply": reply}
+        if mission_is_running(mem):
+            reply = (
+                "[not dispatched] A mission became active while this message "
+                "was being handled; it was not added to the backlog."
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
             return {"kind": "chat", "reply": reply}
 
         # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
@@ -343,7 +485,7 @@ def manager_message(
         "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
     title = str(result["item"].get("title") or result["item"].get("objective") or body)
-    _emit_ui_turn(life_dir, "argus", f"Started · {title}", message_id=f"{turn_id}-argus")
+    _emit_ui_turn(life_dir, "argus", f"Queued · {title}", message_id=f"{turn_id}-argus")
     return result
 
 

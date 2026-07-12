@@ -386,36 +386,36 @@ class Reviewer:
         # schema-missing / runner-raised returns have no ``result`` → thread_id
         # stays None (the loop must start a fresh reviewer session there).
         rev_tid = getattr(result, "thread_id", None)
+        fatal = str(getattr(result, "fatal_error", "") or "").strip()
+        if fatal or result.exit_code != 0:
+            reason = (
+                "Reviewer backend returned no complete verdict "
+                f"(exit={result.exit_code}"
+                + (f", fatal_error={fatal}" if fatal else "")
+                + ")."
+            )
+            return ReviewDecision(
+                status="blocked",
+                reason=reason,
+                next_action=(
+                    "Reviewer backend ended before a complete verdict — do NOT "
+                    "treat partial output as evidence about the engineer's work."
+                ),
+                round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
+                completion_summary_markdown="",
+                failure_cause="environmental",
+                backend_unavailable=True,
+                input_tokens=rev_in,
+                cached_input_tokens=rev_cached,
+                output_tokens=rev_out,
+                reasoning_output_tokens=rev_reasoning_output_tokens,
+                premium_requests=rev_premium,
+                thread_id=rev_tid,
+                static_fingerprint=new_fp,
+                backend_fatal_error=fatal,
+                backend_exit_code=result.exit_code,
+            )
         if not result.agent_messages:
-            fatal = str(getattr(result, "fatal_error", "") or "").strip()
-            if fatal or result.exit_code != 0:
-                reason = (
-                    "Reviewer backend returned no output "
-                    f"(exit={result.exit_code}"
-                    + (f", fatal_error={fatal}" if fatal else "")
-                    + ")."
-                )
-                return ReviewDecision(
-                    status="blocked",
-                    reason=reason,
-                    next_action=(
-                        "Reviewer backend died before any verdict — do NOT treat "
-                        "this as evidence the engineer completed or failed the "
-                        "task. The supervised loop retries on a fresh session and "
-                        "escalates to the operator if it keeps failing."
-                    ),
-                    round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
-                    completion_summary_markdown="",
-                    failure_cause="environmental",
-                    backend_unavailable=True,
-                    input_tokens=rev_in,
-                    cached_input_tokens=rev_cached,
-                    output_tokens=rev_out,
-                    reasoning_output_tokens=rev_reasoning_output_tokens,
-                    premium_requests=rev_premium,
-                    thread_id=rev_tid,
-                    static_fingerprint=new_fp,
-                )
             return ReviewDecision(
                 status="continue",
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
@@ -510,14 +510,26 @@ class Reviewer:
         # role/handoff/academic blocks above. The three fixed reviewer skills
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
+        from ..skills.harness_overlay import resolve_project_root
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+            vertical_role_banner,
+            vertical_search_altitude,
+            vertical_workflow_mode,
+        )
+
+        _proot = resolve_project_root(working_dir)
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
+        _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
         matched_review_skill_block = ""
-        if self.skill_store is not None:
-            from ..skills.harness_overlay import resolve_project_root as _rpr
+        if self.skill_store is not None and not _direct_workflow:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(
                 objective,
-                extra_exclude=venue_excluded_skill_files(_rpr(working_dir)),
+                extra_exclude=venue_excluded_skill_files(_proot),
             )
             if review_match.block:
                 matched_review_skill_block = (
@@ -525,22 +537,12 @@ class Reviewer:
                     "(read first; apply the relevant one(s)):\n"
                     f"{review_match.block}\n\n"
                 )
-        from ..skills.harness_overlay import resolve_project_root
         from ..skills.stage_checklists import (
             CANONICAL_STAGE_ORDER,
             current_stage,
             format_full_pipeline_checklist,
             format_stage_checklist,
         )
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import (
-            load_vertical,
-            vertical_completion_gate,
-            vertical_role_banner,
-            vertical_search_altitude,
-        )
-
-        _proot = resolve_project_root(working_dir)
         stage = current_stage(_proot)
         import os as _os
         _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
@@ -550,7 +552,6 @@ class Reviewer:
         # "full_paper"); for any other vertical (e.g. speedrun) those blocks are
         # suppressed and the vertical's banner is prepended so the reviewer judges
         # only that vertical's metric instead of paper-pipeline artifacts.
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
@@ -827,7 +828,10 @@ class Reviewer:
         # resume). ``search_altitude_block`` and the per-round checkpoint/
         # escalation/log-audit blocks were REORDERED out of here into the delta.
         static = (
-            ground_truth_mandate("reviewer")
+            ground_truth_mandate(
+                "reviewer",
+                workflow_mode=vertical_workflow_mode(_vmod),
+            )
             + optimize_banner
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"

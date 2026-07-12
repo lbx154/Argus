@@ -267,6 +267,11 @@ class ReviewDecision:
     # ``status="blocked"`` verdict (e.g. "blocked on GPU quota") which is a
     # real model judgment and is NOT a backend failure.
     backend_unavailable: bool = False
+    # Raw transport outcome for backend-unavailable decisions. Hidden from the
+    # reviewer schema/event payload; the supervised loop uses it to distinguish
+    # an intentional operator/daemon interrupt from a genuine backend outage.
+    backend_fatal_error: str = ""
+    backend_exit_code: int | None = None
 
     @property
     def final_submission_certified(self) -> bool:

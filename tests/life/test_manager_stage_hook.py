@@ -65,6 +65,28 @@ class _MissionOutcome:
     auth_failure = False
 
 
+class _StageMissionRunner:
+    def __init__(self, action: str) -> None:
+        self.action = action
+
+    def execute(
+        self,
+        *,
+        objective: str,
+        sink,  # noqa: ANN001
+        prelude_context: str = "",
+        scope: str = "",
+        original_objective: str = "",
+    ) -> _MissionOutcome:
+        outcome = _MissionOutcome()
+        outcome.stage_transition = {
+            "action": self.action,
+            "current_stage": "scope",
+            "target_stage": "solve" if self.action == "advance" else "scope",
+        }
+        return outcome
+
+
 class _WritesRollbackPacketMissionRunner:
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
@@ -232,6 +254,84 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
+
+
+def test_bounded_item_stays_pending_after_intermediate_stage_advance(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("advance"),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "stage_continues"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "pending"
+    assert not any(
+        event.get("type") == "life.mission.completed" for event in sink.events
+    )
+
+
+def test_bounded_item_finishes_only_after_final_stage_complete(tmp_path: Path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("complete"),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "done"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "done"
+
+
+def test_bounded_stage_hold_stays_pending_without_immediate_rerun(tmp_path: Path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("hold"),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.run()
+
+    assert result["stopped_by"] == "stage_hold"
+    assert result["missions_run"] == 1
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "pending"
 
 
 def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch) -> None:

@@ -6,11 +6,33 @@ import argparse
 import json
 import os
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
 from typing import Any, Callable
 
 from ..core.knobs import resolve_role_model
+from ..core.runner_errors import is_pre_provider_refusal_error
+
+
+class ManagerHandoffError(RuntimeError):
+    """Manager did not produce a safe Planner/Engineer execution handoff."""
+
+
+class ManagerHandoffSupersededError(ManagerHandoffError):
+    """A newer continuous command superseded an in-flight Manager handoff."""
+
+
+def require_manager_execution_task(division: Any) -> str:
+    execution_task = str(
+        getattr(division, "execution_task", "") or ""
+    ).strip()
+    if not execution_task:
+        raise ManagerHandoffError(
+            "Manager did not produce a non-empty execution_task; task was not dispatched"
+        )
+    return execution_task
 
 
 def _life_dir_for(mem: Any) -> Path:
@@ -30,6 +52,16 @@ def _life_dir_for(mem: Any) -> Path:
             "cannot resolve life-dir: memory has no project_root / project.root / root"
         )
     return Path(project_root)
+
+
+def mission_is_running(mem: Any) -> bool:
+    try:
+        return any(
+            str(getattr(item, "status", "") or "") == "running"
+            for item in mem.backlog.all()
+        )
+    except Exception:  # noqa: BLE001 - routing must remain available
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +236,82 @@ def _accepts_keyword(fn: Any, name: str) -> bool:
     )
 
 
-def _manager_divide_user_task(
+@dataclass
+class PreparedManagerHandoff:
+    mem: Any
+    body: str
+    manager: Any
+    decision: Any
+    intent_id: str
+    root_task_id: str | None
+
+    @property
+    def execution_task(self) -> str:
+        return require_manager_execution_task(self.decision)
+
+    def commit(self, *, acquire_lock: bool = True) -> Any:
+        kwargs = {} if acquire_lock else {"_lock_held": True}
+        division = self.manager.commit_vertical_decision(
+            self.body,
+            self.decision,
+            ask_on_new_domain=False,
+            **kwargs,
+        )
+        require_manager_execution_task(division)
+        return division
+
+    def completed(
+        self,
+        division: Any,
+        *,
+        continuous_generation: int | None = None,
+    ) -> None:
+        event = {
+            "type": "life.manager.intent.completed",
+            "agent_layer": "manager",
+            "intent_id": self.intent_id,
+            "item_id": self.root_task_id,
+            "source": "user",
+            "objective": self.body,
+            "execution_task": self.execution_task,
+            "vertical": getattr(division, "vertical", ""),
+            "kind": getattr(division, "kind", ""),
+            "regular": bool(getattr(division, "regular", False)),
+            "stages": list(getattr(division, "stages", []) or []),
+            "reason": getattr(division, "headline", lambda: "")(),
+            "text": (
+                f"manager interpreted user task as "
+                f"{getattr(division, 'vertical', '')}"
+            ),
+        }
+        if continuous_generation is not None:
+            event["continuous_generation"] = continuous_generation
+        _emit_manager_event(self.mem, event)
+
+    def failed(self, exc: Exception) -> None:
+        _emit_manager_event(self.mem, {
+            "type": "life.manager.intent.failed",
+            "agent_layer": "manager",
+            "intent_id": self.intent_id,
+            "item_id": self.root_task_id,
+            "source": "user",
+            "objective": self.body,
+            "error": f"{type(exc).__name__}: {exc}",
+            "text": "manager intent interpretation failed",
+        })
+
+    def superseded(self) -> None:
+        _emit_manager_event(self.mem, {
+            "type": "life.manager.intent.superseded",
+            "agent_layer": "manager",
+            "intent_id": self.intent_id,
+            "item_id": self.root_task_id,
+            "source": "user",
+            "text": "newer continuous command superseded Manager handoff",
+        })
+
+
+def prepare_manager_execution_task(
     mem: Any,
     body: str,
     chat_state: dict[str, Any],
@@ -212,18 +319,8 @@ def _manager_divide_user_task(
     theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-) -> None:
-    """Run Manager division for an operator-submitted task before enqueue.
-
-    This is intentionally a USER-ENTRY gate. Planner-generated backlog items are
-    already the Planner's decomposition and must not be routed back through
-    Manager again.
-
-    ``Manager.divide`` makes a blocking model round-trip (``decide_vertical``), so
-    the caller passes ``theme`` to keep the cockpit's spinner animating during it
-    — otherwise the TEAM-handoff window looks frozen.
-    """
-    intent_id = f"intent-{int(time.time() * 1000)}"
+) -> PreparedManagerHandoff:
+    intent_id = f"intent-{time.time_ns()}"
     _emit_manager_event(mem, {
         "type": "life.manager.intent.started",
         "agent_layer": "manager",
@@ -235,65 +332,208 @@ def _manager_divide_user_task(
     })
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
-        mgr = getattr(runner, "manager", None) if runner is not None else None
-        if mgr is None:
+        manager = getattr(runner, "manager", None) if runner is not None else None
+        if manager is None:
             from ..manager import Manager
 
-            # Match the primary path's root (see ``_ensure_manager_runner``):
-            # the session-scoped project dir, NOT the git worktree — so a
-            # degraded (no-runner) divide still persists vertical/domain state
-            # where the daemon's mission execution will actually look for it.
-            mgr = Manager(
+            manager = Manager(
                 project_root=getattr(mem, "project_root", None) or Path.cwd(),
                 runner=None,
             )
-        def _divide() -> Any:
+
+        def _decide() -> Any:
             if root_task_id is None or not _accepts_keyword(
-                mgr.divide,
+                manager.decide_vertical,
                 "root_task_id",
             ):
-                return mgr.divide(body, ask_on_new_domain=False)
-            return mgr.divide(
-                body,
-                ask_on_new_domain=False,
-                root_task_id=root_task_id,
-            )
+                return manager.decide_vertical(body)
+            return manager.decide_vertical(body, root_task_id=root_task_id)
 
-        division = _with_manager_spinner(
+        decision = _with_manager_spinner(
             theme,
             "Manager choosing the vertical…",
-            _divide,
+            _decide,
         )
-        payload = {
-            "type": "life.manager.intent.completed",
-            "agent_layer": "manager",
-            "intent_id": intent_id,
-            "item_id": root_task_id,
-            "source": "user",
-            "objective": body,
-            "vertical": getattr(division, "vertical", ""),
-            "kind": getattr(division, "kind", ""),
-            "regular": bool(getattr(division, "regular", False)),
-            "stages": list(getattr(division, "stages", []) or []),
-            "reason": getattr(division, "headline", lambda: "")(),
-            "text": (
-                f"manager interpreted user task as "
-                f"{getattr(division, 'vertical', '')}"
-            ),
-        }
-        _emit_manager_event(mem, payload)
+        require_manager_execution_task(decision)
+        return PreparedManagerHandoff(
+            mem=mem,
+            body=body,
+            manager=manager,
+            decision=decision,
+            intent_id=intent_id,
+            root_task_id=root_task_id,
+        )
+    except Exception as exc:
+        prepared = PreparedManagerHandoff(
+            mem=mem,
+            body=body,
+            manager=None,
+            decision=None,
+            intent_id=intent_id,
+            root_task_id=root_task_id,
+        )
+        prepared.failed(exc)
+        if isinstance(exc, ManagerHandoffError):
+            raise
+        raise ManagerHandoffError(f"Manager handoff failed: {exc}") from exc
+
+
+def _manager_divide_user_task(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    theme: object | None = None,
+    root_task_id: str | None = None,
+    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+) -> Any:
+    """Run Manager division for an operator-submitted task before enqueue.
+
+    This is intentionally a USER-ENTRY gate. Planner-generated backlog items are
+    already the Planner's decomposition and must not be routed back through
+    Manager again.
+
+    ``Manager.divide`` makes a blocking model round-trip (``decide_vertical``), so
+    the caller passes ``theme`` to keep the cockpit's spinner animating during it
+    — otherwise the TEAM-handoff window looks frozen.
+    """
+    try:
+        prepared = prepare_manager_execution_task(
+            mem,
+            body,
+            chat_state,
+            theme=theme,
+            root_task_id=root_task_id,
+            ensure_runner=ensure_runner,
+        )
+    except ManagerHandoffError:
+        return None
+    try:
+        division = prepared.commit()
+        prepared.completed(division)
+        return division
     except Exception as exc:  # noqa: BLE001
-        payload = {
-            "type": "life.manager.intent.failed",
-            "agent_layer": "manager",
-            "intent_id": intent_id,
-            "item_id": root_task_id,
-            "source": "user",
-            "objective": body,
-            "error": f"{type(exc).__name__}: {exc}",
-            "text": "manager intent interpretation failed",
-        }
-        _emit_manager_event(mem, payload)
+        prepared.failed(exc)
+        return None
+
+
+def manager_execution_task(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    theme: object | None = None,
+    root_task_id: str | None = None,
+) -> str:
+    """Return Manager's role-clean Planner/Engineer handoff or fail closed."""
+    division = _manager_divide_user_task(
+        mem,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+    )
+    return require_manager_execution_task(division)
+
+
+def manager_bounded_handoff(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    persist: Callable[[str, Any], Any],
+    *,
+    theme: object | None = None,
+    root_task_id: str | None = None,
+    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+) -> Any:
+    """Commit Manager state and durable task enqueue under one pipeline lock."""
+    prepared = prepare_manager_execution_task(
+        mem,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+        ensure_runner=ensure_runner,
+    )
+    lock_factory = getattr(prepared.manager, "pipeline_lock", None)
+    pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
+    try:
+        with pipeline_lock:
+            division = prepared.commit(acquire_lock=False)
+            result = persist(prepared.execution_task, division)
+            prepared.completed(division)
+            return result
+    except Exception as exc:
+        prepared.failed(exc)
+        if isinstance(exc, ManagerHandoffError):
+            raise
+        raise ManagerHandoffError(f"Manager bounded handoff failed: {exc}") from exc
+
+
+def manager_continuous_handoff(
+    mem: Any,
+    requested_objective: str,
+    chat_state: dict[str, Any],
+    *,
+    theme: object | None = None,
+    root_task_id: str | None = None,
+    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+) -> str:
+    """Atomically enable a Manager-authored continuous objective."""
+    from ..daemon.state import (
+        compare_and_swap_continuous_config,
+        read_continuous_state,
+    )
+
+    life_dir = _life_dir_for(mem)
+    expected = read_continuous_state(life_dir)
+    body = requested_objective.strip() or expected.objective.strip()
+    if not body:
+        raise ValueError("continuous mode requires a non-empty objective")
+    prepared = prepare_manager_execution_task(
+        mem,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+        ensure_runner=ensure_runner,
+    )
+    committed: dict[str, Any] = {}
+
+    def _commit() -> None:
+        committed["division"] = prepared.commit(acquire_lock=False)
+
+    try:
+        lock_factory = getattr(prepared.manager, "pipeline_lock", None)
+        pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
+        with pipeline_lock:
+            swapped = compare_and_swap_continuous_config(
+                life_dir,
+                expected=expected,
+                enabled=True,
+                objective=prepared.execution_task,
+                before_write=_commit,
+            )
+    except Exception as exc:
+        prepared.failed(exc)
+        if isinstance(exc, ManagerHandoffError):
+            raise
+        raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
+    if not swapped:
+        prepared.superseded()
+        current = read_continuous_state(life_dir)
+        if current.generation == expected.generation:
+            raise ManagerHandoffError(
+                "Manager execution handoff could not be persisted"
+            )
+        raise ManagerHandoffSupersededError(
+            "newer continuous command superseded Manager handoff"
+        )
+    prepared.completed(
+        committed["division"],
+        continuous_generation=expected.generation + 1,
+    )
+    return prepared.execution_task
 
 
 _DO_NOT_RUN_MARKERS: tuple[str, ...] = (
@@ -343,6 +583,13 @@ _DO_NOT_RUN_SAFE_REPLY = (
 )
 
 
+def _pre_provider_refusal_reply(exc: Exception) -> str:
+    return (
+        "[not dispatched] The Manager could not classify this message because "
+        f"the provider call was refused before start: {exc}"
+    )
+
+
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
                    route: str | None = None,
@@ -365,6 +612,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     {"role", "label"})`` at each phase transition. Opt-in: default ``None``
     leaves triage behaving exactly as the line REPL.
     """
+    if route is None and mission_is_running(mem):
+        route = "simple"
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
@@ -484,16 +733,20 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
                 return captured[0] if captured else "(no reply)"
-        except Exception:  # noqa: BLE001 — triage failure
+        except Exception as exc:  # noqa: BLE001 — triage failure
             if looks_like_do_not_run_request(body):
                 return _DO_NOT_RUN_SAFE_REPLY
+            if is_pre_provider_refusal_error(exc):
+                return _pre_provider_refusal_reply(exc)
             return None
-    except Exception:  # noqa: BLE001 — triage failure: bias to task ("never drop
+    except Exception as exc:  # noqa: BLE001 — triage failure: bias to task ("never drop
         # work to a bad classify") UNLESS the operator explicitly forbade running
         # (status-only / do-not-run). Dispatching a real mission on a classify we
         # could not even complete is how a status request reached the Engineer.
         if looks_like_do_not_run_request(body):
             return _DO_NOT_RUN_SAFE_REPLY
+        if is_pre_provider_refusal_error(exc):
+            return _pre_provider_refusal_reply(exc)
         return None
     return None
 
@@ -515,6 +768,9 @@ __all__ = [
     "_DO_NOT_RUN_SAFE_REPLY",
     "_accepts_keyword",
     "_MANAGER_RUNNER_UNAVAILABLE",
+    "ManagerHandoffError",
+    "ManagerHandoffSupersededError",
+    "PreparedManagerHandoff",
     "_derive_session_name",
     "_emit_manager_event",
     "_ensure_manager_runner",
@@ -524,5 +780,11 @@ __all__ = [
     "_maybe_name_session",
     "_with_manager_spinner",
     "looks_like_do_not_run_request",
+    "manager_execution_task",
+    "manager_bounded_handoff",
+    "manager_continuous_handoff",
     "manager_triage",
+    "mission_is_running",
+    "prepare_manager_execution_task",
+    "require_manager_execution_task",
 ]

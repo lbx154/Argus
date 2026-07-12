@@ -48,7 +48,9 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
     return false;
   }
   const role = String(event.agent_layer ?? event.actor ?? '');
-  return role === 'reviewer' && String(event.text ?? '').trimStart().startsWith('{');
+  const text = String(event.text ?? '').trimStart();
+  if (!text.startsWith('{')) return false;
+  return role === 'reviewer' || role === 'planner';
 }
 
 export function mergeFragment(accumulator: string, fragment: string): string {

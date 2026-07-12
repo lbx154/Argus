@@ -68,6 +68,15 @@ class _TaskRunner:
         return False
 
 
+class _PreProviderRefusalRunner:
+    last_thread_id = None
+
+    def chat_reply_if_conversational(self, **kwargs: Any) -> bool:
+        raise RuntimeError(
+            "refused before start: unresolved provider cost blocks new calls"
+        )
+
+
 def test_triage_failure_safe_fails_for_do_not_run_input() -> None:
     chat_state = {"manager_runner": _RaisingRunner()}
     reply = manager_triage(
@@ -84,6 +93,16 @@ def test_triage_failure_still_dispatches_real_work() -> None:
     )
     # None means "route to the TEAM backlog" — real work is never dropped.
     assert reply is None
+
+
+def test_pre_provider_refusal_never_dispatches_unclassified_input() -> None:
+    chat_state = {"manager_runner": _PreProviderRefusalRunner()}
+
+    reply = manager_triage(object(), "你好", chat_state)
+
+    assert reply is not None
+    assert reply.startswith("[not dispatched]")
+    assert "refused before start" in reply
 
 
 def test_successful_task_classify_is_not_overridden() -> None:

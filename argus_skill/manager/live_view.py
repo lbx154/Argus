@@ -46,9 +46,11 @@ _SENSITIVE_NAMES = frozenset(
 )
 _SENSITIVE_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
 _RENDERABLE_SUFFIXES = frozenset({
-    ".bib", ".cfg", ".csv", ".gif", ".html", ".ini", ".jpeg", ".jpg",
-    ".json", ".jsonl", ".log", ".md", ".pdf", ".png", ".py", ".rst",
-    ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".webp", ".yaml", ".yml",
+    ".aac", ".bib", ".cfg", ".csv", ".flac", ".gif", ".html", ".ini",
+    ".ipynb", ".jpeg", ".jpg", ".json", ".jsonl", ".log", ".m4a", ".m4v",
+    ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
+    ".png", ".py", ".rst", ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
+    ".webm", ".webp", ".yaml", ".yml",
 })
 
 
@@ -189,7 +191,9 @@ def parse_manager_presentations(raw_text: str) -> tuple[ManagerPresentation, ...
         if (
             path is None
             or not path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
-            or Path(path).suffix.casefold() not in {".html", ".md", ".txt"}
+            or Path(path).suffix.casefold() not in {
+                ".csv", ".html", ".json", ".markdown", ".md", ".tsv", ".txt",
+            }
             or not content
             or len(content.encode("utf-8")) > MAX_PRESENTATION_BYTES
         ):
@@ -308,11 +312,15 @@ def manager_rendering_prompt(
         f"Latest reviewer status: {status or '(none)'}\n"
         f"Latest reviewer reason: {reason or '(none)'}\n"
         "Choose 1-6 safe workspace-relative files, or null when no side view helps. "
+        "You may select existing Markdown, HTML, JSON, CSV/TSV, text/code, image, "
+        "PDF, audio, or video artifacts. You may also CREATE the operator-facing "
+        "view yourself under `.argus/live/` as Markdown, sandboxed HTML, JSON, "
+        "CSV/TSV, or text; the harness supplies safe transport, not content choices. "
         "In your final JSON include:\n"
         '"live_view": null | {"title": "<short title>", "reason": "<why this is '
         'useful now>", "paths": ["<existing artifact or .argus/live/file>", ...]},\n'
-        '"presentations": [{"path": ".argus/live/<file>.md", "content": '
-        '"<Manager-authored Markdown or HTML>"}]\n'
+        '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
+        '"content": "<Manager-authored presentation>"}]\n'
     )
 
 

@@ -895,6 +895,17 @@ class AgentCliBackend:
             if self._is_copilot or codex_quota_active
             else None
         )
+        if interrupted:
+            reason = f"External interrupt: {interrupted}"
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=reason,
+                ),
+                status="denied",
+                error=reason,
+            )
         if self._is_copilot and not interrupted:
             from ..core.copilot_guard import (
                 acquire_copilot_permit,
@@ -1242,6 +1253,9 @@ class AgentCliBackend:
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
+        canonical_stream = stream.rsplit(".", 1)[-1]
+        if canonical_stream not in {"stdout", "stderr"}:
+            canonical_stream = "stdout"
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
@@ -1250,7 +1264,7 @@ class AgentCliBackend:
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),
                 "model": ctx.get("model"),
-                "stream": stream,
+                "stream": canonical_stream,
                 "line": line,
                 "ts": time.time(),
             })

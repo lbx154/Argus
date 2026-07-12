@@ -6,7 +6,7 @@ export const API_SERVICE = 'argus-skill-webapi';
 export const API_PROTOCOL = {
   name: 'argus.webapi',
   major: 1,
-  minServerMinor: 7,
+  minServerMinor: 8,
 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 5;
 export const REQUIRED_API_CAPABILITIES = [
@@ -19,6 +19,7 @@ export const REQUIRED_API_CAPABILITIES = [
   'manager.sse.v1',
   'metrics.slo.v1',
   'mission.view.v1',
+  'mission.abort.v1',
   'project.git-diff.v1',
   'research.events.v1',
   'release.identity.v1',

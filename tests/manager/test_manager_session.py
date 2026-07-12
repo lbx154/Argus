@@ -306,7 +306,12 @@ def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
 # 7. Manager wiring — Manager LLM calls flow through the shared session
 # ---------------------------------------------------------------------------
 def test_manager_calls_flow_through_one_session(tmp_path):
-    fake = _RecordingRunner(reply='{"choice": "existing", "vertical": "research"}')
+    fake = _RecordingRunner(
+        reply=(
+            '{"choice": "existing", "vertical": "research", '
+            '"execution_task": "write the paper"}'
+        )
+    )
     mgr = Manager(project_root=tmp_path, runner=fake)
 
     # is_conversational → manager-converse turn (first → resume None).

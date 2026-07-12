@@ -354,6 +354,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         full_auto: bool = False
         skip_git_repo_check: bool = True
         matcher_reasoning_effort: str = "high"
+        workflow_mode: str = "staged"
 
         def resolved_matcher_model(self) -> str:
             return self.engineer_model
@@ -381,6 +382,30 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert loop_kwargs[0]["config"].wiki_ops_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
+
+    from argus_skill.apps import _runtime
+
+    monkeypatch.setattr(
+        _runtime,
+        "_workflow_mode_for_project_root",
+        lambda root: "direct",
+    )
+    backend.calls.clear()
+    planned_tasks.clear()
+    loop_kwargs.clear()
+    runner.execute(
+        objective="write one short poem",
+        sink=_RecordingSink(),
+    )
+    assert not any(
+        call["run_label"] == "planner-bounded-plan"
+        for call in backend.calls
+    )
+    assert "## Planner execution plan" not in planned_tasks[0]
+    assert loop_kwargs[0]["config"].workflow_mode == "direct"
+    assert loop_kwargs[0]["config"].skill_ops_enabled is False
+    assert loop_kwargs[0]["config"].wiki_ops_enabled is False
+    assert loop_kwargs[0]["config"].auto_init_wiki is False
 
     backend.calls.clear()
     planned_tasks.clear()

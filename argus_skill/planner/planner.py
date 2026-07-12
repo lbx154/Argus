@@ -337,6 +337,7 @@ class Planner:
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
+            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root()
@@ -628,7 +629,10 @@ class Planner:
         )
 
         return (
-            ground_truth_mandate("planner")
+            ground_truth_mandate(
+                "planner",
+                workflow_mode=vertical_workflow_mode(_vmod),
+            )
             + optimize_banner
             + format_role_context(
                 "Argus planner role skill",
