@@ -29,7 +29,7 @@ import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs,
 import { Header } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
-import { SlashMenu } from './components/SlashMenu.js';
+import { SlashMenu, slashMenuVisibleRows } from './components/SlashMenu.js';
 import { Footer } from './components/Footer.js';
 import { ThinkingLine } from './components/ThinkingLine.js';
 import { GuardianBanner } from './components/GuardianBanner.js';
@@ -144,6 +144,10 @@ export function App({
   const [tick, setTick] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const aliveRef = useRef(true);
+
+  useEffect(() => {
+    setMenuSel(0);
+  }, [edit.value]);
   const creatingProjectRef = useRef(false);
   const dismissedAdmissionRef = useRef(0);
   const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
@@ -1057,6 +1061,7 @@ export function App({
   });
 
   const comps = slashCompletions(edit.value);
+  const slashMenuOpen = comps.length > 0 && !replacement && !daemonDraft && !panel;
   const backgroundExcludedRoles = pending ? ['manager'] : [];
   const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
   const managerPhase = (phase || 'handling your message')
@@ -1094,7 +1099,7 @@ export function App({
       <Static items={['argus-header']}>
         {() => <Header width={terminal.columns} />}
       </Static>
-      <GuardianBanner alert={activeGuardianAlert(events)} />
+      {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
       ) : daemonDraft ? (
@@ -1110,7 +1115,7 @@ export function App({
         />
       ) : (
         <>
-          {missionView ? (
+          {missionView && !slashMenuOpen ? (
             <MissionCockpit
               view={missionView}
               width={terminal.columns}
@@ -1126,21 +1131,30 @@ export function App({
             width={terminal.columns}
             mode="conversation"
             liveMessageId={managerRequestRef.current?.messageId}
+            collapsed={slashMenuOpen}
           />
-          {pending && (
+          {pending && !slashMenuOpen && (
             <ThinkingLine
               tick={tick}
               phase={phase}
               elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
             />
           )}
-          <PromptBox edit={edit} width={terminal.columns} />
-          <SlashMenu items={comps} selected={Math.min(menuSel, comps.length - 1)} />
-          <Footer
-            notice={notice}
-            health={healthNotice}
-            width={terminal.columns}
-          />
+          <Box flexDirection="column" flexShrink={0}>
+            <SlashMenu
+              items={comps}
+              selected={Math.min(menuSel, comps.length - 1)}
+              maxVisible={slashMenuVisibleRows(terminal.rows)}
+            />
+            <PromptBox edit={edit} width={terminal.columns} />
+          </Box>
+          {!slashMenuOpen ? (
+            <Footer
+              notice={notice}
+              health={healthNotice}
+              width={terminal.columns}
+            />
+          ) : null}
         </>
       )}
     </Box>

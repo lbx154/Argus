@@ -10,12 +10,19 @@ import { Footer } from '../src/components/Footer.js';
 import { ThinkingLine } from '../src/components/ThinkingLine.js';
 import { LiveActivity } from '../src/components/LiveActivity.js';
 import { ActivityPane } from '../src/components/ActivityPane.js';
+import { EventLog } from '../src/components/EventLog.js';
 import { PromptBox } from '../src/components/PromptBox.js';
+import {
+  SlashMenu,
+  slashMenuVisibleRows,
+  slashMenuWindow,
+} from '../src/components/SlashMenu.js';
 import { DaemonReplacementPicker } from '../src/components/DaemonReplacementPicker.js';
 import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
 import type { EventMsg, Snapshot } from '../src/api.js';
+import { SLASH_COMMANDS } from '../src/input/slash.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 
@@ -362,6 +369,85 @@ test('pending Manager line exposes stop-waiting help at narrow widths', async ()
     assert.match(output.replace(/\s+/g, ' '), /Esc stop waiting/);
     assert.ok(output.split('\n').every((line) => Array.from(line).length <= width));
   }
+});
+
+test('slash menu scales with terminal height while retaining a bounded ceiling', () => {
+  assert.equal(slashMenuVisibleRows(16), 3);
+  assert.equal(slashMenuVisibleRows(20), 7);
+  assert.equal(slashMenuVisibleRows(24), 8);
+  assert.equal(slashMenuVisibleRows(80), 8);
+});
+
+test('slash menu scroll window keeps the selected command visible without jumping early', () => {
+  let view = slashMenuWindow(20, 0, 5);
+  assert.deepEqual(view, { start: 0, end: 5, selected: 0 });
+  view = slashMenuWindow(20, 4, 5, view.start);
+  assert.deepEqual(view, { start: 0, end: 5, selected: 4 });
+  view = slashMenuWindow(20, 5, 5, view.start);
+  assert.deepEqual(view, { start: 1, end: 6, selected: 5 });
+  view = slashMenuWindow(20, 4, 5, view.start);
+  assert.deepEqual(view, { start: 1, end: 6, selected: 4 });
+  view = slashMenuWindow(20, 0, 5, view.start);
+  assert.deepEqual(view, { start: 0, end: 5, selected: 0 });
+});
+
+test('slash menu renders a short window above a still-visible prompt', async () => {
+  const output = await renderNode(
+    React.createElement(
+      Box,
+      { flexDirection: 'column' },
+      React.createElement(SlashMenu, {
+        items: SLASH_COMMANDS,
+        selected: 0,
+        maxVisible: 3,
+      }),
+      React.createElement(PromptBox, {
+        edit: { value: '/', cursor: 1 },
+        width: 60,
+      }),
+    ),
+    60,
+  );
+  const finalFrame = output.slice(output.lastIndexOf('❯ /status'));
+  assert.match(finalFrame, /\/status/);
+  assert.doesNotMatch(finalFrame, /\/quit/);
+  assert.match(finalFrame, new RegExp(`1/${SLASH_COMMANDS.length}`));
+  assert.match(finalFrame, /talk to Argus/);
+  assert.ok(finalFrame.split('\n').length <= 9);
+  assert.ok(finalFrame.split('\n').every((line) => stringWidth(line) <= 60));
+});
+
+test('collapsing the event log preserves Static history without replaying it', async () => {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = 60;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const events: EventMsg[] = [{ type: 'ui.operator', text: 'STATIC_ONCE_MARKER', ts: 1 }];
+  const view = (collapsed: boolean) => React.createElement(EventLog, {
+    events,
+    width: 60,
+    mode: 'conversation',
+    collapsed,
+  });
+  const instance = render(
+    view(false),
+    { stdout: stdout as never, debug: false, exitOnCtrlC: false, patchConsole: false },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  instance.rerender(view(true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  instance.rerender(view(false));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  instance.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const clean = output.replace(ANSI, '');
+  assert.equal(clean.split('STATIC_ONCE_MARKER').length - 1, 1);
 });
 
 test('long input wraps while keeping a bounded view around the caret', async () => {

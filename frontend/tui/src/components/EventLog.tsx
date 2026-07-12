@@ -42,11 +42,13 @@ export function EventLog({
   width,
   mode = 'all',
   liveMessageId = '',
+  collapsed = false,
 }: {
   events: EventMsg[];
   width: number;
   mode?: 'all' | 'conversation';
   liveMessageId?: string;
+  collapsed?: boolean;
 }) {
   const clean = useMemo<EventLine[]>(() => {
     const lines = buildEventLines(events);
@@ -62,10 +64,10 @@ export function EventLog({
   const compact = width < 80;
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={collapsed ? 0 : 1}>
       <Static items={committed}>{(line) => <EventRow key={line.key} r={line.r} compact={compact} width={width} />}</Static>
-      {live && <EventRow r={live.r} compact={compact} width={width} />}
-      {clean.length === 0 && <Text dimColor>{`  ${rotate(IDLE_LINES)}`}</Text>}
+      {!collapsed && live ? <EventRow r={live.r} compact={compact} width={width} /> : null}
+      {!collapsed && clean.length === 0 ? <Text dimColor>{`  ${rotate(IDLE_LINES)}`}</Text> : null}
     </Box>
   );
 }
