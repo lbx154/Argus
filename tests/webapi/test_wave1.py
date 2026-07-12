@@ -15,7 +15,7 @@ import pytest
 from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus_skill.life.memory import LifeMemory
 from argus_skill.manager import front_door
-from argus_skill.webapi import manager_bridge, server
+from argus_skill.webapi import artifacts, manager_bridge, server
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -228,7 +228,7 @@ def test_artifacts_are_latest_result_allowlisted_and_workspace_confined(ctx) -> 
     )
     assert info.status_code == 200
     assert info.json()["preview"].startswith("# Certified")
-    assert info.json()["kind"] == "text"
+    assert info.json()["kind"] == "markdown"
     assert info.headers["cache-control"] == "private, no-store"
 
     raw = client.get(
@@ -473,6 +473,24 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
     assert html.headers["content-type"].startswith("text/plain")
     assert html.headers["x-content-type-options"] == "nosniff"
     assert svg.status_code == 404
+
+
+def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None:
+    expected = {
+        "view.md": "markdown",
+        "data.json": "json",
+        "events.jsonl": "json",
+        "table.csv": "table",
+        "table.tsv": "table",
+        "sound.mp3": "audio",
+        "clip.mp4": "video",
+        "image.png": "image",
+        "paper.pdf": "pdf",
+    }
+    for name, kind in expected.items():
+        (tmp_path / name).write_bytes(b"x")
+        row = artifacts.artifact_metadata(tmp_path, name, preview_bytes=1024)
+        assert row is not None and row["kind"] == kind
 
 
 def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:

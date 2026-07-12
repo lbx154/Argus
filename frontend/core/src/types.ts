@@ -344,7 +344,17 @@ export interface ProjectRow {
   continuous_objective?: string;
 }
 
-export type ArtifactKind = 'text' | 'html' | 'image' | 'pdf' | 'binary';
+export type ArtifactKind =
+  | 'text'
+  | 'markdown'
+  | 'html'
+  | 'json'
+  | 'table'
+  | 'image'
+  | 'pdf'
+  | 'audio'
+  | 'video'
+  | 'binary';
 
 /** Reviewer-approved result file exposed by the protected artifact API. */
 export interface ArtifactInfo {

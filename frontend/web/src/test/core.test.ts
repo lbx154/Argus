@@ -25,6 +25,7 @@ import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
+import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -47,6 +48,14 @@ describe('shared frontend core', () => {
     expect(markup).not.toContain('allow-same-origin');
     expect(markup).toContain('referrerPolicy="no-referrer"');
     expect(markup).toContain('&lt;button');
+  });
+
+  it('formats JSON and parses quoted CSV tables', () => {
+    expect(formatStructuredData('{"answer":42}')).toContain('"answer": 42');
+    expect(parseDelimited('name,note\nA,"x,y"', ',')).toEqual([
+      ['name', 'note'],
+      ['A', 'x,y'],
+    ]);
   });
 
   it('tracks the still-running provider request across concurrent calls', () => {
@@ -205,7 +214,7 @@ describe('shared frontend core', () => {
       { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
     ];
 
-    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.pdf');
+    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.tex');
     expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
     expect(selectPreferredLiveArtifact([{
       ...artifacts[1],

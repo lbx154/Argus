@@ -1581,7 +1581,7 @@ def create_app(
         if resolved is None:
             raise HTTPException(status_code=404, detail="artifact unavailable or not allowlisted")
         info, file_path = resolved
-        safe_inline = info["kind"] in {"image", "pdf"}
+        safe_inline = info["kind"] in {"image", "pdf", "audio", "video"}
         media_type = (
             "application/octet-stream" if download
             else str(info["mime"]) if safe_inline

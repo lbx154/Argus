@@ -292,9 +292,13 @@ def build_vertical_decision_prompt(
         "for you. Set `live_view` to null when no side view is useful. Otherwise "
         "give a short title, why these files matter, and 1-6 workspace-relative "
         "paths. Prefer an existing useful artifact. If the available output is "
-        "missing or unattractive, author a presentation-only Markdown/HTML view "
-        "in the `presentations` JSON field under `.argus/live/`; do not send that "
-        "work to Engineer or write it with tools. Never "
+        "missing or unattractive, author a presentation-only view "
+        "in the `presentations` JSON field under `.argus/live/`; you may create "
+        "Markdown, sandboxed HTML, JSON, CSV/TSV, or text from scratch. Existing "
+        "Markdown, HTML, JSON, tables, text/code, images, PDFs, audio, and video "
+        "may be selected directly. These are capabilities, not a candidate list: "
+        "you decide what the operator should see and may author it yourself. Do "
+        "not send that work to Engineer or write it with tools. Never "
         "expose secrets, credentials, "
         "private configuration, or a file merely because its extension looks "
         "renderable.\n\n"
@@ -316,7 +320,8 @@ def build_vertical_decision_prompt(
         '"execution_task": "<Planner/Engineer task only>", '
         '"live_view": null | {"title": "<short title>", "reason": "<why these '
         'files>", "paths": ["<relative/path>", ...]}, "presentations": '
-        '[{"path": ".argus/live/<file>.md", "content": "<presentation>"}]}\n'
+        '[{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
+        '"content": "<presentation>"}]}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
@@ -324,7 +329,7 @@ def build_vertical_decision_prompt(
         '"execution_task": "<Planner/Engineer task only>", '
         '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
         '"reason": "<why these files>", "paths": ["<relative/path>", ...]}, '
-        '"presentations": [{"path": ".argus/live/<file>.md", "content": '
+        '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", "content": '
         '"<presentation>"}]}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )

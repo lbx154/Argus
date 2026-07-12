@@ -116,6 +116,25 @@ def test_manager_presentation_is_written_by_confined_harness(tmp_path) -> None:
     ).startswith("# Current result")
 
 
+@pytest.mark.parametrize("suffix", ["md", "markdown", "html", "json", "csv", "tsv", "txt"])
+def test_manager_can_author_supported_presentation_formats(
+    tmp_path, suffix: str,
+) -> None:
+    path = f".argus/live/current.{suffix}"
+    raw = json.dumps({
+        "live_view": {
+            "title": "Manager-created view",
+            "reason": "Best operator-facing representation",
+            "paths": [path],
+        },
+        "presentations": [{"path": path, "content": "content"}],
+    })
+
+    apply_manager_rendering_response(tmp_path, raw)
+
+    assert (tmp_path / path).read_text(encoding="utf-8") == "content"
+
+
 def test_manager_presentation_refuses_symlinked_live_directory(tmp_path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
