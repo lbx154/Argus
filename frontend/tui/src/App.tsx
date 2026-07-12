@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, useApp, useInput, useStdout } from 'ink';
+import { Box, Static, useApp, useInput, useStdout } from 'ink';
 import type { WebSocket } from 'ws';
 import {
   ApiClient,
@@ -1076,7 +1076,9 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header width={terminal.columns} health={healthNotice} />
+      <Static items={['argus-header']}>
+        {() => <Header width={terminal.columns} />}
+      </Static>
       <GuardianBanner alert={activeGuardianAlert(events)} />
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
