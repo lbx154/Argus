@@ -142,6 +142,7 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
@@ -400,6 +401,21 @@ export default function App() {
       return false;
     }
   };
+  const requestManageSession = useCallback((projectId: string) => {
+    setDaemonManageOpen(false);
+    if (projectId === activeSid && snap?.session.id === projectId) {
+      setManageTargetSid(null);
+      setDaemonManageOpen(true);
+      return;
+    }
+    setManageTargetSid(projectId);
+    selectProject(projectId);
+  }, [activeSid, selectProject, snap?.session.id]);
+  useEffect(() => {
+    if (!manageTargetSid || activeSid !== manageTargetSid || snap?.session.id !== manageTargetSid) return;
+    setManageTargetSid(null);
+    setDaemonManageOpen(true);
+  }, [activeSid, manageTargetSid, snap?.session.id]);
   const requestDispose = (id: string, op: 'done' | 'skip' | 'rm') =>
     actions.disposeBacklog.mutate(
       { id, op },
@@ -666,6 +682,7 @@ export default function App() {
             setSidebarOpen(false);
           }}
           onPrefetch={prefetchProject}
+          onManage={requestManageSession}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}
