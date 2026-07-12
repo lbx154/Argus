@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,26 @@ DAEMON_ADMISSION_FILE = "daemon.admission.json"
 
 _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
+_METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_METRICS_CACHE_LOCK = threading.Lock()
+_METRICS_CACHE_TTL_SECONDS = 5.0
 
 
 def resolve_global_root(value: Path | str | None) -> Path:
     return Path(value) if value is not None else core_paths.global_root()
+
+
+def _cached_metrics_snapshot(root: Path) -> dict[str, Any]:
+    """Reuse the host-wide metrics projection across rapid project switches."""
+    key = str(root.resolve())
+    now = time.monotonic()
+    with _METRICS_CACHE_LOCK:
+        cached = _METRICS_CACHE.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        value = metrics_snapshot(root=root)
+        _METRICS_CACHE[key] = (now + _METRICS_CACHE_TTL_SECONDS, value)
+        return value
 
 
 def project_life_dir(
@@ -402,7 +419,7 @@ def build_snapshot(
         diagnostics.append(diagnostic("daemon_commands", exc))
 
     try:
-        observability = metrics_snapshot(root=root)
+        observability = _cached_metrics_snapshot(root)
     except Exception as exc:  # noqa: BLE001
         observability = None
         diagnostics.append(diagnostic("observability", exc))

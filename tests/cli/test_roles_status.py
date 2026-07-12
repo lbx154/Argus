@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -170,6 +171,60 @@ def test_review_deferral_is_engineer_activity(tmp_path):
     assert acts["engineer"].active is True
     assert acts["engineer"].label == "continuing before review"
     assert acts["reviewer"].active is False
+
+
+def test_activity_reads_only_the_event_log_tail(tmp_path, monkeypatch):
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        ("x" * (2 * 1024 * 1024))
+        + "\n"
+        + json.dumps({
+            "type": "engineer.progress",
+            "text": "tail event",
+            "ts": time.time(),
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+
+    def reject_full_event_read(path, *args, **kwargs):
+        if path == events:
+            raise AssertionError("role activity must not read the whole event log")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", reject_full_event_read)
+    assert role_activity(tmp_path)["engineer"].label == "thinking · tail event"
+
+
+def test_activity_orders_multiple_rollovers_chronologically(tmp_path):
+    oldest = tmp_path / "events.jsonl.2"
+    newer = tmp_path / "events.jsonl.3"
+    oldest.write_text(
+        "\n".join(
+            json.dumps({
+                "type": "engineer.progress",
+                "text": f"old event {index}",
+                "ts": 1.0,
+            })
+            for index in range(199)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    newer.write_text(
+        json.dumps({
+            "type": "engineer.progress",
+            "text": "newest retained event",
+            "ts": 2.0,
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert role_activity(tmp_path, now=2.0)["engineer"].label == (
+        "thinking · newest retained event"
+    )
 
 
 def test_activity_unwraps_shell_command(tmp_path):

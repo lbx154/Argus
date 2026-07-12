@@ -146,6 +146,31 @@ def test_build_snapshot_shape_and_failsoft(
     assert server.build_snapshot("s-nope", global_root=tmp_path) is None
 
 
+def test_build_snapshot_reuses_host_metrics_across_project_switches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-first")
+    _make_project(tmp_path, "s-second")
+    calls = 0
+
+    def fake_metrics_snapshot(*, root):
+        nonlocal calls
+        calls += 1
+        return {"slo": {"status": "healthy"}, "root": str(root)}
+
+    monkeypatch.setattr(project_state, "metrics_snapshot", fake_metrics_snapshot)
+    with project_state._METRICS_CACHE_LOCK:
+        project_state._METRICS_CACHE.clear()
+    try:
+        assert server.build_snapshot("s-first", global_root=tmp_path) is not None
+        assert server.build_snapshot("s-second", global_root=tmp_path) is not None
+        assert calls == 1
+    finally:
+        with project_state._METRICS_CACHE_LOCK:
+            project_state._METRICS_CACHE.clear()
+
+
 def test_build_snapshot_marks_failsoft_sections_partial(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

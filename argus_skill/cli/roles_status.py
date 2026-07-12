@@ -35,7 +35,6 @@ now, and a short human label of what it is doing.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import time
@@ -216,22 +215,12 @@ class RoleActivity:
 
 
 def _tail_jsonl(path: Path, *, limit: int = 200) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    out: list[dict[str, Any]] = []
-    for ln in lines[-limit:]:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            out.append(json.loads(ln))
-        except json.JSONDecodeError:
-            continue
-    return out
+    # Reuse the reverse chunk reader used by persistent life memory. Reading
+    # ``Path.read_text()`` here used to load every retained 100 MiB event-log
+    # generation merely to show four role labels when switching Web projects.
+    from ..life.memory import _read_jsonl_tail_history
+
+    return _read_jsonl_tail_history(path, limit)
 
 
 def _event_role(event: dict[str, Any]) -> str | None:

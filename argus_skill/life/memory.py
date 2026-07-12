@@ -182,9 +182,10 @@ def _jsonl_history_paths(path: Path) -> list[Path]:
             recent = candidate
         elif index >= 2:
             older.append((index, candidate))
-    # Higher generation numbers are older: .1 is the newest rollover, .2 the
-    # previous one, and so on.
-    paths = [candidate for _index, candidate in sorted(older, reverse=True)]
+    # ``JsonlEventSink`` moves the current .1 to the next free generation on
+    # each rollover. Therefore .2 is oldest, followed by .3, .4, ...; .1 is
+    # always the newest completed generation.
+    paths = [candidate for _index, candidate in sorted(older)]
     if recent is not None:
         paths.append(recent)
     if path.is_file():
