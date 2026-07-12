@@ -79,6 +79,8 @@ def test_route_prompt_has_two_labels_and_safe_default() -> None:
     assert "do a thing" in p
     assert "Argus itself" in p
     assert "When in doubt, answer TEAM" in p
+    assert "persistent file/artifact" in p
+    assert "Small one-shot artifacts still use TEAM" in p
 
 
 # ---- classify_is_conversational: CHAT (True) vs TASK (False) ----------------
