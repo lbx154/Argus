@@ -7,6 +7,7 @@ import {
   missionMetricImprovement,
 } from '../../../core/src/missionView.js';
 import type { MissionTimelineItem, MissionView } from '../../../core/src/types.js';
+import type { RequestUsage } from '../api.js';
 import { theme } from '../theme.js';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
@@ -43,6 +44,16 @@ export function budgetSummary(
   return spent + daily + global;
 }
 
+export function requestSummary(requestUsage?: RequestUsage | null): string {
+  const codex = requestUsage?.codex;
+  const copilot = requestUsage?.copilot;
+  return [
+    `Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'}`,
+    `Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`,
+    `premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`,
+  ].join(' · ');
+}
+
 export function MissionCockpit({
   view,
   width,
@@ -50,6 +61,7 @@ export function MissionCockpit({
   spendStatus,
   dailyCapUsd,
   globalDailyCapUsd,
+  requestUsage,
 }: {
   view: MissionView;
   width: number;
@@ -57,6 +69,7 @@ export function MissionCockpit({
   spendStatus?: string;
   dailyCapUsd?: number | null;
   globalDailyCapUsd?: number | null;
+  requestUsage?: RequestUsage | null;
 }) {
   const [tick, setTick] = useState(0);
   const active = view.roles.some((role) => role.status === 'active');
@@ -112,6 +125,10 @@ export function MissionCockpit({
             width >= 90,
           )}
         </Text>
+      </Box>
+      <Box>
+        <Text dimColor>REQUESTS </Text>
+        <Text dimColor wrap="truncate-end">{requestSummary(requestUsage)}</Text>
       </Box>
 
       <Box flexDirection="column" marginTop={1}>

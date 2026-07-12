@@ -1101,6 +1101,7 @@ export function App({
               spendStatus={snap?.spend_status}
               dailyCapUsd={snap?.daemon.daily_cap_usd}
               globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}
+              requestUsage={snap?.request_usage}
             />
           ) : null}
           <EventLog events={events} width={terminal.columns} mode="conversation" />
