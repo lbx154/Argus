@@ -455,6 +455,26 @@ def test_get_events_ui_view_filters_raw_transport_frames(
     ]
 
 
+def test_get_events_ui_view_scans_past_large_raw_tail(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    events = tmp_path / "projects" / "s-testaaaa" / "events.jsonl"
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "ui.operator", "text": "persistent turn"}) + "\n")
+        for index in range(40):
+            handle.write(json.dumps({
+                "type": "agent.io.stream",
+                "line": f"{index}:" + ("x" * 10_000),
+            }) + "\n")
+
+    body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
+
+    assert any(
+        event.get("type") == "ui.operator" and event.get("text") == "persistent turn"
+        for event in body["events"]
+    )
+
+
 def test_unknown_project_404(client: TestClient) -> None:
     assert client.get("/api/projects/s-nope/snapshot").status_code == 404
     assert client.get("/api/projects/s-nope/events").status_code == 404

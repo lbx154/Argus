@@ -70,7 +70,7 @@ from ..daemon.life_worker import (
     stop_daemon,
     write_continuous_config,
 )
-from ..life.memory import LifeMemory
+from ..life.memory import LifeMemory, _read_jsonl_tail_history
 from ..tools.doctor import run_diagnostics
 from . import artifacts, project_state
 from .protocol import build_api_meta, protocol_header
@@ -1353,10 +1353,14 @@ def create_app(
         view: str = Query("full", pattern="^(full|ui)$"),
     ) -> dict[str, Any]:
         life_dir = _resolve_or_404(sid)
-        read_limit = min(1000, limit * 10) if view == "ui" else limit
-        events = _read_recent_project_events(life_dir, limit=read_limit)
         if view == "ui":
-            events = [event for event in events if _event_visible_in_web_ui(event)][-limit:]
+            events = _read_jsonl_tail_history(
+                life_dir / EVENT_FILE,
+                limit,
+                predicate=_event_visible_in_web_ui,
+            )
+        else:
+            events = _read_recent_project_events(life_dir, limit=limit)
         return {"events": events}
 
     @app.get(
