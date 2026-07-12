@@ -56,6 +56,54 @@ def _wait_until(predicate, *, timeout: float = 10.0) -> None:
     raise AssertionError("timed out waiting for condition")
 
 
+def _run_watch_until_output(
+    *,
+    global_root: Path,
+    repo_dir: Path,
+    env: dict[str, str],
+    expected: str,
+) -> str:
+    output_path = repo_dir / "watch-output.log"
+    with output_path.open("w", encoding="utf-8") as output:
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "argus_skill",
+                "--watch",
+                "--life-dir",
+                str(global_root),
+            ],
+            cwd=repo_dir,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=output,
+            text=True,
+        )
+        try:
+            _wait_until(
+                lambda: proc.poll() is not None
+                or expected in output_path.read_text(encoding="utf-8")
+            )
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGINT)
+            proc.wait(timeout=10)
+        finally:
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGINT)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=10)
+
+    rendered = output_path.read_text(encoding="utf-8")
+    assert proc.returncode == 0, rendered
+    assert expected in rendered
+    return rendered
+
+
 def _round_events(
     round_index: int,
     *,
@@ -333,6 +381,7 @@ def test_journal_tail_cache_reuses_previous_result_until_file_changes(
     assert calls["n"] == 2  # exactly one scan per distinct file signature
 
 
+@pytest.mark.integration
 def test_watch_subprocess_journal_panel_derives_kind_from_real_event_shape(
     tmp_path: Path,
 ) -> None:
@@ -373,30 +422,12 @@ def test_watch_subprocess_journal_panel_derives_kind_from_real_event_shape(
 
     env = _subprocess_env()
     env.update({"PYTHONUNBUFFERED": "1", "COLUMNS": "260", "LINES": "60"})
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "argus_skill", "--watch", "--life-dir", str(global_root)],
-        cwd=repo_dir,
+    output = _run_watch_until_output(
+        global_root=global_root,
+        repo_dir=repo_dir,
         env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        expected="optimize the hot loop",
     )
-    try:
-        time.sleep(1.0)
-        proc.send_signal(signal.SIGINT)
-        stdout, stderr = proc.communicate(timeout=10)
-    finally:
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate(timeout=10)
-
-    output = stdout + stderr
-    assert proc.returncode == 0, proc
     # Derived kind="mission_complete" from type + success, and the real
     # cost/title — NOT the old "?" / $0.0000 fallback.
     assert "mission_complete" in output
@@ -404,6 +435,7 @@ def test_watch_subprocess_journal_panel_derives_kind_from_real_event_shape(
     assert "optimize the hot loop" in output
 
 
+@pytest.mark.integration
 def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
@@ -479,38 +511,13 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
         "COLUMNS": "260",
         "LINES": "60",
     })
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "argus_skill",
-            "--watch",
-            "--life-dir",
-            str(global_root),
-        ],
-        cwd=repo_dir,
+    output = _run_watch_until_output(
+        global_root=global_root,
+        repo_dir=repo_dir,
         env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        expected="life.inbox.drained",
     )
-    try:
-        time.sleep(1.0)
-        proc.send_signal(signal.SIGINT)
-        stdout, stderr = proc.communicate(timeout=10)
-    finally:
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate(timeout=10)
-
-    output = stdout + stderr
     after = offset_path.read_text(encoding="utf-8")
-    assert proc.returncode == 0, proc
     assert "budget   :" in output
     assert "remaining $3.50" in output
     assert "title" in output
@@ -527,6 +534,7 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     assert before == after
 
 
+@pytest.mark.integration
 def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     tmp_path: Path,
 ) -> None:
@@ -663,6 +671,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     assert "watch is alive" in output
 
 
+@pytest.mark.integration
 def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
@@ -696,36 +705,11 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
         "COLUMNS": "260",
         "LINES": "60",
     })
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "argus_skill",
-            "--watch",
-            "--life-dir",
-            str(global_root),
-        ],
-        cwd=repo_dir,
+    output = _run_watch_until_output(
+        global_root=global_root,
+        repo_dir=repo_dir,
         env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        expected="remaining $0.00 (paused)",
     )
-    try:
-        time.sleep(1.0)
-        proc.send_signal(signal.SIGINT)
-        stdout, stderr = proc.communicate(timeout=10)
-    finally:
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate(timeout=10)
-
-    output = stdout + stderr
-    assert proc.returncode == 0, proc
     assert "budget   :" in output
     assert "remaining $0.00 (paused)" in output

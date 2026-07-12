@@ -27,24 +27,20 @@ import {
 import { EMPTY_HISTORY, newer, older, remember, type History } from './input/history.js';
 import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs, parseResumeTarget, slashCompletions } from './input/slash.js';
 import { Header } from './components/Header.js';
-import { RolesBar } from './components/RolesBar.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
 import { SlashMenu } from './components/SlashMenu.js';
 import { Footer } from './components/Footer.js';
-import { CostGauge } from './components/CostGauge.js';
 import { ThinkingLine } from './components/ThinkingLine.js';
 import { GuardianBanner } from './components/GuardianBanner.js';
 import { NewDaemonForm } from './components/NewDaemonForm.js';
 import { PanelView, type PanelState } from './components/panels.js';
 import { activeGuardianAlert } from './guardian.js';
-import { computeSpend } from './cost.js';
 import { useTerminalSize } from './useTerminalSize.js';
 import { filterProjects, rankProjects } from '../../core/src/projects.js';
 import { moveSelection } from './input/selection.js';
 import { visibleBacklogItems } from '../../core/src/backlog.js';
 import {
-  latestRunningActivity,
   overlayActiveRole,
   overlayRoleActivities,
   reduceOperatorEvent,
@@ -55,14 +51,14 @@ import {
   newDaemonDraft,
   type NewDaemonDraft,
 } from './newDaemonForm.js';
-import { LiveActivity } from './components/LiveActivity.js';
-import { ActivityPane } from './components/ActivityPane.js';
+import { MissionCockpit } from './components/MissionCockpit.js';
 import { consumePasteChunk } from './input/paste.js';
 import { transcriptEvents } from './transcript.js';
 import {
   DaemonReplacementPicker,
   type DaemonReplacementState,
 } from './components/DaemonReplacementPicker.js';
+import { projectMissionView } from '../../core/src/missionView.js';
 
 const MAX_EVENTS = 400;
 const STREAM_RENDER_INTERVAL_MS = 50;
@@ -139,7 +135,6 @@ export function App({
     ),
   );
   const [pendingExit, setPendingExit] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
   // A Manager turn in flight → drive the live "thinking" indicator (spinner +
   // elapsed + phase) so the terminal never looks frozen while Argus works.
   const [pending, setPending] = useState(false);
@@ -276,7 +271,6 @@ export function App({
     setConnected(false);
     setSnapshotError('');
     setStreamError('');
-    setActivityOpen(false);
   }, [project]);
 
   useEffect(() => {
@@ -861,7 +855,7 @@ export function App({
       return;
     }
     if (key.ctrl && input === 'o') {
-      setActivityOpen((open) => !open);
+      setPanel((current) => current?.kind === 'operations' ? null : { kind: 'operations' });
       return;
     }
     if (pendingExit) setPendingExit(false); // any other key disarms the double-Ctrl-C
@@ -1042,7 +1036,6 @@ export function App({
 
   const comps = slashCompletions(edit.value);
   const backgroundExcludedRoles = pending ? ['manager'] : [];
-  const activeActivity = latestRunningActivity(events, backgroundExcludedRoles);
   const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
   const managerPhase = (phase || 'handling your message')
     .replace(/^Manager\s*·\s*/i, '')
@@ -1055,6 +1048,9 @@ export function App({
         Math.max(0, (Date.now() - startedAt) / 1000),
       )
     : eventRoles;
+  const missionView = snap
+    ? projectMissionView({ ...snap, roles: displayRoles }, events)
+    : null;
   const partialDetail = snap?.partial
     ? (snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`).join(' · ')
     : '';
@@ -1073,21 +1069,8 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header snap={snap} connected={connected} width={terminal.columns} health={healthNotice} />
+      <Header width={terminal.columns} health={healthNotice} />
       <GuardianBanner alert={activeGuardianAlert(events)} />
-      <Box marginTop={1}>
-        <RolesBar roles={displayRoles} width={terminal.columns} />
-      </Box>
-      <CostGauge
-        spend={computeSpend(events)}
-        settledUsd={snap?.spend_usd}
-        spendStatus={snap?.spend_status}
-        usageSummary={snap?.usage_summary}
-        daemon={snap?.daemon}
-        requestUsage={snap?.request_usage}
-        costControl={snap?.cost_control}
-        width={terminal.columns}
-      />
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
       ) : daemonDraft ? (
@@ -1103,14 +1086,8 @@ export function App({
         />
       ) : (
         <>
-          <EventLog events={events} width={terminal.columns} />
-          <LiveActivity
-            events={events}
-            width={terminal.columns}
-            excludeRoles={backgroundExcludedRoles}
-            background={pending}
-          />
-          {activityOpen ? <ActivityPane events={events} max={Math.max(4, Math.min(10, terminal.rows - 14))} /> : null}
+          {missionView ? <MissionCockpit view={missionView} width={terminal.columns} /> : null}
+          <EventLog events={events} width={terminal.columns} mode="conversation" />
           {pending && (
             <ThinkingLine
               tick={tick}
@@ -1123,8 +1100,6 @@ export function App({
           <Footer
             notice={notice}
             health={healthNotice}
-            roles={snap?.roles ?? []}
-            active={activeActivity}
             width={terminal.columns}
           />
         </>

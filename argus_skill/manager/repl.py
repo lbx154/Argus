@@ -27,48 +27,80 @@ import argparse
 import json
 import logging
 import os
-import re
-import shlex
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..apps._life_actions import (
-    _continuous_session_error as _shared_continuous_session_error,
-)
-from ..apps._life_actions import (
-    add_backlog_item,
-    append_note,
-    format_added_item,
-    format_backlog_list,
-    format_journal_tail,
-    format_status_change,
-    parse_add_flags,
-    render_backend_cmd,
-    render_config_cmd,
-    render_identity_cmd,
-    render_reset_cmd,
     render_skills_cmd,
-    stop_iteration,
 )
 from ..apps._runtime import (
-    _CommonMemory,
-    _env_flag,
     _invoke_supervisor,
     _memory_global_root,  # noqa: F401 — kept for parity with the old module surface
     _resolve_global_root,
     _SplitMemory,
 )
 from ..core import paths as core_paths
-from ..core.knobs import resolve_role_model
-from ..life import BacklogItem, LifeMemory, MemoryBundle
+from ..life import LifeMemory, MemoryBundle
+from .config_intent import (
+    _apply_config_intent,
+    _render_live_role_overlay,
+)
+from .config_intent import (
+    _front_door_classify as _front_door_classify_impl,
+)
+from .config_intent import (
+    _maybe_handle_config_intent as _maybe_handle_config_intent_impl,
+)
+from .front_door import (
+    _DO_NOT_RUN_SAFE_REPLY,
+    _MANAGER_RUNNER_UNAVAILABLE,
+    _accepts_keyword,
+    _derive_session_name,
+    _emit_manager_event,
+    _ensure_manager_runner,
+    _extract_chat_reply_text,
+    _life_dir_for,
+    _maybe_name_session,
+    _with_manager_spinner,
+    looks_like_do_not_run_request,
+)
+from .front_door import (
+    _manager_divide_user_task as _manager_divide_user_task_impl,
+)
+from .front_door import (
+    manager_triage as _manager_triage_impl,
+)
+from .repl_commands import dispatch_command
+from .repl_completion import (
+    _format_completion,
+    _format_elapsed,
+    _no_executor_notice,
+    _record_mission_outcome,
+    _surface_blocked_question,
+)
+from .repl_follow import (
+    _PANE_IDLE_VERBS,
+    _TAIL_ROLE_TITLES,
+    _TAIL_ROLE_VERBS,
+    _TAIL_SPIN_INTERVAL,
+    _TAIL_WAIT_VERBS,
+    _follow_events_stream,
+    _sleep_until,
+    _tail_spin_interval,
+    _TailPrinter,
+    _TailWaitSpinner,
+    _type_out_line,
+    _wrap_plain,
+    follow_mission_live_roles,
+    tail_mission_events,
+)
+from .repl_free_text import FreeTextHooks, dispatch_free_text
 from .repl_help import (
     _HELP_SECTIONS,
     SLASH_COMMANDS,
     _bottom_hint_line,
-    _closest_slash_command,
     _help_command_rows,
     _top_frame_line,
 )
@@ -83,16 +115,71 @@ from .repl_input import (
     read_message_prompt_toolkit,
     read_message_with_live_cockpit,
 )
+from .repl_ops import (
+    _CONFIG_DEFAULTS,
+    _ROLE_BACKEND_ENVS,
+    _ROLE_EFFORT_ENVS,
+    _ROLE_MODEL_ENVS,
+    _add_only,
+    _backend_cmd,
+    _backlog_list_cmd,
+    _cockpit_cli_alias,
+    _config_cmd,
+    _continuous_cmd,
+    _continuous_session_error,
+    _daemon_alive_for,
+    _daemon_log_tail,
+    _identity_cmd,
+    _is_argus_cli_invocation,
+    _journal_tail_cmd,
+    _live_cockpit_enabled,
+    _live_follow_enabled,
+    _settings_cmd,
+    _should_autospawn_on_boot,
+    _spawn_daemon_from_cockpit,
+    _status_change_cmd,
+)
+from .repl_ops import (
+    _autospawn_daemon_for_task as _autospawn_daemon_for_task_impl,
+)
+from .repl_ops import (
+    _daemon_cmd as _daemon_cmd_impl,
+)
+from .repl_session_ops import (
+    _attach_cmd as _attach_cmd_impl,
+)
+from .repl_session_ops import (
+    _daemons_cmd,
+    _doctor_cmd,
+    _print_transcript,
+    _recent_daemon_log_tail,
+    _rewrite_cockpit_daemon_fix,
+)
+from .repl_session_ops import (
+    _plan_cmd as _plan_cmd_impl,
+)
+from .repl_session_ops import (
+    _resume_cmd as _resume_cmd_impl,
+)
+from .repl_session_ops import (
+    _roles_cmd as _roles_cmd_impl,
+)
+from .repl_session_ops import (
+    _status_cmd as _status_cmd_impl,
+)
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "SLASH_COMMANDS",
+    "_DO_NOT_RUN_SAFE_REPLY",
     "_build_slash_completer",
     "_drain_available_bytes",
     "_get_prompt_session",
     "_split_readline_safe_prompt",
     "_visual_row_delta",
+    "dispatch_command",
+    "looks_like_do_not_run_request",
     "run_manager_repl",
 ]
 
@@ -111,1492 +198,54 @@ __all__ = [
 # shared formatter in ``apps.cli._follow`` so there is exactly one renderer.
 
 
-def _life_dir_for(mem: Any) -> Path:
-    """Resolve the per-project life-dir that holds ``events.jsonl``.
-
-    Works for both ``MemoryBundle`` (``.project.root`` / ``.project_root``)
-    and the bare ``LifeMemory`` facade (``.root``) used in tests.
-    """
-    project_root = getattr(mem, "project_root", None)
-    if project_root is None:
-        project = getattr(mem, "project", None)
-        project_root = getattr(project, "root", None)
-    if project_root is None:
-        project_root = getattr(mem, "root", None)
-    if project_root is None:
-        raise AttributeError(
-            "cannot resolve life-dir: memory has no project_root / project.root / root"
-        )
-    return Path(project_root)
-
-
-_TAIL_ROLE_TITLES: dict[str, str] = {
-    "manager": "Manager",
-    "planner": "Planner",
-    "engineer": "Engineer",
-    "reviewer": "Reviewer",
-    "critic": "Reviewer",
-}
-# Per-role present-continuous vocabulary for the passive-tail idle spinner.
-# The ROLE shown is always real (set from the live event stream); only the
-# specific verb rotates through that role's own list so a silent gap reads as
-# lively, role-appropriate motion instead of a frozen cursor. We deliberately
-# DON'T echo the last log line here — it just repeated the scrollback.
-_TAIL_ROLE_VERBS: dict[str, tuple[str, ...]] = {
-    "manager": (
-        "deciding", "routing", "triaging", "delegating", "coordinating",
-        "dispatching", "orchestrating", "weighing options", "assessing",
-        "choosing the vertical",
-    ),
-    "planner": (
-        "planning", "scoping", "sequencing", "decomposing", "strategizing",
-        "mapping the work", "prioritizing", "outlining", "drafting the plan",
-        "laying out steps",
-    ),
-    "engineer": (
-        "working", "coding", "implementing", "editing", "building",
-        "wiring things up", "refactoring", "debugging", "running checks",
-        "testing", "patching", "iterating", "tracing", "digging in",
-        "reproducing", "instrumenting",
-    ),
-    "reviewer": (
-        "reviewing", "checking", "verifying", "auditing", "validating",
-        "inspecting", "cross-checking", "vetting", "weighing the verdict",
-        "judging",
-    ),
-    "critic": (
-        "reviewing", "checking", "verifying", "auditing", "validating",
-        "inspecting", "cross-checking", "vetting", "weighing the verdict",
-        "judging",
-    ),
-}
-# Shown before the very first event arrives (no role known yet).
-_TAIL_WAIT_VERBS: tuple[str, ...] = (
-    "waiting for the daemon's first event",
-    "attaching to the live run",
-    "connecting to the daemon",
-    "standing by",
-    "warming up",
-)
-# The ALWAYS-animated bottom line of the live role panel rotates these when no
-# single role is currently active — so that line is never static (the operator
-# demanded constant motion when there's no fresh output). Honest-neutral: it
-# says the team is between steps, not that a specific role is working.
-_PANE_IDLE_VERBS: tuple[str, ...] = (
-    "standing by",
-    "watching for the next step",
-    "between steps",
-    "holding the line",
-    "listening for the agents",
-)
-# How long each verb stays before rotating to the next (seconds). The glyph
-# still spins at _TAIL_SPIN_INTERVAL; only the WORD changes this slowly, so it
-# stays readable.
-_TAIL_PHRASE_INTERVAL = 2.5
-
-
-def _tail_spin_interval() -> float:
-    """The single, shared braille-frame cadence for EVERY spinner in the CLI.
-
-    All braille circles must advance at one frequency (the ``LiveStatus``
-    canonical ~12 fps); the passive tails used to poll-sleep 0.4 s between
-    ticks, so their glyph crawled at ~2.5 fps and looked visibly slower than
-    the manager/live-panel spinners. Source the rate from ``live_status`` so
-    there is one source of truth."""
-    try:
-        from ..cli.live_status import _INTERVAL
-        return max(0.02, float(_INTERVAL))
-    except Exception:  # noqa: BLE001 — the spinner must never break observing
-        return 0.08
-
-
-_TAIL_SPIN_INTERVAL = _tail_spin_interval()
-
-
-class _TailWaitSpinner:
-    """A manually-ticked, single-line braille spinner for the scrolling event
-    tails (:func:`tail_mission_events` / :func:`_follow_events_stream`).
-
-    The live four-role panel animates itself, but this passive tail is the
-    fallback path (non-TTY/piped output, or ``ARGUS_SKILL_FOLLOW_LIVE=0``)
-    that would otherwise just blink an empty cursor between the daemon's
-    events — the "只有光标闪烁没有内容" dead window. This paints a status
-    line during each idle gap and erases it before any real event line
-    prints, so the wait always animates without disturbing the scrollback.
-
-    The ROLE shown is real — :meth:`set_activity` tracks the role that is
-    genuinely active from the event stream — while that role's own
-    present-continuous vocabulary (:data:`_TAIL_ROLE_VERBS`) rotates slowly so
-    the gap reads as role-appropriate motion (e.g. "Engineer implementing…",
-    "Reviewer verifying…") instead of a frozen cursor or a repeated log line.
-    Before the first event it rotates a "waiting for the daemon" vocabulary.
-
-    No-op on non-TTY / piped / NO_COLOR / ARGUS_SKILL_NO_SPINNER (same gate as
-    ``LiveStatus``). Driven by hand — no background thread — so it can never
-    race the tail's own ``print`` calls: ``tick`` during a sleep, ``clear``
-    immediately before printing a real event (and once on exit).
-    """
-
-    def __init__(self, theme: Any = None, *, stream: Any = None,
-                 enabled: bool | None = None) -> None:
-        self._theme = theme
-        self._stream = stream if stream is not None else sys.stdout
-        try:
-            from ..cli.live_status import FRAMES, _spinner_enabled
-            self._frames = FRAMES or "|/-\\"
-            self._enabled = (
-                _spinner_enabled(self._stream) if enabled is None else bool(enabled)
-            )
-        except Exception:  # noqa: BLE001 — the spinner must never break observing
-            self._frames = "|/-\\"
-            self._enabled = bool(enabled)
-        self._i = 0
-        self._painted = False
-        self._start = time.monotonic()
-        self._layer: str | None = None
-
-    def set_activity(self, layer: str | None, _note: str = "") -> None:
-        """Record the REAL current role so the idle label shows role-appropriate
-        motion. ``_note`` is accepted for call-site compatibility but ignored —
-        we deliberately don't echo the last log line (it just repeats the
-        scrollback)."""
-        lay = (layer or "").strip().lower() or None
-        if lay is not None:
-            self._layer = lay
-
-    def _width(self) -> int:
-        if self._theme is not None and hasattr(self._theme, "live_width"):
-            try:
-                return max(20, int(self._theme.live_width()))
-            except Exception:  # noqa: BLE001
-                pass
-        w = getattr(self._theme, "width", 80) if self._theme is not None else 80
-        try:
-            return max(20, int(w))
-        except Exception:  # noqa: BLE001
-            return 80
-
-    def _label(self) -> str:
-        """The status text for this instant: role + a slowly-rotating
-        present-continuous verb from that role's vocabulary."""
-        elapsed = time.monotonic() - self._start
-        step = int(elapsed / _TAIL_PHRASE_INTERVAL)
-        if self._layer is None:
-            verb = _TAIL_WAIT_VERBS[step % len(_TAIL_WAIT_VERBS)]
-            return f"{verb[:1].upper()}{verb[1:]}…"
-        title = _TAIL_ROLE_TITLES.get(self._layer, self._layer.title())
-        verbs = _TAIL_ROLE_VERBS.get(self._layer) or ("working",)
-        verb = verbs[step % len(verbs)]
-        return f"{title} {verb}…"
-
-    def tick(self) -> None:
-        """Paint / advance the in-place status line (no-op when disabled)."""
-        if not self._enabled:
-            return
-        glyph = self._frames[self._i % len(self._frames)]
-        self._i += 1
-        elapsed = int(time.monotonic() - self._start)
-        label = self._label()
-        plain = f"{glyph} {label}  ({elapsed}s · Ctrl-C to stop observing)"
-        # Never let the status line reach the terminal edge: a wrapped line
-        # would survive the next tick's single-row erase and stack up.
-        if len(plain) > self._width() - 1:
-            plain = f"{glyph} {label}"
-            if len(plain) > self._width() - 1:
-                plain = plain[: self._width() - 1].rstrip()
-        body = plain[len(glyph):]  # everything after the (1-col) glyph
-        g = self._theme.bold_cyan(glyph) if self._theme is not None else glyph
-        try:
-            self._stream.write("\r\x1b[2K" + g + body)
-            self._stream.flush()
-            self._painted = True
-        except Exception:  # noqa: BLE001
-            pass
-
-    def clear(self) -> None:
-        """Erase the status line before a real event prints (or on exit)."""
-        if not (self._enabled and self._painted):
-            return
-        try:
-            self._stream.write("\r\x1b[2K")
-            self._stream.flush()
-        except Exception:  # noqa: BLE001
-            pass
-        self._painted = False
-
-
-def _type_out_line(line: str, *, stream: Any = None) -> None:
-    """Print one committed line with a capped character-by-character "typing"
-    animation, for an AI feel. Falls back to a plain, instant print when
-    disabled / non-TTY (so piped output and tests are byte-for-byte unchanged).
-
-    The total animation time is hard-capped (long reasoning never crawls the
-    log); Ctrl-C during the animation raises straight through so the operator
-    can always interrupt.
-    """
-    out = stream if stream is not None else sys.stdout
-    enabled = False
-    try:
-        from ..cli.live_status import _spinner_enabled
-        enabled = (
-            _spinner_enabled(out)
-            and os.environ.get("ARGUS_SKILL_TYPEWRITER", "1").strip().lower()
-            not in ("0", "false", "no", "off")
-        )
-    except Exception:  # noqa: BLE001 — animation must never break the tail
-        enabled = False
-    if not enabled or not line:
-        print(line, flush=True, file=out)
-        return
-    # Cap total time; short verdicts feel snappy, a 240-char line still lands
-    # in well under half a second.
-    per_char = min(0.006, 0.35 / max(1, len(line)))
-    try:
-        for ch in line:
-            out.write(ch)
-            out.flush()
-            if per_char > 0:
-                time.sleep(per_char)
-        out.write("\n")
-        out.flush()
-    except KeyboardInterrupt:
-        out.write("\n")
-        out.flush()
-        raise
-    except Exception:  # noqa: BLE001
-        print(line, flush=True, file=out)
-
-
-def _wrap_plain(text: str, width: int, indent: str = "    ") -> list[str]:
-    """Word-wrap PLAIN ``text`` to at most ``width`` DISPLAY columns per row so
-    nothing is truncated at the terminal edge (the reasoning pane's fix for the
-    "仍有截断" chop). Display-width aware (CJK / full-width count as 2), breaks on
-    spaces where possible and hard-breaks an over-long token; continuation rows
-    are indented. Colour is applied by the caller (one hue per role entry)."""
-    import unicodedata
-
-    def _cw(ch: str) -> int:
-        return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-
-    if width <= 6 or not text:
-        return [text]
-    rows: list[str] = []
-    cur: list[str] = []
-    cur_w = 0
-    last_space = -1  # index in `cur` just AFTER the most recent space
-    for ch in text:
-        c = _cw(ch)
-        if cur_w + c > width and cur:
-            if last_space > 0:
-                head = "".join(cur[:last_space]).rstrip()
-                tail = "".join(cur[last_space:])
-                rows.append(head)
-                cur = list(indent + tail)
-            else:
-                rows.append("".join(cur))
-                cur = list(indent)
-            cur_w = sum(_cw(x) for x in cur)
-            last_space = -1
-        cur.append(ch)
-        cur_w += c
-        if ch == " ":
-            last_space = len(cur)
-    if cur:
-        rows.append("".join(cur))
-    return rows or [text]
-
-
-class _TailPrinter:
-    """Prints tail event lines, collapsing copilot-style streamed messages.
-
-    The stream adapter (``adapters/stream_progress``) forwards copilot's
-    incremental ``assistant.message_delta`` beats as ``engineer.progress``
-    agent_message events that share a ``message_id`` and carry ``replace=True``
-    — each an ever-growing prefix of the same message, then a final full copy
-    (and a short message arrives as one delta PLUS the final = two identical
-    copies). A naive tail prints every one, producing the duplicated +
-    fragmented '💭' lines the operator sees.
-
-    This coalesces them: a ``replace``+``message_id`` line is held (only the
-    latest — i.e. longest — kept) and committed exactly once, when a different
-    message starts, a non-``replace`` line arrives, the stream goes idle, or
-    the tail exits. Lines without ``replace`` (codex/claude complete beats,
-    tool/command/mission events) print immediately, unchanged. It also owns the
-    idle spinner so a committed line always erases the spinner first.
-    """
-
-    def __init__(self, spinner: "_TailWaitSpinner") -> None:
-        self._spinner = spinner
-        self._pending_mid: str | None = None
-        self._pending_line: str | None = None
-        self._pending_at: float = 0.0
-        # Settle a paused stream only after it has been silent this long. An
-        # actively-streaming message (token beats arriving faster than this)
-        # is therefore shown as ONE settled line, never the 200 mid-stream
-        # fragments the copilot/codex delta stream used to spray.
-        self._idle_commit_after = 0.5
-
-    def _raw_print(self, line: str, *, typewriter: bool = False) -> None:
-        self._spinner.clear()
-        if typewriter:
-            _type_out_line(line)
-        else:
-            print(line, flush=True)
-
-    def _commit_pending(self) -> None:
-        if self._pending_line is not None:
-            # The settled reasoning/verdict line types out for an AI feel;
-            # tool/command lines (handled in feed) stay instant.
-            self._raw_print(self._pending_line, typewriter=True)
-        self._pending_mid = None
-        self._pending_line = None
-
-    def feed(self, event: dict[str, Any], rendered: str | None) -> None:
-        """Handle one rendered event line (``None`` = nothing to show)."""
-        # Keep the idle spinner's ROLE honest: record which role is really
-        # acting now so a silent gap animates that role's own vocabulary. We do
-        # NOT surface the log text itself (it just repeats the scrollback).
-        layer = str(event.get("agent_layer") or "").strip().lower() or None
-        self._spinner.set_activity(layer)
-        if rendered is None:
-            return
-        mid = str(event.get("message_id") or "")
-        if bool(event.get("replace")) and mid:
-            # A streamed chunk. Start-of-new-message flushes the previous one;
-            # within one message keep the LONGEST rendering seen (the backend
-            # ends with a full copy, so this converges on the complete text and
-            # is robust whether beats are growing prefixes or raw fragments).
-            if self._pending_mid is not None and mid != self._pending_mid:
-                self._commit_pending()
-            if self._pending_line is None or len(rendered) >= len(self._pending_line):
-                self._pending_line = rendered
-            self._pending_mid = mid
-            self._pending_at = time.monotonic()
-            return
-        # A complete line: commit any in-flight streamed message first so
-        # ordering is preserved, then print this one instantly.
-        self._commit_pending()
-        self._raw_print(rendered)
-
-    def flush_idle(self) -> None:
-        """Deliberately a NO-OP. A streamed message is settled only when the
-        NEXT message starts (new message_id), a non-replace line arrives, or on
-        :meth:`flush` (exit / completion) — combined with keep-longest, that
-        yields exactly one full line per message. Committing on an idle gap
-        used to split a SLOW real stream (token beats arriving seconds apart)
-        back into the very fragments this coalescer exists to remove."""
-        return
-
-    def flush(self) -> None:
-        """Commit any held line (tail exit / completion / Ctrl-C)."""
-        self._commit_pending()
-
-
-def tail_mission_events(
-    life_dir: Path | str,
-    item_id: str,
+def _manager_divide_user_task(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
     *,
-    timeout: float = 600.0,
-    theme: Any = None,
-) -> dict[str, Any] | None:
-    """Attach to the daemon by tailing ``<life_dir>/events.jsonl`` for one item.
-
-    Polls the event log (seek + offset; tolerant of a missing file and of
-    partial / malformed lines), filters to events whose ``item_id`` matches
-    ``item_id``, and renders each relevant event with the shared follow
-    formatter (:func:`apps.cli._follow._format_follow_event`) so the REPL and
-    the standalone ``--follow`` view print identically.
-
-    Returns the ``life.mission.completed`` event dict when seen. Returns
-    ``None`` on timeout (does not raise) and on ``KeyboardInterrupt`` (the user
-    stops *observing* — the mission keeps running in the daemon).
-    """
-    from ..apps.cli._follow import (
-        _follow_layer_from_event,
-        _format_follow_event,
-        _read_backlog_rows,
-        _select_backlog_row_by_id,
-    )
-
-    events_path = Path(life_dir) / "events.jsonl"
-    backlog_path = Path(life_dir) / "backlog.jsonl"
-    deadline = time.monotonic() + max(0.0, float(timeout))
-    offset = 0
-    current_layer = "engineer"
-    current_mission: dict[str, str] = {"item_id": str(item_id), "title": "", "objective": ""}
-    last_review: dict[str, Any] | None = None
-    # An -ing status line animates during the idle gaps so the wait never looks
-    # like a frozen blinking cursor (this passive tail is the fallback path;
-    # the live role panel is the default when attached to a real terminal,
-    # see ARGUS_SKILL_FOLLOW_LIVE).
-    spinner = _TailWaitSpinner(theme)
-    printer = _TailPrinter(spinner)
-    # We read from the start of the log and rely on the ``item_id`` filter to
-    # isolate this mission. The backlog item was just enqueued with a freshly
-    # minted id, so no earlier mission's events can collide — making this both
-    # correct in production and naturally testable (a pre-written completed
-    # event for this id is found immediately).
-
-    try:
-        while time.monotonic() < deadline:
-            try:
-                with events_path.open("r", encoding="utf-8") as fh:
-                    fh.seek(offset)
-                    chunk = fh.read()
-                    offset = fh.tell()
-            except FileNotFoundError:
-                spinner.tick()
-                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
-                continue
-            except OSError:
-                spinner.tick()
-                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
-                continue
-
-            saw_event = False
-            for raw_line in chunk.splitlines():
-                line = raw_line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(event, dict):
-                    continue
-                ev_item = str(event.get("item_id") or "")
-                # Render this mission's events AND the unlabelled engineer/reviewer
-                # progress stream (engineer.progress carries no item_id) — that
-                # stream is what shows "what it's doing" live. Only skip events
-                # clearly tagged for a DIFFERENT item.
-                if ev_item and ev_item != str(item_id):
-                    continue
-                saw_event = True
-                current_layer = _follow_layer_from_event(event, current_layer)
-                if str(event.get("type") or "") in {"life.mission.started", "life.mission.completed"}:
-                    ctx_item_id = str(
-                        event.get("item_id") or current_mission.get("item_id") or item_id
-                    )
-                    title = str(event.get("title") or current_mission.get("title") or "")
-                    objective = str(
-                        event.get("objective") or current_mission.get("objective") or ""
-                    )
-                    if ctx_item_id:
-                        row = _select_backlog_row_by_id(
-                            _read_backlog_rows(backlog_path),
-                            ctx_item_id,
-                        )
-                        if row is not None:
-                            title = str(row.get("title") or title)
-                            objective = str(row.get("objective") or objective)
-                    current_mission = {
-                        "item_id": ctx_item_id,
-                        "title": title,
-                        "objective": objective,
-                    }
-                if str(event.get("type") or "") == "round.review.completed":
-                    last_review = event
-                rendered = _format_follow_event(
-                    event,
-                    current_layer,
-                    mission_context=current_mission,
-                    theme=theme,
-                )
-                printer.feed(event, rendered)
-                if str(event.get("type") or "") == "life.mission.completed":
-                    # Attach the most recent reviewer verdict so the caller can
-                    # surface the reviewer's conclusion (the sole done-ness
-                    # authority) alongside the bare mission status — not just
-                    # the engineer's last word.
-                    if last_review is not None:
-                        event.setdefault("_last_review", last_review)
-                    printer.flush()
-                    spinner.clear()
-                    return event
-            # Only sleep when we drained the file without progress; if the
-            # daemon is writing quickly we loop straight back and keep up.
-            if not saw_event:
-                printer.flush_idle()
-                spinner.tick()
-                _sleep_until(deadline, _TAIL_SPIN_INTERVAL)
-        printer.flush()
-        spinner.clear()
-        return None
-    except KeyboardInterrupt:
-        printer.flush()
-        spinner.clear()
-        note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
-        print(theme.gray(note) if theme is not None else note, flush=True)
-        return None
-
-
-def _sleep_until(deadline: float, interval: float) -> None:
-    """Sleep ``interval`` seconds but never past ``deadline`` (monotonic)."""
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        return
-    time.sleep(min(interval, remaining))
-
-
-def follow_mission_live_roles(
-    life_dir: Path | str,
-    item_id: str | None,
-    *,
-    theme: Any = None,
-    timeout: float = 3600.0,
-    header: str | None = None,
-) -> dict[str, Any] | None:
-    """Live multi-agent view: pin the four-role panel and refresh it in place
-    while a mission runs, so the operator watches Engineer / Reviewer / Planner /
-    Manager work in real time WITHOUT typing ``/roles watch``.
-
-    Reuses the ``/roles`` panel (per-role backend/model/effort + current
-    activity, active role highlighted) driven off ``events.jsonl``. Press
-    ``Ctrl+O`` to unfold a live, coalesced reasoning feed under the panel (the
-    agents' thinking, streamed fragments collapsed into clean lines); press it
-    again to collapse back to the dashboard. Detects the mission's
-    ``life.mission.completed`` (attaching the last reviewer verdict as
-    ``_last_review``) and returns it; ``None`` on Ctrl-C / timeout (the daemon
-    keeps running). TTY-only — the caller falls back to the scrolling tail for
-    non-interactive / piped output.
-    """
-    import select as _select
-    import shutil
-    from collections import deque as _deque
-
-    from ..apps.cli._follow import (
-        _follow_layer_from_event,
-        _format_follow_event,
-    )
-    from ..cli.roles_status import (
-        _clip_ansi_line,
-        _disp_width,
-        render_roles_snapshot,
-        role_activity,
-        role_paint,
-    )
-
-    life_dir = Path(life_dir)
-    events_path = life_dir / "events.jsonl"
-    deadline = time.monotonic() + max(0.0, float(timeout))
-    offset = 0
-    last_review: dict[str, Any] | None = None
-    completed: dict[str, Any] | None = None
-    prev_lines = 0
-    # ── Ctrl+O expand: a reasoning pane pinned UNDER the role panel ──
-    # Each agent message is accumulated by message_id (robust to both growing-
-    # prefix and raw-fragment stream shapes) and shown as ONE clean, wrapped
-    # line once it settles — no live typing, no half-word fragments, no
-    # duplicates. The in-flight message stays hidden until it completes; the
-    # panel + animated verb line cover the "still thinking" window.
-    expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
-    committed: "_deque[tuple[str, str]]" = _deque(maxlen=400)  # (role, plain line)
-    current_layer = "engineer"
-    pane_start = time.monotonic()  # anchors the -ing verb rotation
-    # Accumulate the in-flight message until it settles:
-    _cur = {"mid": None, "role": "engineer", "text": ""}
-    # Scrollback: `off` = visual rows scrolled UP from the bottom (0 = follow the
-    # latest). Cache the wrapped rows so we don't re-wrap all history every tick.
-    scroll = {"off": 0, "prev_total": 0, "budget": 10}
-    _vcache: dict[str, Any] = {"n": -1, "w": -1, "rows": []}
-
-    def _accumulate(prev: str, new: str) -> str:
-        # Robust to BOTH stream shapes: growing prefixes (replace with the fuller
-        # copy) and raw non-overlapping fragments (append). A shorter stale
-        # duplicate is ignored.
-        new = new or ""
-        if not prev:
-            return new
-        if new.startswith(prev):
-            return new
-        if prev.startswith(new):
-            return prev
-        return prev + new
-
-    def _settle_current() -> None:
-        """Move the in-flight streaming message into history as one clean line
-        (JSON verdicts parsed via the shared formatter), then reset."""
-        text = str(_cur["text"] or "")
-        if _cur["mid"] is not None and text.strip():
-            ev = {
-                "type": "engineer.progress", "kind": "agent_message",
-                "text": text, "agent_layer": _cur["role"],
-            }
-            line = _format_follow_event(ev, str(_cur["role"]), theme=None, full=True)
-            if line:
-                committed.append((str(_cur["role"]), line))
-        _cur["mid"] = None
-        _cur["text"] = ""
-
-    def _feed_pane(ev: dict) -> None:
-        nonlocal current_layer
-        current_layer = _follow_layer_from_event(ev, current_layer)
-        etype = str(ev.get("type") or "")
-        if etype == "engineer.progress" and str(ev.get("kind") or "") == "agent_message":
-            mid = str(ev.get("message_id") or "")
-            text = str(ev.get("text") or "")
-            if bool(ev.get("replace")) and mid:
-                if _cur["mid"] is not None and mid != _cur["mid"]:
-                    _settle_current()  # a new message started → settle the old
-                _cur["mid"] = mid
-                _cur["role"] = current_layer
-                _cur["text"] = _accumulate(str(_cur["text"] or ""), text)
-                return
-            # A non-replace complete agent_message: settle any in-flight one, then
-            # add this whole message as history.
-            _settle_current()
-            line = _format_follow_event(dict(ev), current_layer, theme=None, full=True)
-            if line:
-                committed.append((current_layer, line))
-            return
-        # Any other rendered event (tool / command / reasoning / planner verdict):
-        # settle the in-flight thought first so ordering is preserved.
-        line = _format_follow_event(ev, current_layer, theme=None, full=True)
-        if line:
-            _settle_current()
-            committed.append((current_layer, line))
-
-    # Raw-cbreak keyboard so Ctrl+O is caught without Enter (ISIG kept, so Ctrl+C
-    # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
-    _kbd_fd: int | None = None
-    _kbd_old = None
-    _mouse_on = False
-    _mouse_enabled = _env_flag("ARGUS_SKILL_FOLLOW_MOUSE", True)
-    try:
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            import termios
-            import tty
-            _kbd_fd = sys.stdin.fileno()
-            _kbd_old = termios.tcgetattr(_kbd_fd)
-            tty.setcbreak(_kbd_fd)
-            if _mouse_enabled:
-                # Enable button + SGR mouse reporting so the wheel scrolls the
-                # pane (buttons 64/65). SGR (1006) is text-safe to parse.
-                # ARGUS_SKILL_FOLLOW_MOUSE=0 disables it (keeps native text
-                # selection / copy) — then use the keyboard scroll keys.
-                sys.stdout.write("\x1b[?1000h\x1b[?1006h")
-                sys.stdout.flush()
-                _mouse_on = True
-    except Exception:  # noqa: BLE001 — keyboard is optional; never break observing
-        _kbd_fd = None
-
-    # Braille spinner pinned in the panel header so the view visibly ANIMATES
-    # even before the daemon claims the task / emits its first event — otherwise
-    # the pre-first-event window is a static idle panel that feels frozen. Fall
-    # back to an ASCII spinner if the shared frames are unavailable.
-    try:
-        from ..cli.live_status import FRAMES as _SPIN_FRAMES
-    except Exception:  # noqa: BLE001 — the spinner must never break observing
-        _SPIN_FRAMES = "|/-\\"
-    frame_i = 0
-    # Animate at the ONE shared braille cadence (see _TAIL_SPIN_INTERVAL) so
-    # every spinner in the CLI spins at an identical frequency; each tick still
-    # drains events, so completion detection stays responsive.
-    tick = _TAIL_SPIN_INTERVAL
-
-    def _daemon_right() -> str:
-        try:
-            from ..daemon.life_worker import read_daemon_status
-            st = read_daemon_status(life_dir)
-            if getattr(st, "alive", False) and getattr(st, "pid", None):
-                s = f"● daemon {st.pid}"
-                return theme.bold_green(s) if theme is not None else s
-        except Exception:  # noqa: BLE001
-            pass
-        s = "○ no daemon"
-        return theme.gray(s) if theme is not None else s
-
-    def _verb_line(width: int, glyph: str) -> str:
-        """The ALWAYS-animated bottom line: a spinning braille glyph + a
-        rotating -ing verb. When a role is actively working it names that role
-        in its colour (``⠹ Planner planning…``); otherwise it rotates a neutral
-        standing-by phrase so this line is NEVER static — the glyph advances
-        every redraw and the word rotates, so there is always visible motion
-        even between steps."""
-        try:
-            acts = role_activity(life_dir)
-        except Exception:  # noqa: BLE001
-            acts = {}
-        active = next(
-            (r for r, a in acts.items() if getattr(a, "active", False)), None
-        )
-        step = int((time.monotonic() - pane_start) / _TAIL_PHRASE_INTERVAL)
-        g = theme.bold_cyan(glyph) if theme is not None else glyph
-        if active:
-            title = _TAIL_ROLE_TITLES.get(active, active.title())
-            verbs = _TAIL_ROLE_VERBS.get(active) or ("working",)
-            label = f"{title} {verbs[step % len(verbs)]}…"
-            if theme is not None:
-                label = role_paint(theme, active, label)
-        else:
-            phrase = _PANE_IDLE_VERBS[step % len(_PANE_IDLE_VERBS)]
-            label = f"{phrase[:1].upper()}{phrase[1:]}…"
-            if theme is not None:
-                label = theme.gray(label)
-        line = f"  {g} {label}"
-        return _clip_ansi_line(line, max(1, width - 1)) if theme is not None \
-            else line[: max(1, width - 1)]
-
-    def _build_block(width: int, spin_p: str, glyph: str) -> str:
-        panel = render_roles_snapshot(
-            life_dir, theme, width=width,
-            header_right=spin_p + "  " + _daemon_right(),
-        )
-        lines: list[str] = [panel]
-        if _kbd_fd is not None:
-            if expanded:
-                rows = shutil.get_terminal_size((80, 24)).lines
-                panel_h = panel.count("\n") + 1
-                # Reserve rows for: separator, up/down indicators, verb line.
-                budget = max(3, rows - panel_h - 6)
-                scroll["budget"] = budget
-                # (Re)wrap ALL settled history — cached by (count, width) so we
-                # only re-wrap when a message settles or the terminal resizes.
-                if _vcache["n"] != len(committed) or _vcache["w"] != width:
-                    v: list[str] = []
-                    for role, plain in committed:
-                        for vr in _wrap_plain(plain, max(8, width - 1)):
-                            v.append(role_paint(theme, role, vr)
-                                     if theme is not None else vr)
-                    _vcache["rows"] = v
-                    _vcache["n"] = len(committed)
-                    _vcache["w"] = width
-                visual: list[str] = _vcache["rows"]
-                total = len(visual)
-                # Keep a scrolled-up view anchored as new rows arrive at the
-                # bottom (don't yank the operator back down); when following
-                # (off==0) stay pinned to the latest.
-                if scroll["off"] > 0 and total > scroll["prev_total"]:
-                    scroll["off"] += total - scroll["prev_total"]
-                scroll["prev_total"] = total
-                max_off = max(0, total - budget)
-                scroll["off"] = max(0, min(scroll["off"], max_off))
-                off = scroll["off"]
-                end = total - off
-                start = max(0, end - budget)
-                window = visual[start:end]
-
-                title = "  ── reasoning · Ctrl+O collapse"
-                if total > budget:
-                    title += " · wheel·↑↓·PgUp/PgDn scroll" + (
-                        " · End=latest" if off > 0 else "")
-                title += " "
-                sep = title + "─" * max(0, width - _disp_width(title) - 1)
-                lines.append(theme.gray(sep) if theme is not None else sep)
-
-                if window:
-                    if start > 0:
-                        ind = f"  ▲ {start} more line(s) above"
-                        lines.append(theme.dim(ind) if theme is not None else ind)
-                    lines.extend(window)
-                    if off > 0:
-                        ind = f"  ▼ {off} more below · press End/G to follow"
-                        lines.append(theme.dim(ind) if theme is not None else ind)
-                else:
-                    hint = "  (waiting for the agents' first thoughts…)"
-                    lines.append(theme.gray(hint) if theme is not None else hint)
-                lines.append(_verb_line(width, glyph))
-            else:
-                lines.append(_verb_line(width, glyph))
-                hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
-                lines.append(theme.dim(hint) if theme is not None else hint)
-        return "\n".join(lines)
-
-    if header:
-        print(theme.gray(header) if theme is not None else header, flush=True)
-    try:
-        sys.stdout.write("\x1b[?25l")  # hide cursor during in-place redraw
-        sys.stdout.flush()
-        while time.monotonic() < deadline:
-            # Drain new events to spot completion + the latest reviewer verdict,
-            # and feed the coalescer that powers the Ctrl+O reasoning pane.
-            try:
-                with events_path.open("r", encoding="utf-8") as fh:
-                    fh.seek(offset)
-                    chunk = fh.read()
-                    offset = fh.tell()
-            except OSError:
-                chunk = ""
-            for raw in chunk.splitlines():
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    ev = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(ev, dict):
-                    continue
-                _feed_pane(ev)
-                t = str(ev.get("type") or "")
-                if t == "round.review.completed":
-                    last_review = ev
-                if t == "life.mission.completed":
-                    ev_item = str(ev.get("item_id") or "")
-                    if not item_id or not ev_item or ev_item == str(item_id):
-                        completed = ev
-                        # Settle the last in-flight thought so it appears in the
-                        # final frame (mission end is a safe settle point — not
-                        # mid-stream, so it can't re-fragment).
-                        _settle_current()
-            spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
-            frame_i += 1
-            spin_p = theme.bold_cyan(spin) if theme is not None else spin
-            # Re-queried every redraw, not hoisted above the loop — the
-            # operator can resize their terminal WHILE a mission runs, and a
-            # width baked in once at function entry would wrap this padded
-            # header line on the next redraw, undercounting ``n`` below and
-            # desyncing the "move up N rows" erase (same class of bug fixed
-            # for the idle-prompt panel via ``Theme.live_width``).
-            width = theme.live_width() if theme is not None else 80
-            block = _build_block(width, spin_p, spin)
-            n = block.count("\n") + 1
-            if prev_lines:
-                # cursor up + clear to end of screen (robust against any wrap)
-                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
-            sys.stdout.write(block + "\n")
-            sys.stdout.flush()
-            prev_lines = n
-            if completed is not None:
-                if last_review is not None:
-                    completed.setdefault("_last_review", last_review)
-                return completed
-            # Wait up to `tick`, waking early on a keystroke so Ctrl+O is snappy.
-            if _kbd_fd is not None:
-                try:
-                    r, _, _ = _select.select([_kbd_fd], [], [], tick)
-                except (OSError, ValueError):
-                    r = []
-                if r:
-                    try:
-                        data = os.read(_kbd_fd, 256)
-                    except OSError:
-                        data = b""
-                    if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
-                        expanded = not expanded
-                    if expanded:
-                        # Scrollback controls (arrows + PgUp/PgDn + Home/End,
-                        # plus vim-style k/j/g/G, plus the mouse wheel). `off` is
-                        # measured from the bottom; End/G resumes following.
-                        pg = max(1, scroll["budget"] - 1)
-                        if b"\x1b[A" in data or b"k" in data:
-                            scroll["off"] += 1
-                        if b"\x1b[B" in data or b"j" in data:
-                            scroll["off"] -= 1
-                        if b"\x1b[5~" in data:            # PageUp
-                            scroll["off"] += pg
-                        if b"\x1b[6~" in data:            # PageDown
-                            scroll["off"] -= pg
-                        # Mouse wheel (SGR 1006): button 64 = up, 65 = down.
-                        scroll["off"] += 3 * (data.count(b"\x1b[<64;"))
-                        scroll["off"] -= 3 * (data.count(b"\x1b[<65;"))
-                        if b"\x1b[H" in data or b"\x1b[1~" in data or b"g" in data:
-                            scroll["off"] = 10 ** 9       # top (clamped on render)
-                        if b"\x1b[F" in data or b"\x1b[4~" in data or b"G" in data:
-                            scroll["off"] = 0             # follow the latest
-                        if scroll["off"] < 0:
-                            scroll["off"] = 0
-            else:
-                time.sleep(tick)
-        return None
-    except KeyboardInterrupt:
-        note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
-        print(theme.gray(note) if theme is not None else note, flush=True)
-        return None
-    finally:
-        _settle_current()  # don't lose the last in-flight thought on exit
-        if _mouse_on:
-            try:
-                sys.stdout.write("\x1b[?1006l\x1b[?1000l")  # disable mouse tracking
-                sys.stdout.flush()
-            except Exception:  # noqa: BLE001
-                pass
-        if _kbd_fd is not None and _kbd_old is not None:
-            try:
-                import termios
-                termios.tcsetattr(_kbd_fd, termios.TCSADRAIN, _kbd_old)
-            except Exception:  # noqa: BLE001
-                pass
-        try:
-            sys.stdout.write("\x1b[?25h")  # restore cursor
-            sys.stdout.flush()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-
-
-def _follow_events_stream(
-    life_dir: Path | str,
-    *,
-    theme: Any = None,
-    header: str | None = None,
-    until_item_id: str | None = None,
-    until_first_completion: bool = False,
-) -> dict[str, Any] | None:
-    """Stream-render ``events.jsonl`` until Ctrl-C (REPL ``--follow`` loop).
-
-    Shared by continuous free-text mode and ``/run`` so the REPL has a single
-    live-tail implementation. Mirrors the standalone
-    :func:`apps.cli._core._cmd_follow` loop but renders every item (no
-    per-item filter) and returns cleanly to the REPL on ``KeyboardInterrupt``.
-
-    When ``until_item_id`` is given, stop tailing as soon as THAT item's
-    ``life.mission.completed`` arrives and return it (with the last
-    ``round.review.completed`` attached as ``_last_review``) — so a blocked
-    verdict can be surfaced to the operator instead of scrolling past while the
-    follow loop keeps spinning. Returns ``None`` on Ctrl-C / no match.
-    """
-    from ..apps.cli._follow import (
-        _follow_layer_from_event,
-        _format_follow_event,
-        _read_backlog_rows,
-        _select_backlog_row_by_id,
-    )
-
-    events_path = Path(life_dir) / "events.jsonl"
-    backlog_path = Path(life_dir) / "backlog.jsonl"
-    if header:
-        print(theme.gray(header) if theme is not None else header, flush=True)
-    fh = None
-    current_layer = "engineer"
-    current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
-    last_review: dict[str, Any] | None = None
-    # -ing status line during the idle gaps: this passive tail is the DEFAULT
-    # follow path, so without it the pre-first-event wait is a frozen blinking
-    # cursor. Cleared before every real event line and on exit.
-    spinner = _TailWaitSpinner(theme)
-    printer = _TailPrinter(spinner)
-    try:
-        # Wait for the log to exist, then seek to its end so we only show
-        # events produced from now on.
-        while fh is None:
-            try:
-                fh = events_path.open("r", encoding="utf-8")
-                fh.seek(0, os.SEEK_END)
-            except FileNotFoundError:
-                spinner.tick()
-                time.sleep(_TAIL_SPIN_INTERVAL)
-            except OSError:
-                return None
-        while True:
-            line = fh.readline()
-            if not line:
-                printer.flush_idle()
-                spinner.tick()
-                time.sleep(_TAIL_SPIN_INTERVAL)
-                # Re-open on rotation (events.jsonl → events.jsonl.1).
-                try:
-                    if events_path.stat().st_ino != os.fstat(fh.fileno()).st_ino:
-                        fh.close()
-                        fh = events_path.open("r", encoding="utf-8")
-                except OSError:
-                    pass
-                continue
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            if not isinstance(event, dict):
-                continue
-            if str(event.get("type") or "") in {"life.mission.started", "life.mission.completed"}:
-                item_id = str(event.get("item_id") or current_mission.get("item_id") or "")
-                title = str(event.get("title") or current_mission.get("title") or "")
-                objective = str(
-                    event.get("objective") or current_mission.get("objective") or ""
-                )
-                if item_id:
-                    row = _select_backlog_row_by_id(
-                        _read_backlog_rows(backlog_path),
-                        item_id,
-                    )
-                    if row is not None:
-                        title = str(row.get("title") or title)
-                        objective = str(row.get("objective") or objective)
-                current_mission = {
-                    "item_id": item_id,
-                    "title": title,
-                    "objective": objective,
-                }
-            if str(event.get("type") or "") == "round.review.completed":
-                last_review = event
-            current_layer = _follow_layer_from_event(event, current_layer)
-            rendered = _format_follow_event(
-                event,
-                current_layer,
-                mission_context=current_mission,
-                theme=theme,
-            )
-            printer.feed(event, rendered)
-            if str(event.get("type") or "") == "life.mission.completed":
-                if until_first_completion or (
-                    until_item_id and str(event.get("item_id") or "") == until_item_id
-                ):
-                    if last_review is not None:
-                        event.setdefault("_last_review", last_review)
-                    printer.flush()
-                    spinner.clear()
-                    return event
-    except KeyboardInterrupt:
-        printer.flush()
-        spinner.clear()
-        note = "\n(stopped following — daemon keeps running; /status to check)"
-        print(theme.gray(note) if theme is not None else note, flush=True)
-    finally:
-        printer.flush()
-        spinner.clear()
-        if fh is not None:
-            try:
-                fh.close()
-            except OSError:
-                pass
-
-
-# ---------------------------------------------------------------------------
-# Slash-command helpers (in-process; mirror the public CLI subcommands)
-# ---------------------------------------------------------------------------
-
-def _add_only(
-    mem: _CommonMemory,
-    text: str,
-    *,
-    priority: int = 100,
-    iterate: bool = True,
-    iteration_max_cycles: int = 6,
-    iteration_budget_usd: float = 30.0,
-) -> BacklogItem:
-    item = add_backlog_item(
+    theme: object | None = None,
+    root_task_id: str | None = None,
+) -> None:
+    return _manager_divide_user_task_impl(
         mem,
-        text,
-        priority=priority,
-        iterate=iterate,
-        iteration_max_cycles=iteration_max_cycles,
-        iteration_budget_usd=iteration_budget_usd,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+        ensure_runner=_ensure_manager_runner,
     )
-    print(format_added_item(item), flush=True)
-    return item
 
 
-def _backend_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
-    print(render_backend_cmd(tokens, chat_state))
-
-
-def _continuous_session_error(
-    backend: str,
-    continuous: bool,
-    objective: str,
-) -> str:
-    return _shared_continuous_session_error(backend, continuous, objective)
-
-
-_CONFIG_DEFAULTS: dict[str, Any] = {
-    "iterate": True,
-    "cycles": 6,
-    "budget": 30.0,
-    "per_mission_cap": 30.0,
-    "daily_cap": 180.0,
-    "continuous": False,
-    "manager_effort": "xhigh",
-    "planner_effort": "xhigh",
-    "engineer_effort": "xhigh",
-    "reviewer_effort": "xhigh",
-}
-
-_ROLE_EFFORT_ENVS: dict[str, str] = {
-    "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
-    "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
-    "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-    "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-}
-def _live_cockpit_enabled() -> bool:
-    """Default ON: the four-role idle-prompt panel shows automatically —
-    the operator's explicit, standing requirement is that multi-role
-    progress be visible without any manual step (no ``/roles``, no env var).
-    Set ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back OUT to the plain prompt
-    (e.g. for scripting/logging where a redrawing panel is unwanted)."""
-    return _env_flag("ARGUS_SKILL_COCKPIT_LIVE", True)
-
-
-def _live_follow_enabled() -> bool:
-    """Default ON: watching a mission run shows the live four-role panel —
-    same reasoning as ``_live_cockpit_enabled``. Set
-    ``ARGUS_SKILL_FOLLOW_LIVE=0`` to opt back OUT to the plain scrolling
-    event tail."""
-    return _env_flag("ARGUS_SKILL_FOLLOW_LIVE", True)
-
-
-_ROLE_BACKEND_ENVS: dict[str, str] = {
-    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
-    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
-    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
-    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
-}
-_ROLE_MODEL_ENVS: dict[str, str] = {
-    # Manager REPL triage reuses the engineer route/model (see
-    # ``_ensure_manager_runner`` and ``cli.roles_status._ROLE_MODEL_ENV``).
-    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
-    "planner": "ARGUS_SKILL_PLAN_MODEL",
-    "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
-    "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
-}
-def _settings_cmd(chat_state: dict[str, Any]) -> None:
-    """The full runtime-settings view rendered by ``/config`` (no args): every
-    role's backend/model/effort plus every ``ARGUS_*`` knob, grouped, marking
-    which are editable by natural language (leading ``NL``) vs which need an env
-    var. The one in-REPL view covering EVERYTHING NL can change (incl. the
-    safe_mode / show_reasoning / telegram toggles ``/roles`` doesn't show)."""
-    from functools import partial
-
-    from ..cli.roles_status import _paint
-    from ..core.config_snapshot import build_config_snapshot
-    from ..core.knobs import cockpit_editable_names
-
-    theme = chat_state.get("theme")
-    _p = partial(_paint, theme)  # reuse roles_status' theme-duck-typing helper
-
-    try:
-        snap = build_config_snapshot()
-    except Exception:  # noqa: BLE001 — a display command, never fatal
-        log.exception("repl: /config settings view failed to build config snapshot")
-        print(_p("gray", "  (failed to render settings)"), flush=True)
-        return
-
-    # NL-changeable env names = the cockpit-editable surface (single source of
-    # truth: the cockpit=True flag in knobs.py). Deriving it here keeps this marker
-    # set from drifting against the switch handlers — it correctly excludes
-    # curator/matcher/LIFE_BACKEND, which no recognizer sets.
-    nl = set(cockpit_editable_names())
-
-    out: list[str] = [""]
-    out.append("  " + _p("bold", "Argus runtime settings"))
-    out.append("  " + _p("dim",
-        "Editable by natural language: model, effort, backend, per-mission cap, "
-        "daily cap, daemon limit, provider request caps, safe_mode, "
-        "show_reasoning, telegram"))
-    out.append("  " + _p("dim",
-        "Others: export ARGUS_SKILL_*  (full list: argus-skill --config-help)"))
-    out.append("")
-
-    # Session-only defaults (REPL-local; the *_cap here are the per-cockpit
-    # dispatch defaults, separate from the ARGUS_SKILL_*_CAP_USD knobs below).
-    cfg = chat_state.get("config") or {}
-    sess = []
-    for key in ("cycles", "iterate", "continuous", "budget",
-                "per_mission_cap", "daily_cap"):
-        if key in cfg:
-            v = cfg[key]
-            v = ("on" if v else "off") if isinstance(v, bool) else v
-            sess.append(f"{key}={v}")
-    if sess:
-        out.append("  " + _p("gray", "session (this cockpit):  ")
-                   + _p("dim", "   ".join(sess)))
-        out.append("")
-
-    # Roles table (backend / model / effort are all NL-changeable).
-    roles = snap.get("roles", [])
-    rw = max((len(str(r.get("role", ""))) for r in roles), default=8) + 2
-    bw = max((len(str(r.get("backend_label", r.get("backend", "")))) for r in roles),
-             default=7) + 2
-    mw = max((len(str(r.get("model", ""))) for r in roles), default=14) + 2
-    out.append("  " + _p("gray",
-        "role".ljust(rw) + "backend".ljust(bw) + "model".ljust(mw) + "effort"))
-    for r in roles:
-        eff = r.get("reasoning_effort")
-        eff = str(eff) if eff not in (None, "") else "—"
-        out.append("  " + str(r.get("role", "")).ljust(rw)
-                   + str(r.get("backend_label", r.get("backend", ""))).ljust(bw)
-                   + str(r.get("model", "")).ljust(mw) + eff)
-    out.append("")
-
-    # Knobs — grouped; a leading "NL" marks the NL-changeable ones.
-    out.append("  " + _p("gray", "Knobs  (leading NL = editable by natural language)"))
-    knobs = snap.get("operator_knobs", [])
-    width = max((len(k.get("name", "")) for k in knobs), default=30)
-    groups: dict[str, list] = {}
-    for k in knobs:  # collect by group so each [header] prints exactly once
-        groups.setdefault(str(k.get("group", "")), []).append(k)
-    for g, items in groups.items():
-        out.append("   " + _p("dim", f"[{g}]"))
-        for k in items:
-            is_nl = k.get("name") in nl
-            mark = _p("green", "NL") if is_nl else "  "
-            nm = str(k.get("name", "")).ljust(width)
-            nm = nm if is_nl else _p("dim", nm)
-            out.append(f"     {mark}  {nm}  {str(k.get('value', ''))}")
-
-    out.append("")
-    out.append("  " + _p("dim", "To change:  NL rows — say it in plain language "
-                                "(e.g. \"把单任务预算改成 50\", \"enable safe mode\");"))
-    out.append("  " + _p("dim", "            others — export ARGUS_SKILL_…, "
-                                "or /config <key>=<value>."))
-    out.append("")
-    print("\n".join(out), flush=True)
-
-
-def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
-                life_dir: Path | None = None) -> None:
-    """``/config [key=value ...]`` — view or change REPL-session defaults.
-
-    With NO args, renders the full runtime-settings view (:func:`_settings_cmd`):
-    every role's backend/model/effort + every ARGUS_* knob, marking which are
-    natural-language-editable. With ``key=value`` args, sets the REPL-session
-    default. The ``continuous`` key is also persisted to disk so the background
-    daemon picks it up.
-    """
-    if not tokens:
-        _settings_cmd(chat_state)
-        return
-    print(render_config_cmd(tokens, chat_state, life_dir=life_dir))
-
-
-def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
-    if not tokens:
-        print(render_identity_cmd(mem, tokens, rest_text, empty_hint="edit"))
-        return
-    sub = tokens[0].lower()
-    if sub == "edit":
-        print("Enter new identity card. End with a single '.' on its own line:")
-        lines: list[str] = []
-        while True:
-            try:
-                ln = input("> ")
-            except (EOFError, KeyboardInterrupt):
-                print("\n(aborted, identity unchanged)")
-                return
-            if ln.strip() == ".":
-                break
-            lines.append(ln)
-        new_text = "\n".join(lines).strip() + "\n"
-        mem.identity.path.write_text(new_text, encoding="utf-8")
-        print(f"identity card updated ({len(lines)} lines)")
-        return
-    print(render_identity_cmd(mem, tokens, rest_text))
-
-
-def _should_autospawn_on_boot(args: argparse.Namespace, mem: Any = None) -> bool:
-    """Whether opening the cockpit should immediately start a daemon.
-
-    ONLY when there is actually work to run: a continuous 7×24 campaign, an
-    explicit ``--objective``, or a resumed session that already has a pending
-    backlog. A plain fresh chat session does NOT spawn a daemon on boot — it
-    spawns one LAZILY on the first real task (see ``_autospawn_daemon_for_task``
-    / ``auto_start_daemon_on_task``), so browsing / chatting / just looking
-    around never leaves an idle daemon behind (one per empty session was the
-    daemon-proliferation the operator hit).
-    """
-    if bool(getattr(args, "no_daemon", False)):
-        return False
-    if (bool(getattr(args, "continuous", False))
-            or bool(getattr(args, "resume_continuous", False))
-            or str(getattr(args, "objective", "") or "").strip()):
-        return True
-    try:
-        if mem is not None and mem.backlog.pending():
-            return True
-    except Exception:  # noqa: BLE001
-        pass
-    return False
+def manager_triage(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    on_phase: Any = None,
+    on_fragment: Any = None,
+    route: str | None = None,
+    root_task_id: str | None = None,
+) -> str | None:
+    return _manager_triage_impl(
+        mem,
+        body,
+        chat_state,
+        on_phase=on_phase,
+        on_fragment=on_fragment,
+        route=route,
+        root_task_id=root_task_id,
+        ensure_runner=_ensure_manager_runner,
+    )
 
 
 def _autospawn_daemon_for_task(
     mem: Any,
     chat_state: dict[str, Any],
 ) -> tuple[bool, int | None]:
-    """Start THIS session's daemon after the first real task is queued.
-
-    The REPL no longer auto-spawns for an empty fresh session, but the daemon is
-    still the sole executor. Once a task exists, start the daemon against the
-    same ``mem`` bundle so it drains the new session, not the legacy cwd project.
-    Fail-soft and report the error through ``chat_state`` for the caller to show.
-    """
-    life_dir = _life_dir_for(mem)
-    alive, pid = _daemon_alive_for(life_dir)
-    if alive:
-        return alive, pid
-    backend = str(
-        chat_state.get("backend")
-        or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    )
-    continuous = bool(chat_state.get("config", {}).get("continuous", False))
-    objective = str(chat_state.get("continuous_objective") or "").strip()
-    try:
-        from ..daemon.life_worker import continuous_mode_error
-        error = continuous_mode_error(backend, continuous, objective)
-        if error:
-            chat_state["daemon_autostart_error"] = error
-            return False, None
-        from ..apps.cli import _build_worker_config
-        from ..daemon.life_worker import wait_for_daemon_status
-
-        cfg_args = argparse.Namespace(
-            backend=backend,
-            continuous=continuous,
-            objective=objective,
-            resume_continuous=continuous,
-            bounded=not bool(chat_state.get("open_ended", True)),
-        )
-        rc = _spawn_daemon_from_cockpit(_build_worker_config(cfg_args, bundle=mem))
-        if rc != 0:
-            chat_state["daemon_autostart_error"] = (
-                f"daemon auto-start failed (rc={rc}); run /doctor"
-            )
-            return False, None
-        st = wait_for_daemon_status(life_dir)
-        if st is not None and getattr(st, "alive", False) and getattr(st, "pid", None):
-            return True, getattr(st, "pid", None)
-        chat_state["daemon_autostart_error"] = (
-            "daemon auto-start returned success but no live pid was confirmed"
-        )
-    except Exception as exc:  # noqa: BLE001
-        chat_state["daemon_autostart_error"] = (
-            f"daemon auto-start skipped: {type(exc).__name__}: {exc}"
-        )
-    return False, None
-
-
-def _continuous_cmd(
-    mem: _SplitMemory,
-    arg_text: str,
-    chat_state: dict[str, Any],
-) -> None:
-    from ..daemon.life_worker import (
-        ContinuousConfigState,
-        continuous_mode_error,
-        read_continuous_config,
-        read_continuous_state,
-        write_continuous_config,
-    )
-
-    tokens = shlex.split(arg_text) if arg_text.strip() else []
-    sub = tokens[0].lower() if tokens else "status"
-    backend = str(chat_state.get("backend", "") or "codex")
-
-    state = chat_state.get("continuous_state")
-    if isinstance(state, ContinuousConfigState):
-        current_objective = state.objective
-    else:
-        _, current_objective = read_continuous_config(mem.project.root)
-
-    if sub in {"start", "on", "enable"}:
-        objective = " ".join(tokens[1:]).strip() or current_objective
-        error = continuous_mode_error(backend, True, objective)
-        if error:
-            print(error)
-            return
-        write_continuous_config(mem.project.root, enabled=True, objective=objective)
-        updated = read_continuous_state(mem.project.root)
-        chat_state["continuous_state"] = updated
-        chat_state["continuous_objective"] = updated.objective
-        chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
-        print(
-            f"continuous: on\n"
-            f"objective: {updated.objective or '(none)'}"
-        )
-        return
-
-    if sub in {"stop", "off", "pause"}:
-        objective = " ".join(tokens[1:]).strip() or current_objective
-        write_continuous_config(mem.project.root, enabled=False, objective=objective)
-        updated = read_continuous_state(mem.project.root)
-        chat_state["continuous_state"] = updated
-        chat_state["continuous_objective"] = updated.objective
-        chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = False
-        print(
-            f"continuous: off\n"
-            f"objective: {updated.objective or '(none)'}"
-        )
-        return
-
-    enabled, objective = read_continuous_config(mem.project.root)
-    chat_state["continuous_state"] = ContinuousConfigState(
-        enabled=enabled,
-        objective=objective,
-    )
-    chat_state["continuous_objective"] = objective
-    print(
-        f"continuous: {'on' if enabled else 'off'}\n"
-        f"objective: {objective or '(none)'}"
-    )
-
-
-def _is_argus_cli_invocation(text: str) -> bool:
-    alias, note = _cockpit_cli_alias(text)
-    return alias is not None or note is not None
-
-
-def _cockpit_cli_alias(text: str) -> tuple[str | None, str | None]:
-    """Map pasted shell invocations to cockpit commands.
-
-    Operators often paste the exact fix shown by a CLI hint (for example
-    ``argus-skill --daemon``) into the already-open cockpit. Treating that as a
-    research task is never useful, so command-shaped input is intercepted before
-    manager triage.
-    """
-    stripped = text.strip()
-    if not stripped:
-        return None, None
-    try:
-        tokens = shlex.split(stripped)
-    except ValueError:
-        return None, None
-    if not tokens:
-        return None, None
-
-    args: list[str]
-    exe = Path(tokens[0]).name
-    if exe in {"argus-skill", "argus"}:
-        args = tokens[1:]
-    elif (
-        len(tokens) >= 3
-        and Path(tokens[0]).name.startswith("python")
-        and tokens[1] == "-m"
-        and tokens[2].replace("-", "_") == "argus_skill"
-    ):
-        args = tokens[3:]
-    else:
-        return None, None
-
-    if not args or any(a in {"-h", "--help"} for a in args):
-        return (
-            "/help",
-            "inside cockpit: using /help instead of queuing a shell command.",
-        )
-    if "--status" in args:
-        return (
-            "/status",
-            "inside cockpit: using /status instead of queuing a shell command.",
-        )
-    if "--daemon-stop" in args:
-        stop_args = []
-        if "--drain" in args:
-            stop_args.append("--drain")
-        if "--force" in args:
-            stop_args.append("--force")
-        suffix = (" " + " ".join(stop_args)) if stop_args else ""
-        return (
-            f"/daemon stop{suffix}",
-            "inside cockpit: using /daemon stop instead of queuing a shell command.",
-        )
-    if "--daemon" in args:
-        return (
-            "/daemon start",
-            "inside cockpit: using /daemon start instead of queuing a shell command.",
-        )
-    if "--follow" in args:
-        return "/run", "inside cockpit: using /run instead of queuing a shell command."
-    if "--watch" in args:
-        return (
-            None,
-            "already in the cockpit. Use /status for state, /run to follow, "
-            "or /help for commands.",
-        )
-    return (
-        None,
-        "this is the cockpit, not a shell. Shell-shaped argus-skill input was "
-        "not queued; use /help.",
+    return _autospawn_daemon_for_task_impl(
+        mem,
+        chat_state,
+        spawn_daemon=_spawn_daemon_from_cockpit,
     )
 
 
@@ -1605,637 +254,55 @@ def _daemon_cmd(
     arg_text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    """``/daemon`` — control the executor bound to this cockpit/session."""
-    try:
-        tokens = shlex.split(arg_text) if arg_text.strip() else []
-    except ValueError as exc:
-        print(f"parse error: {exc}")
-        return
-    sub = tokens[0].lower() if tokens else "status"
-    opts = tokens[1:] if tokens else []
-    life_dir = _life_dir_for(mem)
-
-    from ..apps.cli import _format_short_duration
-    from ..daemon.life_worker import (
-        continuous_mode_error,
-        read_daemon_status,
-        stop_daemon,
-        wait_for_daemon_status,
+    return _daemon_cmd_impl(
+        mem,
+        arg_text,
+        chat_state,
+        spawn_daemon=_spawn_daemon_from_cockpit,
     )
 
-    def _print_status() -> None:
-        st = read_daemon_status(life_dir)
-        if st.alive and st.pid is not None:
-            up = _format_short_duration(st.uptime_seconds or 0.0)
-            # Same relabeling as _status_cmd / --status: st.backend is the
-            # real-vs-memory-test toggle, not the per-role CLI (see /roles).
-            backend_label = "memory (test)" if st.backend == "memory" else "live — see /roles"
-            print(
-                f"daemon: alive (pid {st.pid}, up {up}, "
-                f"backend {backend_label})"
-            )
-        else:
-            print("daemon: not running. Start it with /daemon start")
 
-    if sub in {"status", "show", "ls"}:
-        _print_status()
-        return
-
-    if sub in {"stop", "off", "down"}:
-        rc = stop_daemon(life_dir, drain="--drain" in opts, force="--force" in opts)
-        if rc == 0:
-            print("daemon: stopped")
-        else:
-            print(f"daemon: stop did not complete (rc={rc}); see the message above.")
-        return
-
-    if sub in {"restart", "reload"}:
-        stop_daemon(life_dir, drain="--drain" in opts, force="--force" in opts)
-        sub = "start"
-
-    if sub not in {"start", "on", "up"}:
-        print("usage: /daemon [status|start|stop|restart] [--drain] [--force]")
-        return
-
-    existing = read_daemon_status(life_dir)
-    if existing.alive and existing.pid is not None:
-        up = _format_short_duration(existing.uptime_seconds or 0.0)
-        print(f"daemon: already running (pid {existing.pid}, up {up})")
-        return
-
-    backend = str(
-        chat_state.get("backend")
-        or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    )
-    continuous = bool(chat_state.get("config", {}).get("continuous", False))
-    objective = str(chat_state.get("continuous_objective") or "").strip()
-    if continuous and not objective:
-        # BUG FIX: chat_state["config"]["continuous"] defaults to True for any
-        # ordinary bare launch (see _seed_chat_state's default_continuous —
-        # backend != memory and not --bounded), even when the operator never
-        # typed /continuous start <objective> or --objective. The original
-        # boot-time autospawn (_build_worker_config from CLI args) tolerates
-        # this fine because it reads args.continuous, which is False unless
-        # --continuous was passed. /daemon start|restart used chat_state's
-        # value instead and hard-failed with "--continuous requires a
-        # non-empty --objective" — regressing an already-working daemon to
-        # NO daemon at all on a plain `/daemon restart --drain`. Since there
-        # is no real objective to plan toward yet, don't ask for continuous
-        # planning here; the operator can still turn it on later with
-        # `/continuous start <objective>`.
-        continuous = False
-    error = continuous_mode_error(backend, continuous, objective)
-    if error:
-        print(error)
-        return
-
-    cfg_args = argparse.Namespace(
-        backend=backend,
-        continuous=continuous,
-        objective=objective,
-        resume_continuous=continuous,
-        bounded=not bool(chat_state.get("open_ended", True)),
-    )
-    try:
-        from ..apps.cli import _build_worker_config
-        cfg = _build_worker_config(cfg_args, bundle=mem)
-    except AttributeError:
-        from ..daemon.life_worker import LifeWorkerConfig
-        cfg = LifeWorkerConfig(
-            life_dir=life_dir,
-            global_root=(
-                Path(chat_state["global_root"]) if chat_state.get("global_root") else None
-            ),
-            project_workdir=Path.cwd(),
-            backend=backend,
-            continuous=continuous,
-            continuous_objective=objective,
-            resume_continuous=continuous,
-            continuous_open_ended=bool(chat_state.get("open_ended", True)),
-        )
-
-    rc = _spawn_daemon_from_cockpit(cfg)
-    if rc != 0:
-        print(f"daemon: start failed (rc={rc}). Run /doctor for why + the fix.")
-        tail = _daemon_log_tail(life_dir)
-        if tail:
-            print(tail)
-        return
-    from ..cli.live_status import LiveStatus
-    with LiveStatus(
-        "Starting daemon…",
-        theme=chat_state.get("theme"),
-        phrases=["Starting daemon…", "Waiting for the executor to come online…"],
-        hint="",
-    ):
-        started = wait_for_daemon_status(life_dir)
-    if started is not None and started.alive and started.pid is not None:
-        print(f"daemon: started (pid {started.pid})")
-    else:
-        print(
-            "daemon: spawn returned success but no live pid was confirmed. "
-            "Run /doctor."
-        )
-        tail = _daemon_log_tail(life_dir)
-        if tail:
-            print(tail)
-
-
-def _spawn_daemon_from_cockpit(cfg: Any, *, quiet: bool = True) -> int:
-    """Start a daemon from the cockpit without forking from TUI worker threads."""
-    import threading
-
-    if threading.current_thread() is threading.main_thread():
-        from ..daemon.life_worker import spawn_detached_daemon
-
-        return spawn_detached_daemon(cfg, quiet=quiet)
-
-    import subprocess
-
-    from ..daemon.life_worker import _config_payload
-
-    payload = json.dumps(_config_payload(cfg), ensure_ascii=False)
-    code = (
-        "import json, sys; "
-        "from argus_skill.daemon.life_worker import _config_from_payload, "
-        "spawn_detached_daemon; "
-        "cfg = _config_from_payload(json.loads(sys.stdin.read())); "
-        f"raise SystemExit(spawn_detached_daemon(cfg, quiet={quiet!r}))"
-    )
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", code],
-            input=payload,
-            text=True,
-            capture_output=True,
-            timeout=12,
-            cwd=str(Path.cwd()),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"daemon: helper spawn failed: {type(exc).__name__}: {exc}")
-        return 2
-    if proc.stdout.strip():
-        print(proc.stdout.strip())
-    if proc.stderr.strip():
-        print(proc.stderr.strip())
-    return int(proc.returncode)
-
-
-def _daemon_log_tail(
-    life_dir: Path | str,
+def _front_door_classify(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
     *,
-    max_lines: int = 14,
-    max_chars: int = 3000,
-) -> str:
-    """Small daemon.log tail for failed cockpit starts."""
-    path = Path(life_dir) / "daemon.log"
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return f"daemon log: {path} (not readable yet)"
-    text = text.strip()
-    if not text:
-        return f"daemon log: {path} (empty)"
-    lines = text.splitlines()[-max_lines:]
-    body = "\n".join(lines)
-    if len(body) > max_chars:
-        body = "…" + body[-max_chars:]
-    return f"daemon log tail ({path}):\n{body}"
+    root_task_id: str | None = None,
+) -> tuple[Any, str]:
+    return _front_door_classify_impl(
+        mem,
+        text,
+        chat_state,
+        root_task_id=root_task_id,
+        ensure_runner=_ensure_manager_runner,
+        accepts_keyword=_accepts_keyword,
+    )
 
 
-def _backlog_list_cmd(mem: _CommonMemory, *, include_all: bool) -> None:
-    print(format_backlog_list(mem, include_all=include_all))
-
-
-def _status_change_cmd(mem: _CommonMemory, cmd: str, item_id: str) -> None:
-    print(format_status_change(mem, cmd, item_id))
-
-
-def _journal_tail_cmd(mem: _CommonMemory, n: int) -> None:
-    print(format_journal_tail(mem, n))
-
-
-# Sentinel stored in chat_state when a Manager runner cannot be built (or is
-# not applicable, e.g. the memory backend). Lets us cache the "no front-end
-# triage" decision so we don't retry the build on every line typed.
-_MANAGER_RUNNER_UNAVAILABLE = object()
-
-
-def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
-    """Lazily build (and cache) a Manager-front-end runner for chat triage.
-
-    The runner is used ONLY to classify free text as chat-vs-task and, when
-    chat, to reply in-band BEFORE anything reaches the backlog. It is built
-    once per REPL session and cached on ``chat_state["manager_runner"]``.
-
-    Returns the runner, or ``None`` when front-end triage is not available
-    (memory backend, or a build failure — in which case all free text falls
-    through to the task path unchanged).
-    """
-    cached = chat_state.get("manager_runner")
-    if cached is not None:
-        return None if cached is _MANAGER_RUNNER_UNAVAILABLE else cached
-
-    backend = chat_state.get("backend")
-    # The memory backend has no real LLM runner; never triage — every line is
-    # a task (preserves existing memory-backend behaviour and its tests).
-    if backend == "memory":
-        chat_state["manager_runner"] = _MANAGER_RUNNER_UNAVAILABLE
-        return None
-
-    try:
-        # ``manager_session_root`` MUST match the daemon's own
-        # ``ns.manager_session_root = str(cfg.life_dir)`` (see
-        # ``daemon/life_worker.py:_runner_namespace``) — otherwise this
-        # front-door Manager (built once per REPL session, used for
-        # SELF/TEAM routing + ``divide()``) reads/writes
-        # ``research/PIPELINE_STATE.json`` and ``research/DOMAINS/*.json``
-        # against a DIFFERENT root than the daemon that actually executes
-        # the mission. That mismatch silently drops a Manager-authored
-        # custom domain (e.g. an operator task that doesn't match any
-        # built-in vertical) and logs a spurious
-        # ``load_vertical(...): unknown/half-built vertical`` warning the
-        # next time the daemon resolves the vertical from ITS (correct,
-        # session-scoped) root. ``mem.project_root`` is the per-project
-        # session dir; ``mem.root`` (used below for ``life_dir``, a
-        # differently-scoped, currently-unread-by-this-path field) is the
-        # GLOBAL ``~/.argus-skill`` root — do not conflate the two.
-        session_root = getattr(mem, "project_root", None)
-        ns = argparse.Namespace(
-            backend=backend or "codex",
-            engineer_model=resolve_role_model(
-                "engineer",
-                role_env="ARGUS_SKILL_ENGINEER_MODEL",
-            ),
-            reviewer_model=resolve_role_model(
-                "reviewer",
-                role_env="ARGUS_SKILL_REVIEWER_MODEL",
-            ),
-            engineer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
-            ),
-            reviewer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
-            ),
-            plan_mode="auto",
-            plan_model=None,
-            max_rounds=500,
-            # A web-created session has no operator-selected repository.  Keep
-            # every Manager artifact (vertical, pipeline state, authored domain)
-            # in the same isolated project root the daemon will execute in.
-            # Leaving this as None made the web process use its launch cwd while
-            # the detached daemon used cwd=/, splitting one mission across two
-            # unrelated trees.
-            workdir=str(session_root) if session_root else None,
-            manager_session_root=str(session_root) if session_root else None,
-            project_state_dir=str(session_root) if session_root else None,
-            life_dir=getattr(mem, "root", None),
-            stop_event=None,
-        )
-        from ..apps._runtime import build_life_runner
-
-        runner = build_life_runner(ns)
-    except Exception:  # noqa: BLE001 — triage is best-effort; fall back to task path
-        chat_state["manager_runner"] = _MANAGER_RUNNER_UNAVAILABLE
-        return None
-
-    chat_state["manager_runner"] = runner
-    return runner
-
-
-def _derive_session_name(text: str, *, limit: int = 48) -> str:
-    """Derive a short, human-readable session label from the first real task.
-
-    Codex / Claude-Code name a session after its opening message. We mirror
-    that: take the first non-empty line, collapse whitespace, and truncate.
-    Naming is domain-agnostic plumbing (a picker label), so the harness may do
-    it deterministically — no agent judgment required.
-    """
-    for raw in (text or "").splitlines():
-        line = " ".join(raw.split()).strip()
-        if line:
-            return line if len(line) <= limit else line[: limit - 1] + "…"
-    return ""
-
-
-def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
-    """Name the current session after its first real task (once, fail-soft).
-
-    A resumed session keeps its original name (``session_named`` is already
-    True). Only the first task in a freshly-minted, still-unnamed session sets
-    the display_name shown in the resume picker.
-    """
-    if chat_state.get("session_named"):
-        return
-    sid = chat_state.get("session_id")
-    gr = chat_state.get("global_root")
-    if not sid or gr is None:
-        return
-    name = _derive_session_name(task_text)
-    if not name:
-        return
-    try:
-        from ..core.session import touch_session
-
-        touch_session(gr, sid, display_name=name)
-        chat_state["session_named"] = True
-    except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task
-        pass
-
-
-def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
-    try:
-        from ..life.event_log import JsonlEventSink
-
-        JsonlEventSink(None, life_dir=_life_dir_for(mem)).append(event)
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def _with_manager_spinner(theme: object | None, label: str, fn: Callable[[], Any]) -> Any:
-    """Run blocking ``fn`` while showing the cockpit's manager-tinted braille
-    spinner, so a model round-trip on the TEAM-handoff path never looks frozen.
-    No-op animation on non-TTY / piped / NO_COLOR (LiveStatus gates itself).
-
-    ``fn`` runs EXACTLY once: if the spinner cannot be built we fall back to a
-    bare call, but an exception from ``fn`` itself propagates unchanged."""
-    try:
-        from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD
-
-        cm = LiveStatus(
-            label, theme=theme, accent=ROLE_COLOR_BOLD.get("manager", "magenta")
-        )
-    except Exception:  # noqa: BLE001 — spinner setup only; never mask fn
-        return fn()
-    with cm:
-        return fn()
-
-
-def _manager_divide_user_task(
-    mem: Any, body: str, chat_state: dict[str, Any], *, theme: object | None = None
-) -> None:
-    """Run Manager division for an operator-submitted task before enqueue.
-
-    This is intentionally a USER-ENTRY gate. Planner-generated backlog items are
-    already the Planner's decomposition and must not be routed back through
-    Manager again.
-
-    ``Manager.divide`` makes a blocking model round-trip (``decide_vertical``), so
-    the caller passes ``theme`` to keep the cockpit's spinner animating during it
-    — otherwise the TEAM-handoff window looks frozen.
-    """
-    intent_id = f"intent-{int(time.time() * 1000)}"
-    _emit_manager_event(mem, {
-        "type": "life.manager.intent.started",
-        "agent_layer": "manager",
-        "intent_id": intent_id,
-        "source": "user",
-        "objective": body,
-        "text": "manager interpreting user task",
-    })
-    try:
-        runner = _ensure_manager_runner(chat_state, mem)
-        mgr = getattr(runner, "manager", None) if runner is not None else None
-        if mgr is None:
-            from ..manager import Manager
-
-            # Match the primary path's root (see ``_ensure_manager_runner``):
-            # the session-scoped project dir, NOT the git worktree — so a
-            # degraded (no-runner) divide still persists vertical/domain state
-            # where the daemon's mission execution will actually look for it.
-            mgr = Manager(
-                project_root=getattr(mem, "project_root", None) or Path.cwd(),
-                runner=None,
-            )
-        division = _with_manager_spinner(
-            theme, "Manager choosing the vertical…", lambda: mgr.divide(body, ask_on_new_domain=False)
-        )
-        payload = {
-            "type": "life.manager.intent.completed",
-            "agent_layer": "manager",
-            "intent_id": intent_id,
-            "source": "user",
-            "objective": body,
-            "vertical": getattr(division, "vertical", ""),
-            "kind": getattr(division, "kind", ""),
-            "regular": bool(getattr(division, "regular", False)),
-            "stages": list(getattr(division, "stages", []) or []),
-            "reason": getattr(division, "headline", lambda: "")(),
-            "text": (
-                f"manager interpreted user task as "
-                f"{getattr(division, 'vertical', '')}"
-            ),
-        }
-        _emit_manager_event(mem, payload)
-    except Exception as exc:  # noqa: BLE001
-        payload = {
-            "type": "life.manager.intent.failed",
-            "agent_layer": "manager",
-            "intent_id": intent_id,
-            "source": "user",
-            "objective": body,
-            "error": f"{type(exc).__name__}: {exc}",
-            "text": "manager intent interpretation failed",
-        }
-        _emit_manager_event(mem, payload)
-
-
-_DO_NOT_RUN_MARKERS: tuple[str, ...] = (
-    # Chinese (simplified + a few traditional variants)
-    "不要运行", "不要執行", "不要执行", "不要启动", "不要啟動",
-    "别运行", "別運行", "别启动", "別啟動", "不要跑", "不要派发", "不要分派",
-    "不要运行任务", "只做状态检查", "只检查状态", "只看状态", "只查状态",
-    "状态检查", "狀態檢查", "请回复状态正常", "請回復狀態正常",
-    # English
-    "do not run", "don't run", "dont run",
-    "do not execute", "don't execute", "dont execute",
-    "do not start", "don't start", "dont start",
-    "do not launch", "don't launch", "do not dispatch", "do not spawn",
-    "status check only", "status-only", "status only",
-    "just check status", "only check status",
-)
-
-
-def looks_like_do_not_run_request(text: str) -> bool:
-    """True iff ``text`` explicitly forbids running / asks for status only.
-
-    Used ONLY to make the triage-failure fallback safe (see
-    :func:`manager_triage`): when the Manager's classify call ERRORS, the front
-    door normally biases to "task" ("never drop work to a bad classify"), but if
-    the operator explicitly said "do not run / status only" then creating a real
-    mission on a *failed* classify is the wrong default — that is exactly how a
-    Chinese "请只做状态检查，不要运行任务" message got dispatched to the team on
-    2026-07-11 (the Manager's classify call had been blocked by the cost gate, so
-    triage raised and the message was treated as work). This never overrides a
-    SUCCESSFUL classify decision, so it cannot silently drop genuine work.
-    """
-    if not text:
-        return False
-    raw = str(text)
-    low = raw.lower()
-    for marker in _DO_NOT_RUN_MARKERS:
-        if marker in raw or marker.lower() in low:
-            return True
-    return False
-
-
-_DO_NOT_RUN_SAFE_REPLY = (
-    "[not dispatched] The Manager could not classify this request and your "
-    "message asks not to run anything (status-only / do-not-run), so no task was "
-    "queued. Use /status for pipeline state or /doctor to diagnose; rephrase "
-    "without the do-not-run constraint if you actually want to queue work."
-)
-
-
-def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
-                   *, on_phase: Any = None, on_fragment: Any = None,
-                   route: str | None = None) -> str | None:
-    """Front-door route: one-Codex SELF work returns a reply; TEAM work returns
-    ``None`` so the caller queues the Argus Planner/Engineer/Reviewer pipeline.
-
-    ``on_phase(label, *, role=...)`` — optional callback invoked at the REAL
-    phase transitions (classify → reply), so a live status line reflects what
-    the Manager is actually doing rather than a timed cosmetic rotation.
-    ``role`` is a best-effort extra (falls back to the plain one-arg call for
-    any callback that does not accept it) naming which of the four roles
-    drove this update, so the caller can retint a live spinner to match.
-
-    ``on_fragment(kind, payload)`` — optional streaming callback for a live
-    front-end (the web/TUI SSE bridge). Fires ``("delta", {"text", "message_id"})``
-    for each assistant reply block the instant it arrives, and ``("phase",
-    {"role", "label"})`` at each phase transition. Opt-in: default ``None``
-    leaves triage behaving exactly as the line REPL.
-    """
-    runner = _ensure_manager_runner(chat_state, mem)
-    if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
-        return None
-    captured: list[str] = []
-
-    def _fragment(kind: str, payload: dict[str, Any]) -> None:
-        if not callable(on_fragment):
-            return
-        try:
-            on_fragment(kind, payload)
-        except Exception:  # noqa: BLE001 — a UI callback must never break triage
-            pass
-
-    def _progress_label(event: dict[str, Any]) -> tuple[str, str] | None:
-        try:
-            from ..apps.cli._follow import _clean_follow_text
-            txt = str(
-                event.get("text")
-                or event.get("title")
-                or event.get("reason")
-                or event.get("kind")
-                or ""
-            ).strip()
-            if not txt:
-                return None
-            role = str(event.get("agent_layer") or "manager").strip() or "manager"
-            title = {
-                "manager": "Manager",
-                "planner": "Planner",
-                "engineer": "Engineer",
-                "reviewer": "Reviewer",
-            }.get(role, role.title())
-            return role, title + " · " + _clean_follow_text(txt, limit=64)
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _emit_phase(role: str, label: str) -> None:
-        # The terminal REPL consumes ``on_phase`` directly; the web/TUI bridge
-        # consumes ``on_fragment("phase", ...)``. Relay every real runner phase
-        # to both surfaces. Previously the runner received the raw ``on_phase``
-        # argument (which is None on the web path), so SSE never saw classify /
-        # direct-reply transitions and could only display a generic spinner.
-        if callable(on_phase):
-            try:
-                on_phase(label, role=role)
-            except TypeError:
-                try:
-                    on_phase(label)
-                except Exception:  # noqa: BLE001
-                    pass
-            except Exception:  # noqa: BLE001 — a UI callback must never break triage
-                pass
-        _fragment("phase", {"role": role, "label": label})
-
-    def _runner_phase(label: str, *, role: str = "manager") -> None:
-        _emit_phase(str(role or "manager"), str(label or ""))
-
-    class _Capture:
-        def __init__(self, *, progress_phases: bool) -> None:
-            self._progress_phases = progress_phases
-
-        def handle_event(self, event: dict[str, Any]) -> None:
-            try:
-                etype = str(event.get("type") or "")
-                # A live assistant reply block → stream it as a delta fragment
-                # (grows the reply in the front-end) rather than treating it as a
-                # phase label. Keep capturing the authoritative reply below.
-                if etype == "engineer.progress" and str(event.get("kind") or "") == "assistant_message":
-                    blk = str(event.get("text") or "").strip()
-                    if blk:
-                        _fragment("delta", {
-                            "text": blk,
-                            "message_id": str(event.get("message_id") or ""),
-                        })
-                    return
-                if etype in {"loop.start", "engineer.progress"}:
-                    # The current runner reports these same events through its
-                    # phase_cb wrapper, already normalized as Manager activity.
-                    # Only legacy runners (which reject phase_cb and hit the
-                    # fallback below) need the capture sink to synthesize them.
-                    if self._progress_phases:
-                        parsed = _progress_label(event)
-                        if parsed:
-                            _emit_phase(*parsed)
-                    return
-                if etype != "round.main.completed":
-                    return
-                text = _extract_chat_reply_text(str(event.get("last_message") or ""))
-                if text:
-                    captured.append(text)
-            except Exception:  # noqa: BLE001
-                pass
-
-    try:
-        if runner.chat_reply_if_conversational(
-            objective=body, sink=_Capture(progress_phases=False),
-            seed_thread_id=chat_state.get("last_thread_id"),
-            phase_cb=_runner_phase,
-            route=route,
-        ):
-            chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-            return captured[0] if captured else "(no reply)"
-    except TypeError:
-        # Older runner without phase_cb / route support — retry without them
-        # (fail-soft; the older runner will classify route internally).
-        try:
-            if runner.chat_reply_if_conversational(
-                objective=body, sink=_Capture(progress_phases=True),
-                seed_thread_id=chat_state.get("last_thread_id"),
-            ):
-                chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-                return captured[0] if captured else "(no reply)"
-        except Exception:  # noqa: BLE001 — triage failure
-            if looks_like_do_not_run_request(body):
-                return _DO_NOT_RUN_SAFE_REPLY
-            return None
-    except Exception:  # noqa: BLE001 — triage failure: bias to task ("never drop
-        # work to a bad classify") UNLESS the operator explicitly forbade running
-        # (status-only / do-not-run). Dispatching a real mission on a classify we
-        # could not even complete is how a status request reached the Engineer.
-        if looks_like_do_not_run_request(body):
-            return _DO_NOT_RUN_SAFE_REPLY
-        return None
-    return None
+def _maybe_handle_config_intent(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+    *,
+    on_confirm: Any = None,
+    root_task_id: str | None = None,
+) -> bool:
+    return _maybe_handle_config_intent_impl(
+        mem,
+        text,
+        chat_state,
+        on_confirm=on_confirm,
+        root_task_id=root_task_id,
+        ensure_runner=_ensure_manager_runner,
+        accepts_keyword=_accepts_keyword,
+        apply_intent=_apply_config_intent,
+    )
 
 
 def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                     iterate: bool = True, max_cycles: int = 6,
                     budget: float = 30.0, theme: object | None = None,
+                    root_task_id: str | None = None,
                     ) -> tuple[Any | None, bool, int | None]:
     """Enqueue ``body`` as a head-priority mission (NO blocking tail — the caller
     decides whether to follow). Handles the blocked-continuation rewrite and, in
@@ -2263,7 +330,13 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                 pass
         body = f"{prior}\n\nOperator reply: {body}"
     chat_state["last_objective"] = body
-    _manager_divide_user_task(mem, body, chat_state, theme=theme)
+    _manager_divide_user_task(
+        mem,
+        body,
+        chat_state,
+        theme=theme,
+        root_task_id=root_task_id,
+    )
     life_dir = _life_dir_for(mem)
     if chat_state.get("config", {}).get("continuous", False):
         # User task is a PROJECT objective, not an Engineer work item. Arm the
@@ -2283,7 +356,8 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
     item = _add_only(mem, body, priority=free_priority, iterate=iterate,
-                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget)
+                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget,
+                     item_id=root_task_id)
     _maybe_name_session(chat_state, body)
     daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
     if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
@@ -2295,7 +369,12 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
 
 
 def _maybe_auto_promote_to_continuous(
-    mem: Any, body: str, chat_state: dict[str, Any], theme: Any,
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    theme: Any,
+    *,
+    root_task_id: str | None = None,
 ) -> bool:
     """Let the Manager judge whether ``body`` is open-ended work that should run
     as a STANDING (continuous) campaign, rather than a one-shot bounded
@@ -2330,7 +409,15 @@ def _maybe_auto_promote_to_continuous(
             theme=theme,
             accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
         ):
-            is_standing = bool(classify(body))
+            if root_task_id is None or not _accepts_keyword(
+                classify,
+                "root_task_id",
+            ):
+                is_standing = bool(classify(body))
+            else:
+                is_standing = bool(
+                    classify(body, root_task_id=root_task_id)
+                )
         if not is_standing:
             return False
     except Exception:  # noqa: BLE001 — classify failure must never force continuous
@@ -2360,616 +447,33 @@ def _maybe_auto_promote_to_continuous(
     return True
 
 
-def _render_live_role_overlay(
-    life_dir: Path | str, theme: Any, *, active_role: str, label: str,
-) -> str:
-    """A truthful "roles · activity" snapshot for the SELF quick-reply spinner
-    (the ``LiveStatus`` block in ``_free_text_cmd``), marking ``active_role``
-    active directly from the SAME phase signal the spinner itself is driven
-    by — NOT from ``events.jsonl``.
-
-    The SELF quick-reply path (Manager answers a simple chat turn itself, no
-    Planner/Engineer/Reviewer hand-off) deliberately never journals its
-    progress to ``events.jsonl`` (see ``_Capture``/``_simple_quick_reply`` —
-    avoids mission-log noise for a one-line "你好"). That means
-    ``role_activity()`` — the ONLY data source the pre-turn panel
-    (``read_message_prompt_toolkit`` / ``read_message_with_live_cockpit``)
-    reads — has no way to know this turn is happening at all, so that panel
-    keeps showing every role "idle" for the entire live turn: not just stale,
-    a direct, visible self-contradiction with the correctly-labeled spinner
-    right below it (live-confirmed: "Manager idle" shown while "Manager ·
-    SELF: ... 6s" spun beneath it, prompting "你不要只做摆设" — don't just
-    make this decorative). This builds a SEPARATE, correct snapshot for that
-    narrow window by overriding just one role's entry in an otherwise-real
-    ``role_activity()`` read (so Planner/Engineer/Reviewer still show their
-    true last-known state, not a blanket fake "idle")."""
-    from ..cli.roles_status import (
-        ROLES,
-        RoleActivity,
-        format_roles_panel,
-        resolve_all_roles,
-        role_activity,
-    )
-
-    try:
-        activities = dict(role_activity(life_dir))
-    except Exception:  # noqa: BLE001
-        activities = {}
-    for r in ROLES:
-        activities.setdefault(
-            r, RoleActivity(role=r, active=False, label="idle", status="idle", age_s=None),
-        )
-    role = (active_role or "").strip().lower()
-    if role in activities:
-        activities[role] = RoleActivity(
-            role=role, active=True, label=label, status="running", age_s=0.0,
-        )
-    configs = resolve_all_roles(env=os.environ)
-    width = theme.live_width() if theme is not None and hasattr(theme, "live_width") else 80
-    return format_roles_panel(theme, configs, activities, width=width)
-
-
-def _front_door_classify(
-    mem: Any, text: str, chat_state: dict[str, Any]
-) -> "tuple[Any, str]":
-    """ONE merged LLM call for the cockpit front-door: returns
-    ``(ConfigIntent | None, route)`` where route is ``"simple"``/``"complex"``.
-
-    Replaces the old sequential config-intent + route classify (two copilot
-    cold-starts → one) — see ``Manager.classify_front_door`` /
-    ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
-    error → ``(None, "complex")`` so the message flows through the normal
-    task path unchanged (never swallow real work on a classify hiccup)."""
-    try:
-        runner = _ensure_manager_runner(chat_state, mem)
-        mgr = getattr(runner, "manager", None) if runner is not None else None
-        if mgr is None or not hasattr(mgr, "classify_front_door"):
-            return None, "complex"
-        intent, route = mgr.classify_front_door(text)
-        return intent, (route if route in ("simple", "complex") else "complex")
-    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
-        return None, "complex"
-
-
-def _maybe_handle_config_intent(
-    mem: Any, text: str, chat_state: dict[str, Any], *, on_confirm: Any = None
-) -> bool:
-    """Recognize + apply a natural-language change to one of Argus's OWN runtime
-    knobs (a role's backend/model/effort, a budget cap, or the safe_mode/
-    show_reasoning/telegram toggles) BEFORE it becomes work.
-
-    One low-reasoning LLM call decides intent (Manager.classify_config_intent →
-    life.router.classify_config_intent) — there is NO keyword/regex matching, so
-    a request phrased any way is caught and a bare mention of a model/backend is
-    not misread as a switch. Fail-soft: no runner, a classify error, or a NONE
-    verdict all return False, and the text flows on to the normal chat/task path.
-    Returns True iff it applied a change (and the turn is done).
-
-    ``on_confirm(line)`` — optional sink for the confirmation line(s). When given
-    (the web/TUI cockpit front-door), the confirmation is handed to it INSTEAD of
-    printed to stdout, so a non-REPL surface can show it as a chat reply. Default
-    ``None`` keeps the line-REPL's print behaviour byte-for-byte."""
-    runner = _ensure_manager_runner(chat_state, mem)
-    mgr = getattr(runner, "manager", None) if runner is not None else None
-    if mgr is None or not hasattr(mgr, "classify_config_intent"):
-        return False
-    try:
-        intent = mgr.classify_config_intent(text)
-    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
-        return False
-    if intent is None:
-        return False
-    return _apply_config_intent(mem, intent, chat_state, on_confirm=on_confirm)
-
-
-def _apply_config_intent(
-    mem: Any, intent: Any, chat_state: dict[str, Any], *, on_confirm: Any = None
-) -> bool:
-    """Apply a parsed ConfigIntent: set the env var(s), persist via knob_store
-    (so a running daemon reads the switch immediately), confirm, and ground the
-    Manager with a note. Returns True iff a change was applied."""
-    from ..core.knob_store import write_persisted_knob
-
-    theme = chat_state.get("theme")
-
-    def _confirm(line: str) -> None:
-        if callable(on_confirm):
-            try:
-                on_confirm(line)  # cockpit: surface as a chat reply, not stdout
-            except Exception:  # noqa: BLE001 — a UI sink must never break the apply
-                pass
-        else:
-            print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
-                  if theme is not None else line, flush=True)
-        try:
-            append_note(mem, line)
-        except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
-            pass
-
-    def _set(env_var: str, value: str) -> None:
-        os.environ[env_var] = value
-        write_persisted_knob(env_var, value)
-
-    knob = intent.knob
-    roles = list(intent.roles)
-
-    if knob == "backend":
-        from ..agent_cli.runner_backend import normalize_runner_backend
-
-        value = normalize_runner_backend(intent.value)
-        if roles:
-            for role in roles:
-                _set(_ROLE_BACKEND_ENVS[role], value)
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
-        else:
-            _set("ARGUS_SKILL_RUNNER_BACKEND", value)
-            _confirm(f"Set Argus default CLI backend to {value} "
-                     "(roles without their own backend follow).")
-        chat_state.pop("manager_runner", None)
-        return True
-
-    if knob == "model":
-        value = intent.value
-        if roles:
-            for env_var in {_ROLE_MODEL_ENVS[role] for role in roles}:
-                _set(env_var, value)
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {value}.")
-        else:
-            _set("ARGUS_SKILL_MODEL", value)
-            _confirm(f"Set Argus default model to {value} "
-                     "(roles without their own model follow).")
-        chat_state.pop("manager_runner", None)
-        return True
-
-    if knob == "effort":
-        value = intent.value.strip().lower()
-        target = roles or list(_ROLE_EFFORT_ENVS)
-        # A reasoning-effort knob is a silent no-op on a non-reasoning model —
-        # reject with a grounded explanation instead of pretending to apply it.
-        from ..cli.roles_status import resolve_role_config
-
-        rcfg = {r: resolve_role_config(r, env=os.environ) for r in target}
-        applicable = [r for r in target if rcfg[r].effort is not None]
-        if not applicable:
-            models = ", ".join(sorted({rcfg[r].model for r in target}))
-            _confirm(f"Current model ({models}) is non-reasoning — reasoning effort "
-                     "does not apply, so I left it unchanged.")
-            return True
-        for role in applicable:
-            _set(_ROLE_EFFORT_ENVS[role], value)
-        _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
-        chat_state.pop("manager_runner", None)
-        return True
-
-    if knob in ("per_mission_cap", "daily_cap"):
-        m = re.search(r"\d+(?:\.\d+)?", intent.value)
-        if m is None:
-            return False
-        env_var = ("ARGUS_SKILL_PER_MISSION_CAP_USD" if knob == "per_mission_cap"
-                   else "ARGUS_SKILL_DAILY_CAP_USD")
-        _set(env_var, m.group(0))
-        _confirm(f"Set {env_var} = {m.group(0)}.")
-        return True
-
-    quota_knobs = {
-        "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-        "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
-        "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-        "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
-    }
-    if knob in quota_knobs:
-        m = re.search(r"\d+(?:\.\d+)?", intent.value)
-        if m is None:
-            return False
-        env_var = quota_knobs[knob]
-        from ..core.knobs import normalize_cockpit_knob_value
-
-        value = normalize_cockpit_knob_value(env_var, m.group(0))
-        _set(env_var, value)
-        _confirm(f"Set {env_var} = {value}.")
-        return True
-
-    if knob in ("safe_mode", "show_reasoning", "telegram"):
-        env_var = {
-            "safe_mode": "ARGUS_SKILL_SAFE_MODE",
-            "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
-            "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
-        }[knob]
-        v = intent.value.strip().lower()
-        on = v in ("on", "1", "true", "yes", "enable", "enabled",
-                   "开", "打开", "开启", "启用")
-        off = v in ("off", "0", "false", "no", "disable", "disabled",
-                    "关", "关闭", "关掉", "停用", "禁用")
-        if on == off:  # neither recognized, or contradictory — don't guess
-            return False
-        val = "1" if on else "0"
-        _set(env_var, val)
-        _confirm(f"Set {env_var} = {val} ({'on' if on else 'off'}).")
-        return True
-
-    return False
-
-
 def _free_text_cmd(
     mem: Any,
     text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    """Free-text input: Manager triage FIRST, then enqueue + attach.
-
-    The Manager is the operator's first point of contact: every line is
-    classified (conversation → answered in-band; task → queued for the 7×24
-    daemon). A real task is injected at head priority; the REPL then attaches by
-    tailing ``events.jsonl`` until the daemon reports completion. Supports
-    ``--once`` / ``--cycles=N`` / ``--budget=$X`` inline flags.
-    """
-    cfg = chat_state.get("config", {})
-    continuous = cfg.get("continuous", False)
-    iterate, max_cycles, budget, body = parse_add_flags(
+    return dispatch_free_text(
+        mem,
         text,
-        defaults=cfg,
+        chat_state,
+        hooks=FreeTextHooks(
+            maybe_handle_config_intent=_maybe_handle_config_intent,
+            life_dir_for=_life_dir_for,
+            render_live_role_overlay=_render_live_role_overlay,
+            live_cockpit_enabled=_live_cockpit_enabled,
+            manager_triage=manager_triage,
+            maybe_auto_promote_to_continuous=_maybe_auto_promote_to_continuous,
+            enqueue_mission=enqueue_mission,
+            no_executor_notice=_no_executor_notice,
+            live_follow_enabled=_live_follow_enabled,
+            follow_mission_live_roles=follow_mission_live_roles,
+            follow_events_stream=_follow_events_stream,
+            record_mission_outcome=_record_mission_outcome,
+            surface_blocked_question=_surface_blocked_question,
+            tail_mission_events=tail_mission_events,
+            format_completion=_format_completion,
+        ),
     )
-    body = body or text.strip()
-    theme = chat_state.get("theme")
-
-    # Natural-language change to one of Argus's own runtime knobs (backend /
-    # model / effort / budget cap / a toggle)? One LLM intent call decides —
-    # no keyword/regex matching — before the text becomes research work.
-    if _maybe_handle_config_intent(mem, body, chat_state):
-        return
-
-    # Persist this turn to the session transcript (for /resume replay + labels).
-    # The config-switch handlers above already returned, so only real chat/task
-    # turns are logged. Fail-soft: transcript I/O must never break the REPL.
-    from ..core import transcript as _transcript
-    _tlife: Any = None
-    try:
-        _tlife = _life_dir_for(mem)
-        _transcript.append_turn(_tlife, "operator", body)
-    except Exception:  # noqa: BLE001
-        _tlife = None
-
-    # Manager front door — answer conversation, route tasks. Skipped only for a
-    # blocked-continuation answer (which must continue the task, not be re-chatted).
-    if not chat_state.get("blocked_item_id"):
-        # Live status while the Manager thinks — the label is driven by the REAL
-        # phase (classify → reply / hand-off), not a timed cosmetic rotation, so
-        # it honestly reflects what the Manager is doing. No-op on non-TTY.
-        from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD, resolve_role_config
-
-        # The manager's ACTUAL configured backend — never hardcode "Codex" here;
-        # it silently lied whenever the operator was on claude/copilot (this is
-        # only the pre-first-event placeholder anyway; a real on_phase update
-        # below permanently replaces it — see LiveStatus._current_label).
-        _manager_backend_label = resolve_role_config(
-            "manager", env=os.environ,
-        ).backend_label
-
-        # Print a TRUTHFUL "roles" snapshot above the spinner, marking Manager
-        # active from the first phase onward (see _render_live_role_overlay's
-        # docstring for why: the SELF quick-reply path never journals to
-        # events.jsonl, so without this override the panel printed before this
-        # prompt keeps claiming every role "idle" for the WHOLE live turn —
-        # not just stale, a direct on-screen contradiction of the spinner
-        # right below it). Gated by the same _live_cockpit_enabled() flag as
-        # the rest of the live-panel feature (an extension of it, not a
-        # separate one) plus the usual TTY/theme guards — never shown on
-        # piped output, and always cleaned up in `finally` even if the
-        # Manager's turn raises or is Ctrl-C'd.
-        _overlay_lines = 0
-        if (
-            _live_cockpit_enabled()
-            and theme is not None and theme.enabled
-            and sys.stdout.isatty()
-        ):
-            try:
-                _overlay_life_dir = _life_dir_for(mem)
-                _overlay = _render_live_role_overlay(
-                    _overlay_life_dir, theme,
-                    active_role="manager", label="Deciding SELF / TEAM…",
-                )
-                if _overlay:
-                    sys.stdout.write(_overlay + "\n")
-                    sys.stdout.flush()
-                    _overlay_lines = _overlay.count("\n") + 1
-            except Exception:  # noqa: BLE001 — this overlay must never break chat
-                _overlay_lines = 0
-
-        reply = None
-        try:
-            with LiveStatus(
-                "Deciding SELF / TEAM…",
-                theme=theme,
-                phrases=[
-                    "Deciding SELF / TEAM…",
-                    f"Waiting for {_manager_backend_label}'s first event…",
-                ],
-                phrase_interval=10.0,
-                accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
-            ) as _live:
-                # Retint the spinner glyph to whichever role drove this update (the
-                # SAME hue it wears in the banner / /roles panel / follow feed) —
-                # the label text itself stays plain, so there is no risk of a
-                # nested ANSI reset truncating its styling.
-                def _on_phase(label: str, *, role: str | None = None) -> None:
-                    accent = ROLE_COLOR_BOLD.get((role or "").strip().lower())
-                    if accent:
-                        _live.update_role(accent, label)
-                    else:
-                        _live.update(label)
-
-                reply = manager_triage(mem, body, chat_state, on_phase=_on_phase)
-        finally:
-            # Erase the overlay (LiveStatus already erased its OWN line on
-            # exit — it uses "\r\x1b[2K", which clears in place without
-            # moving the cursor to a new row — so the cursor is sitting
-            # exactly _overlay_lines rows below the overlay's first row).
-            if _overlay_lines:
-                try:
-                    sys.stdout.write(f"\r\x1b[{_overlay_lines}A\x1b[J")
-                    sys.stdout.flush()
-                except Exception:  # noqa: BLE001
-                    pass
-        if reply is not None:
-            line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
-                    if theme is not None else f"  argus ↳ {reply}")
-            print(line, flush=True)
-            if _tlife is not None:
-                _transcript.append_turn(_tlife, "argus", reply)
-            return
-
-        # TEAM work reached this point — let the Manager judge whether it is
-        # open-ended (STANDING) and should be auto-armed as a continuous
-        # campaign, so the operator never has to manually pass
-        # --continuous --objective for work like "optimize as many X as
-        # possible". Only relevant the FIRST time a session goes standing;
-        # once continuous, every later task already flows through the
-        # existing continuous branch below unchanged.
-        if not continuous:
-            continuous = _maybe_auto_promote_to_continuous(mem, body, chat_state, theme)
-
-    item, daemon_alive, daemon_pid = enqueue_mission(
-        mem, body, chat_state, iterate=iterate, max_cycles=max_cycles,
-        budget=budget, theme=theme)
-    life_dir = _life_dir_for(mem)
-    if _tlife is not None:
-        _transcript.append_turn(
-            _tlife, "argus",
-            f"→ queued for the daemon (task {getattr(item, 'id', '') or '?'})",
-        )
-
-    if continuous:
-        if not daemon_alive:
-            print(
-                _no_executor_notice(
-                    getattr(item, "id", "planner-objective"),
-                    theme,
-                ),
-                flush=True,
-            )
-            if chat_state.get("daemon_autostart_error"):
-                msg = str(chat_state.pop("daemon_autostart_error"))
-                print(
-                    theme.yellow("   " + msg) if theme is not None else f"   {msg}",
-                    flush=True,
-                )
-            return
-        queued = (
-            "objective handed to Planner — "
-            f"daemon (pid {daemon_pid}) planning/executing "
-            f"(continuous on backend={chat_state.get('backend')})"
-        )
-        print(theme.gray(queued) if theme is not None else queued, flush=True)
-        # Multi-agent live view: pin the four-role panel and refresh it in place
-        # (interactive TTY). Falls back to the scrolling event tail when piped /
-        # non-interactive so tests and logs are unchanged.
-        if sys.stdout.isatty() and _live_follow_enabled():
-            final = follow_mission_live_roles(
-                life_dir, None, theme=theme,
-                header="following daemon (Ctrl-C stops observing; daemon keeps running)…",
-            )
-        else:
-            final = _follow_events_stream(
-                life_dir,
-                theme=theme,
-                header="following daemon (Ctrl-C to stop observing; daemon keeps running)…",
-                until_item_id=None,
-                until_first_completion=True,
-            )
-        if final is not None:
-            _record_mission_outcome(chat_state, final)
-            _surface_blocked_question(chat_state, theme)
-        return
-
-    if not daemon_alive:
-        # No executor: do NOT print "daemon executing" (a lie) and do NOT enter
-        # the 600s event-tail wait (which would just freeze on a log that never
-        # grows — the original "卡住" symptom). Tell the operator the truth and
-        # the one command that fixes it; the task is safely queued meanwhile.
-        print(_no_executor_notice(item.id, theme), flush=True)
-        if chat_state.get("daemon_autostart_error"):
-            msg = str(chat_state.pop("daemon_autostart_error"))
-            print(
-                theme.yellow("   " + msg) if theme is not None else f"   {msg}",
-                flush=True,
-            )
-        return
-
-    queued = (
-        f"queued {item.id} — daemon (pid {daemon_pid}) executing  "
-        f"(Ctrl-C stops observing, not the task)"
-    )
-    print(theme.gray(queued) if theme is not None else queued, flush=True)
-
-    if sys.stdout.isatty() and _live_follow_enabled():
-        final = follow_mission_live_roles(life_dir, item.id, theme=theme)
-    else:
-        final = tail_mission_events(life_dir, item.id, theme=theme)
-    if final is not None:
-        _record_mission_outcome(chat_state, final)
-        for line in _format_completion(final, item.id, life_dir):
-            print(theme.dim(line) if theme is not None else line, flush=True)
-        _surface_blocked_question(chat_state, theme)
-    else:
-        note = (
-            f"{item.id} still running (no completion within the observe window) "
-            f"— use /status to check on the daemon."
-        )
-        print(theme.gray(note) if theme is not None else note, flush=True)
-
-
-def _daemon_alive_for(life_dir: Path | str) -> tuple[bool, int | None]:
-    """(alive, pid) for the daemon owning ``life_dir`` — fail-soft to (False, None)."""
-    try:
-        from ..daemon.life_worker import read_daemon_status
-
-        st = read_daemon_status(Path(life_dir))
-        return bool(getattr(st, "alive", False)), getattr(st, "pid", None)
-    except Exception:  # noqa: BLE001
-        return False, None
-
-
-def _no_executor_notice(item_id: str, theme: Any) -> str:
-    """Honest message when a task is queued but no daemon will execute it.
-
-    Replaces the old "queued — daemon executing" line (which lied when the
-    auto-spawn had failed) AND avoids the 600s tail-wait freeze. The task is
-    persisted, so it runs the moment an executor starts.
-    """
-    head = f"queued {item_id} — but NO daemon is running here, so it will NOT execute yet."
-    body = (
-        "   in this cockpit:  /daemon start   ·   diagnose:  /doctor\n"
-        "   from another shell:  argus-skill --daemon\n"
-        "   your task is saved and runs the moment a daemon starts."
-    )
-    if theme is not None:
-        head_lines = theme.wrap_after(head, first_indent=2, hang_indent=2)
-        head_out = "\u26a0 " + head_lines[0]
-        if len(head_lines) > 1:
-            head_out += "\n" + "\n".join(head_lines[1:])
-        return theme.yellow(head_out) + "\n" + theme.gray(body)
-    return f"\u26a0 {head}\n{body}"
-
-
-def _extract_chat_reply_text(msg: str) -> str:
-    """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
-    msg = (msg or "").strip()
-    if msg.startswith("{") and msg.endswith("}"):
-        try:
-            data = json.loads(msg)
-            for key in ("reply", "message", "text", "answer", "response"):
-                val = data.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
-        except Exception:  # noqa: BLE001
-            pass
-    return msg
-
-
-def _format_completion(
-    final: dict[str, Any],
-    item_id: str,
-    life_dir: Path | str,
-    *,
-    workdir: Path | str | None = None,
-) -> list[str]:
-    """Render the multi-line mission-completion footer.
-
-    The bare ``status=`` line was the engineer's last word; the operator wants
-    the **reviewer's** conclusion (the sole done-ness authority) and *where the
-    result lives*. Lines:
-
-      ``✅ <id> done · status=<s> · <n>r · cost=$<c>``
-      ``   reviewer <verdict> (conf <c>): <reason>``   (only if a verdict exists)
-      ``   record: <life_dir>``                         (journal/checkpoint/events)
-      ``   workdir: <cwd>``                             (where code artifacts land)
-    """
-    status = str(final.get("status") or "?")
-    head = f"✅ {item_id} done · status={status}"
-    rounds = final.get("rounds")
-    if isinstance(rounds, int) and rounds:
-        head += f" · {rounds}r"
-    pricing_status = str(final.get("pricing_status") or "")
-    raw_cost = final.get("cost_usd")
-    try:
-        cost = float(raw_cost) if raw_cost is not None else None
-    except (TypeError, ValueError):
-        cost = None
-    if cost is not None:
-        suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
-        head += f" · cost=${cost:.4f}{suffix}"
-    elif pricing_status in {"partial", "unpriced"}:
-        head += f" · cost={pricing_status}"
-    lines = [head]
-
-    review = final.get("_last_review") or {}
-    reason = str(review.get("reason") or "").strip()
-    if reason:
-        rstatus = str(review.get("status") or "").strip()
-        conf = review.get("confidence")
-        cpart = f" (conf {conf:.2f})" if isinstance(conf, (int, float)) else ""
-        lead = "reviewer" + (f" {rstatus}" if rstatus else "") + cpart
-        lines.append(f"   {lead}: {reason}")
-
-    lines.append(f"   record: {life_dir}")
-    wd = Path(workdir) if workdir is not None else Path.cwd()
-    if str(wd) != str(life_dir):
-        lines.append(f"   workdir: {wd}")
-    return lines
-
-
-def _record_mission_outcome(
-    chat_state: dict[str, Any],
-    completed_event: dict[str, Any],
-) -> None:
-    """Update REPL session stats from a tailed ``life.mission.completed`` event.
-
-    The REPL no longer drives the supervisor, so timing / count come from the
-    event the daemon wrote rather than from an in-process return value.
-    """
-    chat_state["mission_count"] = chat_state.get("mission_count", 0) + 1
-    cost = completed_event.get("cost_usd")
-    try:
-        chat_state["last_cost_usd"] = float(cost) if cost is not None else None
-    except (TypeError, ValueError):
-        chat_state["last_cost_usd"] = None
-    # Remember a blocked verdict so the next free-text reply continues THIS item
-    # (answer injected) instead of being triaged as a brand-new objective. The
-    # operator question is surfaced by ``_surface_blocked_question``. Cleared on
-    # any non-blocked outcome.
-    review = completed_event.get("_last_review") or {}
-    if str(review.get("status") or completed_event.get("status") or "") == "blocked":
-        chat_state["blocked_item_id"] = completed_event.get("item_id")
-        chat_state["blocked_question"] = (
-            str(review.get("operator_question") or "").strip()
-            or str(review.get("reason") or "").strip()
-        )
-    else:
-        chat_state.pop("blocked_item_id", None)
-        chat_state.pop("blocked_question", None)
-
-
-def _surface_blocked_question(chat_state: dict[str, Any], theme: Any) -> None:
-    """Print the operator question for a just-blocked mission, if any. The
-    operator answers by typing a normal reply — no slash command needed."""
-    q = str(chat_state.get("blocked_question") or "").strip()
-    if not q:
-        return
-    line = f"❓ Needs your call: {q} (reply to continue this task)"
-    print(theme.yellow(line) if theme is not None else line, flush=True)
-
-
-def _format_elapsed(seconds: float) -> str:
-    if seconds < 1.0:
-        return f"{seconds * 1000:.0f}ms"
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    mins, secs = divmod(int(seconds), 60)
-    if mins < 60:
-        return f"{mins}m{secs:02d}s"
-    hours, mins = divmod(mins, 60)
-    return f"{hours}h{mins:02d}m{secs:02d}s"
 
 
 def _invoke_and_track(
@@ -3091,455 +595,50 @@ def _run_cmd(
 
 
 def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> None:
-    """Lightweight status print (mirrors `argus-skill life status` output)."""
-    from ..apps._inbox import count_pending_inbox_messages
-    from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
+    return _status_cmd_impl(mem, chat_state, life_dir_for=_life_dir_for)
 
-    # Fixed label width so every "label: value" row's colon lines up in one
-    # column instead of drifting per-line (each print used to hand-pick its
-    # own padding, which fell out of sync as fields were added over time).
-    _LBL = 10
-
-    identity = mem.identity.read().strip()
-    if identity:
-        first = identity.splitlines()[0][:80]
-        print(f"{'identity':<{_LBL}}: {first}{'…' if len(identity) > 80 else ''}")
-    else:
-        print(f"{'identity':<{_LBL}}: (empty)")
-    # Every backlog item whose mission ended "blocked" on a reviewer question
-    # the operator hasn't answered yet (BacklogItem.pending_question — set by
-    # life/supervisor/_core.py, cleared by enqueue_mission once answered).
-    # Surfaced FIRST and unconditionally (not tucked behind a live REPL
-    # session's chat_state) so it is visible after a fresh `argus` launch,
-    # after a daemon-only run, or when more than one item is waiting — none
-    # of which the old chat_state-only ``blocked_question`` could show.
-    pending_qs = [it for it in mem.backlog.all() if (it.pending_question or "").strip()]
-    if pending_qs:
-        print(f"{'questions':<{_LBL}}: {len(pending_qs)} awaiting your answer")
-        for it in pending_qs[:5]:
-            print(f"  ❓ ({it.id}) {it.pending_question.strip()[:160]}")
-        if len(pending_qs) > 5:
-            print(f"  … {len(pending_qs) - 5} more")
-    pending = mem.backlog.pending()
-    print(f"{'backlog':<{_LBL}}: {len(pending)} pending  "
-          f"({len(mem.backlog.all())} total)")
-    for it in pending[:5]:
-        print(f"  - {it.id} (p={it.priority}): {it.title}")
-    if len(pending) > 5:
-        print(f"  … {len(pending) - 5} more")
-    last = mem.journal.tail(3)
-    if last:
-        print("recent journal:")
-        for e in last:
-            ts_str = datetime.fromtimestamp(e.ts).strftime("%Y-%m-%d %H:%M:%S")
-            print(f"  [{ts_str}] {e.kind} — {e.title}")
-    cont = None
-    if chat_state is not None:
-        cont = chat_state.get("continuous_state")
-    if not isinstance(cont, ContinuousConfigState):
-        cont = read_continuous_state(mem.project.root)
-    print(f"{'continuous':<{_LBL}}: {'on' if cont.enabled else 'off'}")
-    print(f"{'inbox':<{_LBL}}: {count_pending_inbox_messages(mem.project.root)} pending")
-    _SUBLBL = 11  # fits "done_reason", the longest of this nested trio
-    if cont.objective:
-        print(f"  {'objective':<{_SUBLBL}}: {cont.objective}")
-    if cont.done_reason:
-        print(f"  {'done_reason':<{_SUBLBL}}: {cont.done_reason}")
-    if cont.done_at:
-        print(f"  {'done_at':<{_SUBLBL}}: {cont.done_at}")
-    if chat_state is not None:
-        started = chat_state.get("session_started_s")
-        if started is not None:
-            uptime = time.monotonic() - started
-            count = int(chat_state.get("mission_count", 0))
-            total = float(chat_state.get("total_elapsed_s", 0.0))
-            last_e = chat_state.get("last_elapsed_s")
-            line = f"{'timing':<{_LBL}}: uptime {_format_elapsed(uptime)}"
-            if count:
-                line += (
-                    f"  ·  {count} mission{'s' if count != 1 else ''}"
-                    f" totaling {_format_elapsed(total)}"
-                )
-            if last_e is not None:
-                line += f"  ·  last {_format_elapsed(last_e)}"
-            print(line)
-    # Background daemon status — surfaces the 7×24 worker so /status
-    # answers "is anything running while I'm idle?".
-    try:
-        from ..apps.cli import _format_short_duration
-        from ..daemon.life_worker import read_daemon_status
-        ds = read_daemon_status(mem.project.root)
-    except Exception:  # noqa: BLE001
-        ds = None
-    if ds is not None:
-        if ds.alive and ds.pid is not None:
-            up = _format_short_duration(ds.uptime_seconds or 0.0)
-            # ds.backend is "codex" (a real CLI backend — historically named
-            # after the first one supported) vs "memory" (deterministic test
-            # double). It is NOT which real CLI is actually configured per
-            # role (that's ARGUS_SKILL_RUNNER_BACKEND, shown correctly in
-            # /roles). Printing the raw "codex" here reads as "this daemon is
-            # calling the Codex CLI" even when running claude/copilot, which
-            # contradicts /roles right next to it — so relabel the real-mode
-            # case instead of echoing the misleading literal string.
-            backend_label = (
-                "memory (test)" if ds.backend == "memory" else "live — see /roles"
-            )
-            print(f"{'daemon':<{_LBL}}: alive (pid {ds.pid}, up {up}, "
-                  f"backend {backend_label})")
-        else:
-            print(f"{'daemon':<{_LBL}}: not running   (start with `/daemon start`)")
-            tid = chat_state.get("last_thread_id") if chat_state is not None else None
-            if tid:
-                print(f"{'codex':<{_LBL}}: reusing the previous session  (/reset to start fresh)")
-    # Compact four-role action line. Backend/model/effort live in /roles, not in
-    # every status snapshot. Fail-soft (never breaks /status).
-    try:
-        from ..cli.roles_status import resolve_all_roles, role_activity
-        acts = role_activity(_life_dir_for(mem))
-        active = next((r for r in ("engineer", "reviewer", "planner", "manager")
-                       if acts.get(r) and acts[r].active), None)
-        cfgs = {c.role: c for c in resolve_all_roles()}
-        if active and active in cfgs:
-            print(f"{'roles':<{_LBL}}: ● {active} · {acts[active].label[:40]}"
-                  f"   (/roles for details)")
-        else:
-            print(f"{'roles':<{_LBL}}: idle   (/roles for details)")
-    except Exception:  # noqa: BLE001
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Help screen
-# ---------------------------------------------------------------------------
 
 def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None:
-    """`/roles` — show each role's backend / model / reasoning-effort and what
-    it is doing right now. ``/roles watch`` live-refreshes until Ctrl-C."""
-    theme = chat_state.get("theme")
-    from ..cli.roles_status import render_roles_snapshot
-    life_dir = _life_dir_for(mem)
-
-    def _daemon_right() -> str:
-        try:
-            from ..daemon.life_worker import read_daemon_status
-            st = read_daemon_status(mem.project.root)
-            if getattr(st, "alive", False) and getattr(st, "pid", None):
-                s = f"● daemon {st.pid}"
-                return theme.bold_green(s) if theme is not None else s
-            s = "○ no daemon"
-            return theme.gray(s) if theme is not None else s
-        except Exception:  # noqa: BLE001
-            return ""
-
-    watch = arg_text.strip().lower() in ("watch", "-w", "--watch", "live", "-f")
-    if not watch:
-        width = theme.live_width() if theme is not None else 80
-        print(render_roles_snapshot(life_dir, theme, width=width,
-                                    header_right=_daemon_right(),
-                                    show_config=True), flush=True)
-        return
-
-    # Live refresh: redraw the panel in place every ~1s until Ctrl-C. Only when
-    # attached to a TTY (else fall back to a single snapshot).
-    if not sys.stdout.isatty():
-        width = theme.live_width() if theme is not None else 80
-        print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
-        return
-    hint = "Live · press Ctrl-C to return, then type" if theme is not None else "live · Ctrl-C to stop, then type"
-    print(theme.dim(hint) if theme is not None else hint, flush=True)
-    prev_lines = 0
-    try:
-        sys.stdout.write("\x1b[?25l")  # hide cursor during redraw
-        while True:
-            # Re-queried every redraw (see ``Theme.live_width``) — ``/roles
-            # watch`` can sit open for a long time, well past any terminal
-            # resize, and a width fixed at function entry would wrap this
-            # padded header the moment it disagrees with the real terminal.
-            width = theme.live_width() if theme is not None else 80
-            panel = render_roles_snapshot(life_dir, theme, width=width,
-                                          header_right=_daemon_right(),
-                                          show_config=True)
-            n = panel.count("\n") + 1
-            if prev_lines:
-                # cursor up, then clear from cursor to end of screen so no stale
-                # (possibly wrapped) rows are left behind → no duplicate header.
-                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
-            sys.stdout.write(panel + "\n")
-            sys.stdout.flush()
-            prev_lines = n
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        print()
-        return
-    finally:
-        try:
-            sys.stdout.write("\x1b[?25h")  # restore cursor
-            sys.stdout.flush()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-def _doctor_cmd(mem: Any, chat_state: dict[str, Any], global_root: Any) -> None:
-    """`/doctor` — diagnose why no daemon / why auto-spawn failed, with fixes."""
-    theme = chat_state.get("theme")
-    try:
-        from ..tools.doctor import render_report, run_diagnostics
-
-        checks = run_diagnostics(mem.project.root, global_root=global_root)
-        out = render_report(checks, theme)
-        out = _rewrite_cockpit_daemon_fix(out)
-        tail = _recent_daemon_log_tail(mem.project.root)
-        if tail:
-            out = out.rstrip() + "\n\n" + tail
-    except Exception as exc:  # noqa: BLE001 — doctor must never crash the REPL
-        out = f"/doctor failed: {type(exc).__name__}: {exc}"
-    print(out, flush=True)
-
-
-def _rewrite_cockpit_daemon_fix(text: str) -> str:
-    """Doctor runs inside the cockpit; prefer the cockpit-native start command."""
-    return text.replace(
-        "run: argus-skill --daemon",
-        "run: /daemon start  (or argus-skill --daemon from another shell)",
+    return _roles_cmd_impl(
+        mem,
+        chat_state,
+        arg_text,
+        life_dir_for=_life_dir_for,
     )
 
 
-def _recent_daemon_log_tail(
-    life_dir: Path | str,
-    *,
-    max_age_seconds: float = 900.0,
-) -> str:
-    path = Path(life_dir) / "daemon.log"
-    try:
-        age = time.time() - path.stat().st_mtime
-    except OSError:
-        return ""
-    if age > max_age_seconds:
-        return ""
-    return _daemon_log_tail(life_dir)
-
-
 def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
-    """`/plan <objective>` — preview a step plan, then optionally queue it.
-
-    Codex/Claude-Code/Cursor parity: see HOW the agent would approach the work
-    before anything reaches the backlog. Drafting the plan never executes work.
-    """
-    theme = chat_state.get("theme")
-    if not objective.strip():
-        msg = "usage: /plan <objective>  — preview a step plan before queuing it"
-        print(theme.gray(msg) if theme is not None else msg, flush=True)
-        return
-    runner = _ensure_manager_runner(chat_state, mem)
-    from ..cli.live_status import LiveStatus
-    from ..manager import plan_mode
-    with LiveStatus(
-        "drafting a plan…",
-        theme=theme,
-        phrases=["Understanding the goal…", "Breaking down steps…", "Drafting a plan…"],
-    ):
-        plan = plan_mode.draft_plan(runner, objective)
-    print(plan_mode.render_plan(plan, theme), flush=True)
-    if getattr(plan, "error", ""):
-        note = "plan was not queued because drafting failed; fix the runner or rephrase the objective and try /plan again."
-        print(theme.gray(note) if theme is not None else note, flush=True)
-        return
-    # Ask before queuing — the whole point of a preview is approval.
-    prompt = "queue this plan as a task? [y/N] "
-    try:
-        ans = input(theme.cyan(prompt) if theme is not None else prompt)
-    except (EOFError, KeyboardInterrupt):
-        ans = ""
-    if ans.strip().lower() in ("y", "yes"):
-        _free_text_cmd(mem, objective, chat_state)
-    else:
-        note = "plan not queued (nothing executed). Edit the objective and /plan again, or just type it to run."
-        print(theme.gray(note) if theme is not None else note, flush=True)
-
-
-def _daemons_cmd(chat_state: dict[str, Any], global_root: Any, current_root: Any) -> None:
-    """`/daemons` — list every live daemon across all projects (cross-project)."""
-    theme = chat_state.get("theme")
-    try:
-        from ..apps.cli import _format_short_duration
-        from ..core.session import live_daemon_sessions
-        from ..daemon.life_worker import read_daemon_status
-
-        sessions = live_daemon_sessions(global_root)
-    except Exception as exc:  # noqa: BLE001
-        print(f"/daemons failed: {type(exc).__name__}: {exc}", flush=True)
-        return
-    if not sessions:
-        msg = "no live daemons running. Start one: argus-skill --daemon"
-        print(theme.gray(msg) if theme is not None else msg, flush=True)
-        return
-    print(theme.bold("live daemons") if theme is not None else "live daemons", flush=True)
-    for s in sessions:
-        proj = Path(global_root) / "projects" / s.id
-        try:
-            st = read_daemon_status(proj)
-            up = _format_short_duration(st.uptime_seconds or 0.0)
-            pid = st.pid
-        except Exception:  # noqa: BLE001
-            up, pid = "?", "?"
-        name = s.display_name or (s.objective[:36] if s.objective else "(unnamed)")
-        here = "  (this session)" if str(proj) == str(current_root) else ""
-        line = f"  ● {s.id}  pid {pid}  up {up}  ·  {name}{here}"
-        print(theme.green(line) if theme is not None else line, flush=True)
-    tip = "attach to one:  /attach <id>   ·   or relaunch:  argus-skill --resume <id>"
-    print(theme.dim(tip) if theme is not None else tip, flush=True)
+    return _plan_cmd_impl(
+        mem,
+        chat_state,
+        objective,
+        ensure_runner=_ensure_manager_runner,
+        free_text_cmd=_free_text_cmd,
+    )
 
 
 def _attach_cmd(chat_state: dict[str, Any], global_root: Any, target: str) -> None:
-    """`/attach <id>` — live-follow another project's daemon (read-only tail)."""
-    theme = chat_state.get("theme")
-    if not target.strip():
-        msg = "usage: /attach <session-id>   (see /daemons)"
-        print(theme.gray(msg) if theme is not None else msg, flush=True)
-        return
-    target = target.strip()
-    try:
-        from ..core.session import live_daemon_sessions
-
-        live = live_daemon_sessions(global_root)
-    except Exception:  # noqa: BLE001
-        live = []
-    match = next((s.id for s in live if s.id == target), None) \
-        or next((s.id for s in live if s.id.startswith(target)), None)
-    if match is None:
-        msg = f"no live daemon matches {target!r}. See /daemons."
-        print(theme.yellow(msg) if theme is not None else msg, flush=True)
-        return
-    proj = Path(global_root) / "projects" / match
-    print((theme.gray if theme is not None else str)(
-        f"following daemon {match} (Ctrl-C to stop observing; it keeps running)…"
-    ), flush=True)
-    _follow_events_stream(proj, theme=theme, header=None)
-
-
-def _print_transcript(
-    life_dir: Any, theme: Any, *, limit: int | None = None, header: str | None = None
-) -> bool:
-    """Print a session's saved operator↔argus conversation. Returns True if any."""
-    from ..core import transcript as _transcript
-
-    turns = _transcript.read_turns(life_dir, limit=limit)
-    if not turns:
-        return False
-    if header:
-        print(theme.bold(header) if theme is not None else header, flush=True)
-    for t in turns:
-        text = str(t.get("text") or "").strip()
-        if not text:
-            continue
-        if t.get("role") == "operator":
-            tag = theme.cyan("you ›") if theme is not None else "you ›"
-        else:
-            tag = (theme.cyan("argus") + theme.dim(" ↳")) if theme is not None else "argus ↳"
-        print(f"  {tag} {text}", flush=True)
-    return True
+    return _attach_cmd_impl(
+        chat_state,
+        global_root,
+        target,
+        follow_events_stream=_follow_events_stream,
+    )
 
 
 def _resume_cmd(
-    mem: Any, chat_state: dict[str, Any], global_root: Any, rest_text: str
+    mem: Any,
+    chat_state: dict[str, Any],
+    global_root: Any,
+    rest_text: str,
 ) -> None:
-    """`/resume` — switch into the PREVIOUS conversation (the most recent other
-    session with saved chat). ``/resume <id>`` switches into a specific session;
-    ``/resume list`` shows all resumable sessions (labelled by first message).
-
-    Switching re-execs ``argus-skill --resume <id>`` (after releasing the
-    singleton lock), so it is a REAL switch — session bundle, daemon
-    association, cwd, banner + conversation replay — identical to relaunching
-    from the shell, not a read-only preview."""
-    theme = chat_state.get("theme")
-    _gray = theme.gray if theme is not None else (lambda s: s)
-    from ..core import transcript as _transcript
-    from ..core.session import list_sessions, live_daemon_sessions
-
-    def _projdir(sid: str) -> Path:
-        return Path(global_root) / "projects" / sid
-
-    def _label(s: Any) -> str:
-        if s.display_name:
-            return s.display_name
-        if s.objective:
-            return s.objective[:50]
-        first = _transcript.first_operator_text(_projdir(s.id)).strip()
-        first = " ".join(first.split())
-        return (first[:50] + ("…" if len(first) > 50 else "")) if first else "(unnamed)"
-
-    try:
-        sessions = list_sessions(global_root, include_empty=False)
-        live = {s.id for s in live_daemon_sessions(global_root)}
-    except Exception:  # noqa: BLE001
-        sessions, live = [], set()
-
-    # Current session id — excluded when defaulting to "the previous conversation".
-    try:
-        cur_sid = Path(_life_dir_for(mem)).name if mem is not None else None
-    except Exception:  # noqa: BLE001
-        cur_sid = None
-
-    def _switch_to(sid: str) -> None:
-        if sid == cur_sid:
-            print(_gray(f"Already in session {sid} — nothing to switch to."), flush=True)
-            return
-        meta = next((s for s in sessions if s.id == sid), None)
-        label = _label(meta) if meta is not None else ""
-        tail = f"  ·  {label}" if label and label != "(unnamed)" else ""
-        # Flag the switch; the REPL loop leaves cleanly and run_manager_repl
-        # re-execs `argus-skill --resume <sid>` once the singleton lock is
-        # released — a real switch (daemon association + cwd + replay), not a
-        # read-only preview.
-        chat_state["switch_to_session"] = sid
-        msg = f"↩ switching to session {sid}{tail} …"
-        print((theme.cyan(msg) if theme is not None else msg), flush=True)
-
-    def _show_list() -> None:
-        if not sessions:
-            print(_gray("No resumable sessions yet."), flush=True)
-            return
-        now = time.time()
-        print(theme.bold("Resumable sessions") if theme is not None else "resumable sessions:", flush=True)
-        for s in sessions[:20]:
-            age = max(0.0, now - (s.last_active or 0))
-            age_s = (f"{int(age // 86400)}d" if age >= 86400
-                     else f"{int(age // 3600)}h" if age >= 3600
-                     else f"{int(age // 60)}m")
-            mark = "● live" if s.id in live else "      "
-            print(_gray(f"  {mark}  {s.id}  {age_s:>4} ago  ·  {_label(s)}"), flush=True)
-        print(_gray(
-            "Switch into one:  /resume <id>   ·   or from the shell:  argus-skill --resume <id>"
-        ), flush=True)
-
-    target = (rest_text or "").strip()
-
-    if target.lower() in ("list", "ls", "all"):
-        _show_list()
-        return
-
-    if not target:
-        # Default: switch into the PREVIOUS conversation — the most recent OTHER
-        # session that actually holds a saved conversation.
-        prior = next(
-            (s.id for s in sessions
-             if s.id != cur_sid and _transcript.has_transcript(_projdir(s.id))),
-            None,
-        )
-        if prior is None:
-            print(_gray("No previous conversation yet — `/resume list` to see all sessions."), flush=True)
-            return
-        _switch_to(prior)
-        return
-
-    match = next((s.id for s in sessions if s.id == target), None) \
-        or next((s.id for s in sessions if s.id.startswith(target)), None)
-    if match is None:
-        msg = f"no session matches {target!r} — `/resume list` to see them."
-        print(theme.yellow(msg) if theme is not None else msg, flush=True)
-        return
-    _switch_to(match)
+    return _resume_cmd_impl(
+        mem,
+        chat_state,
+        global_root,
+        rest_text,
+        life_dir_for=_life_dir_for,
+    )
 
 
 def _render_help(theme) -> str:  # noqa: ANN001
@@ -4226,168 +1325,6 @@ def _run_manager_repl_locked(
             return 0
 
 
-def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | None:
-    """Run one REPL line (slash command or free text). Shared by the line REPL
-    and the TUI so both surfaces dispatch identically — handlers print to stdout;
-    the TUI captures that. Returns "exit" to quit, else None."""
-    alias, alias_note = _cockpit_cli_alias(line)
-    if alias_note:
-        print(theme.gray(alias_note) if theme is not None else alias_note)
-    if alias is None and alias_note is not None:
-        return None
-    if alias is not None:
-        line = alias
-        raw = alias
-
-    if not line.startswith("/"):
-        _free_text_cmd(mem, raw, chat_state)
-        return None
-    try:
-        tokens = shlex.split(line)
-    except ValueError as exc:
-        print(theme.red(f"parse error: {exc}"))
-        return None
-    cmd = tokens[0].lower()
-    rest = tokens[1:]
-    rest_text = line[len(tokens[0]):].lstrip()
-    if True:
-        if cmd in ("/help", "/commands"):
-            sys.stdout.write(_render_help(theme))
-            sys.stdout.flush()
-            return None
-        if cmd == "/status":
-            _status_cmd(mem, chat_state)
-            return None
-        if cmd == "/roles":
-            _roles_cmd(mem, chat_state, rest_text)
-            return None
-        if cmd == "/doctor":
-            _doctor_cmd(mem, chat_state, global_root)
-            return None
-        if cmd == "/daemon":
-            _daemon_cmd(mem, rest_text, chat_state)
-            return None
-        if cmd == "/daemons":
-            _daemons_cmd(chat_state, global_root, mem.project.root)
-            return None
-        if cmd == "/attach":
-            _attach_cmd(chat_state, global_root, rest_text)
-            return None
-        if cmd == "/resume":
-            _resume_cmd(mem, chat_state, global_root, rest_text)
-            return None
-        if cmd == "/plan":
-            _plan_cmd(mem, chat_state, rest_text)
-            return None
-        if cmd == "/start":
-            _continuous_cmd(mem, f"start {rest_text}".strip(), chat_state)
-            return None
-        if cmd == "/continuous":
-            _continuous_cmd(mem, rest_text, chat_state)
-            return None
-        if cmd == "/identity":
-            _identity_cmd(mem, rest, rest_text)
-            return None
-        if cmd == "/backlog":
-            include_all = bool(rest) and rest[0].lower() == "all"
-            _backlog_list_cmd(mem, include_all=include_all)
-            return None
-        if cmd == "/add":
-            if not rest_text:
-                print(theme.gray(
-                    "usage: /add <objective>  "
-                    "[--once] [--cycles=N] [--budget=$X]"
-                ))
-                return None
-            cfg = chat_state.get("config", {})
-            iterate, max_cycles, budget, body = parse_add_flags(
-                rest_text,
-                defaults=cfg,
-            )
-            if not body:
-                print(theme.gray("/add: empty objective after flags"))
-                return None
-            _manager_divide_user_task(mem, body, chat_state, theme=theme)
-            _add_only(
-                mem,
-                body,
-                iterate=iterate,
-                iteration_max_cycles=max_cycles,
-                iteration_budget_usd=budget,
-            )
-            return None
-        if cmd == "/stop":
-            if not rest:
-                print(theme.gray("usage: /stop <item_id>"))
-                return None
-            print(stop_iteration(mem, rest[0]))
-            return None
-        if cmd in ("/done", "/skip", "/rm"):
-            if not rest:
-                print(theme.gray(f"usage: {cmd} <item_id>"))
-                return None
-            _status_change_cmd(mem, cmd, rest[0])
-            return None
-        if cmd == "/journal":
-            n = 10
-            if rest:
-                try:
-                    n = int(rest[0])
-                except ValueError:
-                    print(theme.gray(f"usage: /journal [N]  (got: {rest[0]!r})"))
-                    return None
-            _journal_tail_cmd(mem, n)
-            return None
-        if cmd == "/note":
-            if not rest_text:
-                print(theme.gray("usage: /note <text>"))
-                return None
-            print(theme.gray(append_note(mem, rest_text)))
-            return None
-        if cmd in ("/nudge", "/inject", "/notify"):
-            if not rest_text:
-                print(theme.gray("usage: /nudge <message>  (one line, "
-                                 "spliced into the next engineer round)"))
-                return None
-            from ..apps._inbox import queue_inbox_message
-            queue_inbox_message(mem.project.root, rest_text, source="repl.nudge")
-            print(theme.gray(
-                f"nudge queued ({len(rest_text)} chars) → next mission round "
-                f"will see it as operator guidance"
-            ))
-            return None
-        if cmd == "/backend":
-            _backend_cmd(rest, chat_state)
-            return None
-        if cmd == "/config":
-            _config_cmd(rest, chat_state, life_dir=mem.project.root)
-            return None
-        if cmd in ("/verbose", "/quiet"):
-            print(theme.gray(
-                "verbose is always on now (the toggle was removed). "
-                "every event is rendered."
-            ))
-            return None
-        if cmd == "/reset":
-            print(theme.gray(render_reset_cmd(chat_state)))
-            return None
-        if cmd == "/run":
-            _run_cmd(mem, chat_state)
-            return None
-        if cmd == "/skills":
-            _skills_cmd(rest)
-            return None
-        hint = _closest_slash_command(cmd)
-        if hint:
-            print(theme.gray(
-                f"unknown command: {cmd}  — did you mean {hint}?  "
-                f"(/help lists every command)"
-            ))
-        else:
-            print(theme.gray(f"unknown command: {cmd}  (/help lists every command)"))
-        return None
-
-
 __all__ = [
     "run_manager_repl",
     "_run_manager_repl_locked",
@@ -4395,24 +1332,76 @@ __all__ = [
     "_backend_cmd",
     "_continuous_session_error",
     "_CONFIG_DEFAULTS",
+    "_ROLE_BACKEND_ENVS",
+    "_ROLE_EFFORT_ENVS",
+    "_ROLE_MODEL_ENVS",
     "_config_cmd",
     "_identity_cmd",
     "_continuous_cmd",
+    "_autospawn_daemon_for_task",
+    "_cockpit_cli_alias",
+    "_daemon_alive_for",
+    "_daemon_cmd",
+    "_daemon_log_tail",
+    "_is_argus_cli_invocation",
+    "_live_cockpit_enabled",
+    "_live_follow_enabled",
+    "_settings_cmd",
+    "_should_autospawn_on_boot",
+    "_spawn_daemon_from_cockpit",
     "_backlog_list_cmd",
     "_status_change_cmd",
     "_journal_tail_cmd",
     "_free_text_cmd",
+    "_format_completion",
     "_format_elapsed",
     "_invoke_and_track",
     "_run_cmd",
     "_status_cmd",
+    "_roles_cmd",
+    "_doctor_cmd",
+    "_rewrite_cockpit_daemon_fix",
+    "_recent_daemon_log_tail",
+    "_plan_cmd",
+    "_daemons_cmd",
+    "_attach_cmd",
+    "_print_transcript",
+    "_resume_cmd",
     "_render_help",
     "_skills_cmd",
     "_seed_chat_state",
     "tail_mission_events",
     "_follow_events_stream",
     "follow_mission_live_roles",
+    "_PANE_IDLE_VERBS",
+    "_TAIL_ROLE_TITLES",
+    "_TAIL_ROLE_VERBS",
+    "_TAIL_SPIN_INTERVAL",
+    "_TAIL_WAIT_VERBS",
+    "_TailPrinter",
+    "_TailWaitSpinner",
+    "_sleep_until",
+    "_tail_spin_interval",
+    "_type_out_line",
+    "_wrap_plain",
     "read_message_with_live_cockpit",
+    "_MANAGER_RUNNER_UNAVAILABLE",
+    "_accepts_keyword",
+    "_derive_session_name",
+    "_emit_manager_event",
+    "_ensure_manager_runner",
+    "_extract_chat_reply_text",
     "_life_dir_for",
+    "_manager_divide_user_task",
+    "_apply_config_intent",
+    "_front_door_classify",
+    "_maybe_handle_config_intent",
+    "_render_live_role_overlay",
+    "_maybe_name_session",
+    "_with_manager_spinner",
+    "manager_triage",
     "_record_mission_outcome",
+    "_no_executor_notice",
+    "_surface_blocked_question",
+    "dispatch_command",
 ]

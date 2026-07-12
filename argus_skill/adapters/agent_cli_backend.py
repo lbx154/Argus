@@ -37,6 +37,7 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,7 @@ from ..core.copilot_usage import (
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
+from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -455,7 +457,6 @@ class AgentCliBackend:
         # Reset per-call: the flag is checked AFTER this call completes,
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
-        argus_options = self._translate_options(options)
         call_id = uuid.uuid4().hex
         started_at = time.time()
         log_path = self._agent_io_log_path(options)
@@ -481,6 +482,7 @@ class AgentCliBackend:
         ) -> RunnerResult:
             completed_at = time.time()
             usage_record = None
+            reservation_overrun_usd: float | None = None
             result.call_id = call_id
             result.thread_id = result.thread_id or resume_thread_id
             result.started_at = started_at
@@ -583,6 +585,14 @@ class AgentCliBackend:
                             "reason": error or str(result.fatal_error or "not_started"),
                         })
                     elif usage_record is not None:
+                        reservation_overrun_usd = (
+                            max(
+                                0.0,
+                                usage_record.cost_usd - cost_reservation.amount_usd,
+                            )
+                            if usage_record.cost_usd is not None
+                            else None
+                        )
                         cost_reservation.settle(usage_record)
                         self._log_agent_io(log_path, {
                             "type": EventType.BUDGET_RESERVATION_SETTLED,
@@ -590,6 +600,12 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": usage_record.cost_usd,
+                            "overrun_usd": reservation_overrun_usd,
+                            "fence_breached": bool(
+                                reservation_overrun_usd
+                                and reservation_overrun_usd > 0
+                            ),
+                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
@@ -603,6 +619,9 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": None,
+                            "overrun_usd": None,
+                            "fence_breached": False,
+                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": "unknown",
                             "error": reason,
                         })
@@ -626,6 +645,17 @@ class AgentCliBackend:
                             "cost_usd": result.cost_usd,
                             "input_tokens": result.input_tokens,
                             "output_tokens": result.output_tokens,
+                            "reservation_usd": (
+                                cost_reservation.amount_usd
+                                if cost_reservation is not None
+                                else None
+                            ),
+                            "fence_enforcement": (
+                                cost_reservation.provider_fence.enforcement
+                                if cost_reservation is not None
+                                else "none"
+                            ),
+                            "overrun_usd": reservation_overrun_usd,
                         },
                     )
                 except Exception:  # noqa: BLE001
@@ -641,7 +671,11 @@ class AgentCliBackend:
             None, options.model, self._configured_pricing_model(),
         )[0]
         try:
-            from ..core.cost_control import cost_control_enabled, reserve_call_budget
+            from ..core.cost_control import (
+                cost_control_enabled,
+                per_call_budget_cap_usd,
+                reserve_call_budget,
+            )
 
             if cost_control_enabled():
                 cost_reservation, reserve_reason = reserve_call_budget(
@@ -651,6 +685,10 @@ class AgentCliBackend:
                     provider=self._backend_name,
                     model=reservation_model,
                     run_label=run_label,
+                    per_mission_cap_usd=mission_cap_from_guard(
+                        self._budget_reason_provider
+                    ),
+                    per_call_cap_usd=per_call_budget_cap_usd(),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {
@@ -678,6 +716,7 @@ class AgentCliBackend:
                     "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
+                    **cost_reservation.provider_fence.event_fields(),
                 })
         except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
             reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
@@ -689,6 +728,31 @@ class AgentCliBackend:
                 "run_label": run_label,
                 "reason": reason,
             })
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {reason}",
+                ),
+                status="denied",
+                error=reason,
+            )
+
+        if cost_reservation is not None:
+            fence = cost_reservation.provider_fence
+            options = replace(
+                options,
+                max_budget_usd=(
+                    fence.limit_usd if fence.enforcement == "hard" else None
+                ),
+                max_ai_credits=(
+                    fence.max_ai_credits if fence.enforcement == "soft" else None
+                ),
+            )
+        try:
+            argus_options = self._translate_options(options)
+        except Exception as exc:  # noqa: BLE001 - release reservation on setup failure
+            reason = f"runner option translation failed: {type(exc).__name__}: {exc}"
             return _finalize_result(
                 RunnerResult(
                     exit_code=-1,
@@ -978,6 +1042,9 @@ class AgentCliBackend:
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
             "fatal_error": getattr(argus_result, "fatal_error", None),
+            "tool_activity_observed": bool(
+                getattr(argus_result, "tool_activity_observed", False)
+            ),
             "input_tokens": translated.input_tokens,
             "cached_input_tokens": translated.cached_input_tokens,
             "cache_write_tokens": translated.cache_write_tokens,
@@ -1098,6 +1165,10 @@ class AgentCliBackend:
         # field degrades to no streaming rather than crashing.
         if "on_agent_message" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
+        if "max_budget_usd" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["max_budget_usd"] = getattr(options, "max_budget_usd", None)
+        if "max_ai_credits" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["max_ai_credits"] = getattr(options, "max_ai_credits", None)
         return argus_cls(**kwargs)
 
     def _translate_result(
@@ -1184,6 +1255,9 @@ class AgentCliBackend:
                 list(copilot_usage.model_usage)
                 if copilot_usage is not None
                 else []
+            ),
+            tool_activity_observed=bool(
+                getattr(argus_result, "tool_activity_observed", False)
             ),
         )
 

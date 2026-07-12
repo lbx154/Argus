@@ -4,7 +4,9 @@ import test from 'node:test';
 import {
   inspectApiMeta,
   requireSnapshotContract,
+  API_PROTOCOL,
   REQUIRED_API_CAPABILITIES,
+  SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
 import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
@@ -13,8 +15,8 @@ import { ensureApi, probeApi } from '../src/ensureApi.js';
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
-    protocol: { name: 'argus.webapi', major: 1, minor: 6 },
-    snapshot_schema_version: 4,
+    protocol: { name: 'argus.webapi', major: 1, minor: API_PROTOCOL.minServerMinor },
+    snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
       package_version: '0.1.0',
@@ -44,7 +46,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
     protocol: { name: 'argus.webapi', major: 1, minor: 5 },
   }));
   assert.equal(oldMinor.compatible, false);
-  assert.match(oldMinor.reason, /older than required 6/);
+  assert.match(oldMinor.reason, new RegExp(`older than required ${API_PROTOCOL.minServerMinor}`));
   const wrongCheckout = inspectApiMeta(meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -67,7 +69,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
 test('snapshot contract fails closed when budget fields are absent', () => {
   assert.throws(
     () => requireSnapshotContract({
-      schema_version: 4,
+      schema_version: SNAPSHOT_SCHEMA_VERSION,
       daemon: { alive: false },
       spend_usd: null,
       spend_status: 'empty',
@@ -126,7 +128,7 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    return new Response(JSON.stringify({ schema_version: 4, daemon: {} }), {
+    return new Response(JSON.stringify({ schema_version: SNAPSHOT_SCHEMA_VERSION, daemon: {} }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });

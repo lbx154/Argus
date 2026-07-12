@@ -7,6 +7,7 @@ import pytest
 
 from argus_skill.wiki.auto_hooks import discover_wikis, run_post_mission_hooks
 from argus_skill.wiki.bootstrap import init_wiki
+from argus_skill.wiki.lifecycle import evolve_wikis_after_mission
 
 SAMPLE_BIB = """
 @article{smith2025attention,
@@ -74,6 +75,37 @@ def test_run_hooks_idempotent(project: Path):
     [(_, info)] = s2.items()
     assert info["sources_written"] == 0
     assert info["scratch_written"] == 0
+
+
+def test_wiki_evolution_compresses_cold_retired_history(
+    project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_WIKI_RETIRED_HOT_VERSIONS", "1")
+    retired = project / ".autors" / "demo" / "wiki" / "pages" / "_retired" / "techniques"
+    retired.mkdir(parents=True)
+    (retired / "page.md").write_text("first", encoding="utf-8")
+    (retired / "page.2.md").write_text("second", encoding="utf-8")
+    events = []
+
+    summary = evolve_wikis_after_mission(
+        rounds=[],
+        workdir=project,
+        task="task",
+        mission_id="m1",
+        success=True,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+        on_event=events.append,
+    )
+
+    assert summary["retired_compressed"] == 1
+    assert (retired / "page.md.gz").exists()
+    assert (retired / "page.2.md").exists()
+    assert any(event["type"] == "wiki.retired.compressed" for event in events)
 
 
 def test_run_hooks_skips_when_no_refs_bib(project: Path):

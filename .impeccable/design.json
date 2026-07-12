@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-11T14:45:00Z",
+  "title": "Design System: Argus Research Workbench",
+  "extensions": {
+    "colorMeta": {
+      "primary-indigo": {
+        "role": "primary",
+        "displayName": "Argus Indigo",
+        "canonical": "#4F46E5",
+        "tonalRamp": ["#1E1B4B", "#312E81", "#3730A3", "#4338CA", "#4F46E5", "#818CF8", "#C7D2FE", "#EEF2FF"]
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Bilingual Product Body",
+        "purpose": "Conversation and primary workbench content in Geist with Noto Sans SC fallback."
+      },
+      "mono": {
+        "displayName": "Operational Mono",
+        "purpose": "Paths, timestamps, IDs, logs, and code."
+      }
+    },
+    "shadows": [
+      { "name": "composer-lift", "value": "0 4px 24px rgba(0,0,0,0.18)", "purpose": "Floating Manager composer." },
+      { "name": "overlay-lift", "value": "0 16px 44px rgba(0,0,0,0.34)", "purpose": "Modal and command palette." }
+    ],
+    "motion": [
+      { "name": "panel", "value": "220ms cubic-bezier(0.4,0,0.2,1)", "purpose": "Sidebar and preview collapse." },
+      { "name": "message", "value": "200ms cubic-bezier(0.4,0,0.2,1)", "purpose": "Conversation turn appearance." },
+      { "name": "feedback", "value": "120ms ease-out", "purpose": "Hover, press, and focus feedback." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "The Vigilant Workbench",
+    "overview": "A calm first-party research instrument combining conversation, autonomous execution, and live artifacts.",
+    "keyCharacteristics": ["artifact-led", "conversation-centered", "progressively disclosed", "operationally explicit", "overflow-safe"],
+    "rules": [
+      { "name": "Sparse Accent", "body": "Indigo communicates action, focus, and selection only.", "section": "colors" },
+      { "name": "Reading Width", "body": "Conversation prose stays near 760px.", "section": "typography" },
+      { "name": "Flat by Default", "body": "Resting work surfaces use tone and hairlines, not decorative shadows.", "section": "elevation" }
+    ],
+    "dos": ["Keep state visible.", "Keep conversation readable.", "Keep sidebars collapsible and resizable."],
+    "donts": ["Do not use generic AI dashboard patterns.", "Do not allow horizontal overflow.", "Do not hide critical state."]
+  }
+}

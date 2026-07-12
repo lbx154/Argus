@@ -21,19 +21,13 @@ CAS pending→running on the on-disk JSONL file.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
-import uuid
-from collections.abc import Iterable, MutableMapping
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +48,31 @@ from ..life.supervisor import (
     LifeSupervisorConfig,
     global_daily_spend,
 )
+from .config import LifeWorkerConfig
+from .config import config_from_payload as _config_from_payload
+from .config import config_payload as _config_payload
+from .handoff import (
+    _HANDOFF_CONFIG_ENV,
+    _HANDOFF_GEN_ENV,
+    _HANDOFF_LOG_ENV,
+    _HANDOFF_READY_ENV,
+    _HANDOFF_TOKEN_ENV,
+    _SOURCE_SIGNATURE_ENV,
+    _TEST_SOURCE_SIGNATURE_FILE_ENV,
+    _auto_handoff_enabled,
+    _handoff_generation,
+    _handoff_max_generations,
+    _handoff_min_interval_seconds,
+    _source_signature,
+    _spawn_handoff_candidate,
+    _strip_git_config_injection,
+    _truthy_env,
+    run_handoff_child_process,
+)
+from .handoff import (
+    _acquire_daemon_lock_with_timeout as _acquire_daemon_lock_with_timeout_impl,
+)
+from .process import run_foreground_process, spawn_detached_process
 from .state import (
     ContinuousConfigState,
     DaemonStatus,
@@ -105,74 +124,39 @@ __all__ = [
     "read_continuous_state",
     "read_continuous_config",
     "write_continuous_config",
+    "_process_alive",
+    "_redirect_std_to_log",
+    "_daemon_log_path",
+    "_daemon_pid_path",
+    "_daemon_status_path",
+    "_daemon_status_payload",
+    "_new_boot_id",
+    "_point_active_daemon_log",
+    "_config_from_payload",
+    "_config_payload",
+    "_HANDOFF_CONFIG_ENV",
+    "_HANDOFF_GEN_ENV",
+    "_HANDOFF_LOG_ENV",
+    "_HANDOFF_READY_ENV",
+    "_HANDOFF_TOKEN_ENV",
+    "_SOURCE_SIGNATURE_ENV",
+    "_TEST_SOURCE_SIGNATURE_FILE_ENV",
+    "_acquire_daemon_lock_with_timeout",
+    "_auto_handoff_enabled",
+    "_handoff_generation",
+    "_handoff_max_generations",
+    "_handoff_min_interval_seconds",
+    "_source_signature",
+    "_spawn_handoff_candidate",
+    "_strip_git_config_injection",
+    "_truthy_env",
+    "DaemonAlreadyRunning",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-
-@dataclass
-class LifeWorkerConfig:
-    """How the worker drains the backlog.
-
-    All durations are seconds. ``poll_interval`` is how long the worker
-    sleeps between :meth:`LifeSupervisor.tick` calls when the backlog
-    is empty — when work is pending it does not sleep, it just keeps
-    ticking.
-    """
-
-    life_dir: Path
-    global_root: Path | None = None
-    project_fingerprint: str = ""
-    project_label: str = ""
-    backend: str = "codex"  # "codex" | "memory"
-    engineer_model: str = "gpt-5.5"
-    reviewer_model: str = "gpt-5.5"
-    engineer_reasoning_effort: str = "xhigh"
-    reviewer_reasoning_effort: str = "xhigh"
-    per_mission_cap_usd: float = 30.0
-    daily_cap_usd: float = 180.0
-    global_daily_cap_usd: float = 0.0
-    planner_task_iteration_max_cycles: int = 6
-    planner_task_iteration_budget_usd: float = 30.0
-    # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
-    # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
-    # this configures.
-    subagent_family_failure_streak_limit: int = 3
-    subagent_family_failure_window_hours: float = 72.0
-    poll_interval: float = 5.0
-    log_path: Path | None = None  # defaults to <life_dir>/daemon.log
-    project_workdir: Path | None = None
-    # Persisted-events verbosity for the daemon's own events.jsonl. DEFAULT
-    # "full": the REPL live-follow tails this file, so dropping engineer.progress
-    # / round.review.* would break streaming (and hide the reviewer working).
-    # events.jsonl is size-bounded by JsonlEventSink's roll. "signal" is an
-    # opt-in (ARGUS_SKILL_EVENT_VERBOSITY) for a tiny verdict-only log; the
-    # REPL noise problem is solved at the DISPLAY layer, not by gutting the log.
-    event_log_verbosity: str = "full"
-    continuous: bool = False
-    continuous_objective: str = ""
-    # Opt-in to adopt THIS project's persisted continuous campaign
-    # (``<life_dir>/continuous.json``) at boot. Off by default: a fresh/manual
-    # daemon must NOT silently inherit a project-level campaign it was not asked
-    # to run (see ``--resume-continuous``). Supervisors that restart the campaign
-    # daemon pass it True to preserve crash-recovery.
-    resume_continuous: bool = False
-    # When True (the default for the lifetime daemon) the supervisor keeps the
-    # mission alive after the planner certifies ``project_done`` instead of
-    # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
-    continuous_open_ended: bool = True
-
-
-_HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
-_HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
-_HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
-_HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
-_HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
-_SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
-_TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
-
 
 # ---------------------------------------------------------------------------
 # Disk-based continuous config (hot-reloadable by both daemon + REPL)
@@ -246,385 +230,6 @@ def _apply_continuous_suppression(
         state["active"] = False
     return enabled, objective
 
-
-# ---------------------------------------------------------------------------
-# Blue/green self-handoff
-# ---------------------------------------------------------------------------
-
-def _truthy_env(name: str, default: str = "1") -> bool:
-    return os.environ.get(name, default).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
-def _strip_git_config_injection(env: MutableMapping[str, str]) -> list[str]:
-    """Remove the ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_*`` /
-    ``GIT_CONFIG_VALUE_*`` env-based config-injection family in place.
-
-    The host seeds a benign ``safe.bareRepository=explicit`` override via
-    these vars, but the codex sandbox forwards ``GIT_CONFIG_COUNT`` /
-    ``GIT_CONFIG_VALUE_0`` while dropping ``GIT_CONFIG_KEY_0`` — leaving an
-    incomplete tuple that makes *every* ``git`` command in the agent's shell
-    fail with ``fatal: unable to parse command-line config`` until the agent
-    rediscovers an ``env -u`` workaround, burning rounds each mission. The
-    agent's project git work does not need this host override, so drop the
-    whole family from the env handed to child shells.
-
-    Returns the list of removed keys (for logging/tests).
-    """
-    removed = [
-        k
-        for k in list(env)
-        if k == "GIT_CONFIG_COUNT"
-        or k.startswith("GIT_CONFIG_KEY_")
-        or k.startswith("GIT_CONFIG_VALUE_")
-    ]
-    for k in removed:
-        env.pop(k, None)
-    return removed
-
-
-def _auto_handoff_enabled() -> bool:
-    return _truthy_env("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0")
-
-
-def _handoff_min_interval_seconds() -> float:
-    try:
-        return max(0.0, float(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MIN_S", "60")))
-    except ValueError:
-        return 60.0
-
-
-def _handoff_generation() -> int:
-    try:
-        return max(0, int(os.environ.get(_HANDOFF_GEN_ENV, "0")))
-    except ValueError:
-        return 0
-
-
-def _handoff_max_generations() -> int:
-    try:
-        return max(1, int(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN", "10")))
-    except ValueError:
-        return 10
-
-
-def _source_signature() -> str:
-    """Content hash of runtime files that require a daemon restart.
-
-    Covers both Python runtime code and the behavior-defining built-in skill
-    markdown: a skill edit changes how the engineer/reviewer act, so the daemon
-    is just as stale against a skill change as against a ``.py`` change and the
-    auto-handoff signature must notice it.
-    """
-    test_signature_path = os.environ.get(_TEST_SOURCE_SIGNATURE_FILE_ENV, "").strip()
-    if test_signature_path:
-        try:
-            return Path(test_signature_path).expanduser().read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-    package_root = Path(__file__).resolve().parents[1]
-    repo_root = package_root.parent
-    paths: list[Path] = sorted(package_root.rglob("*.py"))
-    paths += sorted((package_root / "builtin_skills").rglob("*.md"))
-    pyproject = repo_root / "pyproject.toml"
-    if pyproject.exists():
-        paths.append(pyproject)
-    digest = hashlib.sha256()
-    for path in paths:
-        parts = set(path.parts)
-        if "__pycache__" in parts or ".git" in parts:
-            continue
-        try:
-            rel = path.relative_to(repo_root)
-            data = path.read_bytes()
-        except OSError:
-            continue
-        digest.update(str(rel).encode("utf-8", "surrogateescape"))
-        digest.update(b"\0")
-        digest.update(data)
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
-    return {
-        "life_dir": str(config.life_dir),
-        "global_root": str(config.global_root) if config.global_root is not None else "",
-        "project_fingerprint": config.project_fingerprint,
-        "project_label": config.project_label,
-        "backend": config.backend,
-        "engineer_model": config.engineer_model,
-        "reviewer_model": config.reviewer_model,
-        "engineer_reasoning_effort": config.engineer_reasoning_effort,
-        "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "per_mission_cap_usd": config.per_mission_cap_usd,
-        "daily_cap_usd": config.daily_cap_usd,
-        "global_daily_cap_usd": config.global_daily_cap_usd,
-        "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
-        "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
-        "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
-        "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
-        "poll_interval": config.poll_interval,
-        "log_path": str(config.log_path) if config.log_path is not None else "",
-        "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
-        "continuous": config.continuous,
-        "continuous_objective": config.continuous_objective,
-        "continuous_open_ended": config.continuous_open_ended,
-    }
-
-
-def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
-    from ..core.knobs import resolve_role_model
-
-    log_path = str(data.get("log_path") or "")
-    global_root = str(data.get("global_root") or "")
-    project_workdir = str(data.get("project_workdir") or "")
-    def _number(name: str, default: float) -> float:
-        value = data.get(name)
-        return default if value is None else float(value)
-
-    return LifeWorkerConfig(
-        life_dir=Path(str(data["life_dir"])).expanduser(),
-        global_root=Path(global_root).expanduser() if global_root else None,
-        project_workdir=Path(project_workdir).expanduser() if project_workdir else None,
-        project_fingerprint=str(data.get("project_fingerprint") or ""),
-        project_label=str(data.get("project_label") or ""),
-        backend=str(data.get("backend") or "codex"),
-        engineer_model=str(
-            data.get("engineer_model")
-            or resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL")
-        ),
-        reviewer_model=str(
-            data.get("reviewer_model")
-            or resolve_role_model("reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL")
-        ),
-        engineer_reasoning_effort=str(
-            data.get("engineer_reasoning_effort") or "xhigh"
-        ),
-        reviewer_reasoning_effort=str(
-            data.get("reviewer_reasoning_effort") or "xhigh"
-        ),
-        per_mission_cap_usd=_number("per_mission_cap_usd", 30.0),
-        daily_cap_usd=_number("daily_cap_usd", 180.0),
-        global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
-        planner_task_iteration_max_cycles=int(
-            data.get("planner_task_iteration_max_cycles") or 6
-        ),
-        planner_task_iteration_budget_usd=_number(
-            "planner_task_iteration_budget_usd", 30.0
-        ),
-        subagent_family_failure_streak_limit=int(
-            data.get("subagent_family_failure_streak_limit") or 3
-        ),
-        subagent_family_failure_window_hours=float(
-            data.get("subagent_family_failure_window_hours") or 72.0
-        ),
-        poll_interval=float(data.get("poll_interval") or 5.0),
-        log_path=Path(log_path).expanduser() if log_path else None,
-        continuous=bool(data.get("continuous")),
-        continuous_objective=str(data.get("continuous_objective") or ""),
-        continuous_open_ended=bool(data.get("continuous_open_ended", True)),
-    )
-
-
-def _handoff_ready_path(life_dir: Path) -> Path:
-    return life_dir / "daemon.handoff.json"
-
-
-def _handoff_config_path(life_dir: Path, token: str) -> Path:
-    return life_dir / f"daemon.handoff.{token}.json"
-
-
-def _spawn_handoff_candidate(
-    config: LifeWorkerConfig,
-    *,
-    source_signature: str,
-    reason: str,
-    standby_timeout: float = 30.0,
-) -> bool:
-    """Start a fresh interpreter and wait until it reaches standby."""
-    token = uuid.uuid4().hex
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    ready_path = _handoff_ready_path(config.life_dir)
-    config_path = _handoff_config_path(config.life_dir, token)
-    ready_path.unlink(missing_ok=True)
-    payload = {
-        "token": token,
-        "reason": reason,
-        "source_signature": source_signature,
-        "config": _config_payload(config),
-    }
-    try:
-        config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        log.exception("daemon handoff: failed to write config")
-        return False
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    env = os.environ.copy()
-    env[_HANDOFF_CONFIG_ENV] = str(config_path)
-    env[_HANDOFF_READY_ENV] = str(ready_path)
-    env[_HANDOFF_TOKEN_ENV] = token
-    env[_HANDOFF_LOG_ENV] = str(log_path)
-    env[_SOURCE_SIGNATURE_ENV] = source_signature
-    env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
-    cmd = [
-        sys.executable,
-        "-c",
-        (
-            "from argus_skill.daemon.life_worker import run_handoff_child; "
-            "raise SystemExit(run_handoff_child())"
-        ),
-    ]
-    try:
-        with log_path.open("ab") as log_fh:
-            proc = subprocess.Popen(  # noqa: S603
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                cwd="/",
-                env=env,
-                start_new_session=True,
-                close_fds=True,
-            )
-    except OSError:
-        log.exception("daemon handoff: failed to spawn candidate")
-        config_path.unlink(missing_ok=True)
-        return False
-
-    deadline = time.monotonic() + standby_timeout
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            log.warning("daemon handoff: candidate exited early rc=%s", proc.returncode)
-            config_path.unlink(missing_ok=True)
-            return False
-        try:
-            data = json.loads(ready_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            time.sleep(0.1)
-            continue
-        if data.get("token") == token and data.get("state") == "standby":
-            return True
-        time.sleep(0.1)
-    log.warning("daemon handoff: candidate did not reach standby in %.1fs", standby_timeout)
-    try:
-        proc.terminate()
-    except OSError:
-        pass
-    config_path.unlink(missing_ok=True)
-    ready_path.unlink(missing_ok=True)
-    return False
-
-
-def _acquire_daemon_lock_with_timeout(pid_path: Path, timeout: float) -> Any:
-    deadline = time.monotonic() + timeout
-    last_exc: DaemonAlreadyRunning | None = None
-    while True:
-        try:
-            return acquire_global_daemon_lock(pid_path=pid_path)
-        except DaemonAlreadyRunning as exc:
-            last_exc = exc
-            if time.monotonic() >= deadline:
-                raise last_exc
-            time.sleep(0.1)
-
-
-def run_handoff_child() -> int:
-    """Entrypoint for a blue/green handoff candidate."""
-    config_env = os.environ.get(_HANDOFF_CONFIG_ENV, "")
-    ready_env = os.environ.get(_HANDOFF_READY_ENV, "")
-    token = os.environ.get(_HANDOFF_TOKEN_ENV, "")
-    if not config_env or not ready_env or not token:
-        sys.stderr.write("argus-skill handoff: missing handoff environment\n")
-        return 2
-    config_path = Path(config_env).expanduser()
-    ready_path = Path(ready_env).expanduser()
-    try:
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
-        config = _config_from_payload(payload["config"])
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        sys.stderr.write(f"argus-skill handoff: invalid config: {exc}\n")
-        return 2
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    worker = LifeWorker(config)
-    # Housekeeping: prune stale projects on daemon boot too (covers a daemon
-    # started directly via --daemon, not just via the REPL). Best-effort.
-    try:
-        from ..core.project_gc import maybe_gc_stale_projects
-        # Exclude THIS daemon's own project: the sweep runs before daemon.pid is
-        # acquired, so a freshly-resumed long-parked project would otherwise be
-        # trashed out from under the daemon starting on it.
-        _fp = getattr(config, "project_fingerprint", "") or ""
-        maybe_gc_stale_projects(
-            getattr(config, "global_root", None),
-            exclude={_fp} if _fp else None,
-        )
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        ready_path.write_text(
-            json.dumps({
-                "token": token,
-                "state": "standby",
-                "pid": os.getpid(),
-                "ts": time.time(),
-            }),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        sys.stderr.write(f"argus-skill handoff: failed to write standby file: {exc}\n")
-        return 2
-
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-    try:
-        lock = _acquire_daemon_lock_with_timeout(pid_path, timeout=60.0)
-    except DaemonAlreadyRunning as exc:
-        log.error("handoff candidate could not acquire daemon lock (pid=%s)", exc.pid)
-        return 2
-
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-        ready_path.unlink(missing_ok=True)
-        config_path.unlink(missing_ok=True)
-    except OSError:
-        log.exception("handoff candidate: failed to publish active status")
-
-    # This candidate just took over — repoint daemon.log at its own boot log so
-    # readers follow the live process (the incumbent's boot log is left intact,
-    # never interleaved). Fail-soft: skip if the handoff log env is absent.
-    _hlog = os.environ.get(_HANDOFF_LOG_ENV, "")
-    if _hlog:
-        _point_active_daemon_log(config.life_dir, Path(_hlog))
-
-    try:
-        return worker.run_forever()
-    finally:
-        lock.release()
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Worker
-# ---------------------------------------------------------------------------
 
 class LifeWorker:
     """The 7×24 background worker.
@@ -1001,6 +606,9 @@ class LifeWorker:
             mem = LifeMemory.open(cfg.life_dir)
             runtime_root = cfg.life_dir
         mem.init()
+        if split_memory:
+            os.environ["ARGUS_SKILL_SESSION_ID"] = cfg.project_fingerprint
+        os.environ["ARGUS_SKILL_SESSION_ROOT"] = str(runtime_root)
         os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(runtime_root / "events.jsonl")
 
         # Build the runner the same way the REPL does. Importing here
@@ -1529,6 +1137,21 @@ class LifeWorker:
         log.warning("daemon handoff failed for signature=%s; incumbent continues", current)
         return False
 
+def run_handoff_child() -> int:
+    return run_handoff_child_process(
+        worker_factory=LifeWorker,
+        acquire_lock=_acquire_daemon_lock_with_timeout,
+    )
+
+
+def _acquire_daemon_lock_with_timeout(pid_path: Path, timeout: float) -> Any:
+    return _acquire_daemon_lock_with_timeout_impl(
+        pid_path,
+        timeout,
+        acquire_fn=acquire_global_daemon_lock,
+    )
+
+
 def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     """Build the argparse-shaped namespace ``build_life_runner`` expects."""
     import argparse
@@ -1805,235 +1428,16 @@ def _release_daemon_spawn_lock(fd: int | None, *, unlock: bool = True) -> None:
 
 
 def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> int:
-    """Fork a detached background process running the worker, then exit.
-
-    Returns 0 on successful spawn, 2 if a daemon is already running.
-
-    Uses the standard double-fork idiom to fully detach from the
-    controlling terminal and become a session leader. The grandchild
-    inherits no fds we care about, redirects std{in,out,err} to the
-    log file, acquires the daemon pid lock, writes the status sidecar,
-    and finally enters :meth:`LifeWorker.run_forever`.
-    """
-    spawn_lock_fd = _acquire_daemon_spawn_lock(config)
-    try:
-        # Count and fork while holding one host-wide admission lock. A second
-        # launcher cannot observe the same pre-start count before this child has
-        # published its pid/status sidecars.
-        existing = read_daemon_status(config.life_dir)
-        if existing.alive and existing.pid is not None:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: daemon already running for this life-dir "
-                    f"(pid={existing.pid}, lock={existing.pid_path}).\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        daemon_limit = _max_active_daemons(config)
-        active_count = _active_daemon_count(config)
-        if daemon_limit > 0 and active_count >= daemon_limit:
-            if not quiet:
-                sys.stderr.write(
-                    f"argus-skill: refusing to start another daemon: host-wide "
-                    f"active-daemon cap {daemon_limit} reached ({active_count} live). "
-                    "Stop an existing project or raise "
-                    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS explicitly.\n"
-                )
-            _release_daemon_spawn_lock(spawn_lock_fd)
-            return 2
-        config.life_dir.mkdir(parents=True, exist_ok=True)
-        boot_id = _new_boot_id()
-        log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-        _point_active_daemon_log(config.life_dir, log_path)
-        pid_path = _daemon_pid_path(config.life_dir)
-        status_path = _daemon_status_path(config.life_dir)
-        pid = os.fork()
-    except Exception:
-        _release_daemon_spawn_lock(spawn_lock_fd)
-        raise
-    if pid > 0:
-        try:
-            # Parent waits briefly so the admission lock covers pid publication.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if pid_path.exists() and status_path.exists():
-                    try:
-                        written_pid = int(pid_path.read_text().strip())
-                    except (OSError, ValueError):
-                        written_pid = 0
-                    if written_pid and _process_alive(written_pid):
-                        if not quiet:
-                            sys.stdout.write(
-                                f"argus-skill: daemon started (pid {written_pid}, "
-                                f"life_dir={config.life_dir}, log={log_path}).\n"
-                            )
-                        return 0
-                time.sleep(0.1)
-            if not quiet:
-                sys.stderr.write(
-                    "argus-skill: daemon fork succeeded but child did not write its "
-                    f"pid file within 5s. Check {log_path} for errors.\n"
-                )
-            return 2
-        finally:
-            _release_daemon_spawn_lock(spawn_lock_fd)
-
-    # The parent owns admission. Close only this inherited descriptor copy;
-    # unlocking here would release the parent's lock before pid publication.
-    _release_daemon_spawn_lock(spawn_lock_fd, unlock=False)
-
-    # First child — become session leader.
-    try:
-        os.setsid()
-    except OSError:
-        pass
-
-    # Second fork — guarantee no controlling TTY can be reacquired.
-    try:
-        pid2 = os.fork()
-    except OSError:
-        pid2 = -1
-    if pid2 > 0:
-        os._exit(0)
-
-    # Grandchild: this is the daemon. Redirect std fds to the log file.
-    os.chdir("/")
-    os.umask(0o077)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.dup2(log_fd, sys.stdout.fileno())
-    os.dup2(log_fd, sys.stderr.fileno())
-    os.close(log_fd)
-    devnull_fd = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(devnull_fd, sys.stdin.fileno())
-    os.close(devnull_fd)
-
-    # Close every inherited fd beyond std{in,out,err}. ``os.fork`` (unlike
-    # ``subprocess(close_fds=True)``) inherits the WHOLE fd table of whoever
-    # called ``spawn_detached_daemon`` — which is often the web server
-    # (``argus-skill --web``), whose LISTENING SOCKET would otherwise be kept
-    # open here and wedge that port after the web restarts (a real fd leak:
-    # connections queue to a daemon that never accepts). The daemon opens every
-    # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
-    # so dropping the inherited table is safe and correct daemonisation.
-    try:
-        _keep = {0, 1, 2}
-        for _name in os.listdir("/proc/self/fd"):
-            try:
-                _fd = int(_name)
-            except ValueError:
-                continue
-            if _fd not in _keep:
-                try:
-                    os.close(_fd)
-                except OSError:
-                    pass
-    except FileNotFoundError:  # /proc unavailable — bounded fallback
-        os.closerange(3, 4096)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
+    return spawn_detached_process(
+        config,
+        worker_factory=LifeWorker,
+        acquire_spawn_lock=_acquire_daemon_spawn_lock,
+        release_spawn_lock=_release_daemon_spawn_lock,
+        max_active_daemons=_max_active_daemons,
+        active_daemon_count=_active_daemon_count,
+        quiet=quiet,
     )
-
-    # Acquire the daemon pid lock. If a competing daemon raced us and
-    # got it first we exit cleanly — the parent's pre-flight is just
-    # an optimization, the lock is the real guarantee.
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        log.error("daemon: another daemon already holds the lock (pid=%s)", exc.pid)
-        os._exit(2)
-
-    # Write the status sidecar so ``read_daemon_status`` knows when we
-    # started + which backend we're on.
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        rc = worker.run_forever()
-    except Exception:  # noqa: BLE001
-        log.exception("daemon: fatal error")
-        rc = 1
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
-
-    os._exit(rc)
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:
-    """Run the worker in the foreground (for systemd / debugging).
-
-    Same lock + status sidecar as the detached path, but logs go to
-    stderr and SIGINT/SIGTERM stop the process directly.
-    """
-    config.life_dir.mkdir(parents=True, exist_ok=True)
-    pid_path = _daemon_pid_path(config.life_dir)
-    status_path = _daemon_status_path(config.life_dir)
-    try:
-        lock = acquire_global_daemon_lock(pid_path=pid_path)
-    except DaemonAlreadyRunning as exc:
-        sys.stderr.write(
-            f"argus-skill: daemon already running for this life-dir "
-            f"(pid={exc.pid}, lock={exc.lock_path}).\n"
-        )
-        return 2
-
-    # We own the daemon — segment THIS boot's output into its own per-boot log
-    # (fixes --daemon-fg previously writing no file); the daemon.log symlink
-    # points here. keep_console tees Python logs to the original stderr (terminal
-    # / journald) so an interactive fg run still shows progress.
-    boot_id = _new_boot_id()
-    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
-    _point_active_daemon_log(config.life_dir, log_path)
-    saved_console = _redirect_std_to_log(log_path, keep_console=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    if saved_console is not None:
-        try:
-            _console = os.fdopen(saved_console, "w", buffering=1)
-            _handler = logging.StreamHandler(_console)
-            _handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            )
-            logging.getLogger().addHandler(_handler)
-        except OSError:
-            pass
-
-    started_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        status_path.write_text(
-            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
-        )
-    except OSError:
-        log.exception("daemon-fg: failed to write status sidecar")
-
-    try:
-        worker = LifeWorker(config)
-        return worker.run_forever()
-    finally:
-        try:
-            lock.release()
-        except Exception:  # noqa: BLE001
-            log.exception("daemon-fg: failed to release lock")
-        try:
-            status_path.unlink()
-        except OSError:
-            pass
+    return run_foreground_process(config, worker_factory=LifeWorker)

@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Spinner } from './primitives';
-import { THINKING_LINES } from '../lib/soul';
-
-export interface ChatTurn {
-  role: 'you' | 'argus' | 'system';
-  text: string;
-  pending?: boolean;
-}
+import { THINKING_LINES, rotateByTick, spinnerFrame } from '../lib/soul';
 
 /**
  * The Manager front-door as a single conversational box — the web analogue of
@@ -15,41 +8,42 @@ export interface ChatTurn {
  * No task/nudge/note modes to think about.
  */
 export function ChatBox({
-  turns,
   onSend,
   onCancel,
   disabled,
   pending,
   focusSignal,
+  embedded = false,
+  phase = '',
+  startedAt = 0,
 }: {
-  turns: ChatTurn[];
   onSend: (text: string) => void;
   onCancel: () => void;
   disabled: boolean;
   pending: boolean;
   focusSignal?: number;
+  embedded?: boolean;
+  phase?: string;
+  startedAt?: number;
 }) {
   const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const threadRef = useRef<HTMLDivElement>(null);
-  // Rotate two literal status lines so a long model call reads as alive without
-  // anthropomorphic filler.
   const [thinkTick, setThinkTick] = useState(0);
   useEffect(() => {
     if (!pending) return;
     setThinkTick((t) => t + 1);
-    const id = setInterval(() => setThinkTick((t) => t + 1), 3800);
+    const id = setInterval(() => setThinkTick((t) => t + 1), 120);
     return () => clearInterval(id);
   }, [pending]);
-  const thinkingLine = THINKING_LINES[thinkTick % THINKING_LINES.length];
+  const rawPhase = phase || `${rotateByTick(THINKING_LINES, thinkTick)}…`;
+  const thinkingLine = rawPhase.includes('[SESSION HANDOFF')
+    ? 'Manager context refreshed · working on your message…'
+    : rawPhase.replace(/^Manager\s*·\s*/i, '').slice(0, 100);
+  const elapsedS = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
 
   useEffect(() => {
     if (focusSignal && !disabled) taRef.current?.focus();
   }, [focusSignal, disabled]);
-
-  useEffect(() => {
-    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [turns.length, pending]);
 
   const submit = () => {
     const t = text.trim();
@@ -69,19 +63,22 @@ export function ChatBox({
   };
 
   return (
-    <div className="card flex flex-col">
-      {(turns.length > 0 || pending) && (
-        <div ref={threadRef} className="max-h-56 overflow-y-auto scroll-thin border-b border-line px-3 py-2.5">
-          {turns.map((t, i) => <Bubble key={i} turn={t} />)}
-          {pending && (
-            <div className="flex items-center gap-2 border-l-2 border-line px-2 py-1.5 text-xs text-ink-faint">
-              <Spinner /> <span>{thinkingLine}</span>
-            </div>
-          )}
+    <div className={`flex flex-col overflow-hidden rounded-2xl border ${
+      embedded ? 'border-line/40 bg-panel/90 shadow-[0_4px_24px_rgba(0,0,0,0.18)] backdrop-blur-md' : 'border-line/80 bg-panel'
+    }`}>
+      {pending ? (
+        <div className="border-b border-line/40 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <span className="font-mono text-manager">{spinnerFrame(thinkTick)}</span>
+            <span className="shrink-0 font-semibold text-manager">Your message</span>
+            <span className="min-w-0 flex-1 truncate text-blue" title={thinkingLine}>{thinkingLine}</span>
+            <span className="shrink-0 font-mono tabular-nums text-ink-faint">{elapsedS}s</span>
+          </div>
+          <div className="mt-1 text-xs text-ink-faint">Esc stop waiting</div>
         </div>
-      )}
-      <div className="flex items-end gap-2 px-3 py-2.5">
-        <span className="pb-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-faint" title="message Argus">Message</span>
+      ) : null}
+      <div className="flex items-end gap-2 px-3 py-2">
+        <span className="pb-2 font-mono text-lg text-blue" title="message Argus">›</span>
         <textarea
           ref={taRef}
           value={text}
@@ -90,7 +87,7 @@ export function ChatBox({
           rows={1}
           disabled={disabled}
           placeholder={disabled ? 'Select a session…' : 'Ask a question or assign work'}
-          className="max-h-40 min-h-[38px] flex-1 resize-none bg-transparent py-2 font-sans text-sm text-ink outline-none placeholder:text-ink-faint"
+          className="max-h-48 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 font-sans text-[15px] text-ink outline-none placeholder:text-ink-faint"
           style={{ fieldSizing: 'content' } as React.CSSProperties}
         />
         <button
@@ -98,35 +95,16 @@ export function ChatBox({
           onClick={pending ? onCancel : submit}
           disabled={disabled || (!pending && !text.trim())}
           title={pending ? 'stop waiting for this reply; server-side work may continue' : undefined}
-          className={`h-[38px] shrink-0 rounded border px-4 text-sm font-medium transition-colors disabled:opacity-40 ${
+          aria-label={pending ? 'stop waiting' : 'send message'}
+          className={`h-9 w-9 shrink-0 rounded-full border text-sm font-medium transition-colors disabled:opacity-40 ${
             pending
               ? 'border-line text-warn hover:border-warn/60 hover:bg-warn/10'
-              : 'border-blue-deep bg-blue-deep text-ink hover:border-blue hover:bg-blue-deep/80'
+              : 'border-blue/70 bg-blue/10 text-blue hover:border-blue hover:bg-blue/20'
           }`}
         >
-          {pending ? 'Stop waiting' : 'Send'}
+          {pending ? '■' : '↑'}
         </button>
       </div>
-      <div className="px-3 pb-1.5 text-[10px] text-ink-faint">
-        {pending
-          ? 'Esc detaches this reply; server-side work may continue'
-          : 'Enter to send · Shift+Enter for newline · Ctrl+K for commands'}
-      </div>
-    </div>
-  );
-}
-
-function Bubble({ turn }: { turn: ChatTurn }) {
-  if (turn.role === 'system') {
-    return <div className="border-l-2 border-line px-3 py-1.5 font-mono text-[10px] text-ink-faint">{turn.text}</div>;
-  }
-  const you = turn.role === 'you';
-  return (
-    <div className="grid grid-cols-[52px_minmax(0,1fr)] border-b border-line/40 py-2 last:border-b-0">
-      <span className={`px-1 font-mono text-[10px] font-semibold uppercase tracking-wide ${you ? 'text-ink-faint' : 'text-blue-sky'}`}>
-        {you ? 'you' : 'argus'}
-      </span>
-      <span className={`whitespace-pre-wrap pr-2 text-sm leading-relaxed ${you ? 'text-ink' : 'text-ink-dim'}`}>{turn.text}</span>
     </div>
   );
 }

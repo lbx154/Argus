@@ -147,30 +147,81 @@ class WikiStore:
         fact layer) is never touched. This is the wiki analogue of a skill archive.
         Raises ``FileNotFoundError`` if the page does not exist.
         """
+        with self._wiki_lock():
+            return self._retire_page_locked(
+                card_type,
+                card_id,
+                reason=reason,
+                retired_by=retired_by,
+                today=today,
+            )
+
+    def retire_page_if_peer_active(
+        self,
+        card_type: str,
+        card_id: str,
+        *,
+        peer_card_type: str,
+        peer_card_id: str,
+        reason: str,
+        retired_by: str,
+        today: "date | None" = None,
+    ) -> Path | None:
+        """Atomically retire a duplicate only while its chosen peer is active.
+
+        Returns ``None`` for a benign concurrent race: the duplicate was already
+        retired, or the representative disappeared and the compaction plan is no
+        longer safe to apply.
+        """
+        peer_subdir = _PAGE_SUBDIR[peer_card_type]
+        peer_stem = _validate_stem(peer_card_id)
+        peer_path = self.root / "pages" / peer_subdir / f"{peer_stem}.md"
+        subdir = _PAGE_SUBDIR[card_type]
+        stem = _validate_stem(card_id)
+        source_path = self.root / "pages" / subdir / f"{stem}.md"
+        with self._wiki_lock():
+            if not peer_path.exists() or not source_path.exists():
+                return None
+            return self._retire_page_locked(
+                card_type,
+                card_id,
+                reason=reason,
+                retired_by=retired_by,
+                today=today,
+            )
+
+    def _retire_page_locked(
+        self,
+        card_type: str,
+        card_id: str,
+        *,
+        reason: str,
+        retired_by: str,
+        today: "date | None",
+    ) -> Path:
         subdir = _PAGE_SUBDIR[card_type]
         stem = _validate_stem(card_id)
         src = self.root / "pages" / subdir / f"{stem}.md"
         dest = self.root / "pages" / "_retired" / subdir / f"{stem}.md"
         stamp = (today or date.today()).isoformat()
-        with self._wiki_lock():
-            if not src.exists():
-                raise FileNotFoundError(f"page not found: {src}")
-            # Never overwrite an existing tombstone: if this stem was retired
-            # before (re-created then re-retired), keep every retirement record.
-            if dest.exists():
-                for i in range(2, 100000):
-                    alt = dest.with_name(f"{stem}.{i}.md")
-                    if not alt.exists():
-                        dest = alt
-                        break
-            original = src.read_text(encoding="utf-8").rstrip()
-            tomb = (
-                f"{original}\n\n"
-                f"_RETIRED {stamp} by {retired_by}: "
-                f"{(reason or '').strip() or '(no reason given)'}_\n"
-            )
-            _atomic_write_text(dest, tomb)
-            src.unlink()
+        if not src.exists():
+            raise FileNotFoundError(f"page not found: {src}")
+        # Never overwrite an existing tombstone: if this stem was retired
+        # before (re-created then re-retired), keep every retirement record.
+        if dest.exists():
+            for i in range(2, 100000):
+                alt = dest.with_name(f"{stem}.{i}.md")
+                if not alt.exists():
+                    dest = alt
+                    break
+        original = src.read_text(encoding="utf-8").rstrip()
+        tomb = (
+            f"{original}\n\n"
+            f"_RETIRED {stamp} by {retired_by}: "
+            f"{(reason or '').strip() or '(no reason given)'}_\n"
+        )
+        _atomic_write_text(dest, tomb)
+        src.unlink()
         return dest
 
     def iter_note_sources(self) -> list[SourceNote]:

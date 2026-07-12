@@ -25,6 +25,7 @@ from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.core.models import ReviewDecision, RoundRecord
 from argus_skill.wiki.bootstrap import init_wiki
+from argus_skill.wiki.lifecycle import collect_wiki_ops
 from argus_skill.wiki.schema import SourceNote
 from argus_skill.wiki.store import WikiStore
 
@@ -56,12 +57,16 @@ def _review_with_wiki_ops(*, status: str = "done", wiki_ops: list[dict]) -> str:
 
 
 def _loop(skills_dir: Path, backend: MemoryBackend, events: list,
-          *, enabled: bool = True) -> SkillLoop:
+          *, enabled: bool = True, auto_init: bool = False) -> SkillLoop:
     return SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, wiki_ops_enabled=enabled),
+        config=SkillLoopConfig(
+            max_rounds=1,
+            wiki_ops_enabled=enabled,
+            auto_init_wiki=auto_init,
+        ),
         on_event=events.append,
     )
 
@@ -166,8 +171,12 @@ def test_wiki_ops_ignored_when_disabled(tmp_path: Path) -> None:
     _loop(skills_dir, backend, events, enabled=False).run(
         "learn from the material", workdir=tmp_path)
 
-    assert not any(e.get("type", "").startswith("wiki.") for e in events)
     assert not (wiki_root / "pages" / "techniques" / "should-not-exist.md").exists()
+    summary = next(
+        event for event in events if event.get("type") == "wiki.evolution.completed"
+    )
+    assert summary["ops_proposed"] == 0
+    assert summary["created"] == 0
 
 
 def test_wiki_ops_are_a_noop_when_no_wiki_initialized(tmp_path: Path) -> None:
@@ -193,6 +202,46 @@ def test_wiki_ops_are_a_noop_when_no_wiki_initialized(tmp_path: Path) -> None:
     assert not (tmp_path / ".autors").exists()
 
 
+def test_auto_init_makes_wiki_evolution_available_to_any_vertical(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
+    backend.queue("engineer-r1", CannedResponse(message="learned a reusable pattern"))
+    backend.queue("reviewer", CannedResponse(message=_review_with_wiki_ops(wiki_ops=[{
+        "op": "create_page",
+        "id": "bounded-retry-pattern",
+        "card_type": "pattern",
+        "title": "Bounded retry pattern",
+        "status": "scratch",
+        "body": "Retry only before side effects are observed.",
+        "why": "reusable across verticals",
+    }])))
+
+    events: list[dict] = []
+    outcome = _loop(
+        skills_dir,
+        backend,
+        events,
+        auto_init=True,
+    ).run("improve retry handling", workdir=tmp_path)
+
+    from argus_skill.wiki.auto_hooks import discover_wikis
+
+    wikis = discover_wikis(tmp_path)
+    assert outcome.status == "done"
+    assert len(wikis) == 1
+    assert (wikis[0] / "pages" / "patterns" / "bounded-retry-pattern.md").exists()
+    assert any(event.get("type") == "wiki.initialized" for event in events)
+    summary = next(
+        event for event in events if event.get("type") == "wiki.evolution.completed"
+    )
+    assert summary["created"] == 1
+    assert summary["ops_proposed"] == 1
+
+
 def _round(review_wiki_ops: list[dict]) -> RoundRecord:
     return RoundRecord(
         round_index=1, engineer_message="", engineer_exit_code=0,
@@ -208,7 +257,7 @@ def test_collect_wiki_ops_dedups_identical_repeats_across_rounds() -> None:
     working; only the first occurrence should survive to be applied."""
     op = {"op": "create_page", "id": "p", "body": "same body"}
     rounds = [_round([op]), _round([dict(op)])]
-    ops = SkillLoop._collect_wiki_ops(rounds)
+    ops = collect_wiki_ops(rounds)
     assert len(ops) == 1
 
 
@@ -218,10 +267,10 @@ def test_collect_wiki_ops_keeps_distinct_ops() -> None:
         {"op": "create_page", "id": "b", "body": "body b"},
         {"op": "retire_page", "id": "c", "why": "x"},
     ])]
-    ops = SkillLoop._collect_wiki_ops(rounds)
+    ops = collect_wiki_ops(rounds)
     assert len(ops) == 3
 
 
 def test_collect_wiki_ops_empty_when_no_rounds_or_no_ops() -> None:
-    assert SkillLoop._collect_wiki_ops([]) == []
-    assert SkillLoop._collect_wiki_ops([_round([])]) == []
+    assert collect_wiki_ops([]) == []
+    assert collect_wiki_ops([_round([])]) == []

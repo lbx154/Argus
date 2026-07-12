@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import mimetypes
+import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..core.event_catalog import EventType
+from ..core.mission_view import load_mission_view
 from ..core.session import read_session_meta
 from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
@@ -17,6 +19,7 @@ _TEXT_ARTIFACT_SUFFIXES = {
     ".yml",
 }
 _INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+_GIT_DIFF_LIMIT = 128 * 1024
 
 
 def project_workspace(
@@ -26,10 +29,10 @@ def project_workspace(
 ) -> Path | None:
     root = resolve_global_root(global_root)
     meta = read_session_meta(root, sid)
-    if meta is None or not meta.cwd.strip():
+    if meta is None or not (meta.launch_cwd.strip() or meta.cwd.strip()):
         return None
     try:
-        workspace = Path(meta.cwd).expanduser().resolve(strict=True)
+        workspace = Path(meta.launch_cwd or meta.cwd).expanduser().resolve(strict=True)
     except (OSError, RuntimeError):
         return None
     return workspace if workspace.is_dir() else None
@@ -99,6 +102,27 @@ def manager_live_view_files(workspace: Path) -> list[dict[str, str]]:
     ]
 
 
+def registered_research_artifacts(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> list[dict[str, str]]:
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return []
+    view = load_mission_view(life_dir)
+    return [
+        {
+            "path": str(item.get("path") or "").strip(),
+            "why": str(item.get("why") or item.get("title") or "").strip(),
+            "source": "research_registered",
+            "group_title": "Research artifacts",
+        }
+        for item in view.get("artifacts", [])
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    ]
+
+
 def artifact_metadata(
     workspace: Path,
     relative_path: str,
@@ -160,6 +184,7 @@ def list_project_artifacts(
     seen: set[str] = set()
     evidence_rows = [
         *manager_live_view_files(workspace),
+        *registered_research_artifacts(sid, global_root=global_root),
         *(
             {
                 **evidence,
@@ -233,6 +258,61 @@ def resolved_project_artifact(
     return info, safe[1]
 
 
+def project_git_diff(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    if project_life_dir(sid, global_root=global_root) is None:
+        return None
+    workspace = project_workspace(sid, global_root=global_root)
+    if workspace is None or not (workspace / ".git").exists():
+        return {
+            "available": False,
+            "branch": "",
+            "status": "",
+            "stat": "",
+            "diff": "",
+            "truncated": False,
+        }
+
+    def run(*args: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(workspace), *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return result.stdout if result.returncode == 0 else ""
+
+    branch = run("branch", "--show-current").strip()
+    status = run("status", "--short")
+    stat = run("diff", "--stat", "--", ".")
+    unstaged = run("diff", "--no-ext-diff", "--unified=2", "--", ".")
+    staged = run("diff", "--cached", "--no-ext-diff", "--unified=2", "--", ".")
+    combined = ""
+    if staged:
+        combined += "# Staged\n" + staged
+    if unstaged:
+        combined += ("\n" if combined else "") + "# Working tree\n" + unstaged
+    encoded = combined.encode("utf-8")
+    truncated = len(encoded) > _GIT_DIFF_LIMIT
+    if truncated:
+        combined = encoded[:_GIT_DIFF_LIMIT].decode("utf-8", errors="replace")
+    return {
+        "available": True,
+        "branch": branch,
+        "status": status[:16_000],
+        "stat": stat[:16_000],
+        "diff": combined,
+        "truncated": truncated,
+    }
+
+
 __all__ = [
     "artifact_metadata",
     "get_project_artifact",
@@ -240,6 +320,8 @@ __all__ = [
     "list_project_artifacts",
     "manager_live_view_files",
     "project_workspace",
+    "project_git_diff",
+    "registered_research_artifacts",
     "resolved_project_artifact",
     "safe_artifact_path",
 ]

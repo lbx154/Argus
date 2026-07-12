@@ -107,6 +107,10 @@ export interface BudgetReservationCreatedEvent extends EventMsg {
   "provider"?: string;
   "model"?: string;
   "run_label"?: string;
+  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
+  "fence_limit_usd"?: number | null;
+  "fence_limit_ai_credits"?: number | null;
+  "fence_reason"?: string;
 }
 
 export interface BudgetReservationDeniedEvent extends EventMsg {
@@ -127,6 +131,11 @@ export interface BudgetReservationSettledEvent extends EventMsg {
   "amount_usd"?: number;
   "cost_usd"?: number | null;
   "overrun_usd"?: number | null;
+  "fence_breached"?: boolean;
+  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
+  "fence_limit_usd"?: number | null;
+  "fence_limit_ai_credits"?: number | null;
+  "fence_reason"?: string;
   "pricing_status": string;
 }
 
@@ -149,6 +158,20 @@ export interface BudgetUnpricedBlockedEvent extends EventMsg {
   "run_label"?: string;
 }
 
+export interface BudgetFenceBreachBlockedEvent extends EventMsg {
+  type: "budget.fence_breach.blocked";
+  payload_schema_version?: 1;
+  "call_id": string;
+  "project_id"?: string;
+  "mission_id"?: string | null;
+  "provider": string;
+  "model"?: string;
+  "run_label"?: string;
+  "breach_call_id"?: string;
+  "overrun_usd"?: number;
+  "reason": string;
+}
+
 export interface LifeMissionStartedEvent extends EventMsg {
   type: "life.mission.started";
   payload_schema_version?: 1;
@@ -162,8 +185,12 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   type: "life.mission.completed";
   payload_schema_version?: 1;
   "item_id": string;
+  "title"?: string;
+  "objective"?: string;
   "status": string;
   "success"?: boolean;
+  "rounds"?: number;
+  "elapsed_seconds"?: number;
   "cost_usd"?: number | null;
   "known_cost_usd"?: number;
   "pricing_status"?: string;
@@ -193,6 +220,16 @@ export interface RoundReviewStartedEvent extends EventMsg {
   payload_schema_version?: 1;
   "round_index": number;
   "status"?: string;
+}
+
+export interface RoundReviewDeferredEvent extends EventMsg {
+  type: "round.review.deferred";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "next_step": string;
+  "deferral_count"?: number;
+  "deferral_limit"?: number;
 }
 
 export interface RoundReviewCompletedEvent extends EventMsg {
@@ -236,6 +273,12 @@ export interface LifePlannerTaskAddedEvent extends EventMsg {
   "item_id": string;
   "title"?: string;
   "objective"?: string;
+  "deps"?: Array<string>;
+  "priority"?: number;
+  "impact_score"?: number;
+  "impact_area"?: string;
+  "branch_id"?: string;
+  "parent_branch_id"?: string | null;
 }
 
 export interface LifePlannerTaskSkippedEvent extends EventMsg {
@@ -244,6 +287,510 @@ export interface LifePlannerTaskSkippedEvent extends EventMsg {
   "item_id"?: string;
   "title"?: string;
   "reason": string;
+}
+
+export interface LifeManagerIntentCompletedEvent extends EventMsg {
+  type: "life.manager.intent.completed";
+  payload_schema_version?: 1;
+  "intent_id": string;
+  "item_id": string;
+  "objective": string;
+  "vertical": string;
+  "kind": string;
+  "stages": Array<string>;
+  "reason"?: string;
+}
+
+export interface LifeInboxDrainedEvent extends EventMsg {
+  type: "life.inbox.drained";
+  payload_schema_version?: 1;
+  "count": number;
+  "messages": Array<string>;
+}
+
+export interface EngineerProgressEvent extends EventMsg {
+  type: "engineer.progress";
+  payload_schema_version?: 1;
+  "kind": string;
+  "text"?: string;
+  "actor"?: string;
+  "agent_layer"?: string;
+  "message_id"?: string;
+  "replace"?: boolean;
+  "round_index"?: number;
+  "experiment_id"?: string;
+  "branch_id"?: string;
+}
+
+export interface SkillCreatedEvent extends EventMsg {
+  type: "skill.created";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillUpdatedEvent extends EventMsg {
+  type: "skill.updated";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillArchivedEvent extends EventMsg {
+  type: "skill.archived";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name"?: string;
+  "version"?: number;
+  "scope"?: string;
+  "path"?: string;
+  "reason"?: string;
+  "text"?: string;
+}
+
+export interface SkillCostCompletedEvent extends EventMsg {
+  type: "skill.cost.completed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "matcher_model"?: string;
+  "distiller_model"?: string;
+  "matcher": Record<string, unknown>;
+  "distiller": Record<string, unknown>;
+  "input_tokens"?: number;
+  "cached_input_tokens"?: number;
+  "output_tokens"?: number;
+  "reasoning_output_tokens"?: number;
+  "premium_requests"?: number;
+  "usage_scope": "delta" | "cumulative";
+}
+
+export interface SkillOutcomeEvent extends EventMsg {
+  type: "skill.outcome";
+  payload_schema_version?: 1;
+  "skill_name"?: string;
+  "skill_hit": boolean;
+  "skill_distilled": boolean;
+  "matcher_model"?: string;
+  "distiller_model"?: string;
+  "matcher_tokens"?: number;
+  "distiller_tokens"?: number;
+  "rounds": number;
+  "status": string;
+  "success": boolean;
+}
+
+export interface SkillScientistStartedEvent extends EventMsg {
+  type: "skill.scientist.started";
+  payload_schema_version?: 1;
+  "text"?: string;
+}
+
+export interface SkillScientistCreatedEvent extends EventMsg {
+  type: "skill.scientist.created";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "name": string;
+  "version"?: number;
+  "path"?: string;
+  "text"?: string;
+}
+
+export interface SkillTidiedEvent extends EventMsg {
+  type: "skill.tidied";
+  payload_schema_version?: 1;
+  "name": string;
+  "placement": "global" | "vertical";
+  "vertical"?: string;
+  "path": string;
+  "text": string;
+}
+
+export interface SkillCompactedEvent extends EventMsg {
+  type: "skill.compacted";
+  payload_schema_version?: 1;
+  "source_skill": string;
+  "target_skill": string;
+  "text"?: string;
+}
+
+export interface SkillCompactErrorEvent extends EventMsg {
+  type: "skill.compact.error";
+  payload_schema_version?: 1;
+  "error": string;
+  "text"?: string;
+}
+
+export interface SkillOpErrorEvent extends EventMsg {
+  type: "skill.op.error";
+  payload_schema_version?: 1;
+  "operation": string;
+  "name"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface SkillOpRefusedEvent extends EventMsg {
+  type: "skill.op.refused";
+  payload_schema_version?: 1;
+  "operation": string;
+  "name"?: string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillProposalRejectedEvent extends EventMsg {
+  type: "skill.proposal.rejected";
+  payload_schema_version?: 1;
+  "operation": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillDistillRejectedEvent extends EventMsg {
+  type: "skill.distill.rejected";
+  payload_schema_version?: 1;
+  "name"?: string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface SkillRevisedEvent extends EventMsg {
+  type: "skill.revised";
+  payload_schema_version?: 1;
+  "skill_id"?: string;
+  "skill": string;
+  "version": number;
+  "path"?: string;
+  "previous_version_path": string;
+  "text"?: string;
+}
+
+export interface SkillUseRecordedEvent extends EventMsg {
+  type: "skill.use.recorded";
+  payload_schema_version?: 1;
+  "skill_id": string;
+  "skill_name": string;
+  "task_fingerprint": string;
+  "success": boolean;
+  "successful_uses"?: number;
+  "failed_uses"?: number;
+  "text"?: string;
+}
+
+export interface SkillHistoryCompressedEvent extends EventMsg {
+  type: "skill.history.compressed";
+  payload_schema_version?: 1;
+  "count": number;
+  "keep_hot": number;
+  "paths"?: Array<string>;
+  "truncated"?: boolean;
+  "bytes_before"?: number;
+  "bytes_after"?: number;
+  "bytes_saved"?: number;
+  "text"?: string;
+}
+
+export interface SkillEvolutionCompletedEvent extends EventMsg {
+  type: "skill.evolution.completed";
+  payload_schema_version?: 1;
+  "ops_proposed": number;
+  "created": number;
+  "updated": number;
+  "archived": number;
+  "rejected": number;
+  "compaction_clusters"?: number;
+  "compacted"?: number;
+  "history_compressed"?: number;
+  "history_bytes_saved"?: number;
+  "errors"?: number;
+  "project_skill_dir"?: string;
+  "global_skill_dir"?: string;
+  "project_skill_count"?: number;
+  "global_skill_count"?: number;
+  "text"?: string;
+}
+
+export interface WikiInitializedEvent extends EventMsg {
+  type: "wiki.initialized";
+  payload_schema_version?: 1;
+  "project": string;
+  "path": string;
+  "auto": boolean;
+  "text"?: string;
+}
+
+export interface WikiInitializationFailedEvent extends EventMsg {
+  type: "wiki.initialization.failed";
+  payload_schema_version?: 1;
+  "workdir": string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiHookOkEvent extends EventMsg {
+  type: "wiki.hook.ok";
+  payload_schema_version?: 1;
+  "project": string;
+  "path": string;
+  "sources_written": number;
+  "scratch_written": number;
+  "text"?: string;
+}
+
+export interface WikiHookWarningEvent extends EventMsg {
+  type: "wiki.hook.warning";
+  payload_schema_version?: 1;
+  "operation": string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiCompactedEvent extends EventMsg {
+  type: "wiki.compacted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "target_id": string;
+  "retired_path"?: string;
+  "evidence_sources"?: Array<string>;
+  "text"?: string;
+}
+
+export interface WikiCompactErrorEvent extends EventMsg {
+  type: "wiki.compact.error";
+  payload_schema_version?: 1;
+  "card_type"?: string;
+  "page_id"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiOpErrorEvent extends EventMsg {
+  type: "wiki.op.error";
+  payload_schema_version?: 1;
+  "operation": string;
+  "page_id"?: string;
+  "card_type"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface WikiOpRejectedEvent extends EventMsg {
+  type: "wiki.op.rejected";
+  payload_schema_version?: 1;
+  "operation": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface WikiCreatedEvent extends EventMsg {
+  type: "wiki.created";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "title"?: string;
+  "status"?: string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiUpdatedEvent extends EventMsg {
+  type: "wiki.updated";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "title"?: string;
+  "status"?: string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiRetiredEvent extends EventMsg {
+  type: "wiki.retired";
+  payload_schema_version?: 1;
+  "page_id": string;
+  "card_type": string;
+  "reason"?: string;
+  "text"?: string;
+}
+
+export interface WikiSourceCreatedEvent extends EventMsg {
+  type: "wiki.source.created";
+  payload_schema_version?: 1;
+  "source_id": string;
+  "path": string;
+  "text"?: string;
+}
+
+export interface WikiSourceSkippedEvent extends EventMsg {
+  type: "wiki.source.skipped";
+  payload_schema_version?: 1;
+  "source_id": string;
+  "reason": string;
+  "text"?: string;
+}
+
+export interface WikiPromotionPromotedEvent extends EventMsg {
+  type: "wiki.promotion.promoted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "from_status": string;
+  "to_status": string;
+  "references"?: number;
+  "successful_references"?: number;
+  "failed_references"?: number;
+  "text"?: string;
+}
+
+export interface WikiPromotionDemotedEvent extends EventMsg {
+  type: "wiki.promotion.demoted";
+  payload_schema_version?: 1;
+  "card_type": string;
+  "page_id": string;
+  "from_status": string;
+  "to_status": string;
+  "references"?: number;
+  "successful_references"?: number;
+  "failed_references"?: number;
+  "text"?: string;
+}
+
+export interface WikiRetiredCompressedEvent extends EventMsg {
+  type: "wiki.retired.compressed";
+  payload_schema_version?: 1;
+  "count": number;
+  "keep_hot": number;
+  "paths"?: Array<string>;
+  "truncated"?: boolean;
+  "bytes_before"?: number;
+  "bytes_after"?: number;
+  "bytes_saved"?: number;
+  "text"?: string;
+}
+
+export interface WikiEvolutionCompletedEvent extends EventMsg {
+  type: "wiki.evolution.completed";
+  payload_schema_version?: 1;
+  "wiki_count": number;
+  "ops_proposed": number;
+  "sources"?: number;
+  "scratch_pages"?: number;
+  "created"?: number;
+  "updated"?: number;
+  "retired"?: number;
+  "skipped"?: number;
+  "rejected"?: number;
+  "promoted"?: number;
+  "demoted"?: number;
+  "compaction_clusters"?: number;
+  "compacted"?: number;
+  "retired_compressed"?: number;
+  "retired_bytes_saved"?: number;
+  "errors"?: number;
+  "paths"?: Array<string>;
+  "text"?: string;
+}
+
+export interface ResearchHypothesisProposedEvent extends EventMsg {
+  type: "research.hypothesis.proposed";
+  payload_schema_version?: 1;
+  "hypothesis_id": string;
+  "title": string;
+  "statement": string;
+  "branch_id"?: string;
+  "parent_branch_id"?: string | null;
+  "evidence"?: Array<string>;
+  "item_id"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchExperimentStartedEvent extends EventMsg {
+  type: "research.experiment.started";
+  payload_schema_version?: 1;
+  "experiment_id": string;
+  "title": string;
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "summary"?: string;
+}
+
+export interface ResearchExperimentCompletedEvent extends EventMsg {
+  type: "research.experiment.completed";
+  payload_schema_version?: 1;
+  "experiment_id": string;
+  "status": "completed" | "failed" | "cancelled";
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "summary"?: string;
+  "duration_seconds"?: number;
+  "evidence"?: Array<string>;
+}
+
+export interface ResearchMetricReportedEvent extends EventMsg {
+  type: "research.metric.reported";
+  payload_schema_version?: 1;
+  "metric_id": string;
+  "name": string;
+  "baseline"?: number | null;
+  "value": number;
+  "unit"?: string;
+  "direction": "maximize" | "minimize" | "target";
+  "evidence": string;
+  "experiment_id"?: string;
+  "hypothesis_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+  "primary"?: boolean;
+}
+
+export interface ResearchMetricVerifiedEvent extends EventMsg {
+  type: "research.metric.verified";
+  payload_schema_version?: 1;
+  "metric_id": string;
+  "status": "accepted" | "rejected";
+  "reviewer_reason": string;
+  "evidence"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchArtifactRegisteredEvent extends EventMsg {
+  type: "research.artifact.registered";
+  payload_schema_version?: 1;
+  "artifact_id": string;
+  "path": string;
+  "kind": "text" | "image" | "pdf" | "data" | "code" | "binary";
+  "title"?: string;
+  "why"?: string;
+  "experiment_id"?: string;
+  "branch_id"?: string;
+  "item_id"?: string;
+  "round_index"?: number;
+}
+
+export interface ResearchAchievementCertifiedEvent extends EventMsg {
+  type: "research.achievement.certified";
+  payload_schema_version?: 1;
+  "achievement_id": string;
+  "title": string;
+  "goal": string;
+  "metric_id"?: string;
+  "summary"?: string;
+  "evidence"?: Array<string>;
+  "reviewer_certified": true;
 }
 
 export interface DaemonCommandSubmittedEvent extends EventMsg {
@@ -290,17 +837,64 @@ export interface EventPayloadByType {
   "budget.reservation.settled": BudgetReservationSettledEvent;
   "budget.reservation.released": BudgetReservationReleasedEvent;
   "budget.unpriced.blocked": BudgetUnpricedBlockedEvent;
+  "budget.fence_breach.blocked": BudgetFenceBreachBlockedEvent;
   "life.mission.started": LifeMissionStartedEvent;
   "life.mission.completed": LifeMissionCompletedEvent;
   "round.start": RoundStartEvent;
   "round.main.completed": RoundMainCompletedEvent;
   "round.review.started": RoundReviewStartedEvent;
+  "round.review.deferred": RoundReviewDeferredEvent;
   "round.review.completed": RoundReviewCompletedEvent;
   "life.planner.start": LifePlannerStartEvent;
   "life.planner.verdict": LifePlannerVerdictEvent;
   "life.planner.error": LifePlannerErrorEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
+  "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
+  "life.inbox.drained": LifeInboxDrainedEvent;
+  "engineer.progress": EngineerProgressEvent;
+  "skill.created": SkillCreatedEvent;
+  "skill.updated": SkillUpdatedEvent;
+  "skill.archived": SkillArchivedEvent;
+  "skill.cost.completed": SkillCostCompletedEvent;
+  "skill.outcome": SkillOutcomeEvent;
+  "skill.scientist.started": SkillScientistStartedEvent;
+  "skill.scientist.created": SkillScientistCreatedEvent;
+  "skill.tidied": SkillTidiedEvent;
+  "skill.compacted": SkillCompactedEvent;
+  "skill.compact.error": SkillCompactErrorEvent;
+  "skill.op.error": SkillOpErrorEvent;
+  "skill.op.refused": SkillOpRefusedEvent;
+  "skill.proposal.rejected": SkillProposalRejectedEvent;
+  "skill.distill.rejected": SkillDistillRejectedEvent;
+  "skill.revised": SkillRevisedEvent;
+  "skill.use.recorded": SkillUseRecordedEvent;
+  "skill.history.compressed": SkillHistoryCompressedEvent;
+  "skill.evolution.completed": SkillEvolutionCompletedEvent;
+  "wiki.initialized": WikiInitializedEvent;
+  "wiki.initialization.failed": WikiInitializationFailedEvent;
+  "wiki.hook.ok": WikiHookOkEvent;
+  "wiki.hook.warning": WikiHookWarningEvent;
+  "wiki.compacted": WikiCompactedEvent;
+  "wiki.compact.error": WikiCompactErrorEvent;
+  "wiki.op.error": WikiOpErrorEvent;
+  "wiki.op.rejected": WikiOpRejectedEvent;
+  "wiki.created": WikiCreatedEvent;
+  "wiki.updated": WikiUpdatedEvent;
+  "wiki.retired": WikiRetiredEvent;
+  "wiki.source.created": WikiSourceCreatedEvent;
+  "wiki.source.skipped": WikiSourceSkippedEvent;
+  "wiki.promotion.promoted": WikiPromotionPromotedEvent;
+  "wiki.promotion.demoted": WikiPromotionDemotedEvent;
+  "wiki.retired.compressed": WikiRetiredCompressedEvent;
+  "wiki.evolution.completed": WikiEvolutionCompletedEvent;
+  "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
+  "research.experiment.started": ResearchExperimentStartedEvent;
+  "research.experiment.completed": ResearchExperimentCompletedEvent;
+  "research.metric.reported": ResearchMetricReportedEvent;
+  "research.metric.verified": ResearchMetricVerifiedEvent;
+  "research.artifact.registered": ResearchArtifactRegisteredEvent;
+  "research.achievement.certified": ResearchAchievementCertifiedEvent;
   "daemon.command.submitted": DaemonCommandSubmittedEvent;
   "daemon.command.completed": DaemonCommandCompletedEvent;
   "daemon.command.rejected": DaemonCommandRejectedEvent;

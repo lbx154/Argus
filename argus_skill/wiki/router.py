@@ -32,6 +32,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.provenance import verify_evidence
@@ -107,13 +108,21 @@ class WikiRouter:
                     else:
                         counts["rejected"] += 1
                 else:
-                    self._emit(on_event, {"type": "wiki.op.error",
-                                          "text": f"unknown wiki op: {kind!r}"})
+                    self._emit(on_event, {
+                        "type": EventType.WIKI_OP_ERROR,
+                        "operation": kind,
+                        "error": "unknown operation",
+                        "text": f"unknown wiki op: {kind!r}",
+                    })
                     counts["rejected"] += 1
             except Exception as exc:  # noqa: BLE001 — one bad op never breaks the rest
                 log.warning("wiki_op %s failed (%s: %s)", kind, type(exc).__name__, exc)
-                self._emit(on_event, {"type": "wiki.op.error",
-                                      "text": f"{kind} failed: {type(exc).__name__}"})
+                self._emit(on_event, {
+                    "type": EventType.WIKI_OP_ERROR,
+                    "operation": kind,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "text": f"{kind} failed: {type(exc).__name__}",
+                })
                 counts["rejected"] += 1
         if touched:
             try:
@@ -127,7 +136,12 @@ class WikiRouter:
         """Returns 'created', 'skipped' (benign immutable re-ingest), or 'error'."""
         sid = str(op.get("id") or "").strip()
         if not sid:
-            self._emit(on_event, {"type": "wiki.op.error", "text": "create_source: missing id"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_OP_ERROR,
+                "operation": "create_source",
+                "error": "missing id",
+                "text": "create_source: missing id",
+            })
             return "error"
         note = SourceNote(
             id=sid,
@@ -138,21 +152,35 @@ class WikiRouter:
             body=str(op.get("body") or ""),
         )
         try:
-            self.store.write_source(note)
+            source_path = self.store.write_source(note)
         except FileExistsError:
             # Sources are immutable; re-ingesting the same material is a benign
             # no-op, NOT a rejection.
-            self._emit(on_event, {"type": "wiki.source.skipped",
-                                  "text": f"source {sid} already exists (immutable)"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_SOURCE_SKIPPED,
+                "source_id": sid,
+                "reason": "already exists (immutable)",
+                "text": f"source {sid} already exists (immutable)",
+            })
             return "skipped"
-        self._emit(on_event, {"type": "wiki.source.created", "text": f"source {sid}"})
+        self._emit(on_event, {
+            "type": EventType.WIKI_SOURCE_CREATED,
+            "source_id": sid,
+            "path": str(source_path),
+            "text": f"source {sid}",
+        })
         return "created"
 
     def _write_page(self, op: dict, on_event: EventSink | None,
                     *, require_evidence: bool) -> str:
         slug = str(op.get("id") or op.get("slug") or "").strip()
         if not slug:
-            self._emit(on_event, {"type": "wiki.op.error", "text": "page write: missing id/slug"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_OP_ERROR,
+                "operation": str(op.get("op") or "page_write"),
+                "error": "missing id/slug",
+                "text": "page write: missing id/slug",
+            })
             return "rejected"
         evidence = op.get("evidence")
         # Anti-fabrication floor: any cited span must quote the immutable source.
@@ -193,7 +221,15 @@ class WikiRouter:
             self._reject(on_event, op.get("op"), f"malformed page: {exc}")
             return "rejected"
         verb = "updated" if existed else "created"
-        self._emit(on_event, {"type": f"wiki.{verb}", "text": f"{verb} {card_type}/{card.id}"})
+        self._emit(on_event, {
+            "type": EventType.WIKI_UPDATED if existed else EventType.WIKI_CREATED,
+            "page_id": card.id,
+            "card_type": card_type,
+            "title": card.title,
+            "status": card.status,
+            "path": str(self._page_path(card_type, card.id)),
+            "text": f"{verb} {card_type}/{card.id}",
+        })
         return verb
 
     def _llm_duplicate_check(
@@ -257,21 +293,44 @@ class WikiRouter:
         slug = str(op.get("id") or op.get("slug") or "").strip()
         card_type = str(op.get("card_type") or "technique").strip()
         if not slug:
-            self._emit(on_event, {"type": "wiki.op.error", "text": "retire_page: missing id/slug"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_OP_ERROR,
+                "operation": "retire_page",
+                "error": "missing id/slug",
+                "text": "retire_page: missing id/slug",
+            })
             return False
         reason = str(op.get("why") or op.get("rationale") or "").strip()
         try:
             self.store.retire_page(card_type, slug, reason=reason, retired_by=self.retired_by)
         except FileNotFoundError:
-            self._emit(on_event, {"type": "wiki.op.error",
-                                  "text": f"retire: page {card_type}/{slug} not found"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_OP_ERROR,
+                "operation": "retire_page",
+                "page_id": slug,
+                "card_type": card_type,
+                "error": "page not found",
+                "text": f"retire: page {card_type}/{slug} not found",
+            })
             return False
         except (KeyError, ValueError) as exc:
-            self._emit(on_event, {"type": "wiki.op.error", "text": f"retire: {exc}"})
+            self._emit(on_event, {
+                "type": EventType.WIKI_OP_ERROR,
+                "operation": "retire_page",
+                "page_id": slug,
+                "card_type": card_type,
+                "error": f"{type(exc).__name__}: {exc}",
+                "text": f"retire: {exc}",
+            })
             return False
-        self._emit(on_event, {"type": "wiki.retired",
-                              "text": f"retired {card_type}/{slug}"
-                                      + (f": {reason}" if reason else "")})
+        self._emit(on_event, {
+            "type": EventType.WIKI_RETIRED,
+            "page_id": slug,
+            "card_type": card_type,
+            "reason": reason,
+            "text": f"retired {card_type}/{slug}"
+            + (f": {reason}" if reason else ""),
+        })
         return True
 
     # ------------------------------------------------------------------
@@ -302,7 +361,12 @@ class WikiRouter:
         return self.wiki_root / "pages" / _PAGE_SUBDIR[card_type] / f"{_validate_stem(slug)}.md"
 
     def _reject(self, on_event: EventSink | None, kind: Any, why: str) -> None:
-        self._emit(on_event, {"type": "wiki.op.rejected", "text": f"rejected {kind}: {why}"})
+        self._emit(on_event, {
+            "type": EventType.WIKI_OP_REJECTED,
+            "operation": str(kind or ""),
+            "reason": why,
+            "text": f"rejected {kind}: {why}",
+        })
 
     @staticmethod
     def _emit(on_event: EventSink | None, event: dict) -> None:

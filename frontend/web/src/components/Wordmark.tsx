@@ -1,13 +1,34 @@
-/** Plain product mark: one neutral registration block and a word, with no
- * gradient lettering or mythic ornament. */
-export function Wordmark({ size = 20, tag }: { size?: number; tag?: string }) {
+export function ArgusMark({ size, className = 'text-ink' }: { size: number; className?: string }) {
   return (
-    <span className="inline-flex items-center gap-2.5 select-none">
-      <span className="inline-flex items-center gap-2" style={{ fontSize: size, fontWeight: 650, letterSpacing: '-0.025em' }}>
-        <span aria-hidden="true" className="inline-block h-[0.62em] w-[0.62em] border border-ink-faint bg-ink-dim" />
-        <span className="text-ink">argus</span>
-      </span>
-      {tag && <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink-faint">{tag}</span>}
+    <svg viewBox="50 70 410 390" role="img" aria-label="Argus" style={{ width: size, height: size }} className={`shrink-0 ${className}`}>
+      <path fill="currentColor" fillRule="evenodd" d="M358 94h80v338h-80v-46q-50 54-132 54Q68 440 68 266 68 90 230 90q80 0 128 52V94Zm-216 172q45-72 98-72t104 72q-51 72-104 72t-98-72Z" />
+      <rect x="226" y="210" width="30" height="112" rx="15" fill="currentColor" />
+    </svg>
+  );
+}
+
+function NightPupilLockup({ size }: { size: number }) {
+  return (
+    <svg viewBox="150 40 1160 390" role="img" aria-label="Argus" style={{ width: size * 2.75, height: size }} className="shrink-0 text-ink">
+      <g transform="translate(180 92) scale(.54)">
+        <path fill="currentColor" fillRule="evenodd" d="M358 94h80v338h-80v-46q-50 54-132 54Q68 440 68 266 68 90 230 90q80 0 128 52V94Zm-216 172q45-72 98-72t104 72q-51 72-104 72t-98-72Z" />
+        <rect x="226" y="210" width="30" height="112" rx="15" fill="currentColor" />
+      </g>
+      <g fill="currentColor">
+        <path d="M383 556Q394 556 409 555Q424 554 433 552L422 412Q415 414 401.5 415.5Q388 417 378 417Q340 417 305 403.5Q270 390 248.5 360Q227 330 227 278V0H78V546H191L213 454H220Q244 496 286 526Q328 556 383 556Z" transform="translate(444 334) scale(.36 -.36)" />
+        <path d="M255 556Q356 556 413 476H417L429 546H555V-1Q555-118 486-179Q417-240 282-240Q224-240 174.5-233Q125-226 78-208V-89Q179-131 291-131Q406-131 406-7V4Q406 21 407.5 39Q409 57 410 71H406Q378 28 339 9Q300-10 251-10Q154-10 99.5 64.5Q45 139 45 272Q45 406 101 481Q157 556 255 556ZM302 435Q197 435 197 270Q197 107 304 107Q361 107 388.5 139.5Q416 172 416 253V271Q416 359 389 397Q362 435 302 435Z" transform="translate(617.52 334) scale(.36 -.36)" />
+        <path d="M579 546V0H465L445 70H437Q411 28 365.5 9Q320-10 269-10Q181-10 128 37.5Q75 85 75 190V546H224V227Q224 169 245 139Q266 109 312 109Q380 109 405 155.5Q430 202 430 289V546Z" transform="translate(855.48 334) scale(.36 -.36)" />
+        <path d="M459 162Q459 79 400.5 34.5Q342-10 226-10Q169-10 128-2.5Q87 5 46 22V145Q90 125 141 112Q192 99 231 99Q275 99 293.5 112Q312 125 312 146Q312 160 304.5 171Q297 182 272 196Q247 210 194 232Q143 254 110 275.5Q77 297 61 327.5Q45 358 45 404Q45 480 104 518Q163 556 261 556Q312 556 358 546Q404 536 453 513L408 406Q368 423 332 434.5Q296 446 259 446Q193 446 193 410Q193 397 201.5 386.5Q210 376 234.5 364Q259 352 307 332Q354 313 388 292.5Q422 272 440.5 241.5Q459 211 459 162Z" transform="translate(1102.08 334) scale(.36 -.36)" />
+      </g>
+    </svg>
+  );
+}
+
+export function Wordmark({ size = 20, tag, compact = false }: { size?: number; tag?: string; compact?: boolean }) {
+  return (
+    <span className="inline-flex select-none items-center gap-2.5">
+      {compact ? <ArgusMark size={size} /> : <NightPupilLockup size={size} />}
+      {tag && !compact ? <span className="text-xs font-medium uppercase tracking-[0.08em] text-ink-faint">{tag}</span> : null}
     </span>
   );
 }

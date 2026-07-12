@@ -13,6 +13,8 @@ import { ActivityPane } from '../src/components/ActivityPane.js';
 import { PromptBox } from '../src/components/PromptBox.js';
 import { DaemonReplacementPicker } from '../src/components/DaemonReplacementPicker.js';
 import { CostGauge } from '../src/components/CostGauge.js';
+import { MissionCockpit } from '../src/components/MissionCockpit.js';
+import { emptyMissionView } from '../../core/src/missionView.js';
 import type { EventMsg, Snapshot } from '../src/api.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -107,31 +109,84 @@ test('connection health remains visible without overflowing a 60-column terminal
   const health = 'snapshot refresh failed · GET /snapshot → 503: backend warming up';
   const output = await renderNode(
     React.createElement(Box, { flexDirection: 'column' },
-      React.createElement(Header, { snap: null, connected: false, width: 60, health }),
-      React.createElement(Footer, { notice: '', health, roles: [], width: 60 }),
+      React.createElement(Header, { width: 60, health }),
+      React.createElement(Footer, { notice: '', health, width: 60 }),
     ),
     60,
   );
   assert.match(output, /snapshot refresh failed/);
-  const finalFrame = output.slice(output.lastIndexOf('◆ argus'));
+  const finalFrame = output.slice(output.lastIndexOf('◆ ARGUS'));
   assert.ok(finalFrame.split('\n').every((line) => Array.from(line).length <= 60));
 });
 
-test('header reports configured work honestly without executor jargon', async () => {
-  const snap = {
-    session: { id: 's-armed', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
-    roles: [],
-    recent_events: [],
-    backlog: [],
-    continuous: { enabled: true, objective: 'Run the benchmark', done_reason: '' },
-  } as Snapshot;
+test('header establishes the autonomous research lab identity without ops clutter', async () => {
   const output = await renderNode(
-    React.createElement(Header, { snap, connected: true, width: 120 }),
+    React.createElement(Header, { width: 120 }),
     120,
   );
-  assert.match(output, /queued/);
-  assert.doesNotMatch(output, /daemon (?:live|off)/);
+  assert.match(output, /Autonomous Research Lab/);
+  assert.doesNotMatch(output, /pid|backend|daily cap/);
+});
+
+test('mission cockpit keeps mission, team, and timeline readable at 60 columns', async () => {
+  const view = emptyMissionView();
+  view.mission.objective = 'Optimize FlashAttention on B200 beyond 65% SOL';
+  view.mission.elapsed_seconds = 8040;
+  view.stage = { id: 'optimize', label: 'Optimize' };
+  view.round = { current: 7, max: 24 };
+  view.roles.find((role) => role.role === 'planner')!.status = 'active';
+  view.roles.find((role) => role.role === 'planner')!.label = 'Comparing 3 branches';
+  view.timeline = [{
+    id: 'e1', ts: 1, type: 'research.metric.reported', role: 'engineer',
+    title: 'Metric reported', detail: '61.8% SOL', tone: 'metric',
+  }];
+  const output = await renderNode(React.createElement(MissionCockpit, { view, width: 60 }), 60);
+  assert.match(output, /MISSION/);
+  assert.match(output, /AI RESEARCH TEAM/);
+  assert.match(output, /LIVE RESEARCH TIMELINE/);
+  assert.match(output, /Comparing 3 branches/);
+  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
+});
+
+test('operations panel owns cost, quota, pid, backend, and model details', async () => {
+  const missionView = emptyMissionView();
+  missionView.storage.project_skill_dir = '/state/project/skills';
+  missionView.storage.project_skill_count = 3;
+  missionView.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
+  missionView.storage.skill_history_compressed = 4;
+  missionView.storage.wiki_retired_compressed = 2;
+  missionView.storage.skill_history_bytes_saved = 1024;
+  missionView.storage.wiki_retired_bytes_saved = 512;
+  const snap = {
+    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
+    daemon: {
+      alive: true, pid: 42, uptime_seconds: 600, backend: 'copilot', backend_label: 'Copilot',
+      per_mission_cap_usd: 30, daily_cap_usd: 50, global_daily_cap_usd: 200,
+      protocol: { name: 'argus.daemon', major: 1, minor: 1 },
+    },
+    roles: [{
+      role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.6-sol',
+      effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
+    }],
+    backlog: [], recent_events: [], spend_usd: 12.5, spend_status: 'priced',
+    request_usage: {
+      day: '2026-07-11',
+      codex: { provider: 'codex', day: '2026-07-11', daily_calls: 9, daily_cap: 300, remaining: 291 },
+      copilot: { provider: 'copilot', day: '2026-07-11', daily_calls: 403, daily_cap: 1000, remaining: 597, premium_requests: 551, premium_cap: 1000 },
+    },
+    mission_view: missionView,
+  } as Snapshot;
+  const output = await renderPanel({ kind: 'operations' }, 60, { snap });
+  assert.match(output, /pid 42/);
+  assert.match(output, /Copilot/);
+  assert.match(output, /gpt-5\.6-sol/);
+  assert.match(output, /cumulative cost/);
+  assert.match(output, /403\/1000/);
+  assert.match(output, /self-evolution storage/);
+  assert.match(output, /\/state\/project\/skills/);
+  assert.match(output, /\.autors\/demo\/wiki/);
+  assert.match(output, /skill 4 · wiki 2 · 1\.5 KB saved/);
+  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
 test('daemon replacement picker shows running work and state-preservation promise', async () => {
@@ -208,7 +263,11 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
         reserved_usd: 4.5,
         unresolved_calls: 1,
         unresolved: [],
+        fence_breach_calls: 1,
+        fence_breaches: [],
+        fence_breach_remaining_seconds: 600,
         policy: 'block',
+        fence_breach_policy: 'block',
       },
     }),
     120,
@@ -216,6 +275,8 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
   assert.match(output, /reserved \$4\.50/);
   assert.match(output, /in-flight 2/);
   assert.match(output, /unresolved 1/);
+  assert.match(output, /fence breaches 1/);
+  assert.match(output, /retry in 10m/);
 });
 
 test('partial usage never renders as a zero-dollar cumulative cost', async () => {
@@ -379,23 +440,13 @@ test('live activity stays concise and the detail pane never prints raw prompts',
   assert.doesNotMatch(pane, /DO NOT SHOW/);
 });
 
-test('footer prefers the active call model over configured defaults', async () => {
-  const roles = [{
-    role: 'reviewer', backend: 'copilot', backend_label: 'Copilot',
-    model: 'claude-sonnet-5', effort: null, active: true,
-    label: 'thinking', status: 'running', age_s: 3,
-  }];
-  const active = {
-    id: 'review-1', role: 'reviewer', label: 'reviewing evidence', detail: '',
-    status: 'running' as const, startedTs: 1, updatedTs: 2, elapsedS: 1,
-    model: 'gpt-5.5', backend: 'copilot', milestone: false,
-  };
+test('footer keeps backend and model details out of the main hierarchy', async () => {
   const output = await renderNode(
-    React.createElement(Footer, { notice: '', roles, active, width: 160 }),
+    React.createElement(Footer, { notice: '', width: 160 }),
     160,
   );
-  assert.match(output, /reviewer.*Copilot.*gpt-5\.5/i);
-  assert.doesNotMatch(output, /claude-sonnet-5/);
+  assert.match(output, /Ctrl\+O operations/);
+  assert.doesNotMatch(output, /Copilot|gpt-|pid/);
 });
 
 test('searchable event and full task panels stay useful at 60 columns', async () => {

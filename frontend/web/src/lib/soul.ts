@@ -12,13 +12,12 @@ export const IDLE_LINES = [
   'Ready for input.',
 ];
 
-/** Shown while the Manager is thinking (the triage/reply round). Parallels the
- *  terminal's THINKING_LINES fragments, spelled out as full sentences since the
- *  web ChatBox has no separate "Argus" label next to the line. */
-export const THINKING_LINES = [
-  'Manager is responding…',
-  'Waiting for the next model event…',
-];
+export {
+  THINKING_LINES,
+  SPINNER,
+  rotateByTick,
+  spinnerFrame,
+} from '../../../core/src/thinking';
 
 /** First line in a fresh daemon's chat — a warm, in-character welcome. */
 export const WELCOME =

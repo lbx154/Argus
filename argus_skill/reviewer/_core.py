@@ -62,14 +62,17 @@ def _load_academic_paper_review_skill() -> str:
     return load_builtin_skill_text("academic-paper-peer-review-benchmark.md")
 
 
-def _load_wiki_curator_skill_if_present() -> str | None:
+def _load_wiki_curator_skill_if_present(
+    working_dir: str | Path | None = None,
+) -> str | None:
     """Return wiki-curator skill text when the current project has a wiki.
 
     The adaptive reviewer matcher has empirically missed this skill for
     diagnostic/debugging objectives, so wiki-curator is fixed context whenever
     `.autors/*/wiki/` exists in the current project.
     """
-    autors = Path.cwd() / ".autors"
+    project_root = Path(working_dir).expanduser() if working_dir else Path.cwd()
+    autors = project_root / ".autors"
     if not autors.exists():
         return None
     from ..wiki.bootstrap import is_initialized_wiki
@@ -322,6 +325,7 @@ class Reviewer:
             background_context=background_context,
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
+            working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
         new_fp = hashlib.sha256(static.encode("utf-8")).hexdigest()
@@ -481,6 +485,7 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
+        working_dir: str | Path | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -511,7 +516,8 @@ class Reviewer:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(
-                objective, extra_exclude=venue_excluded_skill_files(_rpr())
+                objective,
+                extra_exclude=venue_excluded_skill_files(_rpr(working_dir)),
             )
             if review_match.block:
                 matched_review_skill_block = (
@@ -534,7 +540,7 @@ class Reviewer:
             vertical_search_altitude,
         )
 
-        _proot = resolve_project_root()
+        _proot = resolve_project_root(working_dir)
         stage = current_stage(_proot)
         import os as _os
         _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
@@ -607,7 +613,7 @@ class Reviewer:
         paper_review_skill_block = _format_academic_paper_review_skill_block(
             include=is_final_submission or stage in {"review", "submission"},
         )
-        wiki_curator_text = _load_wiki_curator_skill_if_present()
+        wiki_curator_text = _load_wiki_curator_skill_if_present(working_dir)
         wiki_curator_skill_block = (
             "## Wiki curator (fixed when a wiki exists -- run as part of this verdict)\n\n"
             f"{wiki_curator_text}\n\n"
@@ -1066,11 +1072,13 @@ class Reviewer:
             "   concrete artifacts in the summary — the agent has no ground-truth\n"
             "   signal, so your job is to demand evidence. But once the evidence is\n"
             "   in front of you (rule 1a), stop.\n"
-            "3) On `continue`, `next_action` is a concrete instruction. If the round\n"
-            "   genuinely LACKS the evidence to judge, ask for the SPECIFIC\n"
-            "   verification command; but when honest evidence is already in hand, do\n"
-            "   NOT re-request it — instead point the engineer at\n"
-            "   the specific NEXT work or unexplored direction.\n"
+            "3) On `continue`, state the missing outcome/evidence and any hard\n"
+            "   constraints, then leave implementation and tool choice to the\n"
+            "   Engineer. Be step-by-step only when a deterministic failed check\n"
+            "   already identifies an exact repair. If evidence is missing, ask for\n"
+            "   the specific verification command; when honest evidence is already\n"
+            "   in hand, do NOT re-request it — point to the specific NEXT work or "
+            "unexplored direction instead.\n"
             "4) `blocked` ONLY when user input is strictly required for ANY further\n"
             "   progress (missing credentials, a spec only the user can clarify,\n"
             "   hardware the agent cannot reach). A failing test / runtime error /\n"

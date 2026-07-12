@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -375,9 +376,11 @@ class Manager:
         *,
         skill_store: Any = None,
         manager_session_root: Path | str | None = None,
+        usage_context: Any = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
+        self._usage_context_factory = usage_context
         self.manager_session_root = (
             Path(manager_session_root)
             if manager_session_root is not None
@@ -402,6 +405,11 @@ class Manager:
         from ..skills.missions import ManagerMission
 
         self.mission = ManagerMission(skill_store)
+
+    def _task_usage_scope(self, root_task_id: str | None):
+        if not root_task_id or self._usage_context_factory is None:
+            return nullcontext()
+        return self._usage_context_factory(root_task_id)
 
     # ---- skill injection (fixed role skill + matched adaptive block) ----
     def _role_skill_block(self, objective: str, *, match: bool = True) -> str:
@@ -452,7 +460,12 @@ class Manager:
         return block
 
     # ---- the Manager's grounded vertical decision (agent, not keywords) ----
-    def decide_vertical(self, task: str) -> VerticalDecision:
+    def decide_vertical(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None = None,
+    ) -> VerticalDecision:
         """Choose the vertical for ``task`` with ONE grounded Manager agent call.
 
         The agent picks an existing built-in vertical (preferred — built-ins ship
@@ -486,18 +499,19 @@ class Manager:
             existing_data_domains=existing,
         )
         safe_mode = _manager_safe_mode()
-        result = gateway_run_exec(
-            backend,
-            prompt=prompt,
-            options=RunnerOptions(
-                reasoning_effort=_manager_reasoning_effort(),
-                working_dir=str(self.project_root),
-                dangerous_yolo=not safe_mode,
-                full_auto=safe_mode,
-                skip_git_repo_check=True,
-            ),
-            run_label="manager-vertical-decide",
-        )
+        with self._task_usage_scope(root_task_id):
+            result = gateway_run_exec(
+                backend,
+                prompt=prompt,
+                options=RunnerOptions(
+                    reasoning_effort=_manager_reasoning_effort(),
+                    working_dir=str(self.project_root),
+                    dangerous_yolo=not safe_mode,
+                    full_auto=safe_mode,
+                    skip_git_repo_check=True,
+                ),
+                run_label="manager-vertical-decide",
+            )
         decision = parse_vertical_decision(
             extract_answer(result),
             known_verticals=list(vertical_select.VERTICALS),
@@ -533,14 +547,19 @@ class Manager:
         return "custom"  # a project-local (Manager-authored) data domain
 
     # ---- triage: which vertical/kind, and is this a real task? ----
-    def triage(self, task: str) -> tuple[str, str, bool]:
+    def triage(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None = None,
+    ) -> tuple[str, str, bool]:
         """Return (vertical, kind, regular) from the Manager's agent decision.
 
         No keyword classifier: the vertical is whatever :meth:`decide_vertical`
         returns. ``regular`` is simply whether the task is non-blank — the
         Manager already judged it a real task by choosing/authoring a vertical.
         """
-        decision = self.decide_vertical(task)
+        decision = self.decide_vertical(task, root_task_id=root_task_id)
         return (
             decision.vertical,
             self._kind_for(decision.vertical),
@@ -575,7 +594,13 @@ class Manager:
         return list(CANONICAL_STAGE_ORDER)
 
     # ---- the user-facing division step ----
-    def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Division:
+    def divide(
+        self,
+        task: str,
+        *,
+        ask_on_new_domain: bool = False,
+        root_task_id: str | None = None,
+    ) -> Division:
         """Decide the vertical (Manager agent) → stages → COMMIT so the existing
         supervisor trusts it (no re-classify). Returns the Division for
         display/confirmation.
@@ -606,7 +631,7 @@ class Manager:
         """
         if not (task and task.strip()):
             raise ValueError("Manager.divide requires a non-empty task")
-        decision = self.decide_vertical(task)
+        decision = self.decide_vertical(task, root_task_id=root_task_id)
         old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
             proposal = decision.proposal
@@ -697,7 +722,13 @@ class Manager:
 
         return classify_is_conversational(text, run_exec=run_exec)
 
-    def classify_config_intent(self, text: str, *, run_exec: Any = None) -> Any:
+    def classify_config_intent(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> Any:
         """Does this free text ask to change one of Argus's OWN runtime knobs
         (a role's backend/model/effort, a budget cap, or a safe_mode/
         show_reasoning/telegram toggle)? Returns a ``life.router.ConfigIntent``
@@ -739,9 +770,16 @@ class Manager:
                     resume_thread_id=None,
                 )
 
-        return classify_config_intent(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_config_intent(text, run_exec=run_exec)
 
-    def classify_front_door(self, text: str, *, run_exec: Any = None) -> Any:
+    def classify_front_door(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> Any:
         """Merged cockpit front-door classify: ONE model call returning BOTH
         ``(config-intent | None, route)`` where route is ``"simple"``/
         ``"complex"``. Replaces the two sequential ``classify_config_intent`` +
@@ -780,9 +818,16 @@ class Manager:
                     resume_thread_id=None,
                 )
 
-        return classify_front_door(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_front_door(text, run_exec=run_exec)
 
-    def route(self, text: str, *, run_exec: Any = None) -> str:
+    def route(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> str:
         """The Manager's lego-block router: pick the SMALLEST block that fits the
         operator's input — ``"chat"`` (one codex reply), ``"simple"`` (one bounded
         codex turn, no reviewer/planner), or ``"complex"`` (the full mission
@@ -810,9 +855,16 @@ class Manager:
                     run_label="manager-route",
                 )
 
-        return classify_route(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return classify_route(text, run_exec=run_exec)
 
-    def needs_persistence(self, text: str, *, run_exec: Any = None) -> bool:
+    def needs_persistence(
+        self,
+        text: str,
+        *,
+        run_exec: Any = None,
+        root_task_id: str | None = None,
+    ) -> bool:
         """Should this task be armed as a STANDING (continuous) campaign, or is
         it BOUNDED (one mission, drains once)? The Manager owns this decision so
         the operator never has to manually pass ``--continuous --objective`` for
@@ -841,7 +893,8 @@ class Manager:
                     run_label="manager-persistence",
                 )
 
-        return _classify(text, run_exec=run_exec)
+        with self._task_usage_scope(root_task_id):
+            return _classify(text, run_exec=run_exec)
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
@@ -852,6 +905,7 @@ class Manager:
         project_root: Path | str | None = None,
         run_exec: Any = None,
         on_event: Any = None,
+        root_task_id: str | None = None,
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -1003,20 +1057,21 @@ class Manager:
                 p for p in (cur, str(getattr(review, "reason", "") or "")) if p
             )
             prompt = self._role_skill_block(_match_objective, match=False) + prompt
-            raw = extract_answer(run_exec(prompt))
-            # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
-            # turn. An empty raw makes parse_stage_decision fall back to a silent
-            # "manager held (default)" — which, after a DONE reviewer verdict,
-            # wedges current_stage FOREVER (research completes but never advances
-            # to plan, because no later mission re-triggers a stage decision).
-            # Retry a couple of times on an empty response before accepting a
-            # hold, mirroring the planner's empty-output retry. A genuine,
-            # non-empty hold verdict is never retried.
-            _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 2:
-                _empty_retries += 1
-                time.sleep(1.0)
+            with self._task_usage_scope(root_task_id):
                 raw = extract_answer(run_exec(prompt))
+                # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
+                # turn. An empty raw makes parse_stage_decision fall back to a silent
+                # "manager held (default)" — which, after a DONE reviewer verdict,
+                # wedges current_stage FOREVER (research completes but never advances
+                # to plan, because no later mission re-triggers a stage decision).
+                # Retry a couple of times on an empty response before accepting a
+                # hold, mirroring the planner's empty-output retry. A genuine,
+                # non-empty hold verdict is never retried.
+                _empty_retries = 0
+                while not str(raw or "").strip() and _empty_retries < 2:
+                    _empty_retries += 1
+                    time.sleep(1.0)
+                    raw = extract_answer(run_exec(prompt))
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
                     review, current_stage=cur, stage_order=order
@@ -1092,6 +1147,16 @@ class Manager:
         return _classify(
             content=content,
             task=task,
+            candidate_verticals=list(vertical_select.VERTICALS),
+            runner=(self._session or self.runner),
+        )
+
+    def classify_skill_placements(self, skills: list[dict[str, str]]) -> Any:
+        """Batch variant used by source promotion to avoid one call per skill."""
+        from .skill_review import classify_skill_placements as _classify_batch
+
+        return _classify_batch(
+            skills=skills,
             candidate_verticals=list(vertical_select.VERTICALS),
             runner=(self._session or self.runner),
         )

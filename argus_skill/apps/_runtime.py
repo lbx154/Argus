@@ -28,13 +28,16 @@ import shlex
 import signal
 import sys
 import threading
-import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
 from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
+from ..core.mission_budget import (
+    build_mission_budget_guard as _budget_reason_provider,
+)
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -44,11 +47,17 @@ from ..life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
+from ._env import env_flag as _env_flag
+from ._env import env_int as _env_int
 from ._runtime_backends import (
     _TEST_DAEMON_PLANNER_SCRIPT_ENV,
     _MemoryRunner,
     _Outcome,
     _ScriptedPlannerBackend,
+)
+from ._self_reply import SelfReplyMixin
+from ._self_reply import (
+    self_retryable_transport_failure as _self_retryable_transport_failure,
 )
 from ._target_paths import resolve_life_root
 
@@ -58,23 +67,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Env helpers + memory protocols (formerly _life_repl/_base.py)
 # ---------------------------------------------------------------------------
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
 
 
 class _CommonMemory(Protocol):
@@ -229,7 +221,7 @@ class LifeStderrSink:
 
 
 
-class _SkillLoopRunner:
+class _SkillLoopRunner(SelfReplyMixin):
     """Runs each mission through a fresh ``SkillLoop`` (codex backend).
 
     Bypasses the ``ARGUS_SKILL_BACKEND`` env var: when life mode
@@ -394,6 +386,7 @@ class _SkillLoopRunner:
         self._usage_project_root = (
             Path(raw_usage_root).expanduser() if raw_usage_root else None
         )
+        self._active_usage_mission_id: str | None = None
         self._set_usage_context(None)
         # The ONE Manager instance for this runner. All daemon-side Manager uses
         # (divide / is_conversational / skill placement) go through this single
@@ -447,6 +440,7 @@ class _SkillLoopRunner:
             runner=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
             manager_session_root=_manager_session_root,
+            usage_context=self.task_usage_context,
         )
         self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from
@@ -523,241 +517,6 @@ class _SkillLoopRunner:
         backend = self.manager_backend or self._backend
         return gateway_run_exec(backend, **kwargs)
 
-    def _maybe_chat_outcome(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        seed_thread_id: str | None = None,
-        phase_cb: Any = None,
-        route: str | None = None,
-    ) -> "_Outcome | None":
-        # Operator-REPL front door: classify into SELF (one Codex can handle it)
-        # or TEAM (queue the Planner/Engineer/Reviewer pipeline). Daemon/backlog
-        # work never takes this path.
-        #
-        # ``route`` — a PRECOMPUTED "simple"/"complex" verdict. The cockpit
-        # front-door now decides config-intent + route in ONE merged call
-        # (``Manager.classify_front_door``) and passes the route in here, so we
-        # SKIP the second classify below (one fewer copilot cold-start per turn).
-        # ``None`` (the line-REPL / daemon / test callers) keeps the original
-        # behavior: classify route right here.
-        from ..core.models import RunnerOptions
-
-        _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        _workdir = (
-            Path(self._args.workdir).expanduser()
-            if getattr(self._args, "workdir", None)
-            else Path.cwd()
-        )
-
-        def _classify_run_exec(prompt: str) -> Any:
-            return gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self._args.engineer_model,
-                    reasoning_effort="low",
-                    full_auto=_safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not _safe_mode,
-                    working_dir=str(_workdir),
-                ),
-                run_label="router-classify",
-                resume_thread_id=None,
-            )
-
-        # The Manager owns the SELF/TEAM route decision; this runner only
-        # executes the chosen path.
-        def _phase(label: str, *, role: str = "manager") -> None:
-            if not callable(phase_cb):
-                return
-            # Prefer the richer ``(label, role=...)`` call (lets the caller
-            # retint a live spinner to this role's signature colour); fall
-            # back to the plain one-arg form for any older/simpler callback
-            # (e.g. a bare ``list.append``, or ``LiveStatus.update`` itself).
-            try:
-                phase_cb(label, role=role)
-                return
-            except TypeError:
-                pass
-            except Exception:  # noqa: BLE001 — a UI callback must never break triage
-                return
-            try:
-                phase_cb(label)
-            except Exception:  # noqa: BLE001
-                pass
-
-        class _PhaseSink:
-            def __init__(self, inner: EventSink) -> None:
-                self._inner = inner
-
-            def handle_event(self, event: dict[str, Any]) -> None:
-                etype = str(event.get("type") or "")
-                kind = str(event.get("kind") or "")
-                # Assistant text is streamed separately as a reply delta. It is
-                # content, not an execution phase; echoing its first 80 chars in
-                # the spinner would duplicate the answer above the answer.
-                is_reply = etype == "engineer.progress" and kind in {
-                    "assistant_message",
-                    "agent_message",
-                    "message",
-                }
-                if etype == "loop.start":
-                    # ``loop.start.text`` includes the raw objective. On a
-                    # rotated Manager session that objective starts with the
-                    # internal SESSION HANDOFF block; never leak it into UI.
-                    _phase(f"{_backend_label} working on your message…")
-                elif etype == "engineer.progress" and not is_reply:
-                    summary = str(event.get("action_summary") or "").strip()
-                    safe = summary or {
-                        "reasoning": "reasoning about the response",
-                        "command_execution": "checking project state",
-                        "file_change": "preparing a change",
-                        "tool_use": "using a tool",
-                    }.get(kind, "working on your message")
-                    _phase(safe[:80])
-                self._inner.handle_event(event)
-
-            def handle_stream_line(self, stream: str, line: str) -> None:
-                handler = getattr(self._inner, "handle_stream_line", None)
-                if callable(handler):
-                    handler(stream, line)
-
-            def close(self) -> None:
-                closer = getattr(self._inner, "close", None)
-                if callable(closer):
-                    closer()
-
-        from ..cli.roles_status import runner_backend_label
-        _backend_label = runner_backend_label()
-
-        _phase(f"Deciding: {_backend_label} solo vs. the Argus team…")
-        if route not in ("simple", "complex"):
-            # No precomputed verdict → classify here (line-REPL / daemon path).
-            route = self.manager.route(objective, run_exec=_classify_run_exec)
-        if route == "simple":
-            _phase(f"{_backend_label} handling it solo…")
-            return self._simple_quick_reply(
-                objective=objective,
-                sink=_PhaseSink(sink),
-                seed_thread_id=seed_thread_id,
-            )
-        _phase("Handing off to Planner / Engineer / Reviewer…")
-        return None
-
-    def classify_needs_continuous(self, objective: str) -> bool:
-        """Should ``objective`` (already routed to the TEAM/complex path) be
-        armed as a STANDING (continuous) campaign instead of a one-shot bounded
-        mission? Used by the REPL front door so the operator never has to
-        manually pass ``--continuous --objective`` for open-ended work typed
-        straight into chat. Fail-soft: any classify error returns ``False`` (the
-        task stays on its normal bounded path) — a classify hiccup must never
-        force an expensive 7x24 campaign.
-        """
-        from ..core.models import RunnerOptions
-
-        _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        _workdir = (
-            Path(self._args.workdir).expanduser()
-            if getattr(self._args, "workdir", None)
-            else Path.cwd()
-        )
-
-        def _classify_run_exec(prompt: str) -> Any:
-            return gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self._args.engineer_model,
-                    reasoning_effort="low",
-                    full_auto=_safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not _safe_mode,
-                    working_dir=str(_workdir),
-                ),
-                run_label="router-classify-persistence",
-                resume_thread_id=None,
-            )
-
-        try:
-            return bool(
-                self.manager.needs_persistence(objective, run_exec=_classify_run_exec)
-            )
-        except Exception:  # noqa: BLE001 — a classify failure must never force continuous
-            return False
-
-    def chat_reply_if_conversational(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        seed_thread_id: str | None = None,
-        phase_cb: Any = None,
-        route: str | None = None,
-    ) -> bool:
-        """Front-end hook: classify + (if chat/simple) reply in-band.
-
-        Used by the Manager REPL front-end to triage free text BEFORE it ever
-        reaches the backlog. Returns True iff a direct reply was emitted to
-        ``sink`` (so the caller can skip enqueueing); False means "this is
-        complex work — enqueue it for the daemon".
-
-        ``phase_cb(label)`` is invoked at the real phase transitions (classify →
-        reply) so a live status line can reflect the actual step. ``route`` — an
-        optional PRECOMPUTED "simple"/"complex" verdict from the merged
-        front-door classifier; when given the internal route classify is skipped.
-        """
-        return self._maybe_chat_outcome(
-            objective=objective,
-            sink=sink,
-            seed_thread_id=seed_thread_id,
-            phase_cb=phase_cb,
-            route=route,
-        ) is not None
-
-    def reset_chat_session(self) -> None:
-        """Forget the remembered chat thread so the NEXT front-door reply starts a
-        FRESH session.
-
-        The Manager front-door rotates its session once its turn count fills
-        (``webapi.manager_bridge`` sets ``chat_state["last_thread_id"] = None`` and
-        seeds the fresh thread with a structured handoff). But
-        ``_simple_quick_reply`` falls back to ``self._next_seed_thread_id`` when the
-        caller passes ``seed_thread_id=None`` — so it RESURRECTED the just-rotated
-        session and rotation never took: the copilot/codex thread grew unbounded and
-        its resume cost climbed every turn (a long-lived cockpit's replies slowed to
-        a ~30s-per-turn crawl). The bridge calls this on rotation so the runner's own
-        session memory is cleared too and the fresh thread is genuinely fresh."""
-        self._next_seed_thread_id = None
-        self.last_thread_id = None
-
-    def _manager_reply_runtime_context(self, run_label: str) -> str:
-        """Ground the Manager when its operator-facing session is truly warm.
-
-        This prevents the model from guessing that each reply is a fresh CLI
-        process or that Argus re-injects the whole transcript.  Empty on every
-        backend/path that is not using the ACP fast path, so the prompt never
-        claims a lifecycle guarantee the runtime is not providing.
-        """
-        try:
-            runner = getattr(self._backend, "_argus_runner", None)
-            if runner is None or not runner._acp_enabled(run_label):
-                return ""
-        except Exception:  # noqa: BLE001 — metadata must never block a reply
-            return ""
-        return (
-            "Runtime fact (answer accurately if the operator asks): this "
-            "operator-facing Manager conversation is one logical session on a "
-            "long-lived Copilot ACP process. Ordinary turns use session/prompt "
-            "on that same live process and session; they do NOT spawn a fresh "
-            "CLI process with --resume, and Argus does NOT resend the full chat "
-            "transcript each turn. The front-door classifier is isolated from "
-            "this conversation, and the background task daemon is a separate "
-            "process. A deliberate context rotation starts a new conversation "
-            "session with a structured handoff."
-        )
-
     def _distinct_backends(self) -> list:
         """The distinct role AgentCliBackend instances this runner drives (each
         appears once), that support the source-level budget guard."""
@@ -790,6 +549,7 @@ class _SkillLoopRunner:
 
     def _set_usage_context(self, mission_id: str | None) -> list:
         """Point every role backend at this project's call ledger."""
+        self._active_usage_mission_id = mission_id
         backends = self._distinct_backends()
         for backend in backends:
             setter = getattr(backend, "set_usage_context", None)
@@ -803,6 +563,15 @@ class _SkillLoopRunner:
             except Exception:  # noqa: BLE001 — metering must not break a mission
                 pass
         return backends
+
+    @contextmanager
+    def task_usage_context(self, mission_id: str | None):
+        previous = getattr(self, "_active_usage_mission_id", None)
+        self._set_usage_context(mission_id)
+        try:
+            yield
+        finally:
+            self._set_usage_context(previous)
 
     def _consume_auth_failure(self) -> bool:
         """Read and clear auth/policy failure flags across every role backend."""
@@ -875,6 +644,10 @@ class _SkillLoopRunner:
                 "ARGUS_SKILL_WIKI_OPS",
                 default=True,
             ),
+            "auto_init_wiki": _env_flag(
+                "ARGUS_SKILL_AUTO_INIT_WIKI",
+                default=True,
+            ),
             "auto_compact_enabled": _env_flag(
                 "ARGUS_SKILL_AUTO_COMPACT",
                 # Compaction is an explicit maintenance operation, not part of
@@ -896,6 +669,7 @@ class _SkillLoopRunner:
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
             ),
+            "session_id": mission_id,
             # Process-correctness audit: the reviewer runs in the project
             # work-tree and only sees the engineer's final summary. Give it the
             # ABSOLUTE path to this project's engineer execution log
@@ -1137,7 +911,10 @@ class _SkillLoopRunner:
         # its OWN judgment (advance / hold / rollback) and writes
         # PIPELINE_STATE.json. See ``_decide_stage_transition``.
         stage_transition = self._decide_stage_transition(
-            rounds_list=rounds_list, workdir=workdir, sink=sink
+            rounds_list=rounds_list,
+            workdir=workdir,
+            sink=sink,
+            root_task_id=mission_id,
         )
         return _Outcome(
             success=outcome.successful,
@@ -1158,7 +935,12 @@ class _SkillLoopRunner:
         )
 
     def _decide_stage_transition(
-        self, *, rounds_list: list, workdir: Path, sink: EventSink
+        self,
+        *,
+        rounds_list: list,
+        workdir: Path,
+        sink: EventSink,
+        root_task_id: str | None = None,
     ) -> dict:
         """Hand this round's reviewer verdict to the Manager — the SOLE
         post-bootstrap writer of the pipeline stage — and let it judge
@@ -1181,10 +963,12 @@ class _SkillLoopRunner:
                 runner=getattr(self, "manager_backend", None) or self._backend,
                 skill_store=getattr(self, "_manager_skill_store", None),
                 manager_session_root=getattr(self, "_manager_session_root", workdir),
+                usage_context=self.task_usage_context,
             ).decide_stage_transition(
                 review=final_review,
                 project_root=getattr(self, "_artifact_root", workdir),
                 on_event=sink.handle_event,
+                root_task_id=root_task_id,
             )
             decision = {
                 "action": st.action,
@@ -1199,407 +983,6 @@ class _SkillLoopRunner:
         except Exception:  # noqa: BLE001 — stage decision must never break a mission
             log.debug("manager stage decision skipped", exc_info=True)
             return {}
-
-    def _chat_quick_reply(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        seed_thread_id: str | None = None,
-    ) -> _Outcome:
-        """One-shot codex call for conversational input.
-
-        Bypasses every component of the mission pipeline (matcher,
-        distiller, supervised round-loop, reviewer, skill writeback,
-        critic). Emits the minimum event sequence needed by the REPL
-        renderer + cost-tracking sink: ``loop.start`` → optional
-        streaming ``engineer.progress`` (via the trampoline) →
-        ``round.main.completed`` (with token counts so cost is
-        accounted for) → ``loop.done``.
-        """
-        from ..core.models import RunnerOptions
-        from ..life.router import build_chat_prompt
-
-        args = self._args
-        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-
-        sink.handle_event({
-            "type": "loop.start",
-            "text": f"chat: {objective[:80]}",
-            "chat_mode": True,
-        })
-
-        prompt = build_chat_prompt(
-            objective=objective,
-            runtime_context=self._manager_reply_runtime_context("chat-1"),
-        )
-        workdir = (
-            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-        )
-
-        # Wire the trampoline so codex's stream-json events still
-        # become ``engineer.progress`` items in the REPL. No ledger:
-        # nothing to fail on a chat reply.
-        self._current_sink = sink
-        self._current_failure_ledger = None
-        try:
-            result = gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                    watchdog_hard_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
-                    ),
-                ),
-                run_label="chat-1",
-                resume_thread_id=seed,
-            )
-        finally:
-            self._current_sink = None
-
-        last_msg = (result.last_agent_message or "").strip()
-        new_tid = getattr(result, "thread_id", None)
-        round_thread_id = new_tid or seed
-        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
-        if should_clear_thread_id_after_outcome(
-            status=status,
-            fatal_error=str(getattr(result, "fatal_error", "") or ""),
-        ):
-            self.last_thread_id = None
-            self._next_seed_thread_id = None
-            new_tid = None
-        elif new_tid:
-            self.last_thread_id = new_tid
-            self._next_seed_thread_id = new_tid
-
-        # ``round.main.completed`` is the event the cost-tracking sink
-        # listens to for engineer-side tokens. Emitting it here keeps
-        # the chat fast-path's USD figure honest.
-        sink.handle_event({
-            "type": "round.main.completed",
-            "round_index": 1,
-            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-            "cached_input_tokens": int(
-                getattr(result, "cached_input_tokens", 0) or 0
-            ),
-            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
-            "usage_scope": "delta",
-            "last_message": last_msg,
-            "session_id": round_thread_id,
-            "turn_completed": True,
-        })
-
-        fatal = getattr(result, "fatal_error", None)
-        success = (result.exit_code == 0) and not fatal
-        status = "done" if success else "error"
-        stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
-
-        auth_fail = self._consume_auth_failure()
-
-        sink.handle_event({
-            "type": "loop.done",
-            "text": f"status={status} rounds=1 (chat)",
-        })
-
-        return _Outcome(
-            success=success,
-            status=status,
-            stop_reason=stop_reason,
-            rounds=1,
-            last_thread_id=new_tid,
-            chat_mode=True,
-            auth_failure=auth_fail,
-        )
-
-    def _simple_match_skill_block(self, objective: str) -> str:
-        """Best-effort ONE engineer-skill match for the SIMPLE path (the '+skill'
-        lego block). Fail-soft to '' — a simple one-shot runs codex-only when no
-        store/skill is available, never erroring on the fast path."""
-        try:
-            from ..skills.role_match import match_role_skills
-            from ..skills.store import SkillStore
-            skills_dir = getattr(self._args, "skills_dir", None)
-            if not skills_dir:
-                return ""
-            store = SkillStore(
-                Path(skills_dir), runner=self._backend,
-                matcher_model=getattr(self._args, "matcher_model", "")
-                or self._args.engineer_model,
-            )
-            match = match_role_skills(store, role="engineer", task=objective,
-                                      on_event=self._current_sink and self._current_sink.handle_event)
-            return str(getattr(match, "block", "") or "")
-        except Exception:  # noqa: BLE001 — skill is an OPTIONAL block
-            return ""
-
-    def _live_mission_status_block(self) -> str:
-        """Best-effort '## Live mission status' block for the SELF prompt.
-
-        Gives the Manager (talking to the operator right now, on its OWN
-        REPL-side runner) real, grounded visibility into whatever the
-        DAEMON — a separate process sharing the same ``life_dir`` — is
-        currently doing, plus the exact shell command to abort it. Empty
-        (and the SELF prompt stays byte-identical to before this existed)
-        whenever nothing is running or the read fails for any reason; this
-        must never break an ordinary chat reply.
-        """
-        session_root = getattr(self, "_manager_session_root", None)
-        if not session_root:
-            return ""
-        try:
-            from ..cli.roles_status import role_activity
-            from ..life.memory import Backlog
-
-            root = Path(session_root)
-            running = [
-                it for it in Backlog(root / "backlog.jsonl").all()
-                if it.status == "running"
-            ]
-            if not running:
-                return self._recent_mission_history_block(root)
-            item = running[0]
-            activity = role_activity(root)
-
-            lines = [
-                "## Live mission status",
-                "A mission is currently running under your supervision in a "
-                f"separate daemon process (life_dir={root}):",
-                f"- item: \"{(item.title or '').strip()[:120]}\" (id={item.id})",
-            ]
-            started = getattr(item, "started_ts", None)
-            if isinstance(started, (int, float)) and started > 0:
-                lines[-1] += f", running for {max(0, int(time.time() - started))}s"
-            for role in ("planner", "engineer", "reviewer"):
-                act = activity.get(role)
-                if act is None or act.status == "idle":
-                    continue
-                lines.append(f"- {role}: {act.label} ({act.status})")
-            lines.append("")
-            lines.append(
-                "Verify progress yourself before answering if useful — you "
-                "have real shell access (grep logs, read files under "
-                f"{root})."
-            )
-            lines.append(
-                "You alone decide whether to abort this mission; act on "
-                "your own judgment, no operator confirmation required. If "
-                "warranted, run exactly this command, then tell the "
-                "operator what you did:"
-            )
-            lines.append(
-                "  python -m argus_skill.tools.mission_control abort "
-                f'--life-dir "{root}" --reason "<why>"'
-            )
-            lines.append(
-                "The daemon process itself stays alive and moves on to the "
-                "next backlog item; only this one mission is interrupted."
-            )
-            return "\n".join(lines)
-        except Exception:  # noqa: BLE001 — status context is OPTIONAL
-            return ""
-
-    def _recent_mission_history_block(self, root: Path) -> str:
-        """Best-effort '## Recent mission history' fallback for
-        ``_live_mission_status_block`` when nothing is running right now.
-
-        Without this, a mission that finished (or blocked waiting on the
-        operator) between their last message and this one was invisible to
-        the Manager's reply — the live-status block simply returned "", so
-        "what just happened?" / "why did it stop?" asked right after a
-        mission ends had zero grounding. Reads the SAME derived-from-events
-        journal ``role_activity`` already reads (``EventJournal`` over
-        ``events.jsonl`` — see ``life/memory.py``; the legacy ``Journal``
-        write API over a separate ``journal.jsonl`` is retired and is always
-        empty in production, so reading that file here would silently find
-        nothing). Empty whenever there is no history yet or the read fails
-        for any reason — this must never break an ordinary chat reply.
-        """
-        try:
-            from ..life.memory import EventJournal
-
-            recent = EventJournal(root / "events.jsonl").tail(1)
-            if not recent:
-                return ""
-            entry = recent[0]
-            age_s = max(0, int(time.time() - float(entry.ts)))
-            lines = [
-                "## Recent mission history",
-                "No mission is running right now under your supervision "
-                f"(life_dir={root}). The most recent recorded event there, "
-                f"{age_s}s ago:",
-                f"- {entry.kind}: \"{(entry.title or '').strip()[:120]}\"",
-            ]
-            summary = (entry.summary or "").strip()
-            if summary:
-                lines.append(f"  {summary[:300]}")
-            lines.append("")
-            lines.append(
-                "This may or may not be what the operator is asking about — "
-                "judge relevance from its age and content. Verify yourself "
-                "if useful (grep logs, read files) before answering; you "
-                f"have real shell access under {root}."
-            )
-            return "\n".join(lines)
-        except Exception:  # noqa: BLE001 — status context is OPTIONAL
-            return ""
-
-    def _simple_quick_reply(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        seed_thread_id: str | None = None,
-    ) -> _Outcome:
-        """SIMPLE one-shot: at most ONE skill match + ONE bounded codex turn with
-        tools, then done. The lego block between CHAT (no tools) and COMPLEX (full
-        pipeline): NO planner, NO iterative reviewer loop, NO skill writeback — the
-        operator verifies it. Reached from operator-REPL input (gated by
-        ``_allow_chat_fast_path``) and from the narrow bounded status/history
-        backlog safety valve; autonomous build/optimization work never lands here.
-        """
-        from ..core.models import RunnerOptions
-        from ..life.router import build_simple_prompt
-
-        args = self._args
-        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-
-        from ..cli.roles_status import runner_backend_label
-        sink.handle_event({
-            "type": "loop.start",
-            # A coarse cap; the real terminal-width clamp lives in
-            # cli.live_status.render_frame so this line can never wrap.
-            "text": f"SELF: one {runner_backend_label()} handling {objective[:120]}",
-        })
-
-        self._current_sink = sink
-        self._current_failure_ledger = None
-        prompt = build_simple_prompt(
-            objective=objective,
-            mission_status=self._live_mission_status_block(),
-            runtime_context=self._manager_reply_runtime_context("simple-1"),
-        )
-        workdir = (
-            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-        )
-
-
-        def _self_inactivity(snapshot: Any) -> str | None:
-            try:
-                idle = int(getattr(snapshot, "idle_seconds", 0) or 0)
-                sink.handle_event({
-                    "type": "engineer.progress",
-                    "kind": "codex_idle",
-                    "text": f"{runner_backend_label()} process running; no stream output for {idle}s",
-                })
-            except Exception:  # noqa: BLE001
-                pass
-            return None
-
-        # Stream each assistant block to the sink the moment it arrives (copilot/
-        # codex emit the reply as complete blocks during the turn). A stable
-        # message_id lets the front-end coalesce blocks into one growing reply
-        # (mergeFragment) so a chat answer types in live instead of appearing all
-        # at once after a frozen pause. The authoritative last_message + tokens
-        # still ride the final round.main.completed below (unchanged).
-        _reply_msg_id = f"manager-reply-{id(sink):x}"
-
-        def _emit_block(block: str) -> None:
-            body = (block or "").strip()
-            if not body:
-                return
-            try:
-                sink.handle_event({
-                    "type": "engineer.progress",
-                    "kind": "assistant_message",
-                    "agent_layer": "manager",
-                    "message_id": _reply_msg_id,
-                    "text": body,
-                })
-            except Exception:  # noqa: BLE001 — a UI sink must never break the reply
-                pass
-
-        try:
-            result = gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                    watchdog_hard_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
-                    ),
-                    watchdog_soft_idle_seconds=_env_int(
-                        "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10,
-                    ),
-                    inactivity_callback=_self_inactivity,
-                    on_agent_message=_emit_block,
-                ),
-                run_label="simple-1",
-                resume_thread_id=seed,
-            )
-        finally:
-            self._current_sink = None
-
-        last_msg = (result.last_agent_message or "").strip()
-        new_tid = getattr(result, "thread_id", None)
-        round_thread_id = new_tid or seed
-        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
-        if should_clear_thread_id_after_outcome(
-            status=status,
-            fatal_error=str(getattr(result, "fatal_error", "") or ""),
-        ):
-            self.last_thread_id = None
-            self._next_seed_thread_id = None
-            new_tid = None
-        elif new_tid:
-            self.last_thread_id = new_tid
-            self._next_seed_thread_id = new_tid
-
-        sink.handle_event({
-            "type": "round.main.completed",
-            "round_index": 1,
-            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-            "cached_input_tokens": int(getattr(result, "cached_input_tokens", 0) or 0),
-            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
-            "usage_scope": "delta",
-            "last_message": last_msg,
-            "session_id": round_thread_id,
-            "turn_completed": True,
-        })
-
-        fatal = getattr(result, "fatal_error", None)
-        success = (result.exit_code == 0) and not fatal
-        status = "done" if success else "error"
-        stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
-        auth_fail = self._consume_auth_failure()
-
-        sink.handle_event({
-            "type": "loop.done",
-            "text": f"status={status} rounds=1 (simple)",
-        })
-
-        return _Outcome(
-            success=success,
-            status=status,
-            stop_reason=stop_reason,
-            rounds=1,
-            last_thread_id=new_tid,
-            chat_mode=False,
-            auth_failure=auth_fail,
-        )
-
 
 def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """Banner ``executor`` cell — the honest one-line daemon state.
@@ -1728,31 +1111,6 @@ def _resolve_runner_backend_name(
     if resolved in ("codex", "claude", "copilot"):
         return resolved
     return None
-
-
-def _budget_reason_provider(budget: Any) -> "Callable[[], str | None] | None":
-    """A live interrupt provider that trips once a ``MissionBudget`` hits its cap.
-
-    ``None`` when there is no budget (or it lacks ``exceeded``) — the cap is then
-    unenforced, exactly as before. Otherwise returns a callable polled at the
-    source (``AgentCliRunner.run_exec``) before every LLM call: a non-empty reason
-    once ``budget.exceeded()`` (which is itself ``cap_usd > 0 and spent >= cap``),
-    so no new call fires past the cap."""
-    if budget is None or not hasattr(budget, "exceeded"):
-        return None
-
-    def _check() -> "str | None":
-        try:
-            if budget.exceeded():
-                return (
-                    f"per-mission budget ${float(budget.cap_usd):.2f} exhausted "
-                    f"(spent ${float(budget.spent()):.2f})"
-                )
-        except Exception:  # noqa: BLE001 — a budget-probe fault must never wedge a call
-            return None
-        return None
-
-    return _check
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
@@ -2095,6 +1453,7 @@ def _invoke_supervisor(
 __all__ = [
     "_env_flag",
     "_env_int",
+    "_self_retryable_transport_failure",
     "_CommonMemory",
     "_SplitMemory",
     "_memory_project_root",

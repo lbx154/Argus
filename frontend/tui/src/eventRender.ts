@@ -130,6 +130,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return { role, label: ROLE_LABEL[role] || role, glyph: '🔄', text: `进入 ${phase}`, tone: 'info' };
   }
   if (t === 'round.review.started') return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `review round ${roundNo(ev)}`, tone: 'info' };
+  if (t === 'round.review.deferred') return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `continues before review · ${trunc(S(ev, 'next_step'), 180)}`, tone: 'info' };
   if (t === 'round.main.completed') return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `round ${roundNo(ev)} completed`, tone: 'info' };
   if (t === 'round.review.completed') {
     const st = S(ev, 'status');

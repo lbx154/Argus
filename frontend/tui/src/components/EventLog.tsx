@@ -33,8 +33,21 @@ function EventRow({ r, compact, width }: { r: Rendered; compact: boolean; width:
  * scrollback — real, unlimited scroll-up (the Claude Code approach), not a tiny
  * fixed window. Only the currently-streaming line renders live below it.
  */
-export function EventLog({ events, width }: { events: EventMsg[]; width: number }) {
-  const clean = useMemo<EventLine[]>(() => buildEventLines(events), [events]);
+export function EventLog({
+  events,
+  width,
+  mode = 'all',
+}: {
+  events: EventMsg[];
+  width: number;
+  mode?: 'all' | 'conversation';
+}) {
+  const clean = useMemo<EventLine[]>(() => {
+    const lines = buildEventLines(events);
+    return mode === 'conversation'
+      ? lines.filter((line) => ['ui.operator', 'ui.argus'].includes(String(line.ev.type ?? '')))
+      : lines;
+  }, [events, mode]);
 
   // The last line is "live" only while it's a still-streaming message; keep it
   // out of Static so its growth doesn't spam scrollback. Everything before it is

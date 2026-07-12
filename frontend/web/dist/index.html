@@ -1,12 +1,22 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111210" />
-    <title>Argus · Operator Console</title>
-    <script type="module" crossorigin src="/assets/index-BudMxX-z.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-D_6bXH13.css">
+    <meta name="theme-color" content="#0b0d11" />
+    <title>Argus · Research Workbench</title>
+    <script>
+      (() => {
+        const mode = localStorage.getItem('argus.theme') || 'system';
+        const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-qqDuwZCi.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/query-BpxuCIcN.js">
+    <link rel="modulepreload" crossorigin href="/assets/icons-Dd-ED7Ua.js">
+    <link rel="modulepreload" crossorigin href="/assets/markdown-B5ILJD_j.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-H1YVHlD8.css">
   </head>
   <body>
     <div id="root"></div>

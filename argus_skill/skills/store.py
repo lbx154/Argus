@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -463,8 +464,11 @@ class SkillStore:
         if not (content or "").strip():
             if on_event is not None:
                 try:
-                    on_event({"type": "skill.distill.rejected",
-                              "text": "skill proposal had empty content"})
+                    on_event({
+                        "type": EventType.SKILL_DISTILL_REJECTED,
+                        "reason": "empty_content",
+                        "text": "skill proposal had empty content",
+                    })
                 except Exception:  # noqa: BLE001
                     log.debug("skill.distill.rejected emit failed", exc_info=True)
             return None
@@ -486,7 +490,9 @@ class SkillStore:
         ):
             if on_event is not None:
                 on_event({
-                    "type": "skill.distill.rejected",
+                    "type": EventType.SKILL_DISTILL_REJECTED,
+                    "name": skill.name,
+                    "reason": "duplicate_name",
                     "text": f"skill name already exists: {skill.name}",
                 })
             return None
@@ -525,10 +531,15 @@ class SkillStore:
             skill.description = description.strip()
         self.save(skill)
         if on_event is not None:
-            on_event({"type": "skill.revised", "skill": skill.name,
-                      "version": skill.version,
-                      "previous_version_path": str(snapshot),
-                      "text": f"{skill.name} → v{skill.version} (reviewer update)"})
+            on_event({
+                "type": EventType.SKILL_REVISED,
+                "skill_id": skill.skill_id,
+                "skill": skill.name,
+                "version": skill.version,
+                "path": str(skill.path or ""),
+                "previous_version_path": str(snapshot),
+                "text": f"{skill.name} → v{skill.version} (reviewer update)",
+            })
         return skill
 
     def archive(self, skill: Skill) -> "Path | None":
@@ -581,7 +592,7 @@ class SkillStore:
         self.save(skill)
         if on_event is not None:
             on_event({
-                "type": "skill.use.recorded",
+                "type": EventType.SKILL_USE_RECORDED,
                 "skill_id": skill.skill_id,
                 "skill_name": skill.name,
                 "task_fingerprint": fingerprint,

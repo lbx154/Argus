@@ -116,7 +116,85 @@ def classify_skill_placement(
     return PlacementVerdict("stay", "", why or "unplaceable / unknown vertical")
 
 
+def classify_skill_placements(
+    *,
+    skills: list[dict[str, str]],
+    candidate_verticals: list[str],
+    runner: Any,
+    model: str = "",
+    reasoning_effort: str = "low",
+) -> dict[str, PlacementVerdict]:
+    """Classify a batch of runtime skills with one metered Manager call."""
+    rows = [
+        {
+            "name": str(item.get("name") or "").strip(),
+            "task": str(item.get("task") or "").strip()[:2000],
+            "content": str(item.get("content") or "").strip()[:12000],
+        }
+        for item in skills
+        if str(item.get("name") or "").strip()
+    ]
+    defaults = {
+        row["name"]: PlacementVerdict("stay", "", "batch placement unavailable")
+        for row in rows
+    }
+    if not rows or runner is None:
+        return defaults
+    candidates = [v for v in candidate_verticals if isinstance(v, str) and v]
+    prompt = (
+        "You are the Manager tidying several project-distilled skills after a "
+        "mission. Classify every row independently.\n\n"
+        "Placement policy: global = cross-domain; vertical = only one named "
+        "candidate vertical; stay = project-specific or uncertain. Prefer stay.\n\n"
+        f"Candidate verticals: {', '.join(candidates) or '(none)'}\n\n"
+        "Skills JSON:\n"
+        f"{json.dumps(rows, ensure_ascii=False)}\n\n"
+        "Reply ONLY as JSON: {\"placements\":[{\"name\":\"exact input name\","
+        "\"placement\":\"global|vertical|stay\",\"vertical\":\"\","
+        "\"why\":\"...\"}]}. Return exactly one row per input skill."
+    )
+    try:
+        result = gateway_run_exec(
+            runner,
+            prompt=prompt,
+            options=RunnerOptions(
+                model=model or None,
+                reasoning_effort=reasoning_effort,
+                skip_git_repo_check=True,
+                full_auto=True,
+            ),
+            run_label="manager.skill_placement_batch",
+        )
+    except Exception as exc:  # noqa: BLE001 - promotion remains fail-soft
+        log.warning("manager batch skill placement failed (%s: %s)", type(exc).__name__, exc)
+        return defaults
+
+    parsed = _extract_json(getattr(result, "last_agent_message", "") or "") or {}
+    placements = parsed.get("placements")
+    if not isinstance(placements, list):
+        return defaults
+    for item in placements:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name not in defaults:
+            continue
+        placement = str(item.get("placement") or "").strip().lower()
+        vertical = str(item.get("vertical") or "").strip()
+        why = str(item.get("why") or "").strip()[:500]
+        if placement == "global":
+            defaults[name] = PlacementVerdict("global", "", why or "general capability")
+        elif placement == "vertical" and vertical in candidates:
+            defaults[name] = PlacementVerdict(
+                "vertical", vertical, why or f"belongs to {vertical}"
+            )
+        else:
+            defaults[name] = PlacementVerdict("stay", "", why or "project-specific")
+    return defaults
+
+
 __all__ = [
     "classify_skill_placement",
+    "classify_skill_placements",
     "PlacementVerdict",
 ]

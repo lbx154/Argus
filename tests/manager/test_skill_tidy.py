@@ -10,6 +10,7 @@ commits. All source-writing tests isolate ``builtin_skill_source_path`` /
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from argus_skill.manager import skill_tidy
 from argus_skill.manager.skill_review import (
     PlacementVerdict,
     classify_skill_placement,
+    classify_skill_placements,
 )
 from argus_skill.skills.store import Skill, SkillStore
 
@@ -104,6 +106,33 @@ def test_placement_unparseable_is_stay() -> None:
     assert v.placement == "stay"
 
 
+def test_batch_placement_classifies_multiple_skills_in_one_call() -> None:
+    runner = MemoryBackend()
+    runner.queue(
+        "manager.skill_placement_batch",
+        CannedResponse(message=(
+            '{"placements":['
+            '{"name":"general","placement":"global","vertical":"","why":"portable"},'
+            '{"name":"factor","placement":"vertical","vertical":"quant","why":"domain"}'
+            ']}'
+        )),
+    )
+
+    verdicts = classify_skill_placements(
+        skills=[
+            {"name": "general", "task": "t", "content": "c"},
+            {"name": "factor", "task": "t", "content": "c"},
+        ],
+        candidate_verticals=["quant"],
+        runner=runner,
+    )
+
+    assert verdicts["general"].placement == "global"
+    assert verdicts["factor"].placement == "vertical"
+    assert verdicts["factor"].vertical == "quant"
+    assert len(runner.history) == 1
+
+
 # --- write_skill_to_source: lands in the right source dir -------------------
 
 def test_write_skill_to_builtin(isolated_source) -> None:
@@ -173,6 +202,105 @@ def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatc
     assert status.strip() == ""  # everything committed
 
 
+def test_tidy_uses_batch_classifier_instead_of_one_call_per_skill(
+    isolated_source,
+    tmp_path,
+) -> None:
+    _root, builtin = isolated_source
+    runtime = SkillStore(tmp_path / "runtime-batch")
+    runtime.save(_skill("one"))
+    runtime.save(_skill("two"))
+    batch_calls = []
+
+    def classify(**kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("per-skill classifier should not run")
+
+    def classify_batch(items):
+        batch_calls.append(items)
+        return {
+            item["name"]: PlacementVerdict("global", "", "portable")
+            for item in items
+        }
+
+    events = []
+    counts = skill_tidy.tidy_runtime_skills_to_source(
+        runtime,
+        classify,
+        classify_batch=classify_batch,
+        on_event=events.append,
+    )
+
+    assert len(batch_calls) == 1
+    assert len(batch_calls[0]) == 2
+    assert counts["to_builtin"] == 2
+    assert (builtin / "one.md").exists()
+    assert (builtin / "two.md").exists()
+    assert {event["name"] for event in events} == {"one", "two"}
+    assert all(event["placement"] == "global" for event in events)
+    assert all(event["path"].endswith(".md") for event in events)
+
+
+def test_tidy_chunks_large_skill_sets(monkeypatch, isolated_source, tmp_path) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_TIDY_BATCH_SIZE", "3")
+    runtime = SkillStore(tmp_path / "runtime-chunks")
+    for index in range(7):
+        runtime.save(_skill(f"skill {index}"))
+    sizes = []
+
+    def classify_batch(items):
+        sizes.append(len(items))
+        return {
+            item["name"]: PlacementVerdict("stay", "", "project-specific")
+            for item in items
+        }
+
+    skill_tidy.tidy_runtime_skills_to_source(
+        runtime,
+        lambda **kwargs: PlacementVerdict("stay", "", "unused"),
+        classify_batch=classify_batch,
+    )
+
+    assert sizes == [3, 3, 1]
+
+
+def test_concurrent_tidy_does_not_create_numbered_source_duplicates(
+    isolated_source,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _root, builtin = isolated_source
+    monkeypatch.setenv("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "0")
+    stores = [SkillStore(tmp_path / f"runtime-{index}") for index in range(2)]
+    for store in stores:
+        store.save(_skill("shared lesson"))
+    barrier = threading.Barrier(2)
+    results = []
+
+    def classify_batch(items):
+        barrier.wait()
+        return {
+            item["name"]: PlacementVerdict("global", "", "portable")
+            for item in items
+        }
+
+    def worker(store):
+        results.append(skill_tidy.tidy_runtime_skills_to_source(
+            store,
+            lambda **kwargs: PlacementVerdict("stay", "", "unused"),
+            classify_batch=classify_batch,
+        ))
+
+    threads = [threading.Thread(target=worker, args=(store,)) for store in stores]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sum(result["to_builtin"] for result in results) == 1
+    assert (builtin / "shared-lesson.md").exists()
+    assert not (builtin / "shared-lesson-2.md").exists()
+
+
 def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
     # builtin path under a NON-git dir → commit returns False, no raise.
     monkeypatch.setenv("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "1")  # opt in, so we reach the git logic
@@ -187,7 +315,13 @@ def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
 def test_tidy_after_mission_reads_project_layer(tmp_path, monkeypatch) -> None:
     captured: dict[str, Path] = {}
 
-    def _fake_tidy(runtime, classify, *, on_event=None):  # noqa: ARG001
+    def _fake_tidy(
+        runtime,
+        classify,
+        *,
+        classify_batch=None,
+        on_event=None,
+    ):  # noqa: ARG001
         captured["skills_dir"] = runtime.skills_dir
         return {"to_builtin": 0, "to_vertical": 0, "stayed": 0, "errors": 0}
 

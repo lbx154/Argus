@@ -5,6 +5,7 @@ and /done /skip /rm /stop). Real temp project; no daemon needed."""
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -57,6 +58,23 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
+
+
+def test_web_context_defaults_launch_cwd_and_reports_it(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    launch = tmp_path / "web-workspace"
+    launch.mkdir()
+    monkeypatch.chdir(launch)
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    created = client.post("/api/daemons", json={}).json()
+    meta = read_session_meta(tmp_path, created["sid"])
+    index = client.get("/api/projects").json()
+
+    assert meta is not None
+    assert meta.launch_cwd == str(launch.resolve())
+    assert index["local_cwd"] == str(launch.resolve())
 
 
 def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:
@@ -309,6 +327,25 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/plain")
         assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = _seed_result_artifacts(root, sid, life)
+    subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+    subprocess.run(["git", "-C", str(workspace), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "add", "paper/result.md"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
+    (workspace / "paper" / "result.md").write_text("# Certified\nupdated result\n", encoding="utf-8")
+
+    response = client.get(f"/api/projects/{sid}/git-diff")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is True
+    assert "paper/result.md" in payload["status"]
+    assert "updated result" in payload["diff"]
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 # ── write side ───────────────────────────────────────────────────────────

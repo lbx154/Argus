@@ -69,7 +69,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-24' : 'items-center'} justify-center p-4`}
+      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center p-4`}
       onMouseDown={onClose}
     >
       <div className="absolute inset-0 bg-[rgba(0,0,0,0.68)]" />
@@ -79,7 +79,7 @@ export function Modal({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={`relative z-10 w-full ${width} max-h-[80vh] overflow-hidden rounded-lg border border-line bg-panel shadow-glow`}
+        className={`relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-lg border border-line bg-panel shadow-glow scroll-thin sm:max-h-[88dvh]`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}

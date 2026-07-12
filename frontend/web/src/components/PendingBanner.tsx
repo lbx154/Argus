@@ -25,24 +25,12 @@ export function PendingBanner({
   if (all.length === 0) return null;
 
   return (
-    <div className="mx-3 mt-3 rounded-md border border-gold/40 bg-gold/5 px-4 py-2.5">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 font-mono text-xs font-bold text-gold">?</span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-gold">
-            Input required {all.length > 1 ? `· ${all.length}` : ''}
-          </div>
-          {all.slice(0, 2).map((q, i) => (
-            <div key={i} className="mt-1 text-sm leading-snug text-ink">{q}</div>
-          ))}
-        </div>
-        <button
-          onClick={onAnswer}
-          className="shrink-0 rounded-md border border-gold/50 bg-gold/15 px-3 py-1 text-xs font-medium text-gold transition-colors hover:bg-gold/25"
-        >
-          Answer
-        </button>
-      </div>
+    <div className="mb-2 flex min-h-9 items-center gap-3 rounded-md border border-gold/40 bg-gold/5 px-3 py-2">
+      <span className="min-w-0 flex-1 truncate text-xs text-ink-dim" title={all[0]}>{all[0]}</span>
+      {all.length > 1 ? <span className="font-mono text-xs text-ink-faint">+{all.length - 1}</span> : null}
+      <button onClick={onAnswer} className="shrink-0 text-xs font-medium text-gold hover:text-gold-soft">
+        Reply
+      </button>
     </div>
   );
 }

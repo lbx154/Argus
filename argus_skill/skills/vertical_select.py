@@ -28,9 +28,14 @@ and ``manager/domain_author.py``):
 
 Precedence for the resolved vertical (read side):
 
-    explicit non-default env ``ARGUS_SKILL_VERTICAL``  >  persisted project-local
-    DATA domain when env is the safe default ``"research"``  >  persisted
-    ``vertical`` in ``research/PIPELINE_STATE.json``  >  RAISE.
+    persisted project-local DATA domain  >  explicit non-default env
+    ``ARGUS_SKILL_VERTICAL``  >  persisted built-in ``vertical`` in
+    ``research/PIPELINE_STATE.json``  >  RAISE.
+
+A Manager-authored DATA domain must remain authoritative after it is persisted.
+The daemon may still carry the broader built-in vertical selected before the
+Manager authored that domain; allowing that inherited env value to win would
+silently replace the domain's stage contract with the built-in one.
 
 There are NO keyword classifiers and NO fallbacks: an objective is never mapped
 to a vertical by matching words, and a missing/corrupt state is never quietly
@@ -219,11 +224,12 @@ def resolve_vertical(project_root: object = ".") -> str:
 
     Precedence:
 
-        1. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
-           (a trailing ``-needed`` sentinel is stripped first). Explicit
-           non-default env values win, EXCEPT the safe default ``"research"``
-           never clobbers a persisted project-local DATA domain.
-        2. persisted ``vertical`` in ``research/PIPELINE_STATE.json``.
+        1. A persisted project-local DATA domain. It is the Manager's committed
+           task contract and wins over a broader built-in env value inherited
+           from mission bootstrap.
+        2. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
+           (a trailing ``-needed`` sentinel is stripped first).
+        3. A persisted built-in ``vertical``.
 
     FAIL-SOFT: if neither yields a known vertical, WARN and return
     ``DEFAULT_VERTICAL`` rather than raising — a rigid rule must never hard-crash
@@ -234,9 +240,9 @@ def resolve_vertical(project_root: object = ".") -> str:
     """
     env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
     persisted = _persisted_vertical(project_root)
+    if _is_project_data_domain(persisted, project_root):
+        return persisted
     if env is not None:
-        if env == DEFAULT_VERTICAL and _is_project_data_domain(persisted, project_root):
-            return persisted
         return env
     if persisted is not None:
         return persisted

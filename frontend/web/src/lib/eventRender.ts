@@ -56,7 +56,7 @@ const ROLE_LABEL: Record<string, string> = {
 export const toneColor = (tone: Tone): string =>
   ({
     bright: theme.ink,
-    dim: theme.inkFaint,
+    dim: theme.inkDim,
     accent: theme.accent,
     ok: theme.success,
     warn: theme.warning,
@@ -71,6 +71,15 @@ export const toneColor = (tone: Tone): string =>
  */
 export function renderEvent(ev: EventMsg): Rendered | null {
   const t = S(ev, 'type');
+
+  if (t === 'ui.operator') {
+    const body = S(ev, 'text');
+    return body ? { role: 'operator', label: 'You', glyph: '›', text: body, tone: 'bright', rule: true } : null;
+  }
+  if (t === 'ui.argus') {
+    const body = S(ev, 'text');
+    return body ? { role: 'manager', label: 'Argus', glyph: '◆', text: body, tone: 'bright', rule: true } : null;
+  }
 
   // ── engineer.progress: split by kind (model speech vs operations vs reasoning)
   if (t === 'engineer.progress') {
@@ -146,6 +155,8 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   }
   if (t === 'round.review.started')
     return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `review round ${roundNo(ev)}`, tone: 'info' };
+  if (t === 'round.review.deferred')
+    return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `continues before review · ${trunc(S(ev, 'next_step'), 160)}`, tone: 'info' };
   if (t === 'round.main.completed')
     return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `round ${roundNo(ev)} completed`, tone: 'info' };
   if (t === 'round.review.completed') {
@@ -194,8 +205,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return { role: 'system', label: 'Notice', glyph: '!', text: `planner stalled — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
   if (t === 'life.budget.pause')
     return { role: 'system', label: 'Watch', glyph: '⏸', text: `budget cap reached — paused · ${trunc(S(ev, 'text') || S(ev, 'reason'), 140)}`, tone: 'warn' };
-  if (t === 'life.lifecycle.block')
-    return { role: 'system', label: 'Watch', glyph: '⛔', text: `blocked — needs you · ${trunc(S(ev, 'text') || S(ev, 'reason'), 150)}`, tone: 'err', rule: true };
+  if (t === 'life.lifecycle.block') return null;
   if (t === 'life.daemon.idle_timeout')
     return { role: 'system', label: 'Watch', glyph: '🟦', text: trunc(S(ev, 'text') || 'idle timeout — standing by', 150), tone: 'dim' };
   // round.watchdog.* only reach the feed in "full" verbosity — still render them.

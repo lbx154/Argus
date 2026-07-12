@@ -5,8 +5,8 @@ codex call.
 
 Two surfaces are exercised here:
 
-1. ``_SkillLoopRunner._chat_quick_reply`` — direct unit test with
-   a fake codex backend. Verifies prompt shape, event emission, token
+1. ``_SkillLoopRunner._simple_quick_reply`` — direct unit test with
+   a fake backend. Verifies prompt shape, event emission, token
    accounting, and ``chat_mode=True``.
 
 2. ``LifeSupervisor._run_one`` with a fake runner that returns
@@ -176,7 +176,7 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 45
+    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 180
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 10
     assert callable(backend.calls[0]["options"].inactivity_callback)
     types = [e.get("type") for e in sink.events]
@@ -185,6 +185,67 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
                for e in sink.events)
     assert "算 17*23" in backend.calls[0]["prompt"]
+
+
+def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:
+    class _FlakyAcpBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                return RunnerResult(
+                    exit_code=1,
+                    thread_id="stalled-session",
+                    fatal_error="ACP prompt timed out after 300s",
+                    input_tokens=7,
+                )
+            return RunnerResult(
+                exit_code=0,
+                thread_id="fresh-session",
+                agent_messages=["落霞与孤鹜齐飞"],
+                input_tokens=11,
+                output_tokens=5,
+            )
+
+    backend = _FlakyAcpBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="写滕王阁序", sink=sink)
+
+    assert out.success is True
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["resume_thread_id"] is None
+    main = next(event for event in sink.events if event.get("type") == "round.main.completed")
+    assert main["attempt_count"] == 2
+    assert main["input_tokens"] == 18
+    assert main["output_tokens"] == 5
+    assert any(event.get("kind") == "provider_retry" for event in sink.events)
+
+
+@pytest.mark.parametrize(
+    "fatal_error",
+    [
+        "External interrupt: daemon stop requested",
+        "External interrupt: operator abort requested: stop now",
+        "refused before start: daily budget exhausted",
+    ],
+)
+def test_self_never_retries_explicit_interrupts(fatal_error: str) -> None:
+    from argus_skill.apps._runtime import _self_retryable_transport_failure
+
+    result = RunnerResult(exit_code=1, fatal_error=fatal_error)
+    assert _self_retryable_transport_failure(result) is False
+
+
+def test_self_does_not_retry_after_tool_activity() -> None:
+    from argus_skill.apps._runtime import _self_retryable_transport_failure
+
+    result = RunnerResult(
+        exit_code=1,
+        fatal_error="ACP prompt timed out after 300s",
+        tool_activity_observed=True,
+    )
+    assert _self_retryable_transport_failure(result) is False
 
 
 def test_execute_team_answer_uses_full_pipeline() -> None:
@@ -223,7 +284,7 @@ def test_execute_uses_full_pipeline_on_real_task(
 ) -> None:
     """A clear engineering task must NOT short-circuit. The model
     classifier answers TEAM, so the runner falls through to the
-    SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
+    SkillLoop path. We assert ``_simple_quick_reply`` is NOT invoked by
     setting a sentinel that would raise if called.
     """
     backend = _FakeBackend(
@@ -250,7 +311,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         raise AssertionError(
             f"chat fast-path was triggered for what should be a task: {objective!r}"
         )
-    runner._chat_quick_reply = _sentinel
+    runner._simple_quick_reply = _sentinel
 
     # Build a minimal SkillLoop / SkillLoopConfig stub so the fall-through
     # path doesn't try to construct a real one. We replace ``_SkillLoop``
@@ -285,6 +346,10 @@ def test_execute_uses_full_pipeline_on_real_task(
         reviewer_model: str | None = None
         max_rounds: int = 1
         skill_writeback: bool = True
+        skill_ops_enabled: bool = False
+        wiki_ops_enabled: bool = False
+        auto_init_wiki: bool = False
+        session_id: str | None = None
         dangerous_yolo: bool = True
         full_auto: bool = False
         skip_git_repo_check: bool = True
@@ -295,7 +360,11 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     runner._SkillLoopConfig = _StubConfig
 
-    out = runner.execute(objective="implement a binary tree in src/tree.py", sink=sink)
+    out = runner.execute(
+        objective="implement a binary tree in src/tree.py",
+        sink=sink,
+        mission_id="mission-tree",
+    )
 
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
@@ -309,6 +378,9 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert isinstance(layered, LayeredSkillStore)
     assert layered.project.skills_dir == tmp_path / "project-state" / "skills"
     assert layered.global_.skills_dir == tmp_path / "global-skills"
+    assert loop_kwargs[0]["config"].wiki_ops_enabled is True
+    assert loop_kwargs[0]["config"].auto_init_wiki is True
+    assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
     backend.calls.clear()
     planned_tasks.clear()

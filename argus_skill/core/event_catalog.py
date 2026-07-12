@@ -31,8 +31,10 @@ class EventCategory(StrEnum):
     OPERATOR = "operator"
     PLANNER = "planner"
     PROVIDER = "provider"
+    RESEARCH = "research"
     SKILL = "skill"
     USAGE = "usage"
+    WIKI = "wiki"
 
 
 class EventType(StrEnum):
@@ -51,11 +53,13 @@ class EventType(StrEnum):
     BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
     BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
     BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
+    BUDGET_FENCE_BREACH_BLOCKED = "budget.fence_breach.blocked"
     LOOP_START = "loop.start"
     LOOP_DONE = "loop.done"
     ROUND_START = "round.start"
     ROUND_MAIN_COMPLETED = "round.main.completed"
     ROUND_REVIEW_STARTED = "round.review.started"
+    ROUND_REVIEW_DEFERRED = "round.review.deferred"
     ROUND_REVIEW_COMPLETED = "round.review.completed"
     ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
@@ -87,6 +91,7 @@ class EventType(StrEnum):
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
     LIFE_INBOX_QUEUED = "life.inbox.queued"
+    LIFE_INBOX_DRAINED = "life.inbox.drained"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
@@ -95,9 +100,47 @@ class EventType(StrEnum):
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
+    RESEARCH_HYPOTHESIS_PROPOSED = "research.hypothesis.proposed"
+    RESEARCH_EXPERIMENT_STARTED = "research.experiment.started"
+    RESEARCH_EXPERIMENT_COMPLETED = "research.experiment.completed"
+    RESEARCH_METRIC_REPORTED = "research.metric.reported"
+    RESEARCH_METRIC_VERIFIED = "research.metric.verified"
+    RESEARCH_ARTIFACT_REGISTERED = "research.artifact.registered"
+    RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
+    SKILL_OUTCOME = "skill.outcome"
+    SKILL_SCIENTIST_STARTED = "skill.scientist.started"
+    SKILL_SCIENTIST_CREATED = "skill.scientist.created"
+    SKILL_TIDIED = "skill.tidied"
+    SKILL_COMPACTED = "skill.compacted"
+    SKILL_COMPACT_ERROR = "skill.compact.error"
+    SKILL_OP_ERROR = "skill.op.error"
+    SKILL_OP_REFUSED = "skill.op.refused"
+    SKILL_PROPOSAL_REJECTED = "skill.proposal.rejected"
+    SKILL_DISTILL_REJECTED = "skill.distill.rejected"
+    SKILL_REVISED = "skill.revised"
+    SKILL_USE_RECORDED = "skill.use.recorded"
+    SKILL_HISTORY_COMPRESSED = "skill.history.compressed"
+    SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
+    WIKI_INITIALIZED = "wiki.initialized"
+    WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
+    WIKI_HOOK_OK = "wiki.hook.ok"
+    WIKI_HOOK_WARNING = "wiki.hook.warning"
+    WIKI_COMPACTED = "wiki.compacted"
+    WIKI_COMPACT_ERROR = "wiki.compact.error"
+    WIKI_OP_ERROR = "wiki.op.error"
+    WIKI_OP_REJECTED = "wiki.op.rejected"
+    WIKI_CREATED = "wiki.created"
+    WIKI_UPDATED = "wiki.updated"
+    WIKI_RETIRED = "wiki.retired"
+    WIKI_SOURCE_CREATED = "wiki.source.created"
+    WIKI_SOURCE_SKIPPED = "wiki.source.skipped"
+    WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
+    WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
+    WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
+    WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
     OPERATOR_ALERT = "operator_alert"
 
 
@@ -115,6 +158,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LOOP_DONE,
     EventType.ROUND_START,
     EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
@@ -122,6 +166,37 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
+    EventType.SKILL_OUTCOME,
+    EventType.SKILL_SCIENTIST_STARTED,
+    EventType.SKILL_SCIENTIST_CREATED,
+    EventType.SKILL_TIDIED,
+    EventType.SKILL_COMPACTED,
+    EventType.SKILL_COMPACT_ERROR,
+    EventType.SKILL_OP_ERROR,
+    EventType.SKILL_OP_REFUSED,
+    EventType.SKILL_PROPOSAL_REJECTED,
+    EventType.SKILL_DISTILL_REJECTED,
+    EventType.SKILL_REVISED,
+    EventType.SKILL_USE_RECORDED,
+    EventType.SKILL_HISTORY_COMPRESSED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_INITIALIZATION_FAILED,
+    EventType.WIKI_HOOK_OK,
+    EventType.WIKI_HOOK_WARNING,
+    EventType.WIKI_COMPACTED,
+    EventType.WIKI_COMPACT_ERROR,
+    EventType.WIKI_OP_ERROR,
+    EventType.WIKI_OP_REJECTED,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_SOURCE_CREATED,
+    EventType.WIKI_SOURCE_SKIPPED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MANAGER_INTENT_STARTED,
@@ -140,12 +215,14 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,
+    EventType.BUDGET_FENCE_BREACH_BLOCKED,
     EventType.LIFE_LIFECYCLE_BLOCK,
     EventType.LIFE_LIFECYCLE_TRANSITION,
     EventType.PROVIDER_REQUEST_STARTED,
     EventType.PROVIDER_REQUEST_COMPLETED,
     EventType.PROVIDER_REQUEST_DENIED,
     EventType.LIFE_INBOX_QUEUED,
+    EventType.LIFE_INBOX_DRAINED,
     EventType.LIFE_DAEMON_IDLE_TIMEOUT,
     EventType.DAEMON_PARKED,
     EventType.DAEMON_COMMAND_COMPLETED,
@@ -153,6 +230,13 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.IDEA_SEARCH_STARTED,
     EventType.IDEA_SEARCH_COMPLETED,
     EventType.IDEA_SEARCH_SKIPPED,
+    EventType.RESEARCH_HYPOTHESIS_PROPOSED,
+    EventType.RESEARCH_EXPERIMENT_STARTED,
+    EventType.RESEARCH_EXPERIMENT_COMPLETED,
+    EventType.RESEARCH_METRIC_REPORTED,
+    EventType.RESEARCH_METRIC_VERIFIED,
+    EventType.RESEARCH_ARTIFACT_REGISTERED,
+    EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
     EventType.OPERATOR_ALERT,
 })
 
@@ -195,8 +279,12 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.PLANNER
     if value.startswith("skill."):
         return EventCategory.SKILL
+    if value.startswith("wiki."):
+        return EventCategory.WIKI
     if value.startswith("idea."):
         return EventCategory.IDEA
+    if value.startswith("research."):
+        return EventCategory.RESEARCH
     if value.startswith("daemon.") or value.startswith("life.daemon."):
         return EventCategory.DAEMON
     if value == EventType.OPERATOR_ALERT:

@@ -9,6 +9,7 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -26,6 +27,7 @@ export type {
   CostControlSnapshot,
   Daemon,
   EventMsg,
+  GitDiffView,
   ProjectRow,
   RequestUsage,
   Role,
@@ -68,18 +70,38 @@ export interface DoctorReport {
 }
 export interface ConfigRole {
   role: string;
+  backend: string;
   backend_label: string;
+  backend_source: string;
   model: string;
-  effort: string | null;
+  model_source: string;
+  reasoning_effort: string | null;
+  reasoning_effort_source: string;
+  description: string;
+}
+export interface ConfigKnob {
+  name: string;
+  group: string;
+  value: string;
+  source: string;
+  default: string;
+  doc: string;
 }
 export interface ConfigSnapshot {
+  schema_version: number;
+  generated_at_utc: string;
   roles: ConfigRole[];
-  [k: string]: unknown;
+  operator_knobs: ConfigKnob[];
+  how_to_change: string[];
 }
 export interface Turn {
   ts: number;
   role: string; // "operator" | "argus"
   text: string;
+}
+export interface ProjectIndex {
+  projects: ProjectRow[];
+  local_cwd: string;
 }
 
 const token = (): string | null =>
@@ -109,6 +131,20 @@ async function postJson<T = Record<string, unknown>>(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
+  return (await r.json()) as T;
+}
+
+async function mutationJson<T>(
+  method: 'PATCH' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  await ensureResponseOk(r, method, path);
   return (await r.json()) as T;
 }
 
@@ -182,9 +218,13 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 
 export const api = {
   meta: compatibleApiMeta,
+  projectIndex: async () => {
+    await compatibleApiMeta();
+    return getJson<ProjectIndex>('/api/projects');
+  },
   listProjects: async () => {
     await compatibleApiMeta();
-    return getJson<{ projects: ProjectRow[] }>('/api/projects').then((r) => r.projects);
+    return getJson<ProjectIndex>('/api/projects').then((result) => result.projects);
   },
   /** Create a brand-new daemon armed with an objective, and spawn it. */
   createDaemon: (objective: string, name = '', expectedRevision?: number) =>
@@ -194,6 +234,10 @@ export const api = {
       command_id: commandId(),
       expected_revision: expectedRevision,
     }),
+  updateProject: (sid: string, name: string) =>
+    mutationJson<{ ok: boolean; sid: string; name: string }>('PATCH', P(sid), { name }),
+  deleteProject: (sid: string) =>
+    mutationJson<{ ok: boolean; sid: string; trash_path: string }>('DELETE', P(sid)),
   snapshot: async (sid: string) => {
     await compatibleApiMeta();
     const value = await getJson<unknown>(P(sid, '/snapshot?compact=true&events_limit=1'));
@@ -222,6 +266,7 @@ export const api = {
     if (download) q.set('download', 'true');
     return getBlob(P(sid, `/artifact/raw?${q}`));
   },
+  gitDiff: (sid: string) => getJson<GitDiffView>(P(sid, '/git-diff')),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),

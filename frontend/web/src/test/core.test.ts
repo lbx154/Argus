@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   activeGuardianAlert,
   authoritativeSpend,
@@ -17,6 +19,9 @@ import {
 import { formatBytes } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
+import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
+import { MarkdownContent } from '../components/MarkdownContent';
+import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -140,6 +145,39 @@ describe('shared frontend core', () => {
     expect(formatBytes(0)).toBe('0 B');
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
+  });
+
+  it('keeps the opening animation lightweight and bounded', () => {
+    const html = renderToStaticMarkup(
+      createElement(BootSplash, { onDone: () => undefined }),
+    );
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
+    expect((html.match(/<pre/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('<span');
+  });
+
+  it('lets the Manager choose the live canvas and prefers its rendered output', () => {
+    const artifacts = [
+      { path: 'paper/main.tex', name: 'main.tex', why: 'draft', exists: true, kind: 'text' as const, mime: 'text/plain', size: 10, mtime: 1, source: 'manager_live' as const },
+      { path: 'paper/main.pdf', name: 'main.pdf', why: 'rendered draft', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'manager_live' as const },
+      { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
+    ];
+
+    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.pdf');
+    expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
+  });
+
+  it('renders conversation Markdown without executing raw HTML', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n`score = 1`\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
+    );
+    expect(html).toContain('<h2');
+    expect(html).toContain('<strong');
+    expect(html).toContain('<code');
+    expect(html).toContain('whitespace-pre-wrap');
+    expect(html).not.toContain('min-w-max');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('turns API JSON detail into a useful operator-facing error', async () => {

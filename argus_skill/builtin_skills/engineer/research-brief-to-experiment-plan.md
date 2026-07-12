@@ -105,11 +105,13 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
    - Each candidate must state the frontier comparison it would have to beat: named SOTA/strong baselines, expected benchmark, primary metric, and why the improvement would be publishable rather than cosmetic.
    - If the only source is the agent's own intuition, set the gate to `blocked` or continue literature search; do not manufacture an idea.
    - **Anti-mediocrity gate**: reject an idea if ANY of these apply:
+     * It is **diagnostic-only** — a probe, a benchmark, a taxonomy, or a "we measure that model M does X" study with no proposed method that beats a baseline. (A pure negative result is acceptable ONLY when it overturns a widely-held assumption with strong, surprising evidence.)
      * It is a minor variant of an existing method (e.g., "add a memory module" to an agent that already has memory)
      * The novelty is only "combining X and Y" without a clear reason why the combination solves an unsolved problem
      * No paper in the literature survey left this gap open — the "gap" is manufactured
      * The expected improvement over SOTA is <2% on the primary metric with no qualitative novelty
      * A trivial baseline (prompt engineering, simple heuristic) could plausibly match the proposed method
+     * The main experiment (training + baselines + method + key ablation) cannot be completed within **≤8h wall-clock** on the available compute (discovered via `nvidia-smi` / the GPU-allocation directive; operator/objective resource limits take precedence) — descope the method to fit rather than dropping to a train-free proxy
    - Write `research/IDEA_REJECTION_LOG.md` with each rejected candidate and the specific anti-mediocrity reason. A project with 0 rejections is suspicious.
 
 5. Survey reusable code and download reference implementations:

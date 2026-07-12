@@ -11,10 +11,13 @@ untouched — it simply ranks over a richer pool.
 Design rules:
   * SOURCE only — never selects, never rewrites existing candidates; it APPENDS
     under a provenance marker so ``idea-creator`` merges both sources.
-  * Operator constraints (train-free, target venue, "beat a baseline") are NOT
-    baked in here — they stay operator-level and are applied downstream by
-    ``idea-creator``'s tractability/feasibility ranking. The prompt only asks for
-    honest feasibility notes.
+  * The prompt bakes in the house standard: each candidate must propose a METHOD
+    with a concrete, reproduced baseline it aims to beat, scoped to compute that
+    realistically exists with the main experiment feasible in <=8h (see the
+    ``15-research-ideation-standard`` operator directive). Pure diagnostic /
+    probing / benchmark-only ideas are rejected at generation. Target venue and
+    the exact resource ceiling stay operator-level (discovered / user-overridden
+    downstream), so they are NOT hardcoded here.
   * Fail-open + run-once: any error returns 0 and never raises; a provenance
     marker prevents re-appending on later research rounds.
 """
@@ -70,28 +73,45 @@ def _resolve_direction(workdir: Any, direction: str | None) -> str:
 
 def _build_prompt(direction: str, n: int) -> str:
     return (
-        "You are a senior ML researcher doing candidate discovery for a paper.\n"
+        "You are a senior ML researcher doing candidate discovery for a STRONG "
+        "paper that introduces a METHOD and beats a competitive baseline.\n"
         f"Research direction:\n{direction}\n\n"
         "Using LIVE web_search, find REAL recent papers (roughly the last 18 "
-        "months) closely related to this direction on arXiv / Semantic Scholar. "
-        "Surface measured-but-unexplained gaps and openings that prior work has "
-        "NOT closed.\n\n"
+        "months) closely related to this direction on arXiv / Semantic Scholar, "
+        "including the current strong methods / reported SOTA baselines. Then "
+        "propose ideas that each introduce a concrete METHOD which plausibly "
+        "BEATS a reproduced, competitive baseline — NOT a diagnostic, a probe, a "
+        "benchmark, or a 'we measure that model M does X' study.\n\n"
         f"Output EXACTLY {n} candidate ideas, each as a markdown block in this "
         "format (ids WS-1, WS-2, ...):\n\n"
-        "## Candidate WS-1: <one-line mechanism/approach hypothesis>\n\n"
-        "**Phenomenon / opening**: <what is measured or left open, and by whom>\n\n"
-        "**Hypothesis**: <falsifiable claim about the mechanism/method>\n\n"
+        "## Candidate WS-1: <one line: the proposed method and what it beats>\n\n"
+        "**Problem & gap**: <the open problem and the strong prior work/baseline "
+        "that leaves it open>\n\n"
+        "**Proposed method**: <a concrete, named technique/mechanism you "
+        "introduce — the contribution, not a measurement>\n\n"
+        "**Baseline to beat + target**: <a reproduced, published, competitive "
+        "baseline (name it), the real benchmark(s), and the margin you expect to "
+        "win by>\n\n"
+        "**Why it wins (thesis)**: <one sentence — the mechanism/insight that "
+        "makes the gain non-obvious>\n\n"
         "**Grounding**: <cite 1-2 REAL papers you found via search, "
-        "title + year + arxiv id; state exactly what they did and the gap they leave>\n\n"
-        "**Experiment sketch**: <setup / measurements / falsifier / rough budget>\n\n"
-        "**Feasibility (honest)**: <needs training? what compute? does the core "
-        "signal plausibly move on a modest setup? — just note it honestly>\n\n"
-        "**Novelty bet**: <why this is not a re-measurement of the cited work>\n\n"
+        "title + year + arxiv id; state what they did and the gap they leave>\n\n"
+        "**Resource & 8h fit**: <compute needed vs what realistically exists "
+        "(assume ~1 modern GPU unless the direction states otherwise); the "
+        "training approach if any (LoRA/QLoRA/PEFT, small/base-model FT, trained "
+        "probe/steering, distillation); confirm the MAIN experiment — training + "
+        "baselines + method + key ablation — fits <=8h wall-clock, or how to "
+        "descope so it does>\n\n"
         "**Anticipated kill-argument**: <the strongest ~40-word rejection>\n\n"
-        "Rules: cite ONLY papers you actually found via search (no fabricated ids); "
-        "do NOT impose any hard constraint (training-free / must-beat-baseline / "
-        "venue) — those are decided elsewhere; keep the whole answer under ~700 "
-        "words. Output ONLY the candidate blocks, nothing else."
+        "Rules: cite ONLY papers you actually found via search (no fabricated "
+        "ids). Every candidate MUST propose a method with a concrete baseline it "
+        "aims to beat and a nameable reason it should win — REJECT pure "
+        "diagnostic / probing / benchmark-only ideas. Design each idea for "
+        "compute that realistically exists (discover it; if the direction or "
+        "operator states resource or time limits, honor those over any "
+        "assumption), and keep the main experiment feasible in <=8h. Venue is "
+        "decided elsewhere. Keep the whole answer under ~800 words. Output ONLY "
+        "the candidate blocks, nothing else."
     )
 
 

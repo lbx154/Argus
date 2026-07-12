@@ -16,6 +16,7 @@ from argus_skill.agent_cli import agent_cli_runner
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
 from argus_skill.apps._runtime import _budget_reason_provider, _SkillLoopRunner
+from argus_skill.core import cost_control
 
 
 # ── the _budget_reason_provider helper ────────────────────────────────────────
@@ -41,6 +42,8 @@ def test_budget_provider_trips_with_amounts() -> None:
 def test_budget_provider_none_when_under_cap() -> None:
     p = _budget_reason_provider(_Budget(30.0, 2.0, exceeded=False))
     assert p() is None
+    assert p.cap_usd == 30.0
+    assert p.remaining_usd() == 28.0
 
 
 def test_budget_provider_none_without_budget_or_exceeded() -> None:
@@ -103,6 +106,35 @@ def test_backend_guard_clear_restores_normal(monkeypatch) -> None:
     res = be.run_exec(prompt="hi", options=CoreOpts(reasoning_effort="low"), run_label="engineer")
     assert "reached-popen" in (res.fatal_error or "")
     assert "refused before start" not in (res.fatal_error or "")
+
+
+def test_backend_reservation_uses_effective_item_cap(monkeypatch, tmp_path) -> None:
+    from argus_skill.core.models import RunnerOptions as CoreOpts
+
+    seen = {}
+    monkeypatch.setattr(cost_control, "cost_control_enabled", lambda: True)
+
+    def _reserve(**kwargs):
+        seen.update(kwargs)
+        return None, "test stop after reservation capture"
+
+    monkeypatch.setattr(cost_control, "reserve_call_budget", _reserve)
+    be = AgentCliBackend(backend="copilot")
+    be.set_usage_context(project_root=tmp_path, mission_id="mission-low-cap")
+    be.set_budget_reason_provider(
+        _budget_reason_provider(_Budget(2.5, 0.4, exceeded=False))
+    )
+
+    result = be.run_exec(
+        prompt="hi",
+        options=CoreOpts(reasoning_effort="low"),
+        run_label="engineer-r1",
+    )
+
+    assert result.exit_code != 0
+    assert seen["per_mission_cap_usd"] == 2.5
+    assert seen["per_call_cap_usd"] == 5.0
+    assert seen["mission_id"] == "mission-low-cap"
 
 
 # ── _SkillLoopRunner sets/clears the guard on every role backend ─────────────

@@ -70,6 +70,29 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["runtime"]["release_matches_source"] is True
 
 
+def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> None:
+    assert server._web_cache_control("/") == "no-store"
+    assert server._web_cache_control("/index.html") == "no-store"
+    assert server._web_cache_control("/assets/App-deadbeef.js") == (
+        "public, max-age=31536000, immutable"
+    )
+    assert server._web_cache_control("/api/projects") == ""
+
+
+def test_static_web_assets_are_gzip_compressed(tmp_path: Path) -> None:
+    assets = Path(__file__).parents[2] / "frontend" / "web" / "dist" / "assets"
+    script = next(path for path in assets.glob("index-*.js") if path.stat().st_size > 1024)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.get(
+            f"/assets/{script.name}",
+            headers={"Accept-Encoding": "gzip"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_frontend_protocol_constants_match_backend_contract() -> None:
     source = (
         Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts"
@@ -98,7 +121,7 @@ def test_build_snapshot_shape_and_failsoft(
         "schema_version", "session", "daemon", "roles", "backlog",
         "recent_events", "spend_usd", "spend_status", "usage_summary",
         "request_usage", "cost_control", "daemon_commands", "observability",
-        "partial", "diagnostics",
+        "mission_view", "partial", "diagnostics",
     }
     assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert snap["partial"] is False
@@ -107,6 +130,7 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["cost_control"]["unresolved_calls"] == 0
     assert snap["daemon_commands"]["revision"] == 0
     assert snap["observability"]["slo"]["status"] == "healthy"
+    assert snap["mission_view"]["schema_version"] == 1
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
@@ -120,6 +144,31 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["usage_summary"]["call_count"] == 0
     # unknown project → None (not an exception)
     assert server.build_snapshot("s-nope", global_root=tmp_path) is None
+
+
+def test_build_snapshot_reuses_host_metrics_across_project_switches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-first")
+    _make_project(tmp_path, "s-second")
+    calls = 0
+
+    def fake_metrics_snapshot(*, root):
+        nonlocal calls
+        calls += 1
+        return {"slo": {"status": "healthy"}, "root": str(root)}
+
+    monkeypatch.setattr(project_state, "metrics_snapshot", fake_metrics_snapshot)
+    with project_state._METRICS_CACHE_LOCK:
+        project_state._METRICS_CACHE.clear()
+    try:
+        assert server.build_snapshot("s-first", global_root=tmp_path) is not None
+        assert server.build_snapshot("s-second", global_root=tmp_path) is not None
+        assert calls == 1
+    finally:
+        with project_state._METRICS_CACHE_LOCK:
+            project_state._METRICS_CACHE.clear()
 
 
 def test_build_snapshot_marks_failsoft_sections_partial(
@@ -317,7 +366,9 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
         )
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["x-argus-protocol"] == "argus.webapi/1.6"
+    assert r.headers["x-argus-protocol"] == (
+        f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
+    )
     assert r.headers["x-argus-release"].startswith("0.1.0+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
@@ -332,6 +383,22 @@ def test_metrics_endpoints_expose_json_slo_and_prometheus(client: TestClient) ->
     assert prometheus.status_code == 200
     assert "text/plain" in prometheus.headers["content-type"]
     assert "argus_slo_healthy" in prometheus.text
+
+
+def test_web_metrics_use_route_templates_instead_of_project_ids(
+    tmp_path: Path,
+) -> None:
+    _make_project(tmp_path)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.get("/api/projects/s-testaaaa/snapshot")
+    assert response.status_code == 200
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+    ]
+    request_metric = next(row for row in rows if row["name"] == "web.request")
+    assert request_metric["labels"]["path"] == "/api/projects/{sid}/snapshot"
+    assert "s-testaaaa" not in request_metric["labels"]["path"]
 
 
 def test_get_projects_limit_param(client: TestClient) -> None:

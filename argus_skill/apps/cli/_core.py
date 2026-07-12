@@ -295,6 +295,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_query(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
+    if args.command == "report":
+        from ...tools.research_report import run_report
+
+        return _run_with_path_resolution_errors(lambda: run_report(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)

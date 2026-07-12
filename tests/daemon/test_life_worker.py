@@ -318,6 +318,7 @@ def _reap_fake_daemon(pid: int) -> None:
         pass
 
 
+@pytest.mark.integration
 def test_stop_daemon_drain_quiesces_continuous_and_waits_for_clean_exit(
     tmp_path: Path,
 ) -> None:
@@ -353,6 +354,7 @@ def test_stop_daemon_drain_quiesces_continuous_and_waits_for_clean_exit(
         _reap_fake_daemon(pid)
 
 
+@pytest.mark.integration
 def test_stop_daemon_force_sigkills_a_stuck_daemon(tmp_path: Path) -> None:
     # A daemon that ignores SIGTERM (mid-mission, never reaches a boundary): plain
     # stop times out (rc=2), --force escalates to SIGKILL (rc=0).
@@ -371,69 +373,42 @@ def test_stop_daemon_force_sigkills_a_stuck_daemon(tmp_path: Path) -> None:
         _reap_fake_daemon(pid)
 
 
-def test_life_worker_drains_backlog_and_stops_on_signal(tmp_path: Path) -> None:
+@pytest.mark.integration
+def test_life_worker_drains_successive_missions_and_stops_on_signal(
+    tmp_path: Path,
+) -> None:
     cfg = LifeWorkerConfig(
         life_dir=tmp_path, backend="memory",
         per_mission_cap_usd=10.0, daily_cap_usd=100.0, poll_interval=0.1,
     )
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    mem.backlog.add(BacklogItem.new(title="hi", objective="say hi", max_cost_usd=1.0))
+    first = BacklogItem.new(title="first", objective="say first", max_cost_usd=1.0)
+    mem.backlog.add(first)
 
     worker = LifeWorker(cfg)
     rc_holder: dict[str, int] = {}
+
     def _run() -> None:
         worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
         rc_holder["rc"] = worker.run_forever()
+
     t = threading.Thread(target=_run, daemon=True)
     t.start()
 
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        items = mem.backlog.all()
-        if items and items[0].status in ("done", "failed"):
-            break
-        time.sleep(0.05)
+    _wait_for_backlog_item_status(mem, first.id, "done", timeout=30.0)
 
-    items = mem.backlog.all()
-    assert items and items[0].status == "done"
-
-    worker._stop.set()
-    _wait_for_thread_stop(t, timeout=10.0)
-
-
-def test_life_worker_drains_multiple_missions(tmp_path: Path) -> None:
-    cfg = LifeWorkerConfig(
-        life_dir=tmp_path, backend="memory",
-        per_mission_cap_usd=10.0, daily_cap_usd=100.0, poll_interval=0.1,
+    second = BacklogItem.new(
+        title="second",
+        objective="say second",
+        max_cost_usd=1.0,
     )
-    mem = LifeMemory.open(tmp_path)
-    mem.init()
-    worker = LifeWorker(cfg)
-    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
-    t = threading.Thread(target=worker.run_forever, daemon=True)
-    t.start()
-
-    for i in range(3):
-        mem.backlog.add(BacklogItem.new(
-            title=f"task-{i}", objective=f"obj-{i}", max_cost_usd=1.0,
-        ))
-        time.sleep(0.3)
-
-    # Poll generously: the 3 memory-backend missions complete near-instantly in
-    # isolation, but under full-suite CPU contention the daemon thread can be
-    # starved well past a few seconds. 30s keeps the assertion about CORRECTNESS
-    # (all drained) without making it a wall-clock race that flakes under load.
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        if all(it.status == "done" for it in mem.backlog.all()):
-            break
-        time.sleep(0.1)
-
-    assert all(it.status == "done" for it in mem.backlog.all())
+    mem.backlog.add(second)
+    _wait_for_backlog_item_status(mem, second.id, "done", timeout=30.0)
 
     worker._stop.set()
     _wait_for_thread_stop(t, timeout=10.0)
+    assert rc_holder == {"rc": 0}
 
 
 def test_daemon_sink_counts_life_mission_completed() -> None:
@@ -1229,6 +1204,23 @@ def _wait_for_thread_stop(thread: threading.Thread, *, timeout: float) -> None:
         if not thread.is_alive():
             return
         time.sleep(0.05)
+
+
+def _wait_for_backlog_item_status(
+    mem: LifeMemory,
+    item_id: str,
+    status: str,
+    *,
+    timeout: float,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        item = next((candidate for candidate in mem.backlog.all() if candidate.id == item_id), None)
+        if item is not None and item.status == status:
+            return
+        time.sleep(0.05)
+    observed = {item.id: item.status for item in mem.backlog.all()}
+    raise AssertionError(f"item {item_id} did not reach {status}: {observed}")
 
 
 def test_strip_git_config_injection_removes_whole_family() -> None:
