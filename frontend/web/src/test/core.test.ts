@@ -21,6 +21,7 @@ import { filterPaletteItems, type PaletteItem } from '../components/CommandPalet
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
 import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
+import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -144,6 +145,15 @@ describe('shared frontend core', () => {
     expect(formatBytes(0)).toBe('0 B');
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
+  });
+
+  it('keeps the opening animation lightweight and bounded', () => {
+    const html = renderToStaticMarkup(
+      createElement(BootSplash, { onDone: () => undefined }),
+    );
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
+    expect((html.match(/<pre/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('<span');
   });
 
   it('lets the Manager choose the live canvas and prefers its rendered output', () => {

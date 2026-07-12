@@ -65,6 +65,73 @@ body {
   transition: background-color 140ms ease, color 140ms ease;
 }
 
+@keyframes argus-web-splash-exit {
+  0%, 68% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes argus-web-splash-color {
+  from { background-position: 0% 50%; }
+  to { background-position: 180% 50%; }
+}
+
+.argus-web-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgb(var(--bg));
+  animation: argus-web-splash-exit 650ms ease-out forwards;
+  will-change: opacity;
+}
+
+.argus-web-splash-logo {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1rem;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    #3b6fd4,
+    #72b4f0,
+    #89dceb,
+    #cba6f7,
+    #e6b450,
+    #3b6fd4
+  );
+  background-size: 180% 100%;
+  background-clip: text;
+  font-family: theme('fontFamily.mono');
+  font-size: clamp(6px, 1.05vw, 13px);
+  font-weight: 600;
+  line-height: 1.08;
+  user-select: none;
+  animation: argus-web-splash-color 650ms linear;
+  will-change: background-position;
+}
+
+.argus-web-splash-logo-full {
+  display: none;
+}
+
+.argus-web-splash-logo-compact {
+  display: block;
+}
+
+@media (min-width: 780px) {
+  .argus-web-splash-logo-full {
+    display: block;
+  }
+
+  .argus-web-splash-logo-compact {
+    display: none;
+  }
+}
+
 ::selection {
   background: rgb(63 111 159 / 55%);
   color: theme('colors.ink.DEFAULT');

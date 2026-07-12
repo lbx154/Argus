@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
+import { BootSplash } from './components/BootSplash';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import '@fontsource-variable/noto-sans-sc';
@@ -13,10 +14,20 @@ const queryClient = new QueryClient({
   },
 });
 
+function WebApp() {
+  const [booting, setBooting] = useState(true);
+  return (
+    <>
+      <App />
+      {booting ? <BootSplash onDone={() => setBooting(false)} /> : null}
+    </>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <WebApp />
     </QueryClientProvider>
   </React.StrictMode>,
 );
