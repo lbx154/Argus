@@ -96,8 +96,14 @@ function RoleLogGroup({
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
-  useLayoutEffect(() => {
-    if (open && logScroller.current) logScroller.current.scrollTop = logScroller.current.scrollHeight;
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (logScroller.current && logScroller.current.scrollHeight > logScroller.current.clientHeight) {
+        logScroller.current.scrollTop = logScroller.current.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [open, rows.length, tailLength]);
   return (
     <section className="border-b border-line/50">
@@ -319,7 +325,7 @@ export function EventStream({
 
   const jump = () => {
     setFollowing(true);
-    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
   };
 
   return (
@@ -345,7 +351,7 @@ export function EventStream({
           </div>
         }
       />
-      <div ref={scroller} className="min-h-0 flex-1 scroll-smooth overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
         {rows.list.length === 0 ? (
           <EmptyHint>{rotate(IDLE_LINES)}</EmptyHint>
         ) : (

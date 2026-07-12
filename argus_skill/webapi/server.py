@@ -48,7 +48,7 @@ from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..apps.cli._follow import _read_recent_jsonl_events, _read_recent_project_events
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
-from ..core.event_catalog import EventType
+from ..core.event_catalog import EventType, canonical_event_type
 from ..core.metrics import (
     http_route_template,
     metrics_snapshot,
@@ -114,6 +114,25 @@ _JOURNAL_TAIL_CACHE: dict[
     tuple[tuple[tuple[int, int, int] | None, tuple[int, int, int] | None], list[dict[str, Any]]],
 ] = {}
 _JOURNAL_TAIL_CACHE_LOCK = threading.Lock()
+_WEB_UI_DROPPED_EVENT_TYPES = frozenset({
+    EventType.AGENT_IO_START,
+    EventType.AGENT_IO_STREAM,
+    EventType.AGENT_IO_COMPLETE,
+    EventType.USAGE_RECORDED,
+    EventType.PROVIDER_REQUEST_STARTED,
+    EventType.PROVIDER_REQUEST_COMPLETED,
+    EventType.CODEX_UTIL_COMPLETED,
+    EventType.SKILL_COST_COMPLETED,
+    EventType.BUDGET_RESERVATION_CREATED,
+    EventType.BUDGET_RESERVATION_SETTLED,
+    EventType.BUDGET_RESERVATION_RELEASED,
+})
+
+
+def _event_visible_in_web_ui(event: dict[str, Any]) -> bool:
+    if event.get("operator_alert") is True:
+        return True
+    return canonical_event_type(event.get("type")) not in _WEB_UI_DROPPED_EVENT_TYPES
 
 
 def _web_cache_control(path: str) -> str:
@@ -1328,9 +1347,17 @@ def create_app(
         )
 
     @app.get("/api/projects/{sid}/events")
-    def _events(sid: str, limit: int = Query(80, ge=1, le=1000)) -> dict[str, Any]:
+    def _events(
+        sid: str,
+        limit: int = Query(80, ge=1, le=1000),
+        view: str = Query("full", pattern="^(full|ui)$"),
+    ) -> dict[str, Any]:
         life_dir = _resolve_or_404(sid)
-        return {"events": _read_recent_project_events(life_dir, limit=limit)}
+        read_limit = min(1000, limit * 10) if view == "ui" else limit
+        events = _read_recent_project_events(life_dir, limit=read_limit)
+        if view == "ui":
+            events = [event for event in events if _event_visible_in_web_ui(event)][-limit:]
+        return {"events": events}
 
     @app.get(
         "/api/projects/{sid}/artifacts",
@@ -1717,6 +1744,7 @@ def create_app(
 
     @app.websocket("/api/projects/{sid}/stream")
     async def _stream(ws: WebSocket, sid: str, replay: int = 40,
+                      view: str = Query(default="full", pattern="^(full|ui)$"),
                       token_q: str | None = Query(default=None, alias="token")) -> None:
         life_dir = project_life_dir(sid, global_root=global_root)
         await ws.accept()
@@ -1728,6 +1756,8 @@ def create_app(
             return
         try:
             async for ev in tail_events(life_dir, replay_limit=max(0, min(replay, 200))):
+                if view == "ui" and not _event_visible_in_web_ui(ev):
+                    continue
                 await ws.send_json(ev)
         except WebSocketDisconnect:
             return

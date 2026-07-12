@@ -438,6 +438,23 @@ def test_get_events(client: TestClient) -> None:
     assert types == ["mission.started", "round.review.completed"]
 
 
+def test_get_events_ui_view_filters_raw_transport_frames(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    life = tmp_path / "projects" / "s-testaaaa"
+    with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "agent.io.stream", "line": "large raw frame"}) + "\n")
+        handle.write(json.dumps({"type": "ui.argus", "text": "visible reply"}) + "\n")
+
+    body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
+
+    assert [event["type"] for event in body["events"]] == [
+        "mission.started",
+        "round.review.completed",
+        "ui.argus",
+    ]
+
+
 def test_unknown_project_404(client: TestClient) -> None:
     assert client.get("/api/projects/s-nope/snapshot").status_code == 404
     assert client.get("/api/projects/s-nope/events").status_code == 404

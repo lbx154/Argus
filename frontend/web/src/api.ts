@@ -252,7 +252,7 @@ export const api = {
   transcript: (sid: string, n = 30) =>
     getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`)).then((r) => r.turns),
   events: (sid: string, limit = 80) =>
-    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}`)).then((r) => r.events),
+    getJson<{ events: EventMsg[] }>(P(sid, `/events?limit=${limit}&view=ui`)).then((r) => r.events),
   backlogItem: (sid: string, id: string) =>
     getJson<{ item: BacklogItem }>(P(sid, `/backlog/${encodeURIComponent(id)}`)).then((r) => r.item),
   artifacts: (sid: string) =>
@@ -349,6 +349,7 @@ export function openStream(
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
+  q.set('view', 'ui');
   const t = token();
   if (t) q.set('token', t);
   const url = `${proto}//${window.location.host}${P(sid, '/stream')}?${q}`;
