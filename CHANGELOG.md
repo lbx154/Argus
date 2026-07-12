@@ -7,6 +7,18 @@ the project adheres to semantic versioning once it leaves 0.x.
 ## [Unreleased]
 
 ### Added
+- **qlib-cn quant path: engine, deterministic runner & PIT fundamental
+  factors.** A second real A-share backtest engine
+  (`verticals/quant/integrations/qlib_cn`) that needs only qlib + the local
+  `cn_data_tushare` dump (the `finance_argus` path needs a private package).
+  Adds a committed deterministic runner (`FactorTrial` / `run_trials`) driving
+  single factors and `Sum wi*zscore(expr_i)` combos through the capped engine —
+  the OOS path is no longer hand-rolled per mission — plus `rolling_mean/std/...`
+  aliases in the alpha DSL, a cost-model metadata map recorded into every ledger
+  row, and **point-in-time fundamental factors**
+  (`integrations/adata_cn/fundamentals.py`: EP/BP/CFP from adata's
+  `get_core_index`, aligned by `notice_date` to avoid look-ahead) — the
+  fundamental leg the OHLCV-only dump lacks. See `docs/QUANT_QLIB_CN.md`.
 - **Zero-config "who's driving right now" status.** The always-visible
   per-turn prompt status line (previously backend/model only) now also
   appends which of the four roles (Manager/Planner/Engineer/Reviewer) is
@@ -37,6 +49,13 @@ the project adheres to semantic versioning once it leaves 0.x.
   distinct `❓ 需要你回复才能继续：` line whenever the field is non-empty.
 
 ### Fixed
+- **qlib-cn OOS backtests no longer crash at the dump's calendar boundary.**
+  Quarantined-test OOS trials died with `IndexError: index N out of bounds` —
+  the evaluation window ended on the dump's *last* calendar day and qlib
+  settles the final rebalance on the next bar, indexing one past the calendar.
+  `QlibCnEngine.run` now caps the backtest end to the second-to-last calendar
+  day (leaving a settlement bar) and discloses it in `warnings`; a mocked-qlib
+  regression (`tests/test_quant_qlib_cn_oos_boundary.py`) guards it dump-free.
 - **Manager's SELF replies are grounded in recent history even when nothing
   is running.** `_live_mission_status_block` gave the Manager real
   visibility into a mission the daemon is running *right now*, but returned

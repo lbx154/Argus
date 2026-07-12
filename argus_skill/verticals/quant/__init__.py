@@ -17,7 +17,12 @@ This package ships two layers:
   :mod:`.executor` (the ``BacktestExecutor`` contract), :mod:`.factors`,
   :mod:`.leakage_probe`, :mod:`.reference_engine`, and :mod:`.analysis`
   (multiple-testing / orthogonality / OOS discipline), plus the optional, lazily
-  imported :mod:`.integrations.finance_argus` real A-share qlib backtest engine.
+  imported real A-share backtest engines — :mod:`.integrations.finance_argus`
+  (needs the private ``finance_argus`` pkg) and :mod:`.integrations.qlib_cn`
+  (qlib + the local ``cn_data_tushare`` dump only; ships the OOS boundary cap,
+  the deterministic runner, and — via :mod:`.integrations.adata_cn` — the
+  point-in-time fundamental factors the OHLCV dump lacks). See
+  ``docs/QUANT_QLIB_CN.md``.
 
 Only :mod:`.stages` is imported on vertical load; the heavy helpers
 (numpy/pandas/qlib) are imported only when the engineer actually uses them, so
