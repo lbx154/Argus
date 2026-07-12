@@ -154,6 +154,24 @@ def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path
     assert view["active_role"] == "engineer"
 
 
+def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "round.review.deferred",
+        1,
+        round_index=2,
+        next_step="wire the parser into the runner",
+        deferral_count=1,
+        deferral_limit=1,
+    )
+
+    assert view["active_role"] == "engineer"
+    roles = {role["role"]: role for role in view["roles"]}
+    assert roles["engineer"]["label"] == "Continuing before review"
+    assert roles["reviewer"]["status"] == "waiting"
+    assert view["timeline"][-1]["detail"] == "wire the parser into the runner"
+
+
 def test_snapshot_bootstraps_from_existing_event_log(tmp_path: Path) -> None:
     (tmp_path / "events.jsonl").write_text(
         "\n".join([

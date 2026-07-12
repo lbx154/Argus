@@ -240,6 +240,17 @@
         "status": {"type": "string"}
       }
     },
+    "round.review.deferred": {
+      "version": 1,
+      "required": ["round_index", "next_step"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "round_max": {"type": "integer", "minimum": 0},
+        "next_step": {"type": "string", "minLength": 1},
+        "deferral_count": {"type": "integer", "minimum": 1},
+        "deferral_limit": {"type": "integer", "minimum": 1}
+      }
+    },
     "round.review.completed": {
       "version": 1,
       "required": ["status", "reason"],

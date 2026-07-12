@@ -35,6 +35,16 @@ describe('renderEvent', () => {
     expect(renderEvent({ type: 'round.review.completed', status: 'continue', reason: 'x' } as EventMsg)!.tone).toBe('warn');
   });
 
+  it('shows an engineer-requested bounded review deferral', () => {
+    const rendered = renderEvent({
+      type: 'round.review.deferred',
+      round_index: 1,
+      next_step: 'wire the parser into the runner',
+    } as EventMsg);
+    expect(rendered).toMatchObject({ role: 'engineer', tone: 'info' });
+    expect(rendered!.text).toContain('wire the parser into the runner');
+  });
+
   it('accepts round and round_index lifecycle schemas', () => {
     expect(renderEvent({ type: 'round.start', round: 1 } as EventMsg)!.text).toBe('round 1');
     expect(renderEvent({ type: 'round.started', round_index: 2 } as EventMsg)!.text).toBe('round 2');

@@ -231,6 +231,11 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     }
   } else if (type === EVENT_TYPES.ROUND_REVIEW_STARTED) {
     setRole(view, 'reviewer', 'active', 'Reviewing benchmark evidence', ts);
+  } else if (type === EVENT_TYPES.ROUND_REVIEW_DEFERRED) {
+    const nextStep = S(event, 'next_step');
+    setRole(view, 'engineer', 'active', 'Continuing before review', ts);
+    setRole(view, 'reviewer', 'waiting', 'Review deferred for one round', ts);
+    addTimeline(view, event, 'engineer', 'Continued before review', nextStep, 'info');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_COMPLETED) {
     const status = S(event, 'status');
     const reason = S(event, 'reason');

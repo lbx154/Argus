@@ -222,6 +222,16 @@ export interface RoundReviewStartedEvent extends EventMsg {
   "status"?: string;
 }
 
+export interface RoundReviewDeferredEvent extends EventMsg {
+  type: "round.review.deferred";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "next_step": string;
+  "deferral_count"?: number;
+  "deferral_limit"?: number;
+}
+
 export interface RoundReviewCompletedEvent extends EventMsg {
   type: "round.review.completed";
   payload_schema_version?: 1;
@@ -833,6 +843,7 @@ export interface EventPayloadByType {
   "round.start": RoundStartEvent;
   "round.main.completed": RoundMainCompletedEvent;
   "round.review.started": RoundReviewStartedEvent;
+  "round.review.deferred": RoundReviewDeferredEvent;
   "round.review.completed": RoundReviewCompletedEvent;
   "life.planner.start": LifePlannerStartEvent;
   "life.planner.verdict": LifePlannerVerdictEvent;

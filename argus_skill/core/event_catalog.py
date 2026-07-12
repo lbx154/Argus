@@ -59,6 +59,7 @@ class EventType(StrEnum):
     ROUND_START = "round.start"
     ROUND_MAIN_COMPLETED = "round.main.completed"
     ROUND_REVIEW_STARTED = "round.review.started"
+    ROUND_REVIEW_DEFERRED = "round.review.deferred"
     ROUND_REVIEW_COMPLETED = "round.review.completed"
     ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
@@ -157,6 +158,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LOOP_DONE,
     EventType.ROUND_START,
     EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,

@@ -155,6 +155,8 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   }
   if (t === 'round.review.started')
     return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `review round ${roundNo(ev)}`, tone: 'info' };
+  if (t === 'round.review.deferred')
+    return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `continues before review · ${trunc(S(ev, 'next_step'), 160)}`, tone: 'info' };
   if (t === 'round.main.completed')
     return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `round ${roundNo(ev)} completed`, tone: 'info' };
   if (t === 'round.review.completed') {

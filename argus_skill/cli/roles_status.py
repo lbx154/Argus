@@ -255,6 +255,8 @@ def _event_role(event: dict[str, Any]) -> str | None:
         return "engineer"
     if etype.startswith("life.planner."):
         return "planner"
+    if etype == "round.review.deferred":
+        return "engineer"
     if etype.startswith("round.review") or etype.startswith("reviewer"):
         return "reviewer"
     if etype in {"life.mission.started", "loop.start", "round.start",
@@ -336,6 +338,8 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         return _describe_engineer_progress(event), "running"
     if etype == "round.review.started":
         return "reviewing", "running"
+    if etype == "round.review.deferred":
+        return "continuing before review", "running"
     if etype == "round.review.completed":
         return f"verdict {status or 'done'}", status or "done"
     if etype == "round.start":

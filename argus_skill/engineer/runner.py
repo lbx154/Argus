@@ -6,6 +6,9 @@ This is the heart of the argus-skill v0.1 integration:
     (initial task + optional skill block + optional reviewer next_action
     from prior round).
   * Call the reviewer to render a structured verdict.
+  * The engineer may explicitly defer one low-value intermediate review when
+    its next execution step is already clear; the following work round is
+    reviewed normally.
   * If ``done``, stop. If ``continue``, capture ``next_action`` and loop.
     If ``blocked``, stop and surface the reason.
 
@@ -118,6 +121,8 @@ _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
 # does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
+_CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
+_CONTINUE_WORK_MAX_CHARS = 500
 # Coarse upper bound on the input-token size a single resumed Codex thread may
 # reach before it is rolled. A healthy fresh round is ~0.7M and a couple of
 # legitimate work rounds reach ~2M; the amnesia/re-read loop lived at 5-7M
@@ -340,6 +345,29 @@ def _runner_result_has_successful_work_signal(
     return False
 
 
+def parse_continue_work_request(message: str | None) -> str | None:
+    """Parse an engineer-requested, bounded continuation before review.
+
+    The request must be the final non-empty line of a substantive response.
+    This keeps a quoted example or casual mention from changing control flow,
+    while letting the engineer preserve its normal evidence and summary.
+    """
+    if not message:
+        return None
+    lines = [line.strip() for line in message.strip().splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    line = lines[-1]
+    if line.startswith("`") and line.endswith("`") and len(line) >= 2:
+        line = line[1:-1].strip()
+    if not line.upper().startswith(_CONTINUE_WORK_SENTINEL):
+        return None
+    next_step = line[len(_CONTINUE_WORK_SENTINEL):].strip()
+    if not next_step or len(next_step) > _CONTINUE_WORK_MAX_CHARS:
+        return None
+    return next_step
+
+
 def _parse_json_event(raw: object) -> dict | None:
     text = str(raw or "").strip()
     if not text or text[0] not in "{[":
@@ -518,6 +546,10 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
+    # Let the engineer explicitly take one additional execution slice before
+    # invoking the reviewer when the next local step is already obvious.
+    # A real reviewer verdict resets the allowance; 0 disables the path.
+    review_deferral_limit: int = 1
 
 
 @dataclass(frozen=True)
@@ -947,6 +979,8 @@ class SupervisedEngineer:
         rounds: list[RoundRecord] = []
         last_engineer_message = ""
         last_next_action: str | None = None
+        engineer_selected_next_step: str | None = None
+        review_deferral_streak = 0
         no_progress_streak = 0
         semantic_stall_streak = 0
         backend_failure_streak = 0
@@ -1118,6 +1152,15 @@ class SupervisedEngineer:
             checkpoint_block = checkpoint.render_for_engineer()
             if checkpoint_block:
                 delta_tail.append(checkpoint_block)
+            if engineer_selected_next_step:
+                delta_tail.append(
+                    "## Engineer-selected next step\n"
+                    "Independent review was deferred for this one bounded "
+                    "transition because the next execution step was already "
+                    "clear. Continue with:\n\n"
+                    f"{engineer_selected_next_step}\n\n"
+                    "After this turn, hand the accumulated work to the Reviewer."
+                )
             background_advisory = ""
             if delta_tail:
                 engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
@@ -1386,6 +1429,47 @@ class SupervisedEngineer:
                     last_next_action = None
                     continue
 
+            requested_next_step = parse_continue_work_request(engineer_message)
+            deferral_limit = min(
+                1,
+                max(
+                    0,
+                    int(
+                        getattr(supervised_config, "review_deferral_limit", 0) or 0
+                    ),
+                ),
+            )
+            if (
+                requested_next_step
+                and not fatal_error
+                and getattr(engineer_result, "exit_code", 1) == 0
+                and review_deferral_streak < deferral_limit
+                and round_index < supervised_config.max_rounds
+            ):
+                review_deferral_streak += 1
+                engineer_selected_next_step = requested_next_step
+                backend_failure_streak = 0
+                no_progress_streak = 0
+                last_next_action = None
+                if on_event:
+                    on_event({
+                        "type": EventType.ROUND_REVIEW_DEFERRED,
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "next_step": requested_next_step,
+                        "deferral_count": review_deferral_streak,
+                        "deferral_limit": deferral_limit,
+                        "text": (
+                            "Engineer continues before review: "
+                            f"{requested_next_step}"
+                        ),
+                    })
+                continue
+
+            # The continuation reached a trustworthy round that will now be
+            # reviewed. Keep this pending across background waits and backend
+            # retries, but do not leak it beyond the resulting review.
+            engineer_selected_next_step = None
             backend_failure_streak = 0
             if not _runner_result_has_successful_work_signal(
                 engineer_result, engineer_message=engineer_message
@@ -1645,6 +1729,7 @@ class SupervisedEngineer:
                 continue
             # A real reviewer verdict arrived — reset the reviewer-backend streak.
             reviewer_backend_failure_streak = 0
+            review_deferral_streak = 0
             # SEMANTIC stall tracking: the engineer can stay busy (non-empty
             # messages, so ``no_progress_streak`` keeps resetting) yet make no
             # real advance round after round. The reviewer reports this via
@@ -1992,5 +2077,6 @@ __all__ = [
     "fatal_error_looks_like_effective_progress_timeout",
     "fatal_error_looks_like_compaction_thrash",
     "fatal_error_looks_like_recoverable_reconnect",
+    "parse_continue_work_request",
     "should_clear_thread_id_after_outcome",
 ]

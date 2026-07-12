@@ -158,6 +158,20 @@ def test_activity_marks_latest_role_active(tmp_path):
     assert acts["reviewer"].status == "done"
 
 
+def test_review_deferral_is_engineer_activity(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "round.review.deferred",
+        "next_step": "wire the parser into the runner",
+        "ts": now - 1,
+    }])
+
+    acts = role_activity(tmp_path, now=now)
+    assert acts["engineer"].active is True
+    assert acts["engineer"].label == "continuing before review"
+    assert acts["reviewer"].active is False
+
+
 def test_activity_unwraps_shell_command(tmp_path):
     now = time.time()
     _write_events(tmp_path, [

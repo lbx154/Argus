@@ -166,6 +166,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.LIFE_MISSION_FAILED,
     EventType.ROUND_START,
     EventType.ROUND_REVIEW_STARTED,
+    EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.ENGINEER_PROGRESS,
     EventType.RESEARCH_HYPOTHESIS_PROPOSED,
@@ -397,6 +398,19 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
 
     elif event_type == EventType.ROUND_REVIEW_STARTED:
         _set_role(view, "reviewer", "active", "Reviewing benchmark evidence", ts)
+
+    elif event_type == EventType.ROUND_REVIEW_DEFERRED:
+        next_step = _text(event, "next_step")
+        _set_role(view, "engineer", "active", "Continuing before review", ts)
+        _set_role(view, "reviewer", "waiting", "Review deferred for one round", ts)
+        _timeline(
+            view,
+            event,
+            role="engineer",
+            title="Continued before review",
+            detail=next_step,
+            tone="info",
+        )
 
     elif event_type == EventType.ROUND_REVIEW_COMPLETED:
         status = _text(event, "status")
