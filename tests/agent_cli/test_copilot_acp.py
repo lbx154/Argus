@@ -374,7 +374,7 @@ def test_acp_tool_updates_are_forwarded_as_progress_events(monkeypatch) -> None:
     assert result.tool_activity_observed is True
 
 
-def test_manager_prompt_has_independent_long_timeout(monkeypatch) -> None:
+def test_manager_prompt_has_independent_long_idle_timeout(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_MANAGER_TIMEOUT_S", raising=False)
 
@@ -573,6 +573,99 @@ def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> 
     count_at_completion = len(snapshots)
     time.sleep(0.04)
     assert len(snapshots) == count_at_completion  # completion stops heartbeats
+
+
+def test_acp_timeout_tracks_inactivity_not_total_turn_time(monkeypatch) -> None:
+    """A healthy tool-heavy turn may outlive the ACP idle timeout."""
+    monkeypatch.setattr(copilot_acp, "_prompt_timeout", lambda _label: 0.2)
+
+    def _active_script(req, proc):
+        method = req.get("method")
+        if method == "initialize":
+            return [_init_ok(req)]
+        if method == "session/new":
+            return [_session_ok(req)]
+        if method != "session/prompt":
+            return []
+
+        sid = req["params"]["sessionId"]
+
+        def _later() -> None:
+            for index in range(5):
+                time.sleep(0.05)
+                proc._q.put(json.dumps({
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": sid,
+                        "update": {
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": f"tool-{index}",
+                            "status": "in_progress",
+                        },
+                    },
+                }) + "\n")
+            proc._q.put(json.dumps({
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": {"stopReason": "end_turn"},
+            }) + "\n")
+
+        threading.Thread(target=_later, daemon=True).start()
+        return []
+
+    proc = _FakeAcpProc(_active_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    started = time.monotonic()
+    result = client.run_prompt(
+        prompt="keep working",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+
+    assert time.monotonic() - started > 0.2
+    assert result.turn_completed
+    assert not any(row.get("method") == "session/cancel" for row in proc.written)
+
+
+def test_acp_idle_timeout_cancels_an_unresponsive_turn(monkeypatch) -> None:
+    monkeypatch.setattr(copilot_acp, "_prompt_timeout", lambda _label: 0.05)
+    prompt_id: dict[str, int] = {}
+
+    def _stalled_script(req, proc):
+        method = req.get("method")
+        if method == "initialize":
+            return [_init_ok(req)]
+        if method == "session/new":
+            return [_session_ok(req)]
+        if method == "session/prompt":
+            prompt_id["value"] = req["id"]
+            return []
+        if method == "session/cancel":
+            return [{
+                "jsonrpc": "2.0",
+                "id": prompt_id["value"],
+                "result": {"stopReason": "cancelled"},
+            }]
+        return []
+
+    proc = _FakeAcpProc(_stalled_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+
+    result = client.run_prompt(
+        prompt="never answers",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+
+    assert result.turn_failed
+    assert "ACP prompt idle timeout after 0.05s" in (result.fatal_error or "")
+    assert any(row.get("method") == "session/cancel" for row in proc.written)
 
 
 def test_acp_crash_midturn_is_failure(monkeypatch) -> None:
