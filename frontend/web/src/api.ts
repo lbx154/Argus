@@ -293,6 +293,15 @@ export const api = {
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
+  answerPending: (sid: string, itemId: string, text: string) =>
+    postJson<{
+      answered_item_id: string;
+      item: BacklogItem;
+      daemon?: { rc?: number; error?: string; admission_required?: boolean };
+    }>(
+      P(sid, `/backlog/${encodeURIComponent(itemId)}/answer`),
+      { text },
+    ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (sid: string, text: string, signal?: AbortSignal) =>
     postJson<{ kind: 'chat' | 'task' | 'error'; reply: string | null; item?: BacklogItem | null; daemon_alive?: boolean }>(

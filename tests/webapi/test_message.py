@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import queue
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from argus_skill.webapi import project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
+from argus_skill.life.memory import BacklogItem, LifeMemory  # noqa: E402
 
 
 def _make_project(root: Path, sid: str = "s-msgtest0") -> Path:
@@ -84,6 +86,80 @@ def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
         lambda sid, text, *, global_root=None: {"kind": "chat", "reply": "x"},
     )
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
+
+
+def test_pending_answer_bypasses_manager_and_continues_blocked_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    mem = LifeMemory.open(life)
+    blocked = BacklogItem.new(
+        title="Choose paper format",
+        objective="Write the camera-ready paper",
+        tags=["paper"],
+        iterate=False,
+        iteration_budget_usd=12.0,
+    )
+    blocked.pending_question = "Should the appendix be included?"
+    mem.backlog.add(blocked)
+    started: list[str] = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda sid, *, global_root=None, resume_continuous=False:
+            started.append(sid) or {"rc": 0},
+    )
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    response = client.post(
+        f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
+        json={"text": "Yes, include it after the references."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answered_item_id"] == blocked.id
+    assert started == ["s-msgtest0"]
+    items = LifeMemory.open(life).backlog.all()
+    original = next(item for item in items if item.id == blocked.id)
+    continuation = next(item for item in items if item.id == payload["item"]["id"])
+    assert original.pending_question == ""
+    assert "Operator reply to blocked question" in continuation.objective
+    assert "include it after the references" in continuation.objective
+    assert continuation.iterate is False
+    assert continuation.iteration_budget_usd == 12.0
+    assert continuation.tags == ["paper", "operator-reply"]
+    assert not (life / "inbox.jsonl").exists()
+
+    duplicate = client.post(
+        f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
+        json={"text": "A duplicate answer."},
+    )
+    assert duplicate.status_code == 409
+    assert len(LifeMemory.open(life).backlog.all()) == 2
+
+
+def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Blocked", objective="Original objective")
+    blocked.pending_question = "Choose A or B?"
+    LifeMemory.open(life).backlog.add(blocked)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda answer: server.answer_pending_question(
+                "s-msgtest0",
+                blocked.id,
+                answer,
+                global_root=tmp_path,
+            ),
+            ["A", "B"],
+        ))
+
+    assert sum(bool(result and result.get("item")) for result in results) == 1
+    assert sum(bool(result and result.get("error")) for result in results) == 1
+    assert len(LifeMemory.open(life).backlog.all()) == 2
 
 
 # ── streaming front-door: POST /message/stream (Server-Sent Events) ──────────
