@@ -46,6 +46,8 @@ export function OperationsModal({
   const [skillsOutput, setSkillsOutput] = useState('');
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
+  const [trashTotal, setTrashTotal] = useState(0);
+  const [trashQuery, setTrashQuery] = useState('');
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
@@ -54,7 +56,8 @@ export function OperationsModal({
     void Promise.all([api.metrics(), api.trash()]).then(
       ([nextMetrics, nextTrash]) => {
         setMetrics(nextMetrics);
-        setTrash(nextTrash);
+        setTrash(nextTrash.entries);
+        setTrashTotal(nextTrash.total);
       },
       (error) => setOutput(errorText(error)),
     );
@@ -103,6 +106,7 @@ export function OperationsModal({
     await run(`restore:${entry.trash_id}`, async () => {
       const result = await api.restoreTrash(entry.trash_id);
       setTrash((rows) => rows.filter((row) => row.trash_id !== entry.trash_id));
+      setTrashTotal((total) => Math.max(0, total - 1));
       await onRestored(result.sid);
       return result;
     }, `Restored ${entry.label}.`);
@@ -110,6 +114,14 @@ export function OperationsModal({
 
   const incompatible = snap.daemon.alive && snap.daemon.protocol_compatible === false;
   const replacements = snap.daemon_admission?.running_daemons ?? [];
+  const searchTrash = async () => {
+    await run('trash-search', async () => {
+      const result = await api.trash(trashQuery);
+      setTrash(result.entries);
+      setTrashTotal(result.total);
+      return result;
+    }, null);
+  };
 
   return (
     <Modal open={open} onClose={() => !busy && onClose()} label="Operations" width="max-w-5xl">
@@ -169,7 +181,11 @@ export function OperationsModal({
         </section>
 
         <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">Recoverable trash</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="mr-auto text-xs font-semibold uppercase tracking-wide text-ink-dim">Recoverable trash · {trashTotal}</h3>
+            <input value={trashQuery} onChange={(event) => setTrashQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchTrash(); }} placeholder="Search trash" className="h-8 min-w-52 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue" />
+            <button type="button" disabled={!!busy} onClick={() => void searchTrash()} className="h-8 rounded border border-blue/50 px-3 text-xs text-blue disabled:opacity-40">Search</button>
+          </div>
           {!trash.length ? <p className="mt-3 text-xs text-ink-faint">Trash is empty.</p> : (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {trash.map((entry) => (
@@ -180,6 +196,7 @@ export function OperationsModal({
               ))}
             </div>
           )}
+          {trashTotal > trash.length ? <p className="mt-2 text-[10px] text-ink-faint">Showing the newest {trash.length} matches. Narrow the search to find older sessions.</p> : null}
         </section>
 
         {output ? <pre className="rounded-lg border border-line bg-panel p-3 font-mono text-xs whitespace-pre-wrap text-ink-dim lg:col-span-2">{output}</pre> : null}

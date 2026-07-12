@@ -326,8 +326,17 @@ export const api = {
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   metrics: (signal?: AbortSignal) =>
     getJson<MetricsSnapshot>('/api/metrics', signal),
-  trash: (signal?: AbortSignal) =>
-    getJson<{ entries: TrashEntry[] }>('/api/trash', signal).then((result) => result.entries),
+  trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
+    const params = new URLSearchParams({
+      query,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return getJson<{ entries: TrashEntry[]; total: number }>(
+      `/api/trash?${params}`,
+      signal,
+    );
+  },
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 

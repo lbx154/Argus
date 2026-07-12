@@ -85,7 +85,7 @@ describe('web API protocol handshake', () => {
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === '/api/metrics') return Response.json({ slo: { status: 'healthy' } });
-      if (path === '/api/trash') return Response.json({ entries: [] });
+      if (path.startsWith('/api/trash?')) return Response.json({ entries: [], total: 0 });
       if (path.endsWith('/plan')) return Response.json({ steps: [], notes: [], error: '' });
       if (path.endsWith('/skills')) return Response.json({ text: 'skills' });
       return Response.json({ ok: true, rc: 0, sid: 's-restored' });
@@ -107,7 +107,7 @@ describe('web API protocol handshake', () => {
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/metrics',
-      '/api/trash',
+      '/api/trash?query=&limit=100&offset=0',
       '/api/projects/s-test/plan',
       '/api/projects/s-test/config/set',
       '/api/projects/s-test/identity',

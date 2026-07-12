@@ -1611,7 +1611,11 @@ def create_app(
         }
 
     @app.get("/api/trash", dependencies=[Depends(_require_auth)])
-    def _trash() -> dict[str, Any]:
+    def _trash(
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        query: str = Query("", max_length=200),
+    ) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
         for index, root in enumerate(roots):
             for entry in list_trashed_projects(global_root=root):
@@ -1623,7 +1627,24 @@ def create_app(
             key=lambda entry: float(entry.get("trashed_at") or 0.0),
             reverse=True,
         )
-        return {"entries": entries}
+        needle = query.strip().casefold()
+        if needle:
+            entries = [
+                entry
+                for entry in entries
+                if needle in " ".join((
+                    str(entry.get("sid") or ""),
+                    str(entry.get("label") or ""),
+                    str(entry.get("launch_cwd") or ""),
+                    str(entry.get("trash_path") or ""),
+                )).casefold()
+            ]
+        return {
+            "entries": entries[offset:offset + limit],
+            "total": len(entries),
+            "offset": offset,
+            "limit": limit,
+        }
 
     @app.post(
         "/api/trash/{trash_id:path}/restore",
