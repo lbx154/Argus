@@ -336,14 +336,25 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
         # User task is a PROJECT objective, not an Engineer work item. Arm the
         # planner first; it will decompose into backlog items. This gives the
         # intended chain: User -> Manager -> Planner -> Engineer -> Reviewer.
-        execution_body = manager_continuous_handoff(
-            mem,
-            body,
-            chat_state,
-            theme=theme,
-            root_task_id=root_task_id,
-            ensure_runner=_ensure_manager_runner,
+        pending_auto_promote = bool(
+            chat_state.pop("_continuous_pending_manager_handoff", False)
         )
+        try:
+            execution_body = manager_continuous_handoff(
+                mem,
+                body,
+                chat_state,
+                theme=theme,
+                root_task_id=root_task_id,
+                ensure_runner=_ensure_manager_runner,
+            )
+        except Exception:
+            if pending_auto_promote:
+                chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))[
+                    "continuous"
+                ] = False
+                chat_state["continuous_objective"] = ""
+            raise
         chat_state["last_objective"] = execution_body
         chat_state["continuous_objective"] = execution_body
         _maybe_name_session(chat_state, execution_body)
@@ -396,6 +407,7 @@ def _maybe_auto_promote_to_continuous(
     theme: Any,
     *,
     root_task_id: str | None = None,
+    announce: bool = True,
 ) -> bool:
     """Let the Manager judge whether ``body`` is open-ended work that should run
     as a STANDING (continuous) campaign, rather than a one-shot bounded
@@ -405,17 +417,18 @@ def _maybe_auto_promote_to_continuous(
     Arms continuous mode the same way ``/continuous start <objective>`` does
     (``write_continuous_config`` — the daemon hot-reloads it, no restart).
 
-    Fail-soft in every direction: no runner (memory backend, build failure), a
-    classify error, an already-continuous session (caller only calls this when
-    not yet continuous), or a config gate failure (empty objective / memory
-    backend) all leave the task on its normal bounded (one-shot backlog) path.
-    Returns True iff continuous mode was armed (``chat_state`` is mutated in
-    that case, mirroring ``/continuous start``).
+    No runner means there is no Manager available to author an objective, so
+    the task remains bounded. Once a real Manager owns the TEAM task, however,
+    classification ambiguity or failure defaults to STANDING; only an explicit
+    BOUNDED decision keeps the one-shot path. Returns True iff continuous mode
+    was armed (``chat_state`` is mutated in that case, mirroring
+    ``/continuous start``).
     """
     runner = _ensure_manager_runner(chat_state, mem)
     classify = getattr(runner, "classify_needs_continuous", None)
     if runner is None or not callable(classify):
         return False
+    is_standing = True
     try:
         # This is a REAL (blocking) model round-trip. It runs AFTER the triage
         # spinner has exited, so without its own indicator the prompt freezes
@@ -441,8 +454,8 @@ def _maybe_auto_promote_to_continuous(
                 )
         if not is_standing:
             return False
-    except Exception:  # noqa: BLE001 — classify failure must never force continuous
-        return False
+    except Exception:  # noqa: BLE001 — substantive TEAM work defaults to continuous
+        pass
 
     from ..daemon.life_worker import continuous_mode_error
 
@@ -451,6 +464,7 @@ def _maybe_auto_promote_to_continuous(
         return False
 
     chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
+    chat_state["_continuous_pending_manager_handoff"] = True
     # enqueue_mission performs Manager division next and persists only the
     # resulting execution_task. Do not briefly expose raw operator text to a
     # hot-reloading Planner.
@@ -461,11 +475,12 @@ def _maybe_auto_promote_to_continuous(
         "the daemon will plan and advance autonomously until the goal is "
         "exhausted or you type /continuous stop."
     )
-    print(
-        ("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg) if theme is not None
-        else f"  argus ↳ {msg}",
-        flush=True,
-    )
+    if announce:
+        print(
+            ("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg) if theme is not None
+            else f"  argus ↳ {msg}",
+            flush=True,
+        )
     return True
 
 

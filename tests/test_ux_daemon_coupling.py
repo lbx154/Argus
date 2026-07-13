@@ -666,8 +666,35 @@ def test_auto_promote_to_continuous_fails_soft_without_runner(tmp_path, monkeypa
     assert promoted is False
 
 
-def test_auto_promote_to_continuous_fails_soft_on_classify_error(tmp_path, monkeypatch):
-    """A classify hiccup must never force an expensive 7x24 campaign."""
+def test_failed_manager_handoff_rolls_back_pending_auto_promotion(
+    tmp_path, monkeypatch,
+) -> None:
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-rollback001")
+    mem.init()
+    chat_state = {
+        "backend": "codex",
+        "config": {"continuous": True},
+        "_continuous_pending_manager_handoff": True,
+    }
+    monkeypatch.setattr(
+        manager_repl,
+        "manager_continuous_handoff",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("handoff failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="handoff failed"):
+        manager_repl.enqueue_mission(mem, "keep researching", chat_state)
+
+    assert chat_state["config"]["continuous"] is False
+    assert chat_state["continuous_objective"] == ""
+    assert "_continuous_pending_manager_handoff" not in chat_state
+
+
+def test_auto_promote_to_continuous_defaults_standing_on_classify_error(
+    tmp_path, monkeypatch,
+):
+    """A classify hiccup must not silently turn substantive TEAM work one-shot."""
     gr = tmp_path / "root"
     mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-classifyerr001")
     mem.init()
@@ -682,7 +709,8 @@ def test_auto_promote_to_continuous_fails_soft_on_classify_error(tmp_path, monke
 
     chat_state: dict[str, object] = {"backend": "codex"}
     promoted = manager_repl._maybe_auto_promote_to_continuous(mem, "anything", chat_state, None)
-    assert promoted is False
+    assert promoted is True
+    assert chat_state["config"]["continuous"] is True
     assert not (mem.project.root / "continuous.json").exists()
 
 

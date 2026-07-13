@@ -96,8 +96,10 @@ def build_persistence_prompt(text: str) -> str:
         "keep running autonomously (7x24) until the objective is exhausted or "
         'the operator stops it. e.g. "optimize as many X as possible", '
         '"keep improving Y", "continuously search/monitor Z".\n'
-        "When in doubt, answer BOUNDED — never force standing/continuous mode "
-        "onto a task that did not ask for it.\n\n"
+        "This classifier only sees substantive TEAM work after chat and simple "
+        "one-turn requests were already removed. When in doubt, answer STANDING. "
+        "Answer BOUNDED only when this TEAM task clearly has a natural one-mission "
+        "finish line.\n\n"
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
@@ -111,10 +113,10 @@ def classify_needs_persistence(
     """Is ``text`` open-ended work that should run as a standing (continuous)
     campaign, rather than a one-shot bounded mission?
 
-    Biases hard toward ``False`` (BOUNDED) — the safe default, since forcing an
-    expensive 7x24 campaign onto a task that did not ask for one is the
-    dangerous failure direction (never silently spend budget the operator did
-    not intend).
+    This is called only for substantive TEAM work after chat and simple one-turn
+    requests have been removed. Bias toward ``True`` (STANDING), preserving
+    Argus's autonomous lifetime by default; only an explicit BOUNDED verdict
+    makes the task one-shot.
     """
     cleaned = (text or "").strip()
     if not cleaned:
@@ -122,14 +124,13 @@ def classify_needs_persistence(
     try:
         result = run_exec(build_persistence_prompt(cleaned))
     except Exception:  # noqa: BLE001
-        return False
+        return True
     if int(getattr(result, "exit_code", 0) or 0) != 0:
-        return False
-    return _first_alpha_token(_extract_answer(result)).upper() in {
-        "STANDING",
-        "CONTINUOUS",
-        "PERSIST",
-        "PERSISTENT",
+        return True
+    return _first_alpha_token(_extract_answer(result)).upper() not in {
+        "BOUNDED",
+        "ONE_SHOT",
+        "ONESHOT",
     }
 
 

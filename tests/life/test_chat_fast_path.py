@@ -509,14 +509,14 @@ def test_classify_needs_continuous_false_for_bounded_answer() -> None:
     assert runner.classify_needs_continuous("fix the flaky test in test_foo.py") is False
 
 
-def test_classify_needs_continuous_fails_soft_to_false_on_backend_error() -> None:
-    """A classify hiccup must never force an expensive 7x24 campaign."""
+def test_classify_needs_continuous_defaults_true_on_backend_error() -> None:
+    """A classify hiccup must not silently turn substantive TEAM work one-shot."""
     class _BoomBackend(_FakeBackend):
         def run_exec(self, **kwargs: Any) -> RunnerResult:  # noqa: ANN401
             raise RuntimeError("boom")
 
     runner = _make_runner(_BoomBackend())
-    assert runner.classify_needs_continuous("anything") is False
+    assert runner.classify_needs_continuous("anything") is True
 
 
 # ---------- supervisor: chat outcomes skip the critic loop ---------------

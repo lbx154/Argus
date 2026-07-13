@@ -306,6 +306,9 @@ def test_main_forwards_real_process_argv_to_ink(
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(sys, "argv", ["argus-skill", "--resume", "s-session01"])
+    monkeypatch.setattr(
+        "argus_skill.apps.cli._core._lifetime_entry_error", lambda args: ""
+    )
 
     def fake_run_tui(argv):
         captured["argv"] = argv
@@ -340,12 +343,12 @@ def test_main_bare_launch_enters_ink_without_objective(
     assert called["hit"] is True
 
 
-def test_main_ink_launch_does_not_require_special_prompt(
+def test_main_ink_launch_requires_special_prompt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An idle conversational TUI is safe before any daemon mission exists."""
+    """Cockpit may wait for an objective, but never without machine rules."""
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     # Point the special-prompts dir at an empty location so the gate trips.
     monkeypatch.setenv(
@@ -361,8 +364,9 @@ def test_main_ink_launch_does_not_require_special_prompt(
     monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
-    assert rc == 0
-    assert called["hit"] is True
+    assert rc == 2
+    assert called["hit"] is False
+    assert "special prompt" in capsys.readouterr().err.lower()
 
 
 def test_wiki_ingest_init_flag_parses_without_abbreviation_collision():

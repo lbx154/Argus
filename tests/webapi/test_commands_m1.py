@@ -404,6 +404,9 @@ def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
         enabled=True,
         objective="clean current objective",
     )
+    bridge_state = manager_bridge._chat_state_for(sid)
+    bridge_state["config"]["continuous"] = True
+    bridge_state["continuous_objective"] = "clean current objective"
 
     def unexpected_handoff(*args, **kwargs):
         raise AssertionError("disable must not wait for Manager")
@@ -420,9 +423,34 @@ def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
         objective="raw stale UI objective; Manager owns the sidebar",
         global_root=root,
     ) is True
+    assert bridge_state["config"]["continuous"] is False
+    assert bridge_state["continuous_objective"] == ""
     state = server.read_continuous_state(life)
     assert state.enabled is False
     assert state.objective == "clean current objective"
+
+
+def test_disable_continuous_surfaces_persistence_failure(
+    ctx, monkeypatch,
+) -> None:
+    root, sid, _life = ctx
+    bridge_state = manager_bridge._chat_state_for(sid)
+    bridge_state["config"]["continuous"] = True
+    bridge_state["continuous_objective"] = "still active"
+    monkeypatch.setattr(
+        "argus_skill.daemon.state.disable_continuous_config",
+        lambda life_dir: SimpleNamespace(enabled=True),
+    )
+
+    with pytest.raises(ManagerHandoffError, match="could not be persisted"):
+        server.set_continuous(
+            sid,
+            enabled=False,
+            global_root=root,
+        )
+
+    assert bridge_state["config"]["continuous"] is True
+    assert bridge_state["continuous_objective"] == "still active"
 
 
 def test_enable_continuous_reprocesses_stored_objective(

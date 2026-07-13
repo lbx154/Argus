@@ -64,7 +64,6 @@ from ..daemon.life_worker import (
     LifeWorkerConfig,
     _active_daemon_count,
     _max_active_daemons,
-    disable_continuous_config,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
@@ -964,7 +963,9 @@ def set_continuous(
     if life_dir is None:
         return None
     if not enabled:
-        disable_continuous_config(life_dir)
+        from .manager_bridge import disable_manager_continuous
+
+        disable_manager_continuous(sid, life_dir=life_dir)
         return True
     from .manager_bridge import manager_continuous_handoff
 

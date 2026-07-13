@@ -6,8 +6,8 @@ work — exactly like the line REPL (``manager/repl.py``): a conversational
 "你好" gets a Manager reply and never touches the daemon or a vertical; only
 TEAM/complex work is enqueued as a mission (where the daemon resolves a vertical).
 
-This reuses the REPL's ``manager_triage`` + ``enqueue_mission`` verbatim — no
-reimplementation, no second front-door, no drift from the terminal behaviour.
+This reuses the REPL's triage, persistence decision, and enqueue path verbatim —
+no reimplementation, no second front-door, no drift from terminal behaviour.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import Any
 # project (chat_state is mutated in place) while letting different projects run
 # concurrently.
 _STATES: dict[str, dict[str, Any]] = {}
-_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS: dict[str, threading.RLock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
@@ -72,7 +72,31 @@ def manager_continuous_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
-        return commit_handoff(mem, requested_objective, chat_state)
+        execution_objective = commit_handoff(mem, requested_objective, chat_state)
+        chat_state.setdefault("config", {})["continuous"] = True
+        chat_state["continuous_objective"] = execution_objective
+        return execution_objective
+
+
+def disable_manager_continuous(
+    sid: str,
+    *,
+    life_dir: Path,
+) -> None:
+    """Persist Web stop and synchronize Manager state under one session lock."""
+    from ..daemon.state import disable_continuous_config
+    from ..manager.front_door import ManagerHandoffError
+
+    with _lock_for(sid):
+        persisted = disable_continuous_config(life_dir)
+        if persisted.enabled:
+            raise ManagerHandoffError("continuous stop could not be persisted")
+        chat_state = _STATES.get(sid)
+        if chat_state is None:
+            return
+        chat_state.setdefault("config", {})["continuous"] = False
+        chat_state["continuous_objective"] = ""
+        chat_state.pop("_continuous_pending_manager_handoff", None)
 
 
 def manager_bounded_handoff(
@@ -122,11 +146,11 @@ def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> N
         pass
 
 
-def _lock_for(sid: str) -> threading.Lock:
+def _lock_for(sid: str) -> threading.RLock:
     with _REGISTRY_LOCK:
         lk = _LOCKS.get(sid)
         if lk is None:
-            lk = threading.Lock()
+            lk = threading.RLock()
             _LOCKS[sid] = lk
         return lk
 
@@ -249,6 +273,7 @@ def manager_message(
         _accepts_keyword,
         _apply_config_intent,
         _front_door_classify,
+        _maybe_auto_promote_to_continuous,
         enqueue_mission,
         manager_triage,
     )
@@ -463,8 +488,20 @@ def manager_message(
             )
             return {"kind": "chat", "reply": reply}
 
-        # 2) TEAM/complex — enqueue a mission (daemon resolves the vertical there).
+        # 2) TEAM/complex — let Manager own lifetime before enqueue. Chat and
+        # simple one-turn work already returned above, so ambiguity defaults to
+        # STANDING; only an explicit Manager BOUNDED verdict remains one-shot.
         try:
+            if not chat_state.get("config", {}).get("continuous", False):
+                _phase("Manager · deciding task lifetime")
+                _maybe_auto_promote_to_continuous(
+                    mem,
+                    body,
+                    chat_state,
+                    None,
+                    root_task_id=root_task_id,
+                    announce=False,
+                )
             item, daemon_alive, daemon_pid = enqueue_mission(
                 mem,
                 body,
@@ -476,15 +513,20 @@ def manager_message(
             _emit_ui_turn(life_dir, "argus", error_reply, message_id=f"{turn_id}-argus")
             return {"kind": "error", "reply": error_reply}
 
+    item_payload = _item_to_dict(item, body)
     result = {
         "kind": "task",
         "reply": None,
-        "item": _item_to_dict(item, body),
+        "item": item_payload,
         "daemon_alive": bool(daemon_alive),
         "daemon_pid": daemon_pid,
         "continuous": bool(chat_state.get("config", {}).get("continuous")),
     }
-    title = str(result["item"].get("title") or result["item"].get("objective") or body)
+    title = str(
+        (item_payload or {}).get("title")
+        or (item_payload or {}).get("objective")
+        or body
+    )
     _emit_ui_turn(life_dir, "argus", f"Queued · {title}", message_id=f"{turn_id}-argus")
     return result
 

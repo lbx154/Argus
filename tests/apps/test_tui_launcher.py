@@ -1,6 +1,16 @@
 from pathlib import Path
 
+import pytest
+
 from argus_skill.apps import tui_launcher
+
+
+@pytest.fixture(autouse=True)
+def _trusted_special_prompt(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.life.special_prompts.describe_special_prompt_gate",
+        lambda: (True, ""),
+    )
 
 
 def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> None:
@@ -19,6 +29,21 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     assert tui_launcher.main(["--project", "s-test"]) == 0
     assert seen["executable"] == "/usr/bin/node"
     assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "s-test"]
+
+
+def test_launcher_rejects_missing_special_prompt(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "argus_skill.life.special_prompts.describe_special_prompt_gate",
+        lambda: (False, "trusted special prompt required"),
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+
+    assert tui_launcher.main([]) == 2
+    assert "trusted special prompt required" in capsys.readouterr().err
 
 
 def test_launcher_fails_cleanly_without_bundle(monkeypatch, capsys) -> None:

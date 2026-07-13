@@ -1041,10 +1041,10 @@ class Manager:
         it BOUNDED (one mission, drains once)? The Manager owns this decision so
         the operator never has to manually pass ``--continuous --objective`` for
         open-ended work typed straight into chat (e.g. "optimize as many kernels
-        as possible"). Reuses ``life/router.classify_needs_persistence`` (biases
-        hard to BOUNDED — never silently force an expensive 7x24 campaign onto a
-        task that did not ask for one). With no backend, returns False — the
-        safe default."""
+        as possible"). Reuses ``life/router.classify_needs_persistence`` (TEAM
+        work defaults to STANDING unless the Manager explicitly chooses
+        BOUNDED). With no backend, returns False because no Manager exists to
+        author the continuous objective."""
         from ..life.router import classify_needs_persistence as _classify
 
         if run_exec is None:

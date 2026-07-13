@@ -46,6 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     forwarded = list(sys.argv[1:] if argv is None else argv)
     if forwarded[:1] == ["report"]:
         return _run_python_admin(forwarded)
+    from ..life.special_prompts import describe_special_prompt_gate
+
+    ok, detail = describe_special_prompt_gate()
+    if not ok:
+        sys.stderr.write(f"argus: {detail}\n")
+        return 2
     bundle = _bundle_path()
     if bundle is None:
         sys.stderr.write(

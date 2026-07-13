@@ -153,40 +153,12 @@ def _resolve_project_bundle(args: argparse.Namespace):
 def _lifetime_entry_error(args: argparse.Namespace) -> str:
     """Return an actionable error if the lifetime agent is under-configured.
 
-    The lifetime daemon / cockpit refuses to start unless the operator has
-    explicitly supplied BOTH a mission objective and at least one trusted
-    special prompt (machine house rules). This replaces any implicit guessing:
-    the agent must be told its mission and its operating rules up front.
-
-    The objective is satisfied by ``--objective`` (which requires
-    ``--continuous``) or by a previously-persisted ``continuous.json`` for the
-    current project. Returns ``""`` when both requirements are met.
+    The lifetime daemon / cockpit requires trusted machine house rules, but it
+    may start without an objective. The first substantive user prompt is routed
+    through the Manager, which decides BOUNDED versus STANDING and authors the
+    persisted execution objective for a standing campaign.
     """
-    from ...daemon.life_worker import read_continuous_config
     from ...life.special_prompts import describe_special_prompt_gate
-
-    objective = str(getattr(args, "objective", "") or "").strip()
-    # A daemon only inherits the project's persisted continuous objective when
-    # THIS launch opts to resume (--continuous or --resume-continuous). Without
-    # that intent a fresh/manual daemon must NOT silently adopt an ambient
-    # campaign an earlier launch armed.
-    _resume_intent = bool(
-        getattr(args, "continuous", False) or getattr(args, "resume_continuous", False)
-    )
-    if not objective and _resume_intent:
-        try:
-            bundle = _resolve_project_bundle(args)
-            _, persisted = read_continuous_config(bundle.project.root)
-            objective = persisted.strip()
-        except Exception:  # noqa: BLE001 — under-configured path resolution
-            objective = ""
-    if not objective:
-        return (
-            "no mission objective configured — the lifetime agent must be told "
-            "what to work on. Launch with `--continuous --objective \"<goal>\"` "
-            "(persisted to <life_dir>/continuous.json), or `--resume-continuous` "
-            "to resume a previously-armed campaign for this project."
-        )
 
     ok, detail = describe_special_prompt_gate()
     if not ok:
@@ -329,6 +301,10 @@ def main(argv: list[str] | None = None) -> int:
         from ...tools.dashboard import serve
         return serve(port=int(getattr(args, "dashboard_port", 8787) or 8787))
     if getattr(args, "web", False):
+        entry_error = _lifetime_entry_error(args)
+        if entry_error:
+            sys.stderr.write(f"argus-skill: {entry_error}\n")
+            return 2
         try:
             from ...webapi.server import serve as serve_web
         except ImportError:
@@ -384,6 +360,10 @@ def main(argv: list[str] | None = None) -> int:
     # The Python line REPL is retired. All interactive use goes through the Ink
     # cockpit; ``argus-skill`` remains the daemon/admin CLI for explicit flags.
     # Keeping one product surface prevents the old REPL and TUI from drifting.
+    entry_error = _lifetime_entry_error(args)
+    if entry_error:
+        sys.stderr.write(f"argus-skill: {entry_error}\n")
+        return 2
     from ..tui_launcher import main as run_tui
 
     forwarded = list(sys.argv[1:] if argv is None else argv)

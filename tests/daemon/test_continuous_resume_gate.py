@@ -1,8 +1,8 @@
 """The continuous-resume gate: a fresh/manual daemon must NOT silently adopt a
 project's persisted continuous campaign. Only an explicit resume intent
 (``--continuous`` / ``--resume-continuous``) — which supervisors pass on a
-crash/reboot self-heal — resumes it. See ``_apply_continuous_suppression`` and
-``_lifetime_entry_error``.
+crash/reboot self-heal — resumes it. A bare cockpit/daemon may still wait for
+the Manager to derive an objective from the first substantive user prompt.
 """
 from __future__ import annotations
 
@@ -77,13 +77,7 @@ def test_no_suppression_is_passthrough():
     assert _apply_continuous_suppression(state, True, "obj") == (True, "obj")
 
 
-# ---- entry gate: bare daemon does not adopt the persisted objective --------
-
-class _Bundle:
-    class _P:
-        root = "/tmp/fake-life-dir"
-    project = _P()
-    global_root = "/tmp/fake-global"
+# ---- entry gate: objective may be supplied later by the Manager ------------
 
 
 def _args(**kw):
@@ -92,34 +86,33 @@ def _args(**kw):
     return argparse.Namespace(**base)
 
 
-def test_bare_daemon_does_not_adopt_persisted_objective(monkeypatch):
+def test_bare_daemon_can_wait_for_manager_objective(monkeypatch):
     import argus_skill.apps.cli._core as core
 
-    monkeypatch.setattr(core, "_resolve_project_bundle", lambda args: _Bundle())
-    monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_continuous_config",
-        lambda root: (True, "someone else's armed campaign"),
-    )
-    # No objective, no resume intent -> must NOT pick up the persisted campaign;
-    # returns the actionable "no objective" error mentioning --resume-continuous.
-    err = core._lifetime_entry_error(_args())
-    assert err
-    assert "resume-continuous" in err
-
-
-def test_resume_continuous_adopts_persisted_objective(monkeypatch):
-    import argus_skill.apps.cli._core as core
-
-    monkeypatch.setattr(core, "_resolve_project_bundle", lambda args: _Bundle())
-    monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_continuous_config",
-        lambda root: (True, "the persisted campaign"),
-    )
-    # special-prompt gate is orthogonal here — force it open so we isolate the
-    # objective-adoption path.
     monkeypatch.setattr(
         "argus_skill.life.special_prompts.describe_special_prompt_gate",
         lambda: (True, ""),
     )
-    # With --resume-continuous the persisted objective IS adopted -> no error.
+    assert core._lifetime_entry_error(_args()) == ""
+
+
+def test_lifetime_entry_still_requires_special_prompt(monkeypatch):
+    import argus_skill.apps.cli._core as core
+
+    monkeypatch.setattr(
+        "argus_skill.life.special_prompts.describe_special_prompt_gate",
+        lambda: (False, "trusted special prompt required"),
+    )
+    assert core._lifetime_entry_error(_args()) == "trusted special prompt required"
+
+
+def test_resume_continuous_entry_allowed_with_special_prompt(monkeypatch):
+    import argus_skill.apps.cli._core as core
+
+    # special-prompt gate is orthogonal here — force it open so we isolate the
+    # lifetime entry path.
+    monkeypatch.setattr(
+        "argus_skill.life.special_prompts.describe_special_prompt_gate",
+        lambda: (True, ""),
+    )
     assert core._lifetime_entry_error(_args(resume_continuous=True)) == ""

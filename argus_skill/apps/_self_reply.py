@@ -183,8 +183,8 @@ class SelfReplyMixin:
                         root_task_id=root_task_id,
                     )
                 )
-        except Exception:  # noqa: BLE001 - classify failure stays bounded
-            return False
+        except Exception:  # noqa: BLE001 - substantive TEAM work defaults standing
+            return True
 
     def chat_reply_if_conversational(
         self,
