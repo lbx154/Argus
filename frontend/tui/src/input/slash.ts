@@ -45,6 +45,7 @@ export const SLASH_COMMANDS: SlashCmd[] = [
   { name: '/daemons', arg: '[query]', desc: 'find every session + switch or create', group: 'Sessions & diagnostics', kind: 'panel' },
   { name: '/resume', arg: '[list|<id>]', desc: 'switch to another project/session', group: 'Sessions & diagnostics', kind: 'action' },
   { name: '/attach', arg: '<id|prefix>', desc: 'follow another project (read the stream)', group: 'Sessions & diagnostics', kind: 'action' },
+  { name: '/rename', arg: '<name>', desc: 'rename the current conversation', group: 'Sessions & diagnostics', kind: 'action' },
   { name: '/doctor', desc: "diagnose 'why isn't anything running'", group: 'Sessions & diagnostics', kind: 'panel' },
   // ── configuration ──
   { name: '/backend', arg: '[codex|claude|copilot]', desc: 'view or change the shared runner backend', group: 'Configuration', kind: 'action' },

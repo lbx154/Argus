@@ -384,10 +384,10 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
 
 
 def build_front_door_prompt(text: str) -> str:
-    """Merged cockpit front-door classifier: config, control, and routing."""
+    """Merged cockpit front-door classifier: config, control, routing, and title."""
     cleaned = (text or "").strip()
     return (
-        "Classify one operator message on THREE independent axes.\n\n"
+        "Classify one operator message on FOUR independent axes.\n\n"
         "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
         "runtime settings (its cockpit knobs), as opposed to a research task, a "
         "question, or small talk?\n"
@@ -442,10 +442,18 @@ def build_front_door_prompt(text: str) -> str:
         "still use TEAM; the `direct` workflow keeps them lean.\n"
         "  When in doubt, answer TEAM — never route work that needs review to a "
         "lone worker.\n\n"
-        "Reply with EXACTLY three lines and nothing else:\n"
+        "AXIS 4 — NAME: create a concise conversation title from the core intent "
+        "of this message. This title is required for SELF, TEAM, config, control, "
+        "and conversational messages alike. Use the message's language. Distill "
+        "the subject and requested action instead of copying polite framing such "
+        "as 'please' or 'help me'. Prefer 2-12 Chinese characters or 2-8 words; "
+        "use a short noun phrase, with no quotes, trailing punctuation, or session "
+        "ID.\n\n"
+        "Reply with EXACTLY four lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
+        "NAME: <concise conversation title>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
         "daily_cap | max_daemons | codex_daily_requests | "
         "copilot_daily_requests | copilot_daily_premium | safe_mode | "
@@ -462,8 +470,9 @@ def classify_front_door(
     text: str,
     *,
     run_exec: Callable[[str], Any],
+    name_sink: Callable[[str], None] | None = None,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
-    """One model call for config, current-mission control, and route."""
+    """One model call for config, control, route, and an optional session title."""
     cleaned = (text or "").strip()
     if not cleaned:
         return None, None, "complex"
@@ -477,6 +486,7 @@ def classify_front_door(
     config_line = _line_after_prefix(answer, "CONFIG:")
     control_line = _line_after_prefix(answer, "CONTROL:")
     route_line = _line_after_prefix(answer, "ROUTE:")
+    name_line = _line_after_prefix(answer, "NAME:")
     intent = _parse_config_line(config_line) if config_line is not None else None
     control_token = (
         str(control_line or "").strip().upper().replace("-", "_")
@@ -493,6 +503,11 @@ def classify_front_door(
     )
     if control in {"abort", "no_dispatch"}:
         route = "simple"
+    if callable(name_sink) and name_line:
+        try:
+            name_sink(name_line)
+        except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
+            pass
     return intent, control, route
 
 

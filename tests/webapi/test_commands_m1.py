@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 import pytest
 
+from argus_skill.core.session import touch_session
 from argus_skill.life.memory import LifeMemory
 from argus_skill.manager import front_door
 from argus_skill.manager.front_door import (
@@ -691,7 +692,10 @@ def test_project_update_renames_session(ctx) -> None:
     )
     client = TestClient(server.create_app(global_root=root))
 
-    r = client.patch(f"/api/projects/{sid}", json={"name": "Research console"})
+    r = client.patch(
+        f"/api/projects/{sid}",
+        json={"name": "  Research\n  console  "},
+    )
 
     assert r.status_code == 200
     assert r.json()["name"] == "Research console"
@@ -735,6 +739,8 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     assert r.status_code == 200
     assert not life.exists()
     assert (root / r.json()["trash_path"]).is_dir()
+    touch_session(root, sid, display_name="must not resurrect")
+    assert not life.exists()
 
 
 def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:

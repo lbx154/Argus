@@ -575,6 +575,24 @@ export function App({
       case '/attach':
         void switchProject(p.rest);
         break;
+      case '/rename':
+        if (!p.rest) {
+          need('/rename <name>');
+          break;
+        }
+        void api.renameProject(p.rest).then((result) => {
+          setSnap((current) => current
+            && current.session.id === result.sid
+            ? {
+                ...current,
+                session: { ...current.session, display_name: result.name },
+              }
+            : current);
+          if (projectRef.current === result.sid) {
+            setNotice(`renamed conversation to ${result.name}`);
+          }
+        }, err);
+        break;
       case '/clear':
         setEvents([]);
         setNotice('feed cleared');

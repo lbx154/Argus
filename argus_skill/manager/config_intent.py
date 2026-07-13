@@ -7,7 +7,11 @@ import re
 from typing import Any, Callable
 
 from ..apps._life_actions import append_note
-from .front_door import _accepts_keyword, _ensure_manager_runner
+from .front_door import (
+    _accepts_keyword,
+    _ensure_manager_runner,
+    _maybe_name_session,
+)
 
 _ROLE_BACKEND_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_BACKEND",
@@ -46,23 +50,27 @@ def _front_door_classify(
     ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
     error → ``(None, None, "complex")`` so the message flows through the normal
     task path unchanged (never swallow real work on a classify hiccup)."""
+    suggested_names: list[str] = []
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
         if mgr is None or not hasattr(mgr, "classify_front_door"):
             return None, None, "complex"
         accepts = accepts_keyword or _accepts_keyword
-        if root_task_id is None or not accepts(
+        kwargs: dict[str, Any] = {}
+        if root_task_id is not None and accepts(
             mgr.classify_front_door,
             "root_task_id",
         ):
-            decision = mgr.classify_front_door(text)
-        else:
-            decision = mgr.classify_front_door(
-                text,
-                root_task_id=root_task_id,
-            )
-        if isinstance(decision, tuple) and len(decision) == 3:
+            kwargs["root_task_id"] = root_task_id
+        if accepts(mgr.classify_front_door, "name_sink"):
+            kwargs["name_sink"] = suggested_names.append
+        decision = mgr.classify_front_door(text, **kwargs)
+        if isinstance(decision, tuple) and len(decision) == 4:
+            intent, control, route, suggested_name = decision
+            if suggested_name:
+                suggested_names.append(str(suggested_name))
+        elif isinstance(decision, tuple) and len(decision) == 3:
             intent, control, route = decision
         else:
             intent, route = decision
@@ -74,6 +82,15 @@ def _front_door_classify(
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
         return None, None, "complex"
+    finally:
+        _maybe_name_session(
+            chat_state,
+            text,
+            suggested_name=next(
+                (name for name in suggested_names if str(name).strip()),
+                "",
+            ),
+        )
 
 
 def _maybe_handle_config_intent(

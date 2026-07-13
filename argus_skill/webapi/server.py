@@ -56,7 +56,15 @@ from ..core.metrics import (
     render_prometheus,
 )
 from ..core.provider_quota import provider_usage_snapshot
-from ..core.session import SessionMeta, read_session_meta, write_session_meta
+from ..core.session import (
+    SessionMeta,
+    normalize_session_name,
+    read_session_meta,
+    session_lifecycle_lock,
+    session_meta_lock,
+    update_session_meta,
+    write_session_meta,
+)
 from ..core.transcript import read_turns
 from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
 from ..daemon.life_worker import (
@@ -221,11 +229,9 @@ def _iter_manager_stream_items(
 # backlog/inbox files directly. Each returns None if the project is unknown.
 # ---------------------------------------------------------------------------
 
-def enqueue_task(
+def _enqueue_task_unlocked(
     sid: str, text: str, *, global_root: Path | str | None = None
 ) -> dict[str, Any] | None:
-    """Append a backlog task (honours inline ``--once/--cycles/--budget``).
-    Goes through ``add_backlog_item`` → ``Backlog.add`` (flock CAS)."""
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
@@ -257,8 +263,52 @@ def enqueue_task(
         _persist,
         global_root=global_root,
         root_task_id=item_id,
+        name_session=not bool(
+            (read_session_meta(_global_root(global_root), sid) or SessionMeta(id=sid))
+            .display_name.strip()
+        ),
     )
     return item.to_jsonable()
+
+
+def enqueue_task(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    lifecycle_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Append one Manager-authored task while excluding delete/restore races."""
+    root = _global_root(global_root)
+    lock_root = _global_root(lifecycle_root) if lifecycle_root is not None else root
+    with session_lifecycle_lock(lock_root, sid):
+        return _enqueue_task_unlocked(sid, text, global_root=root)
+
+
+def enqueue_task_command(
+    sid: str,
+    text: str,
+    *,
+    autostart_daemon: bool,
+    global_root: Path | str | None = None,
+    lifecycle_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Atomically enqueue and optionally start before deletion can move the project."""
+    root = _global_root(global_root)
+    lock_root = _global_root(lifecycle_root) if lifecycle_root is not None else root
+    with session_lifecycle_lock(lock_root, sid):
+        item = _enqueue_task_unlocked(sid, text, global_root=root)
+        if item is None:
+            return None
+        response: dict[str, Any] = {"item": item}
+        if autostart_daemon:
+            response["daemon"] = start_project_daemon(
+                sid,
+                global_root=root,
+                resume_continuous=False,
+                reclaim_idle=True,
+            )
+        return response
 
 
 def enqueue_nudge(
@@ -655,7 +705,7 @@ def create_daemon(
     """
     import time as _time
 
-    from ..core.session import SessionMeta, new_session_id, write_session_meta
+    from ..core.session import new_session_id
 
     root = _global_root(global_root)
     sid = new_session_id()
@@ -669,7 +719,7 @@ def create_daemon(
     )
     meta = SessionMeta(
         id=sid,
-        display_name=(name or "").strip(),
+        display_name=normalize_session_name(name),
         created=now,
         last_active=now,
         cwd=str(life_dir),
@@ -687,20 +737,22 @@ def create_daemon(
     if obj:
         from .manager_bridge import manager_continuous_handoff
 
-        obj = manager_continuous_handoff(sid, obj, global_root=root)
-        write_session_meta(
-            root,
-            SessionMeta(
-                id=meta.id,
-                display_name=meta.display_name,
-                created=meta.created,
-                last_active=meta.last_active,
-                cwd=meta.cwd,
-                objective=obj,
-                launch_cwd=meta.launch_cwd,
-                origin=meta.origin,
-            ),
+        obj = manager_continuous_handoff(
+            sid,
+            obj,
+            global_root=root,
+            name_session=not bool(meta.display_name),
         )
+        from ..manager.front_door import _derive_session_name
+
+        fallback_name = _derive_session_name(requested_objective, limit=32)
+
+        def _finish_session(current: SessionMeta) -> None:
+            current.objective = obj
+            if not current.display_name:
+                current.display_name = fallback_name
+
+        update_session_meta(root, sid, _finish_session, create=True)
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
         start_result = start_project_daemon(
@@ -731,18 +783,25 @@ def set_project_launch_cwd(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    from ..core.session import write_session_meta
-
     root = _global_root(global_root)
-    meta = read_session_meta(root, sid)
-    if meta is None:
+    resolved_cwd = str(Path(launch_cwd).expanduser().resolve())
+
+    def _set_launch_cwd(meta: SessionMeta) -> None:
         now = time.time()
-        meta = SessionMeta(
-            id=sid, created=now, last_active=now, cwd=str(life_dir),
-        )
-    meta.launch_cwd = str(Path(launch_cwd).expanduser().resolve())
-    write_session_meta(root, meta)
-    return True
+        if not meta.created:
+            meta.created = now
+        if not meta.last_active:
+            meta.last_active = now
+        if not meta.cwd:
+            meta.cwd = str(life_dir)
+        meta.launch_cwd = resolved_cwd
+
+    return update_session_meta(
+        root,
+        sid,
+        _set_launch_cwd,
+        create=True,
+    ) is not None
 
 
 def stop_project_daemon(
@@ -811,53 +870,64 @@ def update_project(
     if life_dir is None:
         return None
     root = _global_root(global_root)
-    meta = read_session_meta(root, sid)
-    if meta is None:
+    try:
+        objective = read_continuous_state(life_dir).objective
+    except Exception:  # noqa: BLE001 — legacy metadata repair is best-effort
+        objective = ""
+    normalized_name = normalize_session_name(name)
+
+    def _rename(meta: SessionMeta) -> None:
         now = time.time()
-        try:
-            objective = read_continuous_state(life_dir).objective
-        except Exception:  # noqa: BLE001 — legacy metadata repair is best-effort
-            objective = ""
-        meta = SessionMeta(
-            id=sid,
-            created=now,
-            last_active=now,
-            cwd=str(life_dir),
-            objective=objective,
-        )
-    meta.display_name = (name or "").strip()[:80]
-    write_session_meta(root, meta)
+        if not meta.created:
+            meta.created = now
+        if not meta.last_active:
+            meta.last_active = now
+        if not meta.cwd:
+            meta.cwd = str(life_dir)
+        if not meta.objective:
+            meta.objective = objective
+        meta.display_name = normalized_name
+
+    meta = update_session_meta(root, sid, _rename, create=True)
+    if meta is None:
+        return None
     return {"ok": True, "sid": sid, "name": meta.display_name}
 
 
 def delete_project(
-    sid: str, *, global_root: Path | str | None = None,
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+    lifecycle_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     """Reversibly remove a stopped session by moving it to projects_trash."""
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return None
-    status = read_daemon_status(life_dir)
-    if status.alive:
-        return {
-            "ok": False,
-            "sid": sid,
-            "error": "pause the daemon before deleting this session",
-        }
-
     root = _global_root(global_root)
-    date = time.strftime("%Y%m%d", time.localtime())
-    dest_parent = root / "projects_trash" / date
-    dest_parent.mkdir(parents=True, exist_ok=True)
-    dest = dest_parent / sid
-    if dest.exists():
-        dest = dest_parent / f"{sid}.{int(time.time())}"
-    shutil.move(str(life_dir), str(dest))
-    return {
-        "ok": True,
-        "sid": sid,
-        "trash_path": str(dest.relative_to(root)),
-    }
+    lock_root = _global_root(lifecycle_root) if lifecycle_root is not None else root
+    with session_lifecycle_lock(lock_root, sid):
+        with session_meta_lock(root, sid):
+            life_dir = project_life_dir(sid, global_root=root)
+            if life_dir is None:
+                return None
+            status = read_daemon_status(life_dir)
+            if status.alive:
+                return {
+                    "ok": False,
+                    "sid": sid,
+                    "error": "pause the daemon before deleting this session",
+                }
+
+            date = time.strftime("%Y%m%d", time.localtime())
+            dest_parent = root / "projects_trash" / date
+            dest_parent.mkdir(parents=True, exist_ok=True)
+            dest = dest_parent / sid
+            if dest.exists():
+                dest = dest_parent / f"{sid}.{int(time.time())}"
+            shutil.move(str(life_dir), str(dest))
+            return {
+                "ok": True,
+                "sid": sid,
+                "trash_path": str(dest.relative_to(root)),
+            }
 
 
 def list_trashed_projects(
@@ -909,6 +979,7 @@ def restore_trashed_project(
     trash_path: str,
     *,
     global_root: Path | str | None = None,
+    existing_roots: list[Path] | tuple[Path, ...] | None = None,
 ) -> dict[str, Any] | None:
     root = _global_root(global_root).resolve()
     trash_root = (root / "projects_trash").resolve()
@@ -942,15 +1013,23 @@ def restore_trashed_project(
     destination = (root / "projects" / sid).resolve()
     if destination.parent != (root / "projects").resolve():
         return None
-    if destination.exists():
-        return {
-            "ok": False,
-            "sid": sid,
-            "error": "a live session with this id already exists",
-        }
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(source), str(destination))
-    return {"ok": True, "sid": sid}
+    roots_to_check = tuple(existing_roots or (root,))
+    lock_root = _global_root(roots_to_check[0])
+    with session_lifecycle_lock(lock_root, sid):
+        if not source.is_dir():
+            return None
+        if any(
+            project_life_dir(sid, global_root=candidate) is not None
+            for candidate in roots_to_check
+        ):
+            return {
+                "ok": False,
+                "sid": sid,
+                "error": "a live session with this id already exists",
+            }
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+        return {"ok": True, "sid": sid}
 
 
 def set_continuous(
@@ -1715,6 +1794,7 @@ def create_app(
             restore_trashed_project,
             relative,
             global_root=roots[index],
+            existing_roots=roots,
         )
         if result is None:
             raise HTTPException(status_code=404, detail="unknown trash entry")
@@ -1780,6 +1860,7 @@ def create_app(
                 delete_project,
                 sid,
                 global_root=_project_root_or_404(sid),
+                lifecycle_root=_global_root(global_root),
             ),
             sid,
         )
@@ -1906,12 +1987,14 @@ def create_app(
             raise HTTPException(status_code=400, detail="empty task text")
         project_root = _project_root_or_404(sid)
         try:
-            item = _404_if_none(
+            response = _404_if_none(
                 await run_in_threadpool(
-                    enqueue_task,
+                    enqueue_task_command,
                     sid,
                     body.text,
+                    autostart_daemon=body.autostart_daemon,
                     global_root=project_root,
+                    lifecycle_root=_global_root(global_root),
                 ),
                 sid,
             )
@@ -1921,19 +2004,7 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        resp: dict[str, Any] = {"item": item}
-        if body.autostart_daemon:
-            # Lazy spawn (like the Python cockpit): queueing a task ensures the
-            # executor is alive so the task actually runs. Idempotent — no-op if
-            # a daemon is already alive. In a threadpool because spawn touches
-            # the filesystem / forks a detached process.
-            resp["daemon"] = await run_in_threadpool(
-                start_project_daemon,
-                sid,
-                global_root=project_root,
-                reclaim_idle=True,
-            )
-        return resp
+        return response
 
     @app.post("/api/projects/{sid}/nudge", dependencies=[Depends(_require_auth)])
     def _post_nudge(sid: str, body: _NudgeIn) -> dict[str, Any]:

@@ -30,6 +30,7 @@ import { OperationsModal } from './components/OperationsModal';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
+import { parseRenameCommand } from './lib/projectName';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -446,8 +447,9 @@ export default function App() {
     }
   };
   const manageRenameProject = async (name: string): Promise<boolean> => {
+    if (!activeSid) return false;
     try {
-      await actions.updateProject.mutateAsync(name);
+      await actions.updateProject.mutateAsync({ sid: activeSid, name });
       notify('success', 'Session name updated.');
       return true;
     } catch (error) {
@@ -604,6 +606,23 @@ export default function App() {
   const sendMessage = async (text: string) => {
     const requestSid = activeSid;
     if (!requestSid || messageRequestRef.current) return;
+    const rename = parseRenameCommand(text);
+    if (rename.matched) {
+      if (!rename.name) {
+        notify('error', 'Usage: /rename <name>');
+        return;
+      }
+      try {
+        const result = await actions.updateProject.mutateAsync({
+          sid: requestSid,
+          name: rename.name,
+        });
+        notify('success', `Renamed conversation to ${result.name}.`);
+      } catch (error) {
+        notify('error', `Rename failed: ${errorText(error)}`);
+      }
+      return;
+    }
     const requestId = ++messageEpochRef.current;
     const controller = new AbortController();
     messageRequestRef.current = { id: requestId, sid: requestSid, controller };

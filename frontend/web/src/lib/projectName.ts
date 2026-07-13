@@ -6,6 +6,18 @@ interface ProjectIndexCache {
   local_cwd?: string;
 }
 
+export interface RenameCommand {
+  matched: boolean;
+  name: string;
+}
+
+export function parseRenameCommand(text: string): RenameCommand {
+  const match = /^\/rename(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  return match
+    ? { matched: true, name: String(match[1] ?? '').replace(/\s+/g, ' ').trim() }
+    : { matched: false, name: '' };
+}
+
 export function cacheProjectName(
   queryClient: QueryClient,
   sid: string,
