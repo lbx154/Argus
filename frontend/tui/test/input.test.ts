@@ -148,13 +148,14 @@ test('parseCommand resolves aliases + splits the argument + flags unknown', () =
   assert.equal(sl.parseCommand('/daemons recursive live')?.rest, 'recursive live');
   assert.equal(sl.parseCommand('/abort')?.name, '/abort');
   assert.equal(sl.parseCommand('/add build it')?.name, '/task');
+  assert.equal(sl.parseCommand('/rename 勾股定理简证')?.rest, '勾股定理简证');
 });
 
 test('Ink keeps the supported command surface and removes manual lifecycle controls', () => {
   const required = [
     '/help', '/status', '/roles', '/journal', '/backlog', '/add', '/plan',
     '/stop', '/abort', '/done', '/note', '/nudge', '/run', '/daemons', '/attach',
-    '/resume', '/doctor', '/backend', '/config', '/identity', '/reset',
+    '/resume', '/rename', '/doctor', '/backend', '/config', '/identity', '/reset',
     '/skills', '/exit',
   ];
   for (const command of required) {

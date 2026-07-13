@@ -183,26 +183,32 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
 
 
 def _derive_session_name(text: str, *, limit: int = 48) -> str:
-    """Derive a short, human-readable session label from the first real task.
+    """Create a safe deterministic fallback label from the first real task.
 
-    Codex / Claude-Code name a session after its opening message. We mirror
-    that: take the first non-empty line, collapse whitespace, and truncate.
-    Naming is domain-agnostic plumbing (a picker label), so the harness may do
-    it deterministically — no agent judgment required.
+    The normal front-door path asks Manager to distill a concise semantic title.
+    This fallback guarantees a usable label when that cosmetic model output is
+    unavailable: take the first non-empty line, normalize it, and truncate.
     """
     for raw in (text or "").splitlines():
-        line = " ".join(raw.split()).strip()
+        line = " ".join(raw.split()).strip().strip("`\"'“”‘’")
+        line = line.rstrip("。.!！?？;；:：")
         if line:
             return line if len(line) <= limit else line[: limit - 1] + "…"
     return ""
 
 
-def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
+def _maybe_name_session(
+    chat_state: dict[str, Any],
+    task_text: str,
+    *,
+    suggested_name: str = "",
+) -> None:
     """Name the current session after its first real task (once, fail-soft).
 
     A resumed session keeps its original name (``session_named`` is already
     True). Only the first task in a freshly-minted, still-unnamed session sets
-    the display_name shown in the resume picker.
+    the display_name shown in the resume picker. Prefer Manager's concise title;
+    use the deterministic first-line label only when no title was produced.
     """
     if chat_state.get("session_named"):
         return
@@ -210,12 +216,19 @@ def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
     gr = chat_state.get("global_root")
     if not sid or gr is None:
         return
-    name = _derive_session_name(task_text)
-    if not name:
-        return
     try:
-        from ..core.session import touch_session
+        from ..core.session import read_session_meta, touch_session
 
+        persisted = read_session_meta(gr, sid)
+        if persisted is not None and persisted.display_name.strip():
+            chat_state["session_named"] = True
+            return
+        name = (
+            _derive_session_name(suggested_name, limit=32)
+            or _derive_session_name(task_text)
+        )
+        if not name:
+            return
         touch_session(gr, sid, display_name=name)
         chat_state["session_named"] = True
     except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task

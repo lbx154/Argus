@@ -959,8 +959,9 @@ class Manager:
         *,
         run_exec: Any = None,
         root_task_id: str | None = None,
+        name_sink: Any = None,
     ) -> Any:
-        """One fresh model call classifying config, control, and routing.
+        """One fresh model call classifying config, control, routing, and title.
 
         Same discipline as ``classify_config_intent``: built FRESH on the raw
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
@@ -995,7 +996,11 @@ class Manager:
                 )
 
         with self._task_usage_scope(root_task_id):
-            return classify_front_door(text, run_exec=run_exec)
+            return classify_front_door(
+                text,
+                run_exec=run_exec,
+                name_sink=name_sink,
+            )
 
     def route(
         self,

@@ -63,6 +63,23 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     assert meta.origin == "web"
 
 
+def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> None:
+    created = server.create_daemon(name="Existing name", global_root=tmp_path)
+    launch = tmp_path / "new-workspace"
+    launch.mkdir()
+
+    assert server.set_project_launch_cwd(
+        created["sid"],
+        str(launch),
+        global_root=tmp_path,
+    )
+
+    meta = read_session_meta(tmp_path, created["sid"])
+    assert meta is not None
+    assert meta.display_name == "Existing name"
+    assert meta.launch_cwd == str(launch.resolve())
+
+
 def test_web_context_defaults_launch_cwd_and_reports_it(
     tmp_path: Path, monkeypatch,
 ) -> None:

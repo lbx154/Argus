@@ -60,6 +60,7 @@ def manager_continuous_handoff(
     requested_objective: str,
     *,
     global_root: Path | str | None = None,
+    name_session: bool = False,
 ) -> str:
     """Atomically enable a Manager-authored continuous handoff."""
     from ..life.memory import MemoryBundle
@@ -73,6 +74,10 @@ def manager_continuous_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
+        if name_session:
+            from ..manager.config_intent import _front_door_classify
+
+            _front_door_classify(mem, requested_objective, chat_state)
         execution_objective = commit_handoff(mem, requested_objective, chat_state)
         chat_state.setdefault("config", {})["continuous"] = True
         chat_state["continuous_objective"] = execution_objective
@@ -107,6 +112,7 @@ def manager_bounded_handoff(
     *,
     global_root: Path | str | None = None,
     root_task_id: str | None = None,
+    name_session: bool = False,
 ) -> Any:
     """Commit Manager state and caller persistence under one pipeline lock."""
     from ..life.memory import MemoryBundle
@@ -120,6 +126,19 @@ def manager_bounded_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
+        if name_session:
+            from ..core.session import read_session_meta
+
+            meta = read_session_meta(mem.global_root, sid)
+            if meta is None or not meta.display_name.strip():
+                from ..manager.config_intent import _front_door_classify
+
+                _front_door_classify(
+                    mem,
+                    text,
+                    chat_state,
+                    root_task_id=root_task_id,
+                )
         return commit_handoff(
             mem,
             text,

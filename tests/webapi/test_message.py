@@ -647,6 +647,15 @@ def test_create_daemon_persists_only_manager_execution_handoff(
             objective=cfg.continuous_objective,
         ) or 0,
     )
+    def _name_from_front_door(mem, text, chat_state, **_kwargs):
+        front_door._maybe_name_session(
+            chat_state,
+            text,
+            suggested_name="MRAM paper",
+        )
+        return None, None, "complex"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", _name_from_front_door)
     raw = "write the MRAM paper; Manager owns the right sidebar"
 
     result = server.create_daemon(objective=raw, global_root=tmp_path)
@@ -656,8 +665,78 @@ def test_create_daemon_persists_only_manager_execution_handoff(
     session = json.loads((life_dir / "session.json").read_text())
     assert continuous["objective"] == "write the MRAM paper"
     assert session["objective"] == "write the MRAM paper"
+    assert session["display_name"] == "MRAM paper"
     assert spawned["objective"] == "write the MRAM paper"
     assert raw not in (life_dir / "continuous.json").read_text()
+
+
+def test_create_daemon_preserves_manual_rename_during_manager_handoff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "spawn_detached_daemon",
+        lambda *_args, **_kwargs: 0,
+    )
+
+    def _handoff(sid, objective, *, global_root=None, name_session=False):
+        assert name_session is True
+        renamed = server.update_project(
+            sid,
+            name="Operator title",
+            global_root=global_root,
+        )
+        assert renamed is not None
+        return "Manager-authored objective"
+
+    monkeypatch.setattr(manager_bridge, "manager_continuous_handoff", _handoff)
+
+    result = server.create_daemon(
+        objective="raw operator objective",
+        global_root=tmp_path,
+    )
+
+    session = json.loads(
+        (tmp_path / "projects" / result["sid"] / "session.json").read_text()
+    )
+    assert session["display_name"] == "Operator title"
+    assert session["objective"] == "Manager-authored objective"
+
+
+def test_create_daemon_normalizes_explicit_name(tmp_path: Path) -> None:
+    result = server.create_daemon(
+        name="  Concise\n  session   name  ",
+        global_root=tmp_path,
+    )
+    session = json.loads(
+        (tmp_path / "projects" / result["sid"] / "session.json").read_text()
+    )
+    assert session["display_name"] == "Concise session name"
+
+
+def test_direct_task_names_an_idle_session_from_its_first_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "spawn_detached_daemon",
+        lambda *_args, **_kwargs: 0,
+    )
+    created = server.create_daemon(global_root=tmp_path)
+
+    item = server.enqueue_task(
+        created["sid"],
+        "first direct task",
+        global_root=tmp_path,
+    )
+
+    assert item is not None
+    session = json.loads(
+        (tmp_path / "projects" / created["sid"] / "session.json").read_text()
+    )
+    assert session["display_name"].casefold() == "first direct task"
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:

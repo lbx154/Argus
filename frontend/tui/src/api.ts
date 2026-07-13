@@ -283,6 +283,17 @@ export class ApiClient {
     await ensureResponseOk(r, 'POST', path);
   }
 
+  async renameProject(name: string): Promise<{ ok: boolean; sid: string; name: string }> {
+    const path = this.p('');
+    const r = await fetch(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    await ensureResponseOk(r, 'PATCH', path);
+    return (await r.json()) as { ok: boolean; sid: string; name: string };
+  }
+
   async snapshot(eventsLimit = 1): Promise<Snapshot> {
     await this.meta();
     const r = await fetch(this.p(`/snapshot?compact=true&events_limit=${eventsLimit}`));

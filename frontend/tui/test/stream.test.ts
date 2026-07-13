@@ -269,6 +269,41 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
   }
 });
 
+test('Ink /rename patches the current session name', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = '';
+  let seenMethod = '';
+  let seenAuth = '';
+  let seenBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(input);
+    seenMethod = String(init?.method ?? 'GET');
+    seenAuth = new Headers(init?.headers).get('Authorization') ?? '';
+    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      ok: true,
+      sid: 's-test',
+      name: '勾股定理简证',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({
+      host: '127.0.0.1',
+      port: 8799,
+      project: 's-test',
+      token: 'secret',
+    });
+    const result = await api.renameProject('勾股定理简证');
+    assert.match(seenUrl, /\/api\/projects\/s-test$/);
+    assert.equal(seenMethod, 'PATCH');
+    assert.ok(seenAuth);
+    assert.deepEqual(seenBody, { name: '勾股定理简证' });
+    assert.equal(result.name, '勾股定理简证');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Ink /abort posts a control request instead of a backlog task', async () => {
   const originalFetch = globalThis.fetch;
   let seenUrl = '';
