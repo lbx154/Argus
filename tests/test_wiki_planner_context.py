@@ -67,6 +67,51 @@ def test_planner_prompt_surfaces_by_status_so_learned_pages_reach_planner(
     assert "grpo-async-clip" in prompt
 
 
+def test_planner_prompt_surfaces_recent_reviewed_run_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "sources" / "runs").mkdir(parents=True)
+    (wiki / "query_pack.md").write_text("# pack\n")
+
+    from argus_skill.wiki.schema import SourceRun
+    from argus_skill.wiki.store import WikiStore
+
+    WikiStore(wiki).write_source(SourceRun(
+        id="runs/m-reviewed",
+        mission_id="m-reviewed",
+        git_commit="",
+        project="demo",
+        config_path="",
+        dataset="",
+        metrics={},
+        artifacts={"research/RESULT.md": "reviewed theorem"},
+        outcome="success",
+        failure_signature="",
+        suspected_cause="",
+        next_action="Audit the general-rank extension.",
+        body="Reviewer reason: finite classification certified.",
+        closed_at="2026-07-13T14:00:00+00:00",
+    ))
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="",
+        planning_cycle=0,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "recent reviewed runs" in prompt
+    assert "m-reviewed" in prompt
+    assert "finite classification certified" in prompt
+    assert "Audit the general-rank extension." in prompt
+
+
 def test_planner_prompt_omits_wiki_block_when_absent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

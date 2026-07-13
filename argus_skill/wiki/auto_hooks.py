@@ -65,10 +65,12 @@ Design references
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..core.event_catalog import EventType
 
@@ -166,6 +168,136 @@ def _ingest_sources(
     return written
 
 
+def _write_run_source(
+    wiki_root: Path,
+    *,
+    mission_id: str,
+    task: str,
+    success: bool,
+    rounds: list[Any] | None,
+    emit: EventSink,
+) -> int:
+    """Persist one immutable reviewer-grounded RunCard at mission close."""
+    if not rounds:
+        return 0
+    review = next(
+        (
+            getattr(record, "review", None)
+            for record in reversed(rounds)
+            if getattr(record, "review", None) is not None
+        ),
+        None,
+    )
+    if review is None:
+        return 0
+
+    report = getattr(review, "planner_report", None) or {}
+    if not isinstance(report, dict):
+        report = {}
+    evidence_files = report.get("evidence_files") or []
+    artifacts = {
+        str(item.get("path") or "").strip(): str(item.get("why") or "").strip()
+        for item in evidence_files
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    }
+    forward_progress = report.get("forward_progress") is True
+    outcome = "success" if success else "partial" if forward_progress else "failure"
+    reason = str(getattr(review, "reason", "") or "").strip()
+    verification = str(
+        getattr(review, "verification_summary", "") or ""
+    ).strip()
+    math_result = getattr(review, "math_result", None)
+    body_parts = [f"Reviewer verdict: {getattr(review, 'status', '')}"]
+    if reason:
+        body_parts.append(f"Reviewer reason:\n{reason[:4000]}")
+    if verification:
+        body_parts.append(f"Verification:\n{verification[:4000]}")
+    if report:
+        body_parts.append(
+            "Planner report:\n"
+            + json.dumps(
+                report,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )[:8000]
+        )
+    if isinstance(math_result, dict) and math_result:
+        body_parts.append(
+            "Math result:\n"
+            + json.dumps(
+                math_result,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )[:8000]
+        )
+    body_parts.append(f"Task:\n{task.strip()[:4000]}")
+
+    from .schema import SourceRun
+    from .store import WikiStore
+
+    source = SourceRun(
+        id=f"runs/{mission_id}",
+        mission_id=mission_id,
+        git_commit="",
+        project=wiki_root.parent.name,
+        config_path="",
+        dataset="",
+        metrics={},
+        artifacts=artifacts,
+        outcome=outcome,
+        failure_signature=(
+            str(getattr(review, "failure_cause", "") or reason).strip()[:1000]
+            if not success
+            else ""
+        ),
+        suspected_cause=str(report.get("blocker") or "").strip()[:1000],
+        next_action=str(
+            getattr(review, "next_action", "")
+            or report.get("recommended_next")
+            or ""
+        ).strip()[:2000],
+        body="\n\n".join(body_parts),
+        closed_at=datetime.now(timezone.utc).isoformat(),
+    )
+    try:
+        path = WikiStore(wiki_root).write_source(source)
+    except FileExistsError:
+        return 0
+    except Exception as exc:  # noqa: BLE001 - wiki maintenance is fail-open
+        log.warning(
+            "wiki run-source write failed for %s (%s: %s)",
+            mission_id,
+            type(exc).__name__,
+            exc,
+        )
+        if emit is not None:
+            try:
+                emit({
+                    "type": EventType.WIKI_HOOK_WARNING,
+                    "operation": "write_run_source",
+                    "mission_id": mission_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "text": f"write_run_source: {type(exc).__name__}: {exc}",
+                })
+            except Exception:  # noqa: BLE001
+                log.debug("wiki run-source warning emit failed", exc_info=True)
+        return 0
+    if emit is not None:
+        try:
+            emit({
+                "type": EventType.WIKI_SOURCE_CREATED,
+                "source_id": source.id,
+                "path": str(path),
+                "mission_id": mission_id,
+                "text": f"recorded immutable wiki run source {source.id}",
+            })
+        except Exception:  # noqa: BLE001
+            log.debug("wiki run-source emit failed", exc_info=True)
+    return 1
+
+
 def _mechanical_scratch_lift(wiki_root: Path, *, mission_id: str, emit: EventSink) -> int:
     """Step 2 mechanical: for every sources/papers/<key>.md without a
     matching pages/techniques/<key>.md, create a scratch technique card.
@@ -246,6 +378,8 @@ def run_post_mission_hooks(
     *,
     mission_id: str,
     success: bool,
+    task: str = "",
+    rounds: list[Any] | None = None,
     emit: EventSink = None,
 ) -> dict:
     """Run all wiki auto-hooks after a mission close.
@@ -253,22 +387,30 @@ def run_post_mission_hooks(
     Returns a summary dict ``{wiki_path: {sources_written, scratch_written}}``
     so callers can log a single line summary. Never raises.
 
-    ``success`` is currently informational only; the same mechanics run
-    on both success and failure, because raw evidence + scratch lift
-    should accumulate regardless of verdict (SkillEvolBench: keep raw
-    trajectory even when distillation is shaky).
+    The same mechanics run on both success and failure because reviewed raw
+    trajectories remain useful evidence; ``success`` classifies the immutable
+    RunCard outcome rather than gating capture.
     """
     summary: dict = {}
     wikis = discover_wikis(workdir)
     if not wikis:
         return summary
     for wiki_root in wikis:
-        s_written = _ingest_sources(
+        run_written = _write_run_source(
+            wiki_root,
+            mission_id=mission_id,
+            task=task,
+            success=success,
+            rounds=rounds,
+            emit=emit,
+        )
+        paper_sources_written = _ingest_sources(
             wiki_root,
             source_root=workdir,
             mission_id=mission_id,
             emit=emit,
         )
+        s_written = run_written + paper_sources_written
         t_written = _mechanical_scratch_lift(
             wiki_root, mission_id=mission_id, emit=emit
         )

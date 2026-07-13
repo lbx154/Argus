@@ -581,6 +581,38 @@ class Planner:
                     if qf.exists():
                         parts.append(f"#### queries/{name}\n")
                         parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
+                runs_dir = wiki_root / "sources" / "runs"
+                run_cards: list[tuple[str, float, Any]] = []
+                if runs_dir.exists():
+                    from ..wiki.schema import SourceRun, parse_frontmatter
+
+                    for run_path in runs_dir.glob("*.md"):
+                        try:
+                            run = parse_frontmatter(
+                                run_path.read_text(encoding="utf-8"),
+                                SourceRun,
+                            )
+                            run_cards.append(
+                                (
+                                    run.closed_at,
+                                    run_path.stat().st_mtime,
+                                    run,
+                                )
+                            )
+                        except Exception:  # noqa: BLE001 - one bad card is isolated
+                            continue
+                    run_cards.sort(key=lambda row: (row[0], row[1]))
+                if run_cards:
+                    parts.append("#### recent reviewed runs\n")
+                    for _closed_at, _mtime, run in reversed(run_cards[-3:]):
+                        excerpt = " ".join(run.body.split())[:500]
+                        parts.append(
+                            f"- `{run.mission_id}` outcome={run.outcome}; "
+                            f"next={run.next_action or '(none)'}\n"
+                        )
+                        if excerpt:
+                            parts.append(f"  {excerpt}\n")
+                    parts.append("\n")
             parts.append(
                 "If backlog is empty, you MAY use the stale watchlist or open "
                 "contradictions to seed an `idea-creator` mission. Read-only: "

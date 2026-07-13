@@ -164,6 +164,8 @@ def evolve_wikis_after_mission(
         workdir,
         mission_id=mission_id,
         success=success,
+        task=task,
+        rounds=rounds,
         emit=on_event,
     )
     totals: dict[str, Any] = {
@@ -260,6 +262,8 @@ def evolve_wikis_after_mission(
             **totals,
             "text": (
                 "wiki evolution: "
+                f"{totals['sources']} sources, "
+                f"{totals['scratch_pages']} scratch pages, "
                 f"{totals['created']} created, {totals['updated']} updated, "
                 f"{totals['retired']} retired, {totals['promoted']} promoted"
             ),

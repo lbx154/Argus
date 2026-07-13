@@ -89,6 +89,7 @@ class SourceRun:
     suspected_cause: str
     next_action: str
     body: str
+    closed_at: str = ""
 
     def __post_init__(self) -> None:
         if self.outcome not in _VALID_OUTCOMES:
