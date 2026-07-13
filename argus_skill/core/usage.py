@@ -491,9 +491,44 @@ class UsageLedger:
         updated = 0
         with self._locked():
             rows = _read_usage_json_rows(self.path)
-            used_db_rows: set[tuple[str, int]] = set()
+            not_billed = {
+                "input_tokens": None,
+                "cached_input_tokens": None,
+                "cache_write_tokens": None,
+                "output_tokens": None,
+                "reasoning_output_tokens": None,
+                "premium_requests": None,
+                "premium_request_cost_usd": 0.0,
+                "total_nano_aiu": None,
+                "model_usage": [],
+                "cost_usd": 0.0,
+                "cost_basis": "none",
+                "pricing_status": "not_billed",
+                "pricing_tier": "not_started",
+            }
+            for row in rows:
+                if (
+                    str(row.get("provider") or "").lower() == "copilot"
+                    and str(row.get("status") or "").lower() == "denied"
+                    and any(row.get(key) != value for key, value in not_billed.items())
+                ):
+                    row.update(not_billed)
+                    updated += 1
+
+            used_usage_events = {
+                (str(item.get("session_id") or ""), event_id)
+                for row in rows
+                for item in _normalize_model_usage(row.get("model_usage"))
+                if (event_id := _optional_int(item.get("usage_event_id"))) is not None
+                and str(item.get("session_id") or "")
+            }
             for row in rows:
                 if str(row.get("provider") or "").lower() != "copilot":
+                    continue
+                if (
+                    str(row.get("status") or "").lower() == "denied"
+                    or str(row.get("pricing_status") or "").lower() == "not_billed"
+                ):
                     continue
                 if _optional_int(row.get("total_nano_aiu")) is not None:
                     continue
@@ -508,17 +543,17 @@ class UsageLedger:
                 )
                 if found is None:
                     continue
-                db_path, usage = found
+                _db_path, usage = found
                 available = tuple(
                     item
                     for item in usage.rows
-                    if (str(db_path), item.row_id) not in used_db_rows
+                    if (item.session_id, item.row_id) not in used_usage_events
                 )
                 if not available or (session_id is None and len(available) != 1):
                     continue
                 usage = type(usage)(available)
                 for item in available:
-                    used_db_rows.add((str(db_path), item.row_id))
+                    used_usage_events.add((item.session_id, item.row_id))
                 previous_cost = _optional_float(row.get("cost_usd"))
                 if row.get("premium_request_cost_usd") is None:
                     row["premium_request_cost_usd"] = previous_cost

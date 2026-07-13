@@ -52,11 +52,22 @@ def _breach_blocks_call(
     *,
     provider: str,
     project_id: str,
+    control_plane: bool,
 ) -> bool:
     if str(breach.get("provider") or "") != str(provider or ""):
         return False
     breach_project_id = str(breach.get("project_id") or "")
-    return not breach_project_id or breach_project_id == project_id
+    if not breach_project_id:
+        return True
+    if breach_project_id != project_id:
+        return False
+    breach_is_control_plane = bool(breach.get("control_plane")) or (
+        _is_control_plane_call(str(breach.get("run_label") or ""))
+    )
+    # A bounded Manager/front-door overrun must not stop an independent mission.
+    # Mission-call overruns remain provider-wide because they can exhaust the
+    # substantive workload's budget directly.
+    return control_plane if breach_is_control_plane else True
 
 
 class CostControlStateError(RuntimeError):
@@ -476,6 +487,7 @@ def reserve_call_budget(
                         row,
                         provider=provider,
                         project_id=project.name if project is not None else "",
+                        control_plane=control_plane,
                     )
                 ),
                 None,
@@ -731,6 +743,7 @@ def _close_reservation(
                         "provider": record.provider,
                         "model": record.model,
                         "run_label": record.run_label,
+                        "control_plane": _is_control_plane_call(record.run_label),
                         "amount_usd": reservation.amount_usd,
                         "cost_usd": record.cost_usd,
                         "overrun_usd": overrun,
@@ -870,6 +883,7 @@ def cost_control_snapshot(
                     "provider",
                     "model",
                     "run_label",
+                    "control_plane",
                     "amount_usd",
                     "cost_usd",
                     "overrun_usd",

@@ -535,6 +535,73 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
     assert "budget.fence_breach.blocked" in {row["type"] for row in audit}
 
 
+def test_control_plane_overrun_does_not_block_mission_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_FENCE_BREACH_POLICY", "block")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="manager-overrun",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert reservation is not None and reason == ""
+    assert reservation.amount_usd == pytest.approx(1.0)
+    record = replace(
+        _record(project, "manager-overrun"),
+        provider="copilot",
+        run_label="simple-1",
+        cost_usd=1.25,
+    )
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    blocked, reason = reserve_call_budget(
+        call_id="manager-follow-up",
+        project_root=project,
+        mission_id="manager-turn-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert blocked is None
+    assert "cooling down after budget fence breach" in reason
+
+    mission, reason = reserve_call_budget(
+        call_id="reviewer-still-allowed",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert mission is not None and reason == ""
+    mission.release(reason="test")
+    breach = cost_control_snapshot(global_root=tmp_path)["fence_breaches"][0]
+    assert breach["control_plane"] is True
+
+
 def test_fence_breach_policy_can_explicitly_allow_follow_up(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

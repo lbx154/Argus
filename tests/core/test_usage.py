@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -383,6 +384,117 @@ def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
     record = UsageLedger(project).records()[0]
     assert record.pricing_tier == "copilot_token"
     assert record.premium_request_cost_usd == pytest.approx(0.04)
+
+
+def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copilot_home = tmp_path / "copilot"
+    copilot_home.mkdir()
+    monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+    with sqlite3.connect(copilot_home / "session-store.db") as conn:
+        conn.execute(
+            """
+            CREATE TABLE assistant_usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                turn_index INTEGER,
+                model TEXT NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_read_tokens INTEGER,
+                cache_write_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                total_nano_aiu INTEGER,
+                request_multiplier REAL,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO assistant_usage_events (
+                session_id, turn_index, model, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                total_nano_aiu, request_multiplier, created_at
+            ) VALUES ('session-1', 0, 'gpt-5.6-sol', 1000, 100, 0, 0, 0,
+                      8000000000, 1.0, '2026-07-11T09:59:25.919Z')
+            """
+        )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    ledger = UsageLedger(project, migrate_legacy=False)
+    first = UsageRecord(
+        call_id="completed",
+        project_id="p1",
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        started_at=1_783_763_961.9,
+        completed_at=1_783_763_965.95,
+        status="completed",
+        input_tokens=None,
+        cached_input_tokens=None,
+        output_tokens=None,
+        reasoning_output_tokens=None,
+        premium_requests=1.0,
+        pricing_status="partial",
+        pricing_tier="premium_request_only",
+        cost_usd=None,
+        cost_basis="none",
+    )
+    ledger.append(first)
+    assert UsageLedger(project).records()[0].cost_usd == pytest.approx(0.08)
+
+    second = build_usage_record(
+        call_id="denied",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        started_at=1_783_763_965.96,
+        completed_at=1_783_763_965.97,
+        status="denied",
+        error="provider copilot is cooling down after budget fence breach",
+    )
+    ledger.append(second)
+    rows = [
+        json.loads(line)
+        for line in ledger.path.read_text(encoding="utf-8").splitlines()
+    ]
+    rows[-1].update(
+        {
+            "input_tokens": 1_000,
+            "output_tokens": 100,
+            "total_nano_aiu": 8_000_000_000,
+            "model_usage": rows[0]["model_usage"],
+            "cost_usd": 0.08,
+            "cost_basis": "token",
+            "pricing_status": "priced",
+            "pricing_tier": "copilot_token",
+        }
+    )
+    ledger.path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    records = UsageLedger(project).records()
+    completed, denied = records
+    assert completed.cost_usd == pytest.approx(0.08)
+    assert denied.pricing_status == "not_billed"
+    assert denied.cost_usd == 0.0
+    assert denied.input_tokens is None
+    assert denied.model_usage == ()
+
+    third = replace(first, call_id="second-completed")
+    ledger.append(third)
+    records = UsageLedger(project).records()
+    assert records[-1].total_nano_aiu is None
+    assert records[-1].pricing_status == "partial"
 
 
 def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
