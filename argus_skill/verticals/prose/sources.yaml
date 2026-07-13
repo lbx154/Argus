@@ -1,0 +1,49 @@
+# Source registry for prose — two layers (providers + items).
+# Same shared contract. Honest status: nothing ingested; prose (esp. memoir) rides
+# the operator's own material, which is exactly why the memory_boundary matters.
+
+allowed_use_vocabulary:
+  - query_only
+  - human_research
+  - evidence_citation
+  - local_indexing
+  - model_training
+  - redistribution
+
+providers:
+  - id: operator_material
+    name: Operator-provided facts / memories / notes
+    access_mode: internal
+    provider_terms_reviewed: false
+    notes: "The writer's own material for a memoir/essay; not to be embellished."
+  - id: public_prose
+    name: Public-domain / openly-licensed essays
+    access_mode: public_web
+    provider_terms_reviewed: false
+    notes: "Technique reference only; per-work rights verified."
+
+items:
+  - id: operator_source_material
+    provider: operator_material
+    title: "(per-task) operator-provided facts and memories"
+    language: zh
+    period: contemporary
+    genres: [prose]
+    jurisdiction_basis: "the operator's own material"
+    rights_status: pending_review
+    allowed_uses: [human_research, evidence_citation]
+    prohibited_uses: [model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: public_essay_reference
+    provider: public_prose
+    title: "(placeholder) public-domain essay technique reference"
+    language: en
+    period: modern
+    genres: [prose]
+    jurisdiction_basis: "public domain by age; per-edition verified"
+    rights_status: pending_review
+    allowed_uses: [human_research]
+    prohibited_uses: [model_training, redistribution, local_indexing]
+    checksum: null
+    ingested: false

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "argus://literary/artifact_manifest.schema.json",
+  "title": "artifact_manifest",
+  "description": "Shared creative-artifact version & lineage record for one authoring mission. Every literary vertical (fiction, poetry, prose, editor) records the artifacts it produces (brief, plan, draft, state, review, revision, final, ...) as a DAG: each artifact names its `parent_artifact_ids` (what it was derived from) and optionally the artifact it `supersedes` (the earlier version it replaces). This is what makes provenance auditable — which draft and which review a `final` deliverable descends from — and version history explicit. `kind` is a free string validated against a PER-VERTICAL vocabulary by literary.artifact_manifest, never hardcoded here. Semantic invariants the schema cannot express (unique ids, parent/supersedes existence, acyclicity, supersedes<->superseded coherence) are enforced by validate_manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "artifacts"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_id", "kind", "version", "producer_stage", "content_path", "status"],
+        "properties": {
+          "artifact_id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "version": {"type": "integer", "minimum": 1},
+          "producer_stage": {"type": "string", "minLength": 1},
+          "content_path": {"type": "string", "minLength": 1},
+          "parent_artifact_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "constraint_refs": {"type": "array", "items": {"type": "string"}},
+          "source_refs": {"type": "array", "items": {"type": "string"}},
+          "change_reason": {"type": "string"},
+          "supersedes": {"type": ["string", "null"]},
+          "status": {"type": "string", "enum": ["active", "superseded", "final", "rejected"]}
+        }
+      }
+    }
+  }
+}

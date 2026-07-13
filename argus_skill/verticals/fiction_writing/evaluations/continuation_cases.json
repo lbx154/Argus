@@ -1,0 +1,78 @@
+{
+  "_comment": "Continuation-consistency eval cases for fiction_writing. Each case builds a prior story_state by folding setup_patches through state.apply_patch (guaranteeing a schema-valid state), then presents a draft the reviewer SHOULD flag. expected_finding_types come from the continuity vocabulary in references/shared/narrative-craft.md. The SEMANTIC check (does the reviewer LLM catch it) is a P3 live eval; this file + test_fiction_writing_scenarios.py only assert the fixtures are well-formed and the setup is sound.",
+  "continuity_vocabulary": [
+    "status", "knowledge", "item_location", "co_location", "timeline",
+    "world_rule", "motivation", "foreshadowing", "viewpoint", "language"
+  ],
+  "cases": [
+    {
+      "id": "dead_character_returns_zh",
+      "language": "zh",
+      "setup_patches": [
+        {
+          "patch_id": "s1",
+          "language": "zh",
+          "ops": [
+            {"op": "add_character", "id": "c_mu", "value": {"name": "母亲"}},
+            {"op": "update_character", "id": "c_mu", "set": {"status": "dead"}}
+          ]
+        }
+      ],
+      "draft": "母亲从厨房走出来，笑着说：饭好了。",
+      "expected_finding_types": ["status"],
+      "rationale": "c_mu.status=dead but she acts on-stage with no explained return."
+    },
+    {
+      "id": "impossible_knowledge_zh",
+      "language": "zh",
+      "setup_patches": [
+        {
+          "patch_id": "s1",
+          "language": "zh",
+          "ops": [
+            {"op": "add_character", "id": "c_lin", "value": {"name": "林"}},
+            {"op": "add_open_thread", "value": {"id": "th_secret", "statement": "父亲让钟慢四分钟的秘密"}}
+          ]
+        }
+      ],
+      "draft": "林一进门就说：我知道你让全城的钟都慢了四分钟。",
+      "expected_finding_types": ["knowledge"],
+      "rationale": "c_lin.knows is empty and never learned the secret on-page."
+    },
+    {
+      "id": "item_teleport_en",
+      "language": "en",
+      "setup_patches": [
+        {
+          "patch_id": "s1",
+          "language": "en",
+          "ops": [
+            {"op": "add_character", "id": "c_a", "value": {"name": "Ana"}},
+            {"op": "add_character", "id": "c_b", "value": {"name": "Ben"}},
+            {"op": "add_item", "id": "i_key", "value": {"name": "brass key", "holder": "c_a"}}
+          ]
+        }
+      ],
+      "draft": "Ben pulled the brass key from his own pocket and unlocked the door.",
+      "expected_finding_types": ["item_location"],
+      "rationale": "i_key.holder=c_a; Ben holds it with no on-page move_item."
+    },
+    {
+      "id": "language_drift_en_to_zh",
+      "language": "en",
+      "setup_patches": [
+        {
+          "patch_id": "s1",
+          "language": "en",
+          "ops": [
+            {"op": "set_meta", "set": {"title": "The Clock"}},
+            {"op": "add_character", "id": "c_a", "value": {"name": "Ana"}}
+          ]
+        }
+      ],
+      "draft": "安娜抬头看着钟楼，心里五味杂陈。",
+      "expected_finding_types": ["language"],
+      "rationale": "The work's language is en; the continuation drifted into zh."
+    }
+  ]
+}

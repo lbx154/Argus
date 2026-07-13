@@ -1,0 +1,52 @@
+# Source registry for classical_poetry — two layers (providers + items).
+#
+# Same shared contract as fiction's registry (literary.source_registry): rights
+# are per work/edition; allowed_uses draw from allowed_use_vocabulary. Honest
+# status: the Tang corpus is NOT ingested (scaffold); the 平水韵 lexical table IS
+# ingested (rights-neutral rhyme categories, pinned by version).
+
+allowed_use_vocabulary:
+  - query_only
+  - human_research
+  - evidence_citation
+  - local_indexing
+  - model_training
+  - redistribution
+
+providers:
+  - id: quantangshi
+    name: 全唐诗 (public-domain Tang poetry corpus)
+    access_mode: public_web
+    provider_terms_reviewed: false
+    notes: "Public-domain classical corpus; per-edition rights still verified."
+  - id: pingshui_ref
+    name: 平水韵 rhyme table (migrated lexical reference)
+    access_mode: internal
+    provider_terms_reviewed: true
+    notes: "Rhyme-category lookup table; a lexical reference, not a poem corpus."
+
+items:
+  - id: quantangshi_corpus
+    provider: quantangshi
+    title: "全唐诗 (selected editions)"
+    language: zh
+    period: "唐"
+    genres: [classical_poetry]
+    jurisdiction_basis: "public domain by age; per-edition transcription rights TBD"
+    rights_status: pending_review
+    allowed_uses: [human_research, evidence_citation]
+    prohibited_uses: [model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: pingshui_rhyme_table
+    provider: pingshui_ref
+    title: "平水韵字表 (rhyme categories, lexical reference)"
+    language: zh
+    period: classical
+    genres: [reference]
+    jurisdiction_basis: "rhyme-category lexical data; rights-neutral reference"
+    rights_status: cleared
+    allowed_uses: [query_only, human_research, local_indexing]
+    prohibited_uses: [redistribution]
+    checksum: "pingshui-v1"
+    ingested: true

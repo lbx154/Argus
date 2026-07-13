@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "argus://literary/task_envelope.schema.json",
+  "title": "task_envelope",
+  "description": "Cross-vertical creative-authoring task contract. The single intake artifact every literary vertical (fiction, poetry, prose, editor) normalizes a raw operator request into BEFORE planning. Vertical-agnostic: `form` and `genre_profile` are free strings each vertical interprets itself; `mode` is a CLOSED enum of authoring task types. Semantic rules the schema cannot express (e.g. an editing mode requires a source reference) live in literary.task_envelope.normalize_envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "mode", "language", "form", "intent"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "mode": {
+      "type": "string",
+      "enum": ["from_scratch", "continuation", "outline", "rewrite", "expand",
+               "polish", "proofread", "critique", "research_assisted"]
+    },
+    "language": {"type": "string", "enum": ["zh", "en"]},
+    "form": {"type": "string", "minLength": 1},
+    "genre_profile": {"type": "string"},
+    "intent": {"type": "string", "minLength": 1},
+    "audience": {"type": "string"},
+    "target_length": {"type": ["integer", "null"], "minimum": 0},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "reference_inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "ref"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["source_text", "prior_state", "style_reference", "research_source"]
+          },
+          "ref": {"type": "string", "minLength": 1},
+          "language": {"type": "string", "enum": ["zh", "en"]}
+        }
+      }
+    },
+    "retrieval_policy": {"type": "string", "enum": ["none", "query_only", "cite_required"]},
+    "output_requirements": {"type": "object"}
+  }
+}

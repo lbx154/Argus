@@ -67,7 +67,8 @@ log = logging.getLogger(__name__)
 VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
-    "learning", "ale_last_exam",
+    "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
+    "modern_poetry", "prose", "literary_editor",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -96,6 +97,29 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "libraries (produce a change plan: create/update/archive skills)",
     "ale_last_exam": "complete one Agents' Last Exam long-horizon professional "
     "workflow in a real computer sandbox; hidden-reference, artifact-first GUI+CLI delivery",
+    "fiction_writing": "creative FICTION authoring (zh/en) — write a short story or "
+    "chapter from a brief, OR continue an existing work, holding characters/world/"
+    "timeline consistent via a structured story_state; intake→plan→draft→state_update"
+    "→review→revise. NOT a research paper and NOT a 'literature review' — this "
+    "produces original narrative prose, not a survey of prior work",
+    "classical_poetry": "classical CHINESE poetry (近体诗/古体/词) — compose or "
+    "prosody-check 律诗/绝句/五言/七言; gates the poem on a reproducible machine "
+    "prosody check (押韵/平仄/粘对/孤平/三平尾 via 平水韵) plus live-reviewer 立意/炼字/"
+    "反AI. zh only; NOT modern free verse (route that to modern_poetry) and NOT prose",
+    "modern_poetry": "modern FREE VERSE / prose poems (zh or en) — compose or revise; "
+    "NO 平仄/韵 machine check (free verse is not classical). Gates only DECLARED hard "
+    "constraints (language/line-count/banned-words); imagery/lineation/tone are "
+    "live-reviewer craft. NOT classical regulated verse and NOT narrative prose",
+    "prose": "literary PROSE (抒情/叙事散文/随笔/回忆, zh or en) — compose or revise an "
+    "essay/memoir. Machine layer is thin: prose_state structure completeness + declared "
+    "hard constraints (language/paragraph-count/banned-words). Concrete observation, the "
+    "fact/memory boundary, and paragraph movement are live-reviewer. NOT verse and NOT "
+    "plot-driven fiction",
+    "literary_editor": "EDIT an existing literary text — rewrite/expand/polish/proofread/"
+    "critique. Reuses the Reviewer + revise capability (no new agent). Machine layer is "
+    "edit DISCIPLINE (critique doesn't rewrite, proofread doesn't become a rewrite, expand "
+    "adds, must-keep segments survive); edit quality and fact-fidelity are live-reviewer. "
+    "Requires a source text; NOT from-scratch authoring",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
