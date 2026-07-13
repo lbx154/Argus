@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome
+from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .reviewer import Reviewer, ReviewerConfig
@@ -747,6 +747,19 @@ class SkillLoop:
                 emit=self.on_event,
             )
 
+        def capture_reviewed_round(record: RoundRecord) -> None:
+            if not self.config.wiki_ops_enabled:
+                return
+            from .wiki.lifecycle import capture_reviewed_round as _capture
+
+            _capture(
+                record=record,
+                workdir=workdir,
+                task=skill_task,
+                mission_id=run_id,
+                on_event=self.on_event,
+            )
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -768,6 +781,7 @@ class SkillLoop:
             scope=scope,
             per_mission_budget=per_mission_budget,
             prepare_review_context=prepare_review_context,
+            review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
         )
 

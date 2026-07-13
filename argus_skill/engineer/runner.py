@@ -960,6 +960,7 @@ class SupervisedEngineer:
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
         prepare_review_context: Callable[[], None] | None = None,
+        review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
@@ -1885,13 +1886,19 @@ class SupervisedEngineer:
                     round_max=supervised_config.max_rounds,
                     text=f"review: {review.status} — {review.reason}",
                 ))
-            rounds.append(RoundRecord(
+            record = RoundRecord(
                 round_index=round_index,
                 engineer_message=engineer_message,
                 engineer_exit_code=engineer_result.exit_code,
                 review=review,
                 fatal_error=engineer_result.fatal_error,
-            ))
+            )
+            rounds.append(record)
+            if review_completed_hook is not None:
+                try:
+                    review_completed_hook(record)
+                except Exception:  # noqa: BLE001 - memory capture never owns verdict
+                    log.warning("review completion hook failed", exc_info=True)
 
             terminal_status, reason = self._classify(
                 review=review,

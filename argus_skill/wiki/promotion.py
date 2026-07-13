@@ -148,18 +148,39 @@ def _index_run_references(wiki_root: Path) -> dict[str, list[tuple[str, str]]]:
         return {}
 
     page_slugs = [p.stem for p in pages_dir.rglob("*.md")]
-    refs: dict[str, list[tuple[str, str]]] = {slug: [] for slug in page_slugs}
+    refs_by_mission: dict[
+        str,
+        dict[str, tuple[tuple[str, float], str, str]],
+    ] = {slug: {} for slug in page_slugs}
 
     for run_path in sorted(runs_dir.glob("*.md")):
         try:
-            body = run_path.read_text(encoding="utf-8").lower()
+            text = run_path.read_text(encoding="utf-8")
+            body = text.lower()
         except OSError:
             continue
+        split = _split_frontmatter(text)
+        frontmatter = split[0] if split is not None else {}
+        mission_id = str(frontmatter.get("mission_id") or run_path.stem)
+        closed_at = str(frontmatter.get("closed_at") or "")
+        order = (closed_at, run_path.stat().st_mtime)
         outcome = _parse_run_outcome(run_path)
         for slug in page_slugs:
             if slug.lower() in body:
-                refs[slug].append((run_path.stem, outcome))
-    return refs
+                previous = refs_by_mission[slug].get(mission_id)
+                if previous is None or order >= previous[0]:
+                    refs_by_mission[slug][mission_id] = (
+                        order,
+                        run_path.stem,
+                        outcome,
+                    )
+    return {
+        slug: [
+            (run_stem, outcome)
+            for _order, run_stem, outcome in sorted(by_mission.values())
+        ]
+        for slug, by_mission in refs_by_mission.items()
+    }
 
 
 def _decide_transition(

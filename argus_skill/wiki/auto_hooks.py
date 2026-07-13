@@ -172,6 +172,7 @@ def _write_run_source(
     wiki_root: Path,
     *,
     mission_id: str,
+    source_id: str | None = None,
     task: str,
     success: bool,
     rounds: list[Any] | None,
@@ -179,6 +180,10 @@ def _write_run_source(
 ) -> int:
     """Persist one immutable reviewer-grounded RunCard at mission close."""
     if not rounds:
+        return 0
+    if source_id is None and any(
+        (wiki_root / "sources" / "runs").glob(f"{mission_id}-r*.md")
+    ):
         return 0
     review = next(
         (
@@ -189,6 +194,8 @@ def _write_run_source(
         None,
     )
     if review is None:
+        return 0
+    if getattr(review, "backend_unavailable", False):
         return 0
 
     report = getattr(review, "planner_report", None) or {}
@@ -238,7 +245,7 @@ def _write_run_source(
     from .store import WikiStore
 
     source = SourceRun(
-        id=f"runs/{mission_id}",
+        id=f"runs/{source_id or mission_id}",
         mission_id=mission_id,
         git_commit="",
         project=wiki_root.parent.name,

@@ -602,6 +602,13 @@ class Planner:
                         except Exception:  # noqa: BLE001 - one bad card is isolated
                             continue
                     run_cards.sort(key=lambda row: (row[0], row[1]))
+                    latest_by_mission = {
+                        row[2].mission_id: row for row in run_cards
+                    }
+                    run_cards = sorted(
+                        latest_by_mission.values(),
+                        key=lambda row: (row[0], row[1]),
+                    )
                 if run_cards:
                     parts.append("#### recent reviewed runs\n")
                     for _closed_at, _mtime, run in reversed(run_cards[-3:]):
