@@ -11,6 +11,7 @@ import { PendingBanner } from './components/PendingBanner';
 import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
+import { BackendHandshake } from './components/BackendHandshake';
 import { TAGLINE } from './lib/soul';
 import { rankProjects, reconcileProjectSelection, resolveProjectSelection } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
@@ -93,16 +94,18 @@ function Landing({
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      <Wordmark size={32} tag={TAGLINE} />
-      <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
-        {error
-          ? error
-          : loading
-          ? 'Connecting to the Argus service…'
-          : hasProjects
-          ? 'Select a session from the sidebar, or create a new one.'
-          : 'No sessions yet. Create one to begin.'}
-      </p>
+      {loading ? <BackendHandshake /> : (
+        <>
+          <Wordmark size={32} tag={TAGLINE} />
+          <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
+            {error
+              ? error
+              : hasProjects
+              ? 'Select a session from the sidebar, or create a new one.'
+              : 'No sessions yet. Create one to begin.'}
+          </p>
+        </>
+      )}
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">
           {error ? (
