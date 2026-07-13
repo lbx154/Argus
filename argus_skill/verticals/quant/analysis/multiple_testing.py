@@ -151,6 +151,36 @@ def haircut_sharpe(*, observed_sharpe: float, n_trials: int) -> float:
     return float(observed_sharpe / math.sqrt(math.log(n_trials)))
 
 
+def effective_num_trials(scores: np.ndarray) -> float:
+    """Effective number of *independent* trials from a candidate score matrix.
+
+    When a model/factor search evaluates many correlated candidates, counting
+    raw trials over-penalises: two near-identical models are ~one independent
+    look. Given ``scores`` shaped ``(n_obs, n_candidates)`` (each column a
+    candidate's prediction/return series), returns the participation-ratio of the
+    correlation matrix eigenvalues, ``(Σλ)² / Σλ²`` — 1 when all candidates are
+    perfectly correlated, ``n_candidates`` when orthogonal. Feed this (not the raw
+    count) as ``n_trials`` to :func:`deflated_sharpe_ratio` / :func:`haircut_sharpe`
+    so the multiple-testing haircut reflects the search's real breadth.
+    """
+    S = np.asarray(scores, dtype=float)
+    if S.ndim != 2 or S.shape[1] < 1:
+        raise ValueError("scores must be (n_obs, n_candidates)")
+    if S.shape[1] == 1:
+        return 1.0
+    # correlation across candidates, NaN-robust
+    S = S - np.nanmean(S, axis=0, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.corrcoef(np.nan_to_num(S, nan=0.0), rowvar=False)
+    corr = np.nan_to_num(corr, nan=0.0)
+    eig = np.linalg.eigvalsh(corr)
+    eig = np.clip(eig, 0.0, None)
+    denom = float((eig ** 2).sum())
+    if denom <= 0:
+        return float(S.shape[1])
+    return float((eig.sum() ** 2) / denom)
+
+
 def bh_fdr(p_values: Sequence[float], *, alpha: float = 0.05) -> np.ndarray:
     """Benjamini-Hochberg FDR control. Returns a boolean rejection mask.
 

@@ -69,6 +69,7 @@ class BacktestResult:
     config_hash: str = ""
     warnings: Sequence[str] = field(default_factory=tuple)
     error: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -87,7 +88,7 @@ class BacktestEngine(Protocol):
 
 def _result_payload(spec: BacktestSpec, result: BacktestResult) -> dict[str, Any]:
     """Flatten a spec+result into a ledger row payload (audit-complete)."""
-    return {
+    payload = {
         "run_id": spec.run_id,
         "factor_ids": list(spec.factor_ids),
         "weighting": spec.weighting,
@@ -104,6 +105,24 @@ def _result_payload(spec: BacktestSpec, result: BacktestResult) -> dict[str, Any
         "warnings": list(result.warnings),
         "error": result.error,
     }
+    metadata = dict(result.metadata)
+    payload["metadata"] = metadata
+    for key in (
+        "candidate_id",
+        "decision",
+        "cost_model_id",
+        "net_of_cost",
+        "buy_cost_bps",
+        "sell_cost_bps",
+        "minimum_trade_cost_cny",
+        "slippage_bps_per_side",
+        "limit_up_down_nontradable",
+        "suspended_or_missing_bar_nontradable",
+        "next_bar_execution_required",
+    ):
+        if key in metadata:
+            payload[key] = metadata[key]
+    return payload
 
 
 def run_backtest(
@@ -126,6 +145,13 @@ def run_backtest(
             engine=getattr(engine, "name", ""),
             error=f"{type(exc).__name__}: {exc}",
             warnings=(traceback.format_exc().strip(),),  # full traceback — reviewer audits the whole stack, not one line
+            metadata={
+                "candidate_id": spec.params.get("base_factor_id") or spec.run_id,
+                "decision": {
+                    "value": "error_recorded",
+                    "rationale": "Engine raised; failed trial recorded for breadth accounting.",
+                },
+            },
         )
     payload = _result_payload(spec, result)
     payload["elapsed_s"] = round(time.time() - started, 6)
