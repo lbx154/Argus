@@ -68,7 +68,7 @@ VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
-    "modern_poetry", "prose",
+    "modern_poetry", "prose", "literary_editor",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -115,6 +115,11 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "hard constraints (language/paragraph-count/banned-words). Concrete observation, the "
     "fact/memory boundary, and paragraph movement are live-reviewer. NOT verse and NOT "
     "plot-driven fiction",
+    "literary_editor": "EDIT an existing literary text — rewrite/expand/polish/proofread/"
+    "critique. Reuses the Reviewer + revise capability (no new agent). Machine layer is "
+    "edit DISCIPLINE (critique doesn't rewrite, proofread doesn't become a rewrite, expand "
+    "adds, must-keep segments survive); edit quality and fact-fidelity are live-reviewer. "
+    "Requires a source text; NOT from-scratch authoring",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.

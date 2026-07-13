@@ -1,0 +1,49 @@
+# Source registry for literary_editor — two layers (providers + items).
+# Editing operates on the OPERATOR'S OWN text, so the main "source" is provided
+# per task; nothing is ingested. Honest status: pending_review, ingested=false.
+
+allowed_use_vocabulary:
+  - query_only
+  - human_research
+  - evidence_citation
+  - local_indexing
+  - model_training
+  - redistribution
+
+providers:
+  - id: operator_document
+    name: Operator-provided document to edit
+    access_mode: internal
+    provider_terms_reviewed: true
+    notes: "The text the operator asked to edit; the editor's primary input."
+  - id: style_reference
+    name: Operator-provided style / house-style references
+    access_mode: internal
+    provider_terms_reviewed: false
+    notes: "Optional references the operator supplies for tone/house style."
+
+items:
+  - id: operator_source_document
+    provider: operator_document
+    title: "(per-task) the document being edited"
+    language: zh
+    period: contemporary
+    genres: [any]
+    jurisdiction_basis: "the operator's own text"
+    rights_status: cleared
+    allowed_uses: [human_research, evidence_citation, local_indexing]
+    prohibited_uses: [model_training, redistribution]
+    checksum: "per-task"
+    ingested: true
+  - id: operator_style_reference
+    provider: style_reference
+    title: "(per-task) style / house-style reference"
+    language: zh
+    period: contemporary
+    genres: [any]
+    jurisdiction_basis: "operator-provided reference"
+    rights_status: pending_review
+    allowed_uses: [human_research]
+    prohibited_uses: [model_training, redistribution, local_indexing]
+    checksum: null
+    ingested: false
