@@ -155,13 +155,15 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
     "analysis": (
         _LOOP_SKILL,
-        "Evaluate the EVIDENCE stage — out-of-sample, discounted for search:\n"
+        "Evaluate the EVIDENCE stage — out-of-sample, discounted for search, and TRADABLE:\n"
         "1. Evidence set — each survivor characterized with IC/RankIC, ICIR, quantile monotonicity, long-short return, turnover, cost-adjusted return.\n"
-        "2. Test-set quarantine — headline performance is genuinely OOS under the fixed protocol; the test set was not iteratively tuned on, and any retest/peeking is disclosed and the metric downgraded.\n"
-        "3. Multiple testing — data-mining risk quantified from the ledger breadth (deflated metric / haircut / FDR); headline numbers discounted for the number of trials.\n"
-        "4. Independence — each selected factor's incremental value over known factors is shown (orthogonalization / correlation), so the alpha is not a repackaged known factor.\n"
-        "5. Claims — every quantitative claim is bound to its ledger rows and the figure/table that will show it.\n"
-        "BLOCK if OOS discipline or multiple-testing discounting is missing.",
+        "2. IC is NOT tradable alpha — a positive RankIC with a flat/negative cost-net long-short (tail non-monotonicity, outlier-driven quintiles) is FLAGGED, not celebrated; the tradable long-short spread decides P&L, not the rank correlation.\n"
+        "3. Alpha vs beta, and neutralized — headline alpha is measured BETA-NEUTRAL (dollar-neutral long-short), not long-only (which is market beta); the signal is residualized against size/liquidity/style so a size or momentum factor is not mistaken for novel alpha.\n"
+        "4. OOS & drift — headline performance is genuinely OOS under the fixed protocol (test set quarantined, retests disclosed and downgraded), AND confirmed across a WALK-FORWARD of multiple windows rather than one split; a single lucky window is not an edge.\n"
+        "5. Multiple testing — data-mining risk quantified from ledger breadth and discounted by the EFFECTIVE number of trials (correlated candidates count as ~one look), via deflated Sharpe / PBO / FDR.\n"
+        "6. Independence & de-duplication — collinear factors are de-duplicated before combining, and each selected factor's incremental value over the known factor zoo is shown (orthogonalization / correlation).\n"
+        "7. Claims — every quantitative claim is bound to its ledger rows and the figure/table that will show it.\n"
+        "BLOCK if OOS/walk-forward discipline, beta-and-size neutralization, or multiple-testing discounting is missing.",
         ["analysis/FACTOR_EVIDENCE.json", "analysis/OOS_REPORT.md",
          "analysis/MULTIPLE_TESTING.md", "analysis/ORTHOGONALITY.tsv",
          "analysis/CLAIM_GRAPH.json"],
@@ -190,10 +192,10 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "All must pass:\n"
         "1. Economic interpretability — every factor has a coherent mechanism written before/independent of the result.\n"
         "2. Search breadth & multiple testing — full search disclosed and headline numbers discounted (deflated/haircut/FDR).\n"
-        "3. OOS discipline — headline numbers are genuinely OOS under a pre-fixed split; retests disclosed.\n"
+        "3. OOS discipline — headline numbers are genuinely OOS under a pre-fixed split, confirmed across a WALK-FORWARD of multiple windows (not one lucky split); retests disclosed.\n"
         "4. No look-ahead & point-in-time data; survivorship-bias-free universe.\n"
-        "5. Costs & tradability — realistic costs applied to ALL returns, turnover & capacity addressed.\n"
-        "6. Incremental value over the known factor zoo.\n"
+        "5. Costs, tradability & neutrality — realistic costs applied to ALL returns; alpha measured BETA-NEUTRAL (dollar-neutral long-short, NOT long-only market beta) and residualized against size/style so it is not a repackaged size/momentum factor; turnover & capacity addressed.\n"
+        "6. Incremental value over the known factor zoo (collinear factors de-duplicated first).\n"
         "7. Evidence grounding — every number sourced.\n"
         "8. Reproducibility — data snapshot/version, code/config hash, seeds, and the COMPLETE search ledger included; disclosed trial counts match the report's claimed breadth.\n"
         "State the single strongest reason a skeptical allocator would NOT deploy these factors; if material and actionable, verdict is continue, not done.",

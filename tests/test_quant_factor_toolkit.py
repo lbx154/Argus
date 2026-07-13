@@ -187,3 +187,23 @@ def test_default_catalog_has_diverse_directions():
     # low-vol factor encodes the anomaly with a negative direction
     low_vol = next(f for f in catalog if f.name.startswith("low_vol"))
     assert low_vol.direction == -1.0
+
+
+# ── factor de-duplication (IC filter + correlation prune) ──────────────
+
+def test_deduplicate_factors_ic_filter_and_corr_prune():
+    from argus_skill.verticals.quant.factor_toolkit.selection import deduplicate_factors
+
+    names = ["a", "b", "c", "d"]
+    ic = {"a": 0.05, "b": 0.048, "c": 0.001, "d": 0.03}  # c is low-signal -> dropped
+    # a and b are ~duplicates (corr 0.99); keep the higher-|IC| (a). d is independent.
+    corr = np.array([
+        [1.00, 0.99, 0.10, 0.05],
+        [0.99, 1.00, 0.10, 0.05],
+        [0.10, 0.10, 1.00, 0.02],
+        [0.05, 0.05, 0.02, 1.00],
+    ])
+    kept = deduplicate_factors(ic, corr, names, min_ic=0.005, max_corr=0.9)
+    assert "c" not in kept          # low IC dropped
+    assert "b" not in kept          # redundant with a, lower IC
+    assert set(kept) == {"a", "d"}  # keep the stronger of the dup pair + the independent one

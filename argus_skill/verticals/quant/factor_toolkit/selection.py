@@ -126,3 +126,31 @@ def identify_redundant_features(
             weaker = a if importances.get(a, 0.0) < importances.get(b, 0.0) else b
             drop.add(weaker)
     return [n for n in names if n in drop]
+
+
+def deduplicate_factors(
+    ic: Mapping[str, float],
+    corr_matrix: np.ndarray,
+    names: Sequence[str],
+    *,
+    min_ic: float = 0.005,
+    max_corr: float = 0.9,
+) -> list[str]:
+    """Keep the predictive, non-redundant factors from a candidate set.
+
+    Two stages, in order: (1) drop factors whose |IC| is below ``min_ic`` (no
+    signal); (2) among the survivors, drop the lower-|IC| member of every pair with
+    ``|corr| > max_corr`` (via :func:`identify_redundant_features` using |IC| as the
+    importance). This is the de-duplication a big, collinear factor bank (e.g.
+    Alpha360's ``CLOSE0..CLOSE59``) needs before an equal-weight composite — else
+    the redundant cluster dominates and the effective breadth is illusory.
+    ``names`` aligns with ``corr_matrix`` rows/cols. Returns the kept names.
+    """
+    importances = {n: abs(float(ic.get(n, 0.0))) for n in names}
+    survivors = [n for n in names if importances[n] >= min_ic]
+    if len(survivors) <= 1:
+        return survivors
+    idx = [names.index(n) for n in survivors]
+    sub = np.asarray(corr_matrix, dtype=float)[np.ix_(idx, idx)]
+    drop = set(identify_redundant_features(importances, survivors, sub, threshold=max_corr))
+    return [n for n in survivors if n not in drop]

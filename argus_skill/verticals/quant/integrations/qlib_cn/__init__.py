@@ -10,6 +10,14 @@ from __future__ import annotations
 
 from .data import factor_to_signal, list_universe, load_qlib_ohlcv, qlib_init
 from .engine import QlibCnEngine, SignalProvider, make_toolkit_signal_provider
+from .features import (
+    build_feature_matrix,
+    cross_sectional_normalize,
+    forward_return_label,
+    load_alpha360,
+    time_split,
+)
+from .model import backtest_predictions, default_params, rolling_retrain_predict, train_predict
 from .runner import FactorTrial, run_trials, run_windowed_trial
 
 __all__ = [
@@ -23,4 +31,14 @@ __all__ = [
     "FactorTrial",
     "run_windowed_trial",
     "run_trials",
+    # model pipeline (Alpha360 [+ fundamentals] -> GBDT -> OOS backtest)
+    "load_alpha360",
+    "build_feature_matrix",
+    "cross_sectional_normalize",
+    "forward_return_label",
+    "time_split",
+    "train_predict",
+    "rolling_retrain_predict",
+    "backtest_predictions",
+    "default_params",
 ]

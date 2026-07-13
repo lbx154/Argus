@@ -134,3 +134,150 @@ def fundamental_factor(
     px = np.asarray(close, dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(px > 0, num / px, np.nan)
+
+
+#: adata YoY-growth columns usable as features as-is (already season-comparable
+#: rates, so no TTM/de-seasonalisation needed).
+_GROWTH_SOURCE: dict[str, str] = {
+    "np_yoy": "net_profit_yoy_gr",
+    "rev_yoy": "total_rev_yoy_gr",
+}
+
+
+def ytd_to_ttm(reports: Any, src_col: str) -> Any:
+    """Trailing-twelve-month series from a YTD-cumulative quarterly column.
+
+    A-share ``basic_eps`` / ``oper_cf_ps`` are reported **year-to-date** cumulative
+    (Q3 = 9-month, annual = 12-month), so using them raw injects a mechanical
+    quarter-of-year seasonality a model would mistake for signal. This recovers the
+    single-quarter flow (``YTD(q) - YTD(q-1)``, with Q1 = YTD(Q1)) and sums the
+    trailing four quarters (all four required, else NaN). Returns a pandas Series
+    aligned to ``reports.index``.
+    """
+    import numpy as np
+    import pandas as pd
+
+    df = reports
+    rd = pd.to_datetime(df["report_date"], errors="coerce")
+    val = pd.to_numeric(df[src_col], errors="coerce")
+    q = rd.dt.month.map({3: 1, 6: 2, 9: 3, 12: 4})
+    qidx = rd.dt.year * 4 + (q - 1)  # global quarter ordinal (Q1 -> % 4 == 0)
+    lut: dict[int, float] = {
+        int(qi): float(v)
+        for qi, v in zip(qidx, val)
+        if pd.notna(qi) and pd.notna(v)
+    }
+
+    def single_q(qi: int) -> float:
+        v = lut.get(qi)
+        if v is None:
+            return np.nan
+        if qi % 4 == 0:  # Q1 YTD is already the single quarter
+            return v
+        prev = lut.get(qi - 1)
+        return v - prev if prev is not None else np.nan
+
+    sq = {qi: single_q(qi) for qi in lut}
+    out = np.full(len(df), np.nan)
+    for i, qi in enumerate(qidx.to_numpy()):
+        if pd.isna(qi):
+            continue
+        qi = int(qi)
+        terms = [sq.get(qi - k) for k in range(4)]
+        if all(t is not None and not pd.isna(t) for t in terms):
+            out[i] = float(sum(terms))  # type: ignore[arg-type]
+    return pd.Series(out, index=df.index)
+
+
+def fundamental_feature_frame(
+    codes: Sequence[str],
+    dates: Sequence[Any],
+    close: np.ndarray,
+    *,
+    fetch: Fetcher | None = None,
+    ttm: bool = True,
+) -> Any:
+    """PIT-aligned fundamental FEATURES as a ``(datetime, instrument)`` DataFrame.
+
+    A ~21-factor cross-family panel from adata's core-index, PIT-aligned by
+    ``notice_date``, spanning:
+
+    * **value** — ``ep`` / ``cfp`` / ``ep_ng`` (per-share earnings/cashflow ÷ price,
+      TTM by default) and ``bp`` (book ÷ price, a level);
+    * **quality / profitability** — ``roe`` / ``roa`` / ``gross_margin`` /
+      ``net_margin`` / ``cf_to_rev`` (cash conversion) / ``accruals``
+      (earnings-minus-cash per book, a low-quality flag);
+    * **growth** — revenue & profit YoY/QoQ (``rev_yoy`` / ``np_yoy`` /
+      ``np_ng_yoy`` / ``rev_qoq`` / ``np_qoq``);
+    * **balance-sheet health** — ``asset_liab`` / ``curr_ratio`` / ``quick_ratio``
+      / ``asset_turn`` / ``inv_turn`` / ``recv_turn``.
+
+    Reported ratios are fed as-is (already scale-free); only per-share flows are
+    TTM'd. Built on the shared dates×codes grid and melted to the
+    ``(datetime, instrument)`` MultiIndex so it merges 1:1 into the model matrix.
+    For a MODEL these factors are unsigned — the model learns each direction.
+    Missing codes/fields stay all-NaN (kept for alignment).
+    """
+    import numpy as np
+    import pandas as pd
+
+    fetch = fetch or _default_fetch
+    T = len(dates)
+    close = np.asarray(close, dtype=float)
+    value_ttm = {"ep": "basic_eps", "cfp": "oper_cf_ps", "ep_ng": "non_gaap_eps"}
+    value_level = {"bp": "net_asset_ps"}
+    pit_ratios = {
+        "roe": "roe_wtd", "roa": "roa_wtd", "gross_margin": "gross_margin",
+        "net_margin": "net_margin", "cf_to_rev": "oper_cf_to_rev",
+        "asset_liab": "asset_liab_ratio", "curr_ratio": "curr_ratio",
+        "quick_ratio": "quick_ratio", "asset_turn": "total_asset_turn_rate",
+        "inv_turn": "inv_turn_rate", "recv_turn": "acct_recv_turn_rate",
+        "rev_yoy": "total_rev_yoy_gr", "np_yoy": "net_profit_yoy_gr",
+        "np_ng_yoy": "non_gaap_net_profit_yoy_gr", "rev_qoq": "total_rev_qoq_gr",
+        "np_qoq": "net_profit_qoq_gr",
+    }
+    feats = list(value_ttm) + list(value_level) + list(pit_ratios) + ["accruals"]
+    panels = {f: np.full((T, len(codes)), np.nan) for f in feats}
+
+    for j, code in enumerate(codes):
+        try:
+            reports = fetch(_to_adata_code(code))
+        except Exception:  # noqa: BLE001 - one bad code must not sink the panel
+            continue
+        if reports is None or len(reports) == 0 or "notice_date" not in reports.columns:
+            continue
+        r = reports.copy()
+        px = close[:, j]
+        # TTM the per-share flow columns once
+        use_of = {}
+        for out, src in value_ttm.items():
+            use = src
+            if ttm and src in r.columns:
+                r[f"_{src}_ttm"] = ytd_to_ttm(r, src)
+                use = f"_{src}_ttm"
+            use_of[out] = use
+        with np.errstate(divide="ignore", invalid="ignore"):
+            for out in value_ttm:
+                if use_of[out] in r.columns:
+                    num = pit_align_field(r, dates, use_of[out])
+                    panels[out][:, j] = np.where(px > 0, num / px, np.nan)
+            for out, src in value_level.items():
+                if src in r.columns:
+                    num = pit_align_field(r, dates, src)
+                    panels[out][:, j] = np.where(px > 0, num / px, np.nan)
+        for out, src in pit_ratios.items():
+            if src in r.columns:
+                panels[out][:, j] = pit_align_field(r, dates, src)
+        # accruals per book = (earnings - operating cashflow) / book value
+        if {"basic_eps", "oper_cf_ps", "net_asset_ps"} <= set(r.columns):
+            e = pit_align_field(r, dates, use_of["ep"])
+            c = pit_align_field(r, dates, use_of["cfp"])
+            b = pit_align_field(r, dates, "net_asset_ps")
+            with np.errstate(divide="ignore", invalid="ignore"):
+                panels["accruals"][:, j] = np.where(np.abs(b) > 1e-9, (e - c) / b, np.nan)
+
+    idx = pd.MultiIndex.from_product(
+        [pd.to_datetime(list(dates)), [str(c) for c in codes]],
+        names=["datetime", "instrument"],
+    )
+    return pd.DataFrame({f: panels[f].reshape(-1) for f in feats}, index=idx)

@@ -23,6 +23,8 @@ from argus_skill.skills.builtins import (
 
 QUANT_SKILLS = {
     "engineer/quant-factor-loop.md",
+    "engineer/model-selection-loop.md",
+    "engineer/kline-chart.md",
     "reviewer/quant-factor-report-review.md",
 }
 
