@@ -63,10 +63,26 @@ argus_skill/verticals/fiction_writing/evaluations/reports/
 META_LEDGER.json
 META_LEDGER.jsonl
 
-# per-user secrets / local overrides
+# per-user secrets / local overrides — API keys, tokens, DB passwords NEVER commit
 *.api-key.local
 .env
 .env.local
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*_rsa
+id_dsa
+secrets.json
+secrets.yaml
+secrets.yml
+credentials.json
+credentials.yaml
+credentials.yml
 
 # 商业计划书 — 绝不入库
 docs/Argus_BP*
