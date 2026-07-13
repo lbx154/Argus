@@ -816,6 +816,8 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "reviewer-model")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
+    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
+    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "1234")
     life_dir = tmp_path / "life"
     cfg = server._worker_config_from_env(life_dir, tmp_path)
     assert cfg.project_workdir == life_dir
@@ -823,3 +825,5 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.reviewer_model == "reviewer-model"
     assert cfg.engineer_reasoning_effort == "high"
     assert cfg.reviewer_reasoning_effort == "xhigh"
+    assert cfg.planner_task_iteration_max_cycles == 9
+    assert cfg.planner_task_iteration_budget_usd == 1234.0

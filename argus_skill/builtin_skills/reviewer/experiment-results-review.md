@@ -15,6 +15,39 @@ Review experiment results as a senior ML researcher would before allowing the te
 - Weak results honestly presented are better than strong results from flawed methodology.
 - If the results wouldn't survive peer review scrutiny, say so now — not after the paper is written.
 
+## When the method did NOT beat the baseline
+
+A loss to the baseline is a decision point, **not an automatic kill**. Do NOT
+immediately pivot to a different idea. Work the ladder in order:
+
+1. **Reflect on WHY**, with specific evidence from the runs, and classify the cause:
+   - **Fixable** — a config/implementation bug, under-tuned hyperparameters, too
+     few steps/samples, a decoding or eval mismatch, or a missing ablation control.
+   - **Baseline artifact** — the baseline is unfairly strong, or the comparison is
+     not apples-to-apples (a fair re-run may change the verdict).
+   - **Genuine null / limited effect** — the mechanism does not help (here), and
+     no cheap change is likely to flip it.
+2. **Decide**:
+   - If the cause is **Fixable** or a **Baseline artifact** and the fix is
+     concrete and bounded (fits the remaining ≤8h compute budget), recommend
+     **ONE more targeted optimization / re-run pass** aimed at exactly that fix.
+     Name the single change and the metric that must move.
+   - If the cause is a **genuine null / limited effect** with no credible cheap
+     fix, **do NOT pivot** — recommend proceeding to **write the paper on the
+     current results** as an honest negative / limited-gain finding: report where
+     the method helps and where it does not, keep all negative and failed runs,
+     and frame the contribution as the diagnostic / negative result itself.
+3. **Bound it**: at most ONE reflect→optimize pass per idea before this decision
+   is final. A second unmoved result routes to write-up, **not** another retry —
+   this is the guardrail against sunk-cost commit-bias.
+4. Reserve a **full-direction pivot** only when the results support neither a win
+   nor an honest negative-result paper (e.g. the run is broken or inconclusive,
+   not a clean negative).
+
+Record the reflection, the cause classification, and the chosen next step
+(`optimize_once` / `write_up_current` / `pivot`) in `verdict` and
+`claim_recommendations`.
+
 ## Six review dimensions
 
 Score each 1–5. Score 3+ on all dimensions = pass.

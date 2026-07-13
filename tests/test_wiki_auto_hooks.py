@@ -7,9 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.models import ReviewDecision, RoundRecord
 from argus_skill.wiki.auto_hooks import discover_wikis, run_post_mission_hooks
 from argus_skill.wiki.bootstrap import init_wiki
-from argus_skill.wiki.lifecycle import evolve_wikis_after_mission
+from argus_skill.wiki.lifecycle import (
+    capture_reviewed_round,
+    evolve_wikis_after_mission,
+)
 
 SAMPLE_BIB = """
 @article{smith2025attention,
@@ -140,6 +144,79 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
     assert repeated["sources"] == 0
 
 
+def test_reviewer_rounds_are_captured_continuously_without_close_duplicate(
+    project: Path,
+):
+    first = RoundRecord(
+        round_index=1,
+        engineer_message="round one",
+        engineer_exit_code=0,
+        review=ReviewDecision(
+            status="continue",
+            reason="Verified a useful lemma; theorem remains open.",
+            next_action="Prove the remaining branch.",
+            planner_report={
+                "forward_progress": True,
+                "headline": "Lemma verified",
+                "blocker": "Remaining branch",
+                "recommended_next": "Prove the remaining branch.",
+                "evidence_files": [],
+            },
+        ),
+    )
+    second = RoundRecord(
+        round_index=2,
+        engineer_message="round two",
+        engineer_exit_code=0,
+        review=ReviewDecision(
+            status="done",
+            reason="All branches verified.",
+            next_action="",
+            planner_report={
+                "forward_progress": True,
+                "headline": "Proof complete",
+                "blocker": "",
+                "recommended_next": "",
+                "evidence_files": [],
+            },
+        ),
+    )
+
+    first_result = capture_reviewed_round(
+        record=first,
+        workdir=project,
+        task="prove theorem",
+        mission_id="m-live",
+    )
+    second_result = capture_reviewed_round(
+        record=second,
+        workdir=project,
+        task="prove theorem",
+        mission_id="m-live",
+    )
+
+    runs = project / ".autors" / "demo" / "wiki" / "sources" / "runs"
+    assert first_result["sources"] == 1
+    assert second_result["sources"] == 1
+    assert (runs / "m-live-r001.md").exists()
+    assert (runs / "m-live-r002.md").exists()
+
+    close = evolve_wikis_after_mission(
+        rounds=[first, second],
+        workdir=project,
+        task="prove theorem",
+        mission_id="m-live",
+        success=True,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+    )
+    assert close["sources"] == 0
+    assert len(list(runs.glob("m-live*.md"))) == 2
+
+
 def test_run_source_failure_is_isolated_from_other_hooks(project: Path):
     events: list[dict] = []
     review = SimpleNamespace(
@@ -175,6 +252,36 @@ def test_run_source_failure_is_isolated_from_other_hooks(project: Path):
         and event.get("operation") == "write_run_source"
         for event in events
     )
+
+
+def test_mission_close_skips_synthetic_backend_failure_review(project: Path):
+    review = SimpleNamespace(
+        status="blocked",
+        reason="reviewer backend unavailable",
+        verification_summary="",
+        failure_cause="environmental",
+        next_action="retry",
+        math_result={},
+        planner_report={},
+        backend_unavailable=True,
+    )
+
+    summary = evolve_wikis_after_mission(
+        rounds=[SimpleNamespace(review=review)],
+        workdir=project,
+        task="task",
+        mission_id="m-backend-failure",
+        success=False,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+    )
+
+    assert summary["sources"] == 0
+    runs = project / ".autors" / "demo" / "wiki" / "sources" / "runs"
+    assert not list(runs.glob("m-backend-failure*.md"))
 
 
 def test_wiki_evolution_compresses_cold_retired_history(

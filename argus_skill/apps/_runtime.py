@@ -976,6 +976,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 workdir=workdir,
                 sink=sink,
                 root_task_id=mission_id,
+                mission_scope=mission_scope,
                 open_ended=bool(getattr(config, "open_ended", False)),
                 continuous_objective=str(
                     getattr(config, "continuous_objective", "") or ""
@@ -1007,6 +1008,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         workdir: Path,
         sink: EventSink,
         root_task_id: str | None = None,
+        mission_scope: str = "",
         open_ended: bool = False,
         continuous_objective: str = "",
     ) -> dict:
@@ -1037,6 +1039,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 project_root=getattr(self, "_artifact_root", workdir),
                 on_event=sink.handle_event,
                 root_task_id=root_task_id,
+                mission_scope=mission_scope,
                 open_ended=open_ended,
                 continuous_objective=continuous_objective,
             )

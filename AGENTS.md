@@ -237,10 +237,11 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。
 - `argus_skill/builtin_skills/domains/**`: domain skill 包。
-- Project wiki 在每个 mission close 机械写入
-  `.autors/<project>/wiki/sources/runs/<mission>.md`：内容只来自最终
+- Project wiki 在每个真实 Reviewer verdict 后立即机械写入
+  `.autors/<project>/wiki/sources/runs/<mission>-r<round>.md`：内容只来自
   Reviewer verdict / planner_report / math_result，是 immutable、可引用的
-  RunCard。Planner 只读最近 3 条；Reviewer 后续可基于这些 source 自主提出
+  RoundCard；mission close 仅在没有 RoundCard 时写 fallback RunCard。Planner
+  只读最近 3 条；Reviewer 后续可基于这些 source 自主提出
   `wiki_ops` 合成 technique/conflict/pattern page。不要强制每轮造 page，也不要
   绕过 evidence-verbatim gate。
 

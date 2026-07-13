@@ -591,14 +591,16 @@ class PlanningCycleMixin:
                     ),
                 })
                 continue
+            item_budget = self._item_iteration_budget()
             item = BacklogItem.new(
                 title=task.title,
                 objective=task.objective,
                 priority=100,
+                max_cost_usd=item_budget,
                 tags=self._planner_task_tags(task),
                 iterate=True,
                 iteration_max_cycles=self._item_iteration_cycles(),
-                iteration_budget_usd=self._item_iteration_budget(),
+                iteration_budget_usd=item_budget,
             )
             # Reserve the signature now so a later sibling in the SAME batch
             # with an identical title/objective still de-dupes against this

@@ -324,7 +324,12 @@ def fallback_empty_stage_decision(
     )
 
 
-def _review_certifies_completion(review: Any, *, vertical: str = "") -> str:
+def _review_certifies_completion(
+    review: Any,
+    *,
+    vertical: str = "",
+    mission_scope: str = "",
+) -> str:
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
@@ -332,7 +337,17 @@ def _review_certifies_completion(review: Any, *, vertical: str = "") -> str:
     if not isinstance(report, dict) or report.get("forward_progress") is not True:
         return "no_forward_progress"
     items = getattr(review, "checklist", None)
-    if not isinstance(items, list) or not items:
+    review_scope = str(getattr(review, "scope", "") or "").strip().lower()
+    scope = (mission_scope or "").strip().lower().replace("-", "_")
+    checklist_required = (
+        scope == "final_submission"
+        or review_scope.replace("-", "_") == "final_submission"
+    )
+    if not isinstance(items, list):
+        if checklist_required:
+            return "missing_checklist"
+        items = []
+    if checklist_required and not items:
         return "missing_checklist"
     for item in items:
         if not isinstance(item, dict):
@@ -356,6 +371,7 @@ def final_stage_completion_decision(
     current_stage: str,
     stage_order: Sequence[str],
     vertical: str = "",
+    mission_scope: str = "",
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
 ) -> StageDecision | None:
@@ -364,7 +380,11 @@ def final_stage_completion_decision(
     order = [str(s).strip().lower() for s in stage_order]
     if not order or cur != order[-1]:
         return None
-    missing = _review_certifies_completion(review, vertical=vertical)
+    missing = _review_certifies_completion(
+        review,
+        vertical=vertical,
+        mission_scope=mission_scope,
+    )
     if missing:
         return None
     reason = trigger_reason or "reviewer certified final-stage checklist"

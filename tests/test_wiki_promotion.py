@@ -33,12 +33,22 @@ def _write_page(wiki: Path, kind: str, slug: str, status: str = "scratch") -> Pa
     return p
 
 
-def _write_run(wiki: Path, run_id: str, *, outcome: str, mentions: list[str]) -> Path:
+def _write_run(
+    wiki: Path,
+    run_id: str,
+    *,
+    outcome: str,
+    mentions: list[str],
+    mission_id: str | None = None,
+    closed_at: str = "",
+) -> Path:
     p = wiki / "sources" / "runs" / f"{run_id}.md"
     p.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "id": run_id,
+        "mission_id": mission_id or run_id,
         "outcome": outcome,
+        "closed_at": closed_at,
         "ingested_at": date.today().isoformat(),
         "ingested_by": "test",
         "checksum": "",
@@ -76,6 +86,44 @@ def test_single_ref_does_not_promote(wiki: Path):
     s = mechanical_promote(wiki)
     assert s["promoted"] == 0
     assert _status(page) == "scratch"
+
+
+def test_multiple_roundcards_from_one_mission_count_as_one_reference(
+    wiki: Path,
+):
+    page = _write_page(wiki, "techniques", "force-eager-vllm")
+    _write_run(
+        wiki,
+        "mission-1-r001",
+        mission_id="mission-1",
+        closed_at="2026-07-13T01:00:00Z",
+        outcome="partial",
+        mentions=["force-eager-vllm"],
+    )
+    _write_run(
+        wiki,
+        "mission-1-r002",
+        mission_id="mission-1",
+        closed_at="2026-07-13T02:00:00Z",
+        outcome="success",
+        mentions=["force-eager-vllm"],
+    )
+
+    first = mechanical_promote(wiki)
+    assert first["promoted"] == 0
+    assert _status(page) == "scratch"
+
+    _write_run(
+        wiki,
+        "mission-2-r001",
+        mission_id="mission-2",
+        closed_at="2026-07-14T01:00:00Z",
+        outcome="success",
+        mentions=["force-eager-vllm"],
+    )
+    second = mechanical_promote(wiki)
+    assert second["promoted"] == 1
+    assert _status(page) == "candidate"
 
 
 def test_promote_candidate_to_stable_with_successes(wiki: Path):

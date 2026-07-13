@@ -106,6 +106,37 @@ def collect_wiki_ops(rounds: list[RoundRecord]) -> list[dict[str, Any]]:
     return ops
 
 
+def capture_reviewed_round(
+    *,
+    record: RoundRecord,
+    workdir: Path,
+    task: str,
+    mission_id: str,
+    on_event: EventSink = None,
+) -> dict[str, int]:
+    """Persist one immutable RoundCard immediately after a real verdict."""
+    from .auto_hooks import _write_run_source
+
+    totals = {"wiki_count": 0, "sources": 0}
+    review = getattr(record, "review", None)
+    if review is None or getattr(review, "backend_unavailable", False):
+        return totals
+    wiki_roots = discover_wikis(workdir)
+    totals["wiki_count"] = len(wiki_roots)
+    source_id = f"{mission_id}-r{int(record.round_index):03d}"
+    for wiki_root in wiki_roots:
+        totals["sources"] += _write_run_source(
+            wiki_root,
+            mission_id=mission_id,
+            source_id=source_id,
+            task=task,
+            success=(getattr(review, "status", "") == "done"),
+            rounds=[record],
+            emit=on_event,
+        )
+    return totals
+
+
 def apply_wiki_ops(
     *,
     rounds: list[RoundRecord],
@@ -274,6 +305,7 @@ def evolve_wikis_after_mission(
 
 __all__ = [
     "apply_wiki_ops",
+    "capture_reviewed_round",
     "collect_wiki_ops",
     "ensure_project_wiki",
     "evolve_wikis_after_mission",

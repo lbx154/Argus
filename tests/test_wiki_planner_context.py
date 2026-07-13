@@ -97,6 +97,22 @@ def test_planner_prompt_surfaces_recent_reviewed_run_sources(
         body="Reviewer reason: finite classification certified.",
         closed_at="2026-07-13T14:00:00+00:00",
     ))
+    WikiStore(wiki).write_source(SourceRun(
+        id="runs/m-reviewed-r002",
+        mission_id="m-reviewed",
+        git_commit="",
+        project="demo",
+        config_path="",
+        dataset="",
+        metrics={},
+        artifacts={"research/RESULT.md": "reviewed theorem"},
+        outcome="success",
+        failure_signature="",
+        suspected_cause="",
+        next_action="Write the final corollary.",
+        body="Reviewer reason: latest round supersedes the earlier summary.",
+        closed_at="2026-07-13T15:00:00+00:00",
+    ))
 
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
@@ -108,8 +124,9 @@ def test_planner_prompt_surfaces_recent_reviewed_run_sources(
 
     assert "recent reviewed runs" in prompt
     assert "m-reviewed" in prompt
-    assert "finite classification certified" in prompt
-    assert "Audit the general-rank extension." in prompt
+    assert prompt.count("`m-reviewed`") == 1
+    assert "latest round supersedes the earlier summary" in prompt
+    assert "Write the final corollary." in prompt
 
 
 def test_planner_prompt_omits_wiki_block_when_absent(

@@ -77,13 +77,14 @@ def _review_with_wiki_ops(
 
 
 def _loop(skills_dir: Path, backend: MemoryBackend, events: list,
-          *, enabled: bool = True, auto_init: bool = False) -> SkillLoop:
+          *, enabled: bool = True, auto_init: bool = False,
+          max_rounds: int = 1) -> SkillLoop:
     return SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(
-            max_rounds=1,
+            max_rounds=max_rounds,
             wiki_ops_enabled=enabled,
             auto_init_wiki=auto_init,
         ),
@@ -122,6 +123,44 @@ def test_create_page_applied_with_valid_evidence(tmp_path: Path) -> None:
     page = wiki_root / "pages" / "techniques" / "grpo-async-clip.md"
     assert page.exists()
     assert "clips the ratio asymmetrically" in page.read_text(encoding="utf-8")
+
+
+def test_skill_loop_writes_roundcard_after_each_real_reviewer_verdict(
+    tmp_path: Path,
+) -> None:
+    wiki_root = _init_wiki_with_source(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
+    backend.queue("engineer-r1", CannedResponse(message="proved lemma"))
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_review_with_wiki_ops(
+            status="continue",
+            wiki_ops=[],
+        )),
+    )
+    backend.queue("engineer-r2", CannedResponse(message="closed theorem"))
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_review_with_wiki_ops(
+            status="done",
+            wiki_ops=[],
+        )),
+    )
+
+    outcome = _loop(
+        tmp_path / "skills",
+        backend,
+        [],
+        max_rounds=2,
+    ).run("prove theorem", workdir=tmp_path)
+
+    assert outcome.status == "done"
+    run_cards = sorted((wiki_root / "sources" / "runs").glob("*.md"))
+    assert len(run_cards) == 2
+    assert run_cards[0].stem.endswith("-r001")
+    assert run_cards[1].stem.endswith("-r002")
 
 
 def test_current_mission_sources_are_ingested_before_reviewer(tmp_path: Path) -> None:
