@@ -103,6 +103,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-wide USD cap across all projects per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
     Knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0", "maximum USD envelope reserved for one provider call (0 uses all remaining)", "budget"),
+    Knob("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "1.0", "maximum USD envelope for one Manager/router/simple control-plane call", "budget", cockpit=True),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
     Knob("ARGUS_SKILL_FENCE_BREACH_POLICY", "block", "handling after a provider exceeds its reserved fence: block | allow", "budget"),
     Knob("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900", "seconds to block that provider after a priced fence overrun", "budget"),
@@ -183,9 +184,10 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
         "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     }
 )
-_NON_NEGATIVE_FLOAT_KNOBS = frozenset(
-    {"ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP"}
-)
+_NON_NEGATIVE_FLOAT_KNOBS = frozenset({
+    "ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD",
+    "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+})
 _SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
 _TRUE_VALUES = frozenset(
     {"1", "true", "yes", "on", "enable", "enabled", "开", "开启", "打开", "启用"}

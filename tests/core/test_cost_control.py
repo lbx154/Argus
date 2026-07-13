@@ -602,6 +602,34 @@ def test_control_plane_overrun_does_not_block_mission_calls(
     assert breach["control_plane"] is True
 
 
+def test_control_plane_call_cap_can_be_raised_by_operator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "4")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+
+    reservation, reason = reserve_call_budget(
+        call_id="raised-manager-cap",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+
+    assert reservation is not None and reason == ""
+    assert reservation.amount_usd == pytest.approx(4.0)
+    reservation.release(reason="test")
+
+
 def test_fence_breach_policy_can_explicitly_allow_follow_up(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
