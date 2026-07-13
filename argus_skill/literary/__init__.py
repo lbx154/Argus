@@ -10,7 +10,9 @@ CONTRACTS and their validators:
 * :mod:`.task_envelope` — the creative-authoring task contract (intake);
 * :mod:`.review_contract` — the structured reviewer finding/verdict contract;
 * :mod:`.artifact_manifest` — the creative-artifact version & lineage contract;
-* (later) source/provenance, stage protocol.
+* :mod:`.source_registry` — the rights/provenance catalog of usable sources;
+* :mod:`.provenance` — the per-mission source-usage ledger + rights cross-check;
+* (later) stage protocol.
 
 Vertical-PRIVATE semantics (fiction's story_state, poetry's prosody, prose's
 paragraph movement, each vertical's reviewer rubric) never move here — only the

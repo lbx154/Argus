@@ -80,6 +80,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
          "test -s fiction/creative_brief.json"),
         ("Style profile produced",
          "test -s fiction/style_profile.json"),
+        ("Source registry is well-formed",
+         "{python} -m argus_skill.verticals.fiction_writing.source_check "
+         "validate-registry"),
     ],
     "plan": [
         _PIPELINE_CHECK,
@@ -103,6 +106,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Review conforms to the literary review contract",
          "{python} -m argus_skill.verticals.fiction_writing.review_check "
          "validate fiction/review.json"),
+        ("Source-usage ledger produced (explicit, empty uses[] if none consulted)",
+         "test -s fiction/source_usage.json"),
+        ("Every recorded source use is rights-defensible",
+         "{python} -m argus_skill.verticals.fiction_writing.source_check "
+         "check-usage fiction/source_usage.json"),
     ],
     "revise": [
         _PIPELINE_CHECK,
@@ -335,7 +343,15 @@ def role_banner(role: str) -> str:
             "(brief -> plan -> draft -> state -> review -> revision_plan -> final) "
             "with each artifact's parents, producer_stage, content_path and "
             "status, so final.md's provenance (which draft + which review) is "
-            "auditable and final SUPERSEDES the draft it replaced."
+            "auditable and final SUPERSEDES the draft it replaced. (9) EVERY "
+            "mission records fiction/source_usage.json — an explicit provenance "
+            "ledger. If you consulted any registered source (queried a corpus, "
+            "read/cited a public-domain text), log each use with its source_id, "
+            "the exact allowed use, the stage, and (for a citation) the "
+            "attribution; if you consulted NO external source, still write it with "
+            "an empty uses[] — silence is not allowed. Never use a source for a "
+            "purpose its allowed_uses forbids, and never present a queried, "
+            "un-ingested source as a cited or learned fact."
         )
     if role == "reviewer":
         return common + (
