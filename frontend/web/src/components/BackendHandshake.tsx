@@ -49,26 +49,26 @@ export function BackendHandshake() {
   });
 
   return (
-    <div ref={rootRef} role="status" aria-label="Connecting to Argus backend" className="w-full max-w-md px-6 text-center">
-      <div data-handshake-mark className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-blue/30 bg-blue/10 text-blue shadow-glow">
-        <ArgusMark size={34} className="text-blue" />
+    <div ref={rootRef} role="status" aria-label="Connecting to Argus backend" className="w-full max-w-xl px-6 text-center">
+      <div data-handshake-mark className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-blue/30 bg-blue/10 text-blue shadow-glow sm:h-20 sm:w-20">
+        <ArgusMark size={48} className="text-blue" />
       </div>
-      <div className="relative mx-auto mt-6 h-7 max-w-xs">
-        <div className="absolute left-[12%] right-[12%] top-2.5 h-px bg-line/80" />
-        <div data-handshake-line className="absolute left-[12%] right-[12%] top-2.5 h-px bg-blue" />
+      <div className="relative mx-auto mt-8 h-10 max-w-sm sm:max-w-md">
+        <div className="absolute left-[10%] right-[10%] top-3 h-px bg-line/80" />
+        <div data-handshake-line className="absolute left-[10%] right-[10%] top-3 h-px bg-blue" />
         <div className="relative flex justify-between">
           {STEPS.map((step) => (
-            <div key={step} className="flex w-16 flex-col items-center gap-2">
-              <span data-handshake-node className="h-5 w-5 rounded-full border border-blue/50 bg-panel ring-4 ring-bg">
-                <span className="m-auto mt-[6px] block h-1.5 w-1.5 rounded-full bg-blue" />
+            <div key={step} className="flex w-20 flex-col items-center gap-2.5">
+              <span data-handshake-node className="h-6 w-6 rounded-full border border-blue/50 bg-panel ring-4 ring-bg">
+                <span className="m-auto mt-[7px] block h-2 w-2 rounded-full bg-blue" />
               </span>
-              <span className="text-[10px] font-medium text-ink-faint">{step}</span>
+              <span className="text-xs font-medium text-ink-faint">{step}</span>
             </div>
           ))}
         </div>
       </div>
-      <p className="mt-7 text-sm font-medium text-ink-dim">Connecting to Argus</p>
-      <p className="mt-1 text-xs text-ink-faint">Negotiating protocol and restoring your workspace…</p>
+      <p className="mt-9 text-base font-medium text-ink-dim">Connecting to Argus</p>
+      <p className="mt-1.5 text-sm text-ink-faint">Negotiating protocol and restoring your workspace…</p>
     </div>
   );
 }
