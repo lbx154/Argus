@@ -2,7 +2,7 @@
 name: Reviewer Engineer Handoff
 description: Teach reviewer agents to translate validation failures into concise, actionable prompts for smaller engineer agents.
 category: review-loop
-version: 1
+version: 2
 created_at: 2026-05-25T00:00:00+00:00
 ---
 
@@ -13,6 +13,9 @@ Use this skill when a reviewer must turn validation or critique into the next pr
 ## Contract
 
 - Treat validation output as reviewer-only evidence. The engineer should receive your distilled handoff, not a raw log dump.
+- Follow the output schema attached to the current call exactly. A resumed thread
+  may remember an older field contract; never reuse stale field names when the
+  current schema differs.
 - Do not assume the engineer shares your context: write short, explicit, ordered instructions with no hidden context.
 - If verification fails, choose `continue` unless user input is strictly required.
 - If a short deterministic check can disambiguate missing evidence, the reviewer may run it locally. Do not run long builds, model reviews, experiments, or regeneration work inside the handoff step; give the engineer the exact command and expected pass condition.

@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import validate
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus_skill.core.research_contract import research_completion_issue
+from argus_skill.manager.stage_decider import final_stage_completion_decision
+from argus_skill.reviewer import RESEARCH_SCHEMA_PATH, Reviewer, ReviewerConfig
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -24,6 +27,45 @@ def _result(
         "statement_fidelity_status": "verified",
         "evidence": ["fresh independent evidence"],
         "limitations": [],
+    }
+
+
+def _schema_verdict(result: dict) -> dict:
+    return {
+        "status": "done",
+        "reason": "bounded review certified",
+        "next_action": "none",
+        "operator_question": None,
+        "round_summary_markdown": "# Review\n",
+        "completion_summary_markdown": "# Complete\n",
+        "achievement": None,
+        "failure_cause": None,
+        "scope": "bounded",
+        "research_result": result,
+        "planner_report": {
+            "forward_progress": True,
+            "headline": "review certified",
+            "blocker": "",
+            "recommended_next": "",
+            "evidence_files": [],
+        },
+        "checklist": [
+            {"item": "review", "satisfied": True, "evidence": "independently checked"}
+        ],
+        "checkpoint": {
+            "goal": "close bounded review",
+            "done": ["six gates certified"],
+            "tried_and_failed": [],
+            "maturing": [],
+            "open_blocker": "",
+            "next_step": "",
+            "active_line": None,
+            "env_facts": [],
+        },
+        "skill_ops": [],
+        "wiki_ops": [],
+        "checklist_feedback": None,
+        "step_back": None,
     }
 
 
@@ -45,6 +87,19 @@ class _ReviewerBackend:
             ],
         }
         return RunnerResult(exit_code=0, agent_messages=[json.dumps(payload)])
+
+
+class _SchemaReviewerBackend:
+    def __init__(self, verdict: dict) -> None:
+        self.verdict = verdict
+        self.options = None
+
+    def run_exec(self, **kwargs) -> RunnerResult:
+        self.options = kwargs["options"]
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[json.dumps(self.verdict)],
+        )
 
 
 def _evaluate(tmp_path: Path, target: str, result: dict, *, scope: str = ""):
@@ -126,3 +181,78 @@ def test_bounded_doctoral_breakthrough_does_not_certify_mission(
     )
 
     assert decision.status != "done"
+
+
+def test_active_schema_reaches_bounded_completion_without_missing_result(
+    tmp_path: Path,
+) -> None:
+    result = _result(
+        "novelty_unverified",
+        novelty="unverified",
+        significance="unverified",
+    )
+    verdict = _schema_verdict(result)
+    schema = json.loads(Path(RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8"))
+    validate(verdict, schema)
+    persist_vertical(tmp_path, "math")
+    backend = _SchemaReviewerBackend(verdict)
+
+    decision = Reviewer(backend).evaluate(
+        objective="certify the bounded review",
+        original_objective="certify the bounded review",
+        round_index=1,
+        session_id="mission",
+        main_summary="six review gates independently certified",
+        main_error=None,
+        config=ReviewerConfig(working_dir=str(tmp_path)),
+        scope="bounded",
+    )
+
+    assert backend.options is not None
+    assert backend.options.output_schema_path == RESEARCH_SCHEMA_PATH
+    assert decision.status == "done"
+    assert decision.research_result == result
+    issue = research_completion_issue(
+        decision.research_result,
+        research_target_level="doctoral",
+        scope="bounded",
+    )
+    assert issue == "bounded_cycle_cannot_complete_doctoral"
+    assert "missing" not in issue
+    event = decision.to_event_payload(round_index=1)
+    assert event["type"] == "round.review.completed"
+    assert event["research_result"] == result
+    completion = final_stage_completion_decision(
+        decision,
+        current_stage="review",
+        stage_order=("scope", "solve", "review"),
+        vertical="math",
+        mission_scope="bounded",
+        research_target_level=None,
+    )
+    assert completion is not None
+    assert completion.action == "complete"
+
+
+def test_math_without_target_preserves_research_pause_verdict(tmp_path: Path) -> None:
+    verdict = _schema_verdict(_result("partial_result"))
+    verdict["status"] = "research_incomplete"
+    verdict["completion_summary_markdown"] = ""
+    schema = json.loads(Path(RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8"))
+    validate(verdict, schema)
+    persist_vertical(tmp_path, "math")
+    backend = _SchemaReviewerBackend(verdict)
+
+    decision = Reviewer(backend).evaluate(
+        objective="review partial progress",
+        original_objective="review partial progress",
+        round_index=1,
+        session_id="mission",
+        main_summary="partial result only",
+        main_error=None,
+        config=ReviewerConfig(working_dir=str(tmp_path)),
+        scope="bounded",
+    )
+
+    assert decision.status == "research_incomplete"
+    assert decision.research_result is not None

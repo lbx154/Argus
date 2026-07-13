@@ -278,27 +278,37 @@ class Reviewer:
     ) -> ReviewDecision:
         schema_path = self.schema_path
         research_target_level = None
+        structured_result_required = False
         try:
             from ..core.research_contract import resolve_research_target_level
             from ..skills.harness_overlay import resolve_project_root
+            from ..skills.vertical_select import resolve_vertical
 
             root = resolve_project_root(config.working_dir)
             research_target_level = resolve_research_target_level(root)
-            if research_target_level is not None and schema_path == SCHEMA_PATH:
+            structured_result_required = (
+                research_target_level is not None or resolve_vertical(root) == "math"
+            )
+            if structured_result_required and schema_path == SCHEMA_PATH:
                 schema_path = RESEARCH_SCHEMA_PATH
         except Exception:  # noqa: BLE001 — default schema remains safe
             pass
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
-        # reviewer output-schema file is missing, codex aborts with exit 1
+        # reviewer output-schema file is unavailable, codex aborts with exit 1
         # ("Failed to read output schema file ...") and the round renders NO
         # verdict. Detect it up front and fail loud as a backend-unavailable
         # block, instead of building a prompt and handing codex a path it cannot
         # read. This catches a moved schema / a stale import-time path held by a
         # long-lived daemon whose on-disk tree moved underneath it.
-        if schema_path and not Path(schema_path).exists():
+        schema_contract = b""
+        try:
+            if schema_path:
+                schema_contract = Path(schema_path).read_bytes()
+        except OSError as exc:
             reason = (
-                "Reviewer output-schema file is missing at "
-                f"{schema_path}; the reviewer backend cannot start. This is "
+                "Reviewer output-schema file is unavailable at "
+                f"{schema_path} ({type(exc).__name__}: {exc}); the reviewer backend "
+                "cannot start. This is "
                 "an environment/packaging fault (e.g. the schema was moved or a "
                 "running process holds a stale import-time path), not a verdict."
             )
@@ -319,10 +329,10 @@ class Reviewer:
         # F7: split the prompt into a byte-stable STATIC preamble (the ~50KB
         # role/rubric/decision-rules + mission anchors) and a per-round DELTA
         # (this round's summary/log-audit/altitude). When the reviewer can
-        # resume its OWN codex thread from last round AND the static preamble has
-        # not changed (same fingerprint), send ONLY the delta — the rubric is
-        # already in the thread. Any static drift (stage/objective/vertical change)
-        # flips the fingerprint and forces a full re-send (anti-staleness guard).
+        # resume its OWN codex thread from last round AND neither the static
+        # preamble nor output schema has changed, send ONLY the delta — both
+        # contracts are already in the thread. Any static/schema drift flips the
+        # fingerprint and forces a full re-send (anti-staleness guard).
         common = dict(
             objective=objective,
             original_objective=original_objective or objective,
@@ -343,7 +353,11 @@ class Reviewer:
             working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
-        new_fp = hashlib.sha256(static.encode("utf-8")).hexdigest()
+        fingerprint_input = bytearray(static.encode("utf-8"))
+        if schema_path:
+            fingerprint_input.extend(b"\0output-schema\0")
+            fingerprint_input.extend(schema_contract)
+        new_fp = hashlib.sha256(fingerprint_input).hexdigest()
         resume = (
             resume_thread_id
             if (resume_thread_id and new_fp == prior_static_fingerprint)
@@ -452,7 +466,7 @@ class Reviewer:
             )
         parsed = _find_decision_in_messages(
             result.agent_messages,
-            allow_research_pause=research_target_level is not None,
+            allow_research_pause=structured_result_required,
         )
         if parsed is None:
             return ReviewDecision(
