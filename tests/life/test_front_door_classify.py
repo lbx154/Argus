@@ -4,6 +4,8 @@ ONE model call decides config intent, operator control, and SELF/TEAM routing.
 """
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.life.router import (
     ConfigIntent,
     classify_config_intent,
@@ -96,6 +98,24 @@ def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
     )
     assert intent is None
     assert control == "abort"
+    assert route == "simple"
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["NO_DISPATCH", "NO-DISPATCH", "NO DISPATCH", "NODISPATCH"],
+)
+def test_no_dispatch_control_forces_self_and_never_becomes_team_work(
+    token: str,
+) -> None:
+    intent, control, route = classify_front_door(
+        "只读检查源码，不要派发任务",
+        run_exec=_exec(
+            f"CONFIG: NONE\nCONTROL: {token}\nROUTE: TEAM"
+        ),
+    )
+    assert intent is None
+    assert control == "no_dispatch"
     assert route == "simple"
 
 

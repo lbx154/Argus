@@ -264,14 +264,11 @@ class SelfReplyMixin:
             lines.extend([
                 "",
                 "Verify progress yourself before answering if useful — you have "
-                f"real shell access (grep logs, read files under {root}).",
-                "You alone decide whether to abort this mission; act on your own "
-                "judgment, no operator confirmation required. If warranted, run "
-                "exactly this command, then tell the operator what you did:",
-                "  python -m argus_skill.tools.mission_control abort "
-                f'--life-dir "{root}" --reason "<why>"',
-                "The daemon process itself stays alive and moves on to the next "
-                "backlog item; only this one mission is interrupted.",
+                f"read-only shell access (grep logs, read files under {root}).",
+                "This SELF reply cannot mutate mission state. An explicit operator "
+                "stop request is handled separately by the structured ABORT control "
+                "path before this prompt runs. Otherwise report the evidence and "
+                "your recommendation without claiming that you changed the mission.",
             ])
             return "\n".join(lines)
         except Exception:  # noqa: BLE001 - status context is optional
@@ -317,7 +314,6 @@ class SelfReplyMixin:
         from ..life.router import build_simple_prompt
 
         args = self._args
-        safe_mode = env_flag("ARGUS_SKILL_SAFE_MODE", False)
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
         backend_label = runner_backend_label()
         sink.handle_event({
@@ -331,8 +327,18 @@ class SelfReplyMixin:
             objective=objective,
             mission_status=self._live_mission_status_block(),
             runtime_context=self._manager_reply_runtime_context("simple-1"),
+            operator_workspace=str(
+                getattr(args, "operator_workspace", "") or ""
+            ),
         )
-        workdir = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        configured_workspace = str(
+            getattr(args, "operator_workspace", "") or ""
+        ).strip()
+        workdir = (
+            Path(configured_workspace).expanduser()
+            if configured_workspace
+            else Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
 
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
@@ -366,9 +372,10 @@ class SelfReplyMixin:
         options = RunnerOptions(
             model=args.engineer_model,
             reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
-            full_auto=safe_mode,
+            full_auto=False,
             skip_git_repo_check=True,
-            dangerous_yolo=not safe_mode,
+            dangerous_yolo=False,
+            sandbox_mode="read-only",
             working_dir=str(workdir),
             watchdog_hard_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 180

@@ -74,6 +74,30 @@ def mission_is_running(mem: Any) -> bool:
 _MANAGER_RUNNER_UNAVAILABLE = object()
 
 
+def _operator_workspace(chat_state: dict[str, Any], session_root: Any) -> Path:
+    fallback = (
+        Path(session_root).expanduser()
+        if session_root
+        else Path.cwd()
+    )
+    sid = str(chat_state.get("session_id") or "").strip()
+    global_root = chat_state.get("global_root")
+    if not sid or global_root is None:
+        return fallback
+    try:
+        from ..core.session import read_session_meta
+
+        meta = read_session_meta(Path(global_root).expanduser(), sid)
+        raw = str(
+            (getattr(meta, "launch_cwd", "") if meta is not None else "")
+            or (getattr(meta, "cwd", "") if meta is not None else "")
+        ).strip()
+        workspace = Path(raw).expanduser().resolve(strict=True)
+        return workspace if workspace.is_dir() else fallback
+    except (OSError, RuntimeError, ValueError):
+        return fallback
+
+
 def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
     """Lazily build (and cache) a Manager-front-end runner for chat triage.
 
@@ -114,6 +138,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         # differently-scoped, currently-unread-by-this-path field) is the
         # GLOBAL ``~/.argus-skill`` root — do not conflate the two.
         session_root = getattr(mem, "project_root", None)
+        operator_workspace = _operator_workspace(chat_state, session_root)
         ns = argparse.Namespace(
             backend=backend or "codex",
             engineer_model=resolve_role_model(
@@ -140,6 +165,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             # the detached daemon used cwd=/, splitting one mission across two
             # unrelated trees.
             workdir=str(session_root) if session_root else None,
+            operator_workspace=str(operator_workspace),
             manager_session_root=str(session_root) if session_root else None,
             project_state_dir=str(session_root) if session_root else None,
             life_dir=getattr(mem, "root", None),

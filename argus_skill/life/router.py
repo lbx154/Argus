@@ -173,17 +173,30 @@ def build_simple_prompt(
     objective: str,
     mission_status: str = "",
     runtime_context: str = "",
+    operator_workspace: str = "",
 ) -> str:
     from ..cli.roles_status import runner_backend_label
 
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
+    workspace = ""
+    if operator_workspace.strip():
+        workspace = (
+            "## Grounding workspace\n"
+            f"Operator launch workspace: {operator_workspace.strip()}\n"
+            "For any claim about the current project, source tree, configuration, "
+            "or artifacts, inspect this workspace with read-only tools before "
+            "answering. Do not substitute generic prior knowledge for current "
+            "workspace evidence. This SELF turn must not modify files or dispatch "
+            "background work.\n\n"
+        )
     return (
         f"{prefix}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
         "Answer as Argus Manager.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{runtime}"
+        f"{workspace}"
         f"Task:\n{objective.strip()}"
     )
 
@@ -242,7 +255,7 @@ class ConfigIntent:
     value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
 
-ControlIntent = Literal["abort"]
+ControlIntent = Literal["abort", "no_dispatch"]
 
 
 def build_config_intent_prompt(text: str) -> str:
@@ -404,18 +417,26 @@ def build_front_door_prompt(text: str) -> str:
         'model/backend/effort/budget asked for WITHIN a single task ("这轮" / '
         '"do THIS on claude with high effort") is part of the task — CONFIG is '
         "NONE. When in doubt, NONE.\n\n"
-        "AXIS 2 — CONTROL: does the operator clearly ask Argus to stop, cancel, "
-        "or abort the mission that is already running?\n"
+        "AXIS 2 — CONTROL: does the operator clearly constrain what Argus may do "
+        "with this message?\n"
         "  ABORT = immediately stop the current in-flight mission. This is an "
         "operator control action, never a new task.\n"
+        "  NO_DISPATCH = the operator explicitly says not to create, queue, or "
+        "dispatch a task/mission, not to start a daemon, or to keep the request "
+        "read-only with no persistent side effect. Handle it entirely as inline "
+        "Manager SELF work, even when answering requires inspecting the current "
+        "workspace with read-only tools. If it cannot be satisfied without a "
+        "persistent side effect, explain that and ask for authorization; never "
+        "turn it into TEAM work.\n"
         "  NONE = every other message, including questions about how stopping "
         "works, requests to implement a stop feature, and tasks that merely "
         "mention stopping something as part of their objective.\n"
-        "  When in doubt, answer NONE. If CONTROL is ABORT, ROUTE must be SELF.\n\n"
+        "  When in doubt, answer NONE. If CONTROL is ABORT or NO_DISPATCH, ROUTE "
+        "must be SELF.\n\n"
         "AXIS 3 — ROUTE: SELF or TEAM?\n"
         "  SELF = conversational or read-only Manager work: a greeting, ack, "
-        "capability/status question, explanation with no durable side effect, "
-        "or an operator control action.\n"
+        "capability/status question, source/workspace inspection with no durable "
+        "side effect, explanation, or an operator control action.\n"
         "  TEAM = any request to create or modify a persistent file/artifact, "
         "run commands, or perform research/engineering. Small one-shot artifacts "
         "still use TEAM; the `direct` workflow keeps them lean.\n"
@@ -423,7 +444,7 @@ def build_front_door_prompt(text: str) -> str:
         "lone worker.\n\n"
         "Reply with EXACTLY three lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
-        "CONTROL: <ABORT | NONE>\n"
+        "CONTROL: <ABORT | NO_DISPATCH | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
         "daily_cap | max_daemons | codex_daily_requests | "
@@ -457,14 +478,20 @@ def classify_front_door(
     control_line = _line_after_prefix(answer, "CONTROL:")
     route_line = _line_after_prefix(answer, "ROUTE:")
     intent = _parse_config_line(config_line) if config_line is not None else None
-    control_token = _first_alpha_token(control_line) if control_line is not None else ""
-    control: ControlIntent | None = (
-        "abort" if control_token.upper() == "ABORT" else None
+    control_token = (
+        str(control_line or "").strip().upper().replace("-", "_")
     )
+    control: ControlIntent | None
+    if control_token.startswith("ABORT"):
+        control = "abort"
+    elif control_token.startswith(("NO_DISPATCH", "NO DISPATCH", "NODISPATCH")):
+        control = "no_dispatch"
+    else:
+        control = None
     route = (
         _route_from_token(_first_alpha_token(route_line)) if route_line is not None else "complex"
     )
-    if control == "abort":
+    if control in {"abort", "no_dispatch"}:
         route = "simple"
     return intent, control, route
 

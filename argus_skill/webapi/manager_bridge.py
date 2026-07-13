@@ -21,6 +21,11 @@ from typing import Any
 _STATES: dict[str, dict[str, Any]] = {}
 _LOCKS: dict[str, threading.RLock] = {}
 _REGISTRY_LOCK = threading.Lock()
+_NO_DISPATCH_FALLBACK = (
+    "[not dispatched] The Manager kept this request inline as instructed, but "
+    "could not complete the read-only reply. No task was queued and no daemon "
+    "was started."
+)
 
 
 def manager_execution_handoff(
@@ -388,6 +393,9 @@ def manager_message(
             _phase("Manager · responding while the current mission continues")
             route = "simple"
 
+        if control == "no_dispatch":
+            route = "simple"
+
         if control == "abort":
             from ..tools.mission_control import request_current_mission_abort
 
@@ -459,6 +467,20 @@ def manager_message(
             except Exception:  # noqa: BLE001
                 pass
             _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
+            return {"kind": "chat", "reply": reply}
+        if control == "no_dispatch":
+            reply = _NO_DISPATCH_FALLBACK
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
             return {"kind": "chat", "reply": reply}
         if mission_is_running(mem):
             reply = (

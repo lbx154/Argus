@@ -175,6 +175,77 @@ def test_mission_claimed_during_classification_cannot_enqueue_second_item(
     assert len(memory.backlog.all()) == 1
 
 
+def test_no_dispatch_control_stays_inline_even_if_route_says_team(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-no-dispatch"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, "no_dispatch", "complex"),
+    )
+
+    def reply(mem, body, state, **kwargs):
+        seen["route"] = kwargs.get("route")
+        return "read-only result"
+
+    monkeypatch.setattr(front_door, "manager_triage", reply)
+    monkeypatch.setattr(
+        dispatch,
+        "enqueue_mission",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NO_DISPATCH must never enqueue")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "inspect read-only; do not dispatch",
+        global_root=tmp_path,
+    )
+
+    assert result == {"kind": "chat", "reply": "read-only result"}
+    assert seen["route"] == "simple"
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_no_dispatch_control_fails_closed_when_inline_reply_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-no-dispatch-fail"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, "no_dispatch", "simple"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        dispatch,
+        "enqueue_mission",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("failed inline NO_DISPATCH must not enqueue")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "read only and do not dispatch",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["reply"].startswith("[not dispatched]")
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_team_message_runs_manager_lifetime_decision_before_enqueue(
     tmp_path: Path,
     monkeypatch,

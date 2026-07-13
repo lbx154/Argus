@@ -69,7 +69,7 @@ def _front_door_classify(
             control = None
         return (
             intent,
-            control if control == "abort" else None,
+            control if control in {"abort", "no_dispatch"} else None,
             route if route in ("simple", "complex") else "complex",
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
