@@ -1,0 +1,49 @@
+# Source registry for modern_poetry — two layers (providers + items).
+# Same shared contract as the other verticals. Honest status: nothing ingested;
+# modern verse relies on the operator's own reference inputs, not a bulk corpus.
+
+allowed_use_vocabulary:
+  - query_only
+  - human_research
+  - evidence_citation
+  - local_indexing
+  - model_training
+  - redistribution
+
+providers:
+  - id: operator_supplied
+    name: Operator-supplied reference poems / style samples
+    access_mode: internal
+    provider_terms_reviewed: false
+    notes: "Reference texts the operator provides for a specific task."
+  - id: public_anthology
+    name: Public-domain / openly-licensed modern verse anthologies
+    access_mode: public_web
+    provider_terms_reviewed: false
+    notes: "Per-work rights verified; most modern verse is in copyright."
+
+items:
+  - id: operator_reference_set
+    provider: operator_supplied
+    title: "(per-task) operator-provided reference poems"
+    language: zh
+    period: contemporary
+    genres: [modern_poetry]
+    jurisdiction_basis: "operator-provided / explicit permission"
+    rights_status: pending_review
+    allowed_uses: [human_research, evidence_citation]
+    prohibited_uses: [model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: public_modern_anthology
+    provider: public_anthology
+    title: "(placeholder) openly-licensed modern verse anthology"
+    language: en
+    period: contemporary
+    genres: [modern_poetry]
+    jurisdiction_basis: "open license; per-work verified"
+    rights_status: pending_review
+    allowed_uses: [human_research]
+    prohibited_uses: [model_training, redistribution, local_indexing]
+    checksum: null
+    ingested: false
