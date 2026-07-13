@@ -48,7 +48,7 @@ class MissionExecutionMixin:
             "item_id": item.id,
             "title": item.title,
             # Carry the objective on the event itself (not just the journal
-            # entry) so the live follow / REPL mission-context line renders the
+            # entry) so the live mission-context line renders the
             # real goal instead of "objective=-".
             "objective": item.objective,
             "missions_started": self._missions_started,
@@ -313,8 +313,8 @@ class MissionExecutionMixin:
         # needs the OPERATOR to make a call — not a bug/crash. Persist the
         # question onto the (now-terminal) item so it outlives this one event:
         # /status can list every currently-unanswered question across ALL
-        # projects/restarts, not just whatever the REPL happened to be tailing
-        # live when it was asked (see manager/repl.py's old chat_state-only
+        # projects/restarts, not just whatever a cockpit happened to be tailing
+        # live when it was asked (the old process-local state
         # ``blocked_question``, which was lost the moment that process exited).
         # Writing a non-status field onto an already-terminal item is legal —
         # Backlog.update()'s IllegalStateTransition seal only guards STATUS

@@ -93,34 +93,10 @@ def test_daemon_mode_cell_uses_no_ambiguous_width_emoji():
     exact "字符错位" class the tui glyph test guards against, which slipped into
     the alive branch here."""
     import inspect
+
     from argus_skill.apps import _runtime
 
     source = inspect.getsource(_runtime._format_daemon_mode_cell)
     for glyph in ("⚡", "⚙", "💭", "❓", "🚀", "▸"):
         assert glyph not in source, f"banned glyph {glyph!r} in daemon-cell renderer"
     assert "● daemon" in source  # the safe indicator, consistent with /roles
-
-
-# ---- /daemons + /attach (UX-G) ------------------------------------------
-
-def test_daemons_cmd_lists_live_and_attach_rejects_unknown(tmp_path, capsys):
-    import os as _os
-    from argus_skill.manager import repl as _repl
-
-    _make_session_with_daemon(tmp_path, "s-live01", 100, pid=_os.getpid())
-    (tmp_path / "projects" / "s-live01" / "daemon.status.json").write_text(
-        '{"daemon_pid": %d, "started_at": 0}' % _os.getpid(), encoding="utf-8"
-    )
-    cs = {"theme": None}
-    _repl._daemons_cmd(cs, tmp_path, tmp_path / "projects" / "s-other")
-    out = capsys.readouterr().out
-    assert "s-live01" in out and "live daemons" in out
-
-    _repl._attach_cmd(cs, tmp_path, "does-not-exist")
-    assert "no live daemon matches" in capsys.readouterr().out
-
-
-def test_daemons_cmd_empty(tmp_path, capsys):
-    from argus_skill.manager import repl as _repl
-    _repl._daemons_cmd({"theme": None}, tmp_path, tmp_path / "x")
-    assert "no live daemons" in capsys.readouterr().out

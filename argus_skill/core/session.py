@@ -215,7 +215,7 @@ def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
     try:
         from .daemon_lock import is_pid_running, read_daemon_pid
 
-        for lock in ("daemon.pid", "repl.pid"):
+        for lock in ("daemon.pid",):
             pid = read_daemon_pid(project_dir / lock)
             if pid is not None and is_pid_running(pid):
                 return True

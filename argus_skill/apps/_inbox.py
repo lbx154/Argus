@@ -1,6 +1,6 @@
 """Shared inbox helpers for operator guidance.
 
-The REPL, CLI, and cockpit all need the same inbox semantics:
+The CLI, Web API, and cockpit all need the same inbox semantics:
 
 * queue guidance to ``inbox.jsonl``
 * emit a structured ``life.inbox.queued`` event to ``events.jsonl``

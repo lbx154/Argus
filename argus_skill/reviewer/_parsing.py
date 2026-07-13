@@ -473,7 +473,7 @@ def _parse_operator_question(
     parsed: dict, *, status: str, next_action: str | None, reason: str | None
 ) -> str:
     """ONE plain-language question for the operator, surfaced verbatim by the
-    REPL when the agent is blocked on an operator decision.
+    cockpit when the agent is blocked on an operator decision.
 
     Prefer the reviewer's own ``operator_question`` (it should phrase it in the
     operator's language). Only emit on ``blocked`` — done/continue never ask. If

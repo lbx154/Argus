@@ -1,4 +1,4 @@
-"""Manager front-door routing shared by line REPL, TUI and Web."""
+"""Manager front-door routing shared by the Ink TUI and Web API."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
 
     The runner is used ONLY to classify free text as chat-vs-task and, when
     chat, to reply in-band BEFORE anything reaches the backlog. It is built
-    once per REPL session and cached on ``chat_state["manager_runner"]``.
+    once per Manager session and cached on ``chat_state["manager_runner"]``.
 
     Returns the runner, or ``None`` when front-end triage is not available
     (memory backend, or a build failure — in which case all free text falls
@@ -100,7 +100,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         # ``manager_session_root`` MUST match the daemon's own
         # ``ns.manager_session_root = str(cfg.life_dir)`` (see
         # ``daemon/life_worker.py:_runner_namespace``) — otherwise this
-        # front-door Manager (built once per REPL session, used for
+        # front-door Manager (built once per cockpit session, used for
         # SELF/TEAM routing + ``divide()``) reads/writes
         # ``research/PIPELINE_STATE.json`` and ``research/DOMAINS/*.json``
         # against a DIFFERENT root than the daemon that actually executes
@@ -205,26 +205,6 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         pass
 
 
-def _with_manager_spinner(theme: object | None, label: str, fn: Callable[[], Any]) -> Any:
-    """Run blocking ``fn`` while showing the cockpit's manager-tinted braille
-    spinner, so a model round-trip on the TEAM-handoff path never looks frozen.
-    No-op animation on non-TTY / piped / NO_COLOR (LiveStatus gates itself).
-
-    ``fn`` runs EXACTLY once: if the spinner cannot be built we fall back to a
-    bare call, but an exception from ``fn`` itself propagates unchanged."""
-    try:
-        from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD
-
-        cm = LiveStatus(
-            label, theme=theme, accent=ROLE_COLOR_BOLD.get("manager", "magenta")
-        )
-    except Exception:  # noqa: BLE001 — spinner setup only; never mask fn
-        return fn()
-    with cm:
-        return fn()
-
-
 def _accepts_keyword(fn: Any, name: str) -> bool:
     try:
         parameters = signature(fn).parameters.values()
@@ -316,7 +296,6 @@ def prepare_manager_execution_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> PreparedManagerHandoff:
@@ -341,19 +320,13 @@ def prepare_manager_execution_task(
                 runner=None,
             )
 
-        def _decide() -> Any:
-            if root_task_id is None or not _accepts_keyword(
-                manager.decide_vertical,
-                "root_task_id",
-            ):
-                return manager.decide_vertical(body)
-            return manager.decide_vertical(body, root_task_id=root_task_id)
-
-        decision = _with_manager_spinner(
-            theme,
-            "Manager choosing the vertical…",
-            _decide,
-        )
+        if root_task_id is None or not _accepts_keyword(
+            manager.decide_vertical,
+            "root_task_id",
+        ):
+            decision = manager.decide_vertical(body)
+        else:
+            decision = manager.decide_vertical(body, root_task_id=root_task_id)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,
@@ -383,7 +356,6 @@ def _manager_divide_user_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> Any:
@@ -393,16 +365,14 @@ def _manager_divide_user_task(
     already the Planner's decomposition and must not be routed back through
     Manager again.
 
-    ``Manager.divide`` makes a blocking model round-trip (``decide_vertical``), so
-    the caller passes ``theme`` to keep the cockpit's spinner animating during it
-    — otherwise the TEAM-handoff window looks frozen.
+    The caller surfaces progress through the Web/TUI event stream while this
+    blocking Manager decision runs.
     """
     try:
         prepared = prepare_manager_execution_task(
             mem,
             body,
             chat_state,
-            theme=theme,
             root_task_id=root_task_id,
             ensure_runner=ensure_runner,
         )
@@ -422,7 +392,6 @@ def manager_execution_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
 ) -> str:
     """Return Manager's role-clean Planner/Engineer handoff or fail closed."""
@@ -430,7 +399,6 @@ def manager_execution_task(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
     )
     return require_manager_execution_task(division)
@@ -442,7 +410,6 @@ def manager_bounded_handoff(
     chat_state: dict[str, Any],
     persist: Callable[[str, Any], Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> Any:
@@ -451,7 +418,6 @@ def manager_bounded_handoff(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
         ensure_runner=ensure_runner,
     )
@@ -475,7 +441,6 @@ def manager_continuous_handoff(
     requested_objective: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> str:
@@ -494,7 +459,6 @@ def manager_continuous_handoff(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
         ensure_runner=ensure_runner,
     )
@@ -609,8 +573,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     ``on_fragment(kind, payload)`` — optional streaming callback for a live
     front-end (the web/TUI SSE bridge). Fires ``("delta", {"text", "message_id"})``
     for each assistant reply block the instant it arrives, and ``("phase",
-    {"role", "label"})`` at each phase transition. Opt-in: default ``None``
-    leaves triage behaving exactly as the line REPL.
+    {"role", "label"})`` at each phase transition.
     """
     if route is None and mission_is_running(mem):
         route = "simple"
@@ -651,11 +614,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             return None
 
     def _emit_phase(role: str, label: str) -> None:
-        # The terminal REPL consumes ``on_phase`` directly; the web/TUI bridge
-        # consumes ``on_fragment("phase", ...)``. Relay every real runner phase
-        # to both surfaces. Previously the runner received the raw ``on_phase``
-        # argument (which is None on the web path), so SSE never saw classify /
-        # direct-reply transitions and could only display a generic spinner.
+        # Relay every real runner phase to both callback styles so SSE sees
+        # classify/direct-reply transitions instead of a generic spinner.
         if callable(on_phase):
             try:
                 on_phase(label, role=role)
@@ -778,7 +738,6 @@ __all__ = [
     "_life_dir_for",
     "_manager_divide_user_task",
     "_maybe_name_session",
-    "_with_manager_spinner",
     "looks_like_do_not_run_request",
     "manager_execution_task",
     "manager_bounded_handoff",

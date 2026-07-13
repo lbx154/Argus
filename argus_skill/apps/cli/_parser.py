@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--gc",
         action="store_true",
-        help="garbage-collect stale projects (no live daemon/repl + untouched for "
+        help="garbage-collect stale projects (no live daemon + untouched for "
         "--gc-days) by moving them to ~/.argus-skill/projects_trash/, then exit",
     )
     daemon_grp.add_argument(
@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--no-daemon",
         action="store_true",
-        help="skip auto-spawning the background daemon when entering the REPL",
+        help="skip auto-spawning the background daemon when entering the cockpit",
     )
     daemon_grp.add_argument(
         "--life-dir",

@@ -1,7 +1,7 @@
 """Lifetime-agent runtime infrastructure (backend-neutral).
 
-This module owns the non-interactive machinery the daemon, teammate
-runner, and the Manager REPL all share:
+This module owns the non-interactive machinery shared by the daemon, teammate
+runner, and Manager front-door:
 
 - ``build_life_runner``        — factory for memory / codex backends.
 - ``run_life_supervisor``      — non-interactive driver (drain a backlog
@@ -14,10 +14,8 @@ runner, and the Manager REPL all share:
 - the runner adapters (``_MemoryRunner`` / ``_ScriptedPlannerBackend`` /
   ``_SkillLoopRunner``) and the duck-typed ``_Outcome`` they return.
 
-History: these lived in ``apps/_life_repl/`` mixed together with the
-interactive REPL. The REPL conversation surface moved to
-``manager/repl.py``; the infrastructure below moved here so the daemon
-and teammate paths never import the interactive layer.
+The infrastructure below is intentionally independent of the Ink/Web
+presentation layer so daemon and teammate paths never import a terminal UI.
 """
 from __future__ import annotations
 
@@ -287,9 +285,9 @@ class _SkillLoopRunner(SelfReplyMixin):
         stop_event = getattr(args, "stop_event", None)
         # Set ONLY by the real 7×24 daemon's own namespace builder (see
         # ``daemon/life_worker.py:_runner_namespace``) — never by the
-        # REPL-side quick-reply runner (``manager/repl.py:_ensure_manager_runner``)
+        # front-door quick-reply runner
         # or by the test/legacy ``_invoke_supervisor`` path. This is what
-        # lets the Manager (running in the OPERATOR's separate REPL process)
+        # lets the Manager (running in the operator-facing API process)
         # ask the daemon to abort whatever mission it is currently executing:
         # the request is a small file in the shared life_dir (see
         # ``tools.mission_control``), and only the runner that is actually
@@ -444,13 +442,13 @@ class _SkillLoopRunner(SelfReplyMixin):
         )
         self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from
-        # the previous mission in the same REPL session. We propagate it
+        # the previous mission in the same Manager session. We propagate it
         # into the *first* engineer round of this mission, then update
-        # in-place after each execute() so the chat REPL can recover the
+        # in-place after each execute() so the cockpit can recover the
         # latest thread_id and forward it to the next mission.
         self._next_seed_thread_id: str | None = seed_thread_id
         self.last_thread_id: str | None = seed_thread_id
-        # Chat fast-path is operator-REPL-only: enabled per-invocation by
+        # Chat fast-path is operator-front-door-only: enabled per invocation by
         # ``_invoke_supervisor`` for human free-text typed at the cockpit.
         # Defaults False so planner / backlog / daemon missions are never
         # classified — the harness must not second-guess agent-produced work.
@@ -599,7 +597,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         preplanned: bool = False,
         mission_id: str | None = None,
     ) -> _Outcome:
-        # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
+        # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
         # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
         # not classify arbitrary autonomous work — agent-produced backlog work
@@ -1008,9 +1006,8 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """Banner ``executor`` cell — the honest one-line daemon state.
 
     Shows ``life ● daemon: pid X · up Y · draining`` when a 7×24 worker is
-    draining this project's backlog, or ``life · no daemon`` when not. (The old
-    "in-process" wording lied: since the REPL/daemon fusion the REPL never
-    executes missions itself — only a daemon drains the backlog.)
+    draining this project's backlog, or ``life · no daemon`` when not. Only the
+    daemon drains the backlog; the operator front-end never executes missions.
 
     Uses the plain ``●`` status dot (as everywhere else — /roles, /daemons),
     NOT an emoji: a lightning/gear/etc. emoji has East-Asian *ambiguous/wide*
@@ -1085,7 +1082,7 @@ def _inbox_drainer_for(life_dir: Path):
     """Return a `user_inbox` callable that drains pending messages from
     ``<life_dir>/inbox.jsonl``.
 
-    The CLI's ``argus-skill --notify "<msg>"`` and the REPL's ``/nudge``
+    The CLI's ``argus-skill --notify "<msg>"`` and the cockpit's ``/nudge``
     slash command both append to this file. Each call to the returned
     callable returns one message (or ``None``) and advances a tiny
     offset file so the same line is never replayed twice.
@@ -1114,7 +1111,7 @@ def _resolve_runner_backend_name(
     ``args.backend`` already encodes the operator's choice. Reading the env var
     ALONE misses the persisted knob: the 7×24 daemon exports the env before it
     spawns, so it was unaffected, but the IN-PROCESS Manager front-door (web
-    cockpit / REPL bridge) resolves e.g. copilot into ``args.backend`` WITHOUT
+    cockpit bridge) resolves e.g. copilot into ``args.backend`` WITHOUT
     exporting the env var. Env-only reads therefore silently fell back to codex
     and spawned ``codex exec`` against an Azure endpoint a copilot operator never
     configured (401 ``Reconnecting… n/100`` retry storm → the front-door lock is
@@ -1150,7 +1147,7 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
         # All three are agent-CLI backends: _SkillLoopRunner drives the codex /
         # claude / copilot CLI via AgentCliBackend (per-role resolution), so the
         # SAME runner serves every backend. Gating this on "codex" alone used to
-        # SystemExit the Manager front-door (repl triage / web bridge) whenever
+        # SystemExit the Manager front-door (triage / web bridge) whenever
         # the operator ran on copilot/claude — the daemon already runs missions
         # on those backends through this very runner.
         return _SkillLoopRunner(args, seed_thread_id=seed_thread_id)
@@ -1214,7 +1211,7 @@ def _workflow_mode_for_project_root(project_root: Path | str) -> str:
         return "staged"
 
 
-def _build_repl_supervisor_config(
+def _build_supervisor_config(
     *,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
@@ -1285,8 +1282,8 @@ def run_life_supervisor(
 ) -> dict[str, Any]:
     """Run ``LifeSupervisor`` with proper signal-handler save/restore.
 
-    Restoring previous SIGINT/SIGTERM handlers on exit means the chat
-    REPL keeps its Ctrl-C semantics after a /run finishes.
+    Restoring previous SIGINT/SIGTERM handlers on exit keeps the foreground
+    caller's Ctrl-C semantics after a run finishes.
     """
     stop_event = threading.Event()
 
@@ -1360,7 +1357,7 @@ def run_life_supervisor(
                 )
                 continuous = False
                 continuous_objective = ""
-        cfg = _build_repl_supervisor_config(
+        cfg = _build_supervisor_config(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
             global_daily_cap_usd=global_daily_cap_usd,
@@ -1471,7 +1468,7 @@ def _invoke_supervisor(
         runtime_context = runtime_context + "\n---\n\n" + research_context
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
-    # Chat fast-path is operator-REPL-only: only human free text typed at the
+    # Chat fast-path is operator-front-door-only: only human free text sent to the
     # cockpit is eligible. Planner / backlog / daemon missions keep the
     # runner default (False) so the harness never classifies agent work.
     if hasattr(runner, "_allow_chat_fast_path"):
@@ -1519,7 +1516,7 @@ __all__ = [
     "_codex_preflight_warning",
     "_inbox_drainer_for",
     "build_life_runner",
-    "_build_repl_supervisor_config",
+    "_build_supervisor_config",
     "run_life_supervisor",
     "_invoke_supervisor",
 ]

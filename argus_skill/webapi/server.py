@@ -229,11 +229,11 @@ def enqueue_task(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    from ..apps._life_actions import _CONFIG_DEFAULTS
+    from ..apps._life_actions import DEFAULT_LIFE_CONFIG
 
     iterate, cycles, budget, cleaned = parse_add_flags(
         text,
-        defaults=_CONFIG_DEFAULTS,
+        defaults=DEFAULT_LIFE_CONFIG,
     )
     objective = cleaned or text.strip()
     item_id = BacklogItem.new_id()
@@ -1981,7 +1981,7 @@ def create_app(
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(_require_auth)])
     async def _post_message(sid: str, body: _MessageIn) -> dict[str, Any]:
         """The Manager front-door: route natural language through the SAME triage
-        the Python REPL uses. A conversational message ("你好") gets a Manager
+        the Manager pipeline uses. A conversational message ("你好") gets a Manager
         reply and never becomes a mission; only TEAM/complex work is enqueued.
         Runs in a threadpool because the Manager triage is a blocking LLM call.
         """

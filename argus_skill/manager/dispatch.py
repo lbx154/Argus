@@ -1,0 +1,152 @@
+"""Manager-owned task lifetime and durable dispatch."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..apps._life_actions import DEFAULT_LIFE_CONFIG, add_backlog_item
+from . import front_door
+
+DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
+
+
+def _daemon_status(life_dir: Any) -> tuple[bool, int | None]:
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        status = read_daemon_status(life_dir)
+        return bool(status.alive), status.pid if status.alive else None
+    except Exception:  # noqa: BLE001 - dispatch still succeeds without status
+        return False, None
+
+
+def enqueue_mission(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    iterate: bool = True,
+    max_cycles: int = 6,
+    budget: float = 30.0,
+    root_task_id: str | None = None,
+) -> tuple[Any | None, bool, int | None]:
+    """Persist one Manager-authored mission and report executor availability."""
+    if chat_state.get("blocked_item_id"):
+        prior = str(chat_state.get("last_objective") or body)
+        blocked_id = chat_state.pop("blocked_item_id", None)
+        chat_state.pop("blocked_question", None)
+        try:
+            from ..apps._inbox import queue_inbox_message
+
+            queue_inbox_message(
+                front_door._life_dir_for(mem),
+                body,
+                source="manager.answer",
+            )
+        except Exception:  # noqa: BLE001 - the durable mission remains authoritative
+            pass
+        if blocked_id:
+            try:
+                mem.backlog.update(blocked_id, pending_question="")
+            except Exception:  # noqa: BLE001 - do not drop the operator reply
+                pass
+        body = f"{prior}\n\nOperator reply: {body}"
+
+    life_dir = front_door._life_dir_for(mem)
+    if chat_state.get("config", {}).get("continuous", False):
+        pending_auto_promote = bool(
+            chat_state.pop("_continuous_pending_manager_handoff", False)
+        )
+        try:
+            execution_body = front_door.manager_continuous_handoff(
+                mem,
+                body,
+                chat_state,
+                root_task_id=root_task_id,
+            )
+        except Exception:
+            if pending_auto_promote:
+                chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
+                    "continuous"
+                ] = False
+                chat_state["continuous_objective"] = ""
+            raise
+        chat_state["last_objective"] = execution_body
+        chat_state["continuous_objective"] = execution_body
+        front_door._maybe_name_session(chat_state, execution_body)
+        alive, pid = _daemon_status(life_dir)
+        return None, alive, pid
+
+    def _persist(execution_body: str, _division: Any) -> Any:
+        pending = mem.backlog.pending()
+        head_priority = min((item.priority for item in pending), default=100)
+        item = add_backlog_item(
+            mem,
+            execution_body,
+            item_id=root_task_id,
+            priority=min(head_priority - 1, -1),
+            iterate=iterate,
+            iteration_max_cycles=max_cycles,
+            iteration_budget_usd=budget,
+        )
+        front_door._maybe_name_session(chat_state, execution_body)
+        return item
+
+    item = front_door.manager_bounded_handoff(
+        mem,
+        body,
+        chat_state,
+        _persist,
+        root_task_id=root_task_id,
+    )
+    chat_state["last_objective"] = item.objective
+    alive, pid = _daemon_status(life_dir)
+    return item, alive, pid
+
+
+def maybe_promote_to_continuous(
+    mem: Any,
+    body: str,
+    chat_state: dict[str, Any],
+    *,
+    root_task_id: str | None = None,
+) -> bool:
+    """Let Manager choose STANDING lifetime for an open-ended team task."""
+    runner = front_door._ensure_manager_runner(chat_state, mem)
+    classify = getattr(runner, "classify_needs_continuous", None)
+    if runner is None or not callable(classify):
+        return False
+
+    is_standing = True
+    try:
+        if root_task_id is None or not front_door._accepts_keyword(
+            classify,
+            "root_task_id",
+        ):
+            is_standing = bool(classify(body))
+        else:
+            is_standing = bool(classify(body, root_task_id=root_task_id))
+        if not is_standing:
+            return False
+    except Exception:  # noqa: BLE001 - substantive team work defaults to standing
+        pass
+
+    from ..daemon.life_worker import continuous_mode_error
+
+    backend = str(chat_state.get("backend") or "codex")
+    if continuous_mode_error(backend, True, body):
+        return False
+
+    chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
+        "continuous"
+    ] = True
+    chat_state["_continuous_pending_manager_handoff"] = True
+    chat_state["continuous_objective"] = ""
+    return True
+
+
+__all__ = [
+    "DEFAULT_MANAGER_CONFIG",
+    "enqueue_mission",
+    "maybe_promote_to_continuous",
+]

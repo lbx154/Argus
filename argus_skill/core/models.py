@@ -145,7 +145,7 @@ class ReviewDecision:
     next_action: str
     # ONE plain-language question, in the operator's own language, asked when a
     # ``blocked`` verdict needs an OPERATOR decision (route/budget/which-task)
-    # the agent cannot make alone. The REPL surfaces this verbatim and the
+    # the agent cannot make alone. The cockpit surfaces this verbatim and the
     # operator's free-text reply continues the same objective — so a block is a
     # human question, not a JSON gate packet. Empty on done/continue or when the
     # block is purely engineer-repairable. Distinct from ``next_action`` (the

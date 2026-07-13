@@ -1,6 +1,6 @@
 """Terminal UX helpers — theming, event rendering, banners.
 
-Used by the chat REPL (`argus-skill chat`) and `argus-skill go`.
+Used by CLI status views and operator surfaces.
 The daemon side stays untouched — it emits raw structured events to
 JSONL outbox; only this layer turns them into pretty terminal output.
 """

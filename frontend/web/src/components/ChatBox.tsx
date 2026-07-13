@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { THINKING_LINES, rotateByTick, spinnerFrame } from '../lib/soul';
 
 /**
- * The Manager front-door as a single conversational box — the web analogue of
- * the Python REPL. The operator just talks to Argus; the Manager decides whether
+ * The Manager front-door as a single conversational box. The operator just
+ * talks to Argus; the Manager decides whether
  * to reply (chat) or dispatch a mission to the planner/engineer/reviewer team.
  * No task/nudge/note modes to think about.
  */

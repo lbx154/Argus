@@ -212,10 +212,10 @@ class LifeSupervisor(
         # planner_runner: any RunnerBackend (codex / memory). When None
         # the iteration loop is effectively disabled — items still go
         # ``done`` after the first successful mission. Wired by the
-        # life worker / REPL to the same backend the engineer uses.
+        # life worker / cockpit to the same backend the engineer uses.
         self.planner_runner = planner_runner
         # Optional role-scoped skill store for the planner mission matcher.
-        # Threaded from the composition root (REPL / life worker). None keeps
+        # Threaded from the composition root (cockpit / life worker). None keeps
         # the planner on fixed role context only (no planner skill pool today).
         self.skill_store = skill_store
         self._missions_started = 0

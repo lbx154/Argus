@@ -9,8 +9,8 @@ indefinitely (observed: ~960 dirs / 400 MB on a long-lived host).
 This module adds a conservative, REVERSIBLE garbage collector:
 
 * A project is removed ONLY when it is BOTH
-  1. **not live** — neither its ``daemon.pid`` nor its ``repl.pid``
-     points at a running process (so a running daemon/REPL is never
+  1. **not live** — its ``daemon.pid`` does not point at a running process
+     (so a running daemon is never
      touched), and
   2. **stale** — nothing under it has been modified within
      ``retention_days``.
@@ -22,7 +22,7 @@ This module adds a conservative, REVERSIBLE garbage collector:
   so an over-eager prune is fully recoverable (the operator has been
   bitten by irreversible deletes before).
 
-Hook it at daemon / REPL startup (cheap, fail-soft) and expose it as
+Hook it at daemon startup (cheap, fail-soft) and expose it as
 ``argus-skill --gc``.
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_RETENTION_DAYS = 30
 _DEFAULT_EMPTY_GRACE_SECONDS = 3600.0
-_LOCK_FILES = ("daemon.pid", "repl.pid")
+_LOCK_FILES = ("daemon.pid",)
 # Files whose mtime signals real activity in a project (appends bump the
 # file mtime, not always the dir mtime, so we check them explicitly).
 _ACTIVITY_FILES = (
@@ -67,7 +67,7 @@ def retention_days_default() -> int:
 
 
 def _project_is_live(project_dir: Path) -> bool:
-    """True if a daemon or REPL for this project is currently running."""
+    """True if a daemon for this project is currently running."""
     for lock_file in _LOCK_FILES:
         pid = read_daemon_pid(project_dir / lock_file)
         if pid is not None and is_pid_running(pid):
@@ -133,7 +133,7 @@ def gc_stale_projects(
 ) -> list[str]:
     """Move stale/empty, not-live project dirs to ``projects_trash/<date>/``.
 
-    A project is pruned when it is not-live (no running daemon/repl) AND either
+    A project is pruned when it is not-live (no running daemon) AND either
     (a) untouched for ``retention_days``, or (b) ``sweep_empty`` and it is
     content-less litter older than ``empty_grace_seconds``. The grace period is
     load-bearing for concurrent Web/TUI startups: a fresh idle session exists
@@ -141,7 +141,7 @@ def gc_stale_projects(
     Returns the fingerprints pruned (or that WOULD be, when ``dry_run``).
 
     ``exclude`` names project fingerprints that must NEVER be pruned. A startup
-    sweep runs BEFORE the caller's own ``repl.pid`` / ``daemon.pid`` lock is
+    sweep may run before the caller's own ``daemon.pid`` lock is
     written, so a just-resolved ``--resume <id>`` of a long-parked project is
     not-yet-live and would otherwise be trashed out from under the session that
     is resuming it. The caller passes its own session fingerprint here.

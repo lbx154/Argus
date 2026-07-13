@@ -276,7 +276,7 @@ _BANNER_COMMANDS: list[tuple[str, str]] = [
 
 
 def render_welcome_banner(*, theme: Theme) -> str:
-    """ASCII-only boxed cheatsheet for the chat REPL prompt."""
+    """ASCII-only boxed cheatsheet for terminal status output."""
     cmd_w = max(len(c) for c, _ in _BANNER_COMMANDS)
     rows = [
         f"{cmd.ljust(cmd_w)}  {desc}"

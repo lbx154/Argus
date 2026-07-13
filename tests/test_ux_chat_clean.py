@@ -9,7 +9,7 @@ that sink and this test file's own (now-removed) prototype sink used.
 """
 from __future__ import annotations
 
-from argus_skill.manager.repl import _extract_chat_reply_text
+from argus_skill.manager.front_door import _extract_chat_reply_text
 
 
 def test_extract_chat_reply_text_plain_and_json():

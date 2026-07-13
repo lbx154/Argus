@@ -11,7 +11,8 @@
 ```text
 argus-skill / python -m argus_skill
   -> argus_skill/apps/cli/_parser.py + argus_skill/apps/cli/_core.py
-  -> argus_skill/manager/repl.py 或 argus_skill/daemon/life_worker.py
+  -> Ink/Web cockpit -> argus_skill/webapi/manager_bridge.py
+     或 argus_skill/daemon/life_worker.py
   -> argus_skill/life/supervisor/_core.py  # backlog / budget / L4 planner
   -> argus_skill/apps/_runtime.py (_SkillLoopRunner.execute(...))
   -> argus_skill/loop.py                   # matcher -> Scientist-on-miss -> engineer -> reviewer
@@ -23,8 +24,8 @@ argus-skill / python -m argus_skill
 
 | 层 | 角色 | 主要文件 | 改什么时看这里 |
 | --- | --- | --- | --- |
-| L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/manager/repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
-| Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/repl.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles`、常驻状态行、live cockpit 面板里和其余三个角色平级展示 |
+| L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/webapi/`, `frontend/tui/`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、Ink/Web cockpit、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
+| Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
@@ -40,8 +41,8 @@ argus-skill / python -m argus_skill
 - `argus_skill/apps/cli/_core.py`: 所有顶层 CLI flag 都在这里注册。这里没有 subcommand 模型，`--daemon`、`--status`、`--watch`、`--follow`、`--continuous`、`--objective`、`--bounded`、skill admin 都是 top-level flag。
   - **入口硬门禁（`_lifetime_entry_error`）**：默认进 cockpit / 启动 daemon 时只要求至少有一个受信任的 special prompt（`life/special_prompts.py`）；允许空 objective 等待首条真实任务。首条 TEAM task 由 Manager 判断 `STANDING` / `BOUNDED` 并生成 execution objective，STANDING objective 原子持久化到 `continuous.json`。没有机器规则仍 `exit 2`。只读 / admin flag（`--status`、`--watch`、`--skill-stats`…）不受门禁限制。
   - **默认 lifetime**：chat/simple 请求在前门直接处理；其余 TEAM task 默认 `STANDING`（7×24），只有 Manager 明确判断有自然一次性终点时才 `BOUNDED`。`--bounded` 仍可作为直接 daemon 启动的 operator override。
-- `argus_skill/manager/repl.py`: 交互 cockpit，也包含真实 mission runner `_SkillLoopRunner` 和 memory backend runner。单个 backlog item 最终就是从这里进 `SkillLoop`。
-- `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。**只有 operator 在 REPL 里直接敲的自由文本**才会被分类（`_SkillLoopRunner._allow_chat_fast_path`，默认 False，仅 `_invoke_supervisor` 在 `_free_text_cmd` 非 continuous 路径置 True）；planner / `/add` backlog / daemon 的任何任务都不分类，否则就是 harness 二次猜 planner。
+- `argus_skill/webapi/manager_bridge.py`: Ink/Web cockpit 的统一 Manager 接口；`manager/front_door.py` 管分类与 handoff，`manager/dispatch.py` 管 lifetime 与持久化入队。Python line REPL 已删除。
+- `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。只有 operator 通过 Manager front-door 发送的自由文本才会被分类；planner / backlog / daemon 的任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
@@ -491,7 +492,7 @@ pytest
 
 ## 修改时的层级规则
 
-1. CLI 行为改 `apps/cli/_core.py` / `manager/repl.py` / `daemon/life_worker.py`。
+1. CLI / cockpit 行为改 `apps/cli/_core.py` / `webapi/` / `frontend/tui/` / `daemon/life_worker.py`；Manager handoff 与入队改 `manager/front_door.py` / `manager/dispatch.py`。
 2. 单任务 agent prompt 改 `loop.py`。
 3. L1 执行可靠性改 `engineer/runner.py`。
 4. L2 验收标准改 `reviewer/_core.py` 和相关 role skill。

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_skill.manager.repl import (
+from argus_skill.manager.front_door import (
     _DO_NOT_RUN_SAFE_REPLY,
     looks_like_do_not_run_request,
     manager_triage,
@@ -47,7 +47,7 @@ def test_detector_false_for_real_tasks() -> None:
     assert not looks_like_do_not_run_request("run the benchmark and report results")
 
 
-# --- triage failure path (both line-REPL and web bridge share this) ---------
+# --- triage failure path -----------------------------------------------------
 
 class _RaisingRunner:
     """A Manager runner whose classify call always errors (e.g. the provider

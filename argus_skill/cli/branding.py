@@ -89,7 +89,7 @@ def render_startup_banner(
     Pass ``show_logo=False`` to render only the status block (used when
     the logo has already been shown earlier in the same session, e.g.
     ``argus-skill go`` shows the logo before the objective prompt and
-    then opens the chat REPL which only needs to show the status block).
+    then opens the Ink cockpit, which only needs to show the status block).
     """
     parts: list[str] = []
     if show_logo:

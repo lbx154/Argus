@@ -12,7 +12,6 @@ import os
 
 from argus_skill.tools.doctor import Check, render_report, run_diagnostics
 
-
 # ---------------------------------------------------------------------------
 # render_report formatting
 # ---------------------------------------------------------------------------
@@ -118,9 +117,8 @@ def test_stale_daemon_lock_is_flagged(tmp_path):
     assert "rm " in lock.fix
 
 
-def test_live_repl_lock_is_not_flagged(tmp_path):
-    # repl.pid pointing at THIS (alive) process must not be reported stale.
-    (tmp_path / "repl.pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
+def test_live_daemon_lock_is_not_flagged(tmp_path):
+    (tmp_path / "daemon.pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
     checks = run_diagnostics(tmp_path)
     assert _by_name(checks)["lock sanity"].ok is True
 

@@ -34,9 +34,7 @@ from typing import Any
 
 from ..apps._inbox import count_pending_inbox_messages
 from ..apps._life_actions import (
-    _CONFIG_DEFAULTS as _LIFE_CONFIG_DEFAULTS,
-)
-from ..apps._life_actions import (
+    DEFAULT_LIFE_CONFIG,
     add_backlog_item,
     append_note,
     format_backlog_list,
@@ -185,7 +183,7 @@ class _CommandRouter:
         self.chat_id = chat_id
         self._state: dict[str, Any] = {
             "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
-            "config": dict(_LIFE_CONFIG_DEFAULTS),
+            "config": dict(DEFAULT_LIFE_CONFIG),
             "continuous_objective": "",
             "last_thread_id": None,
             "session_id": self.life_dir.name,
@@ -270,7 +268,7 @@ class _CommandRouter:
         return ""
 
     def _queue_task(self, arg: str) -> _QueuedTask | None:
-        cfg = self._state.setdefault("config", dict(_LIFE_CONFIG_DEFAULTS))
+        cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         iterate, cycles, budget, body = parse_add_flags(
             arg,
             defaults=cfg,
@@ -695,7 +693,7 @@ class TelegramPoller:
         self._thread: threading.Thread | None = None
         self._state: dict[str, Any] = {
             "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
-            "config": dict(_LIFE_CONFIG_DEFAULTS),
+            "config": dict(DEFAULT_LIFE_CONFIG),
             "continuous_objective": "",
             "last_thread_id": None,
         }

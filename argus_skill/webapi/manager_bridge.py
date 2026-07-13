@@ -1,13 +1,9 @@
-"""Bridge the web/TUI front-door to the SAME Manager triage the Python REPL uses.
+"""Bridge the Web/Ink front-end to the Manager routing pipeline.
 
 An operator message is NOT blindly turned into a backlog task. It goes through
 ``manager_triage`` — chat-vs-task classification + an inline reply for chat/SELF
-work — exactly like the line REPL (``manager/repl.py``): a conversational
-"你好" gets a Manager reply and never touches the daemon or a vertical; only
-TEAM/complex work is enqueued as a mission (where the daemon resolves a vertical).
-
-This reuses the REPL's triage, persistence decision, and enqueue path verbatim —
-no reimplementation, no second front-door, no drift from terminal behaviour.
+work. A conversational "你好" gets a Manager reply and never touches the daemon
+or a vertical; only TEAM/complex work is enqueued as a mission.
 """
 
 from __future__ import annotations
@@ -161,7 +157,7 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         return st
     from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knobs import resolve_role_backend
-    from ..manager.repl import _CONFIG_DEFAULTS
+    from ..manager.dispatch import DEFAULT_MANAGER_CONFIG
 
     try:
         backend = normalize_runner_backend(resolve_role_backend("manager"))
@@ -169,7 +165,6 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         backend = "codex"
     st = {
         "backend": backend,
-        "theme": None,
         "last_thread_id": None,
         # The first message handled by this web process may belong to an older
         # persisted conversation. Seed the newly-warm ACP chat session from its
@@ -178,7 +173,7 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         "needs_startup_handoff": True,
         "session_started_s": time.monotonic(),
         "mission_count": 0,
-        "config": dict(_CONFIG_DEFAULTS),
+        "config": dict(DEFAULT_MANAGER_CONFIG),
         "continuous_objective": "",
     }
     _STATES[sid] = st
@@ -269,14 +264,9 @@ def manager_message(
     """
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
-    from ..manager.repl import (
-        _accepts_keyword,
-        _apply_config_intent,
-        _front_door_classify,
-        _maybe_auto_promote_to_continuous,
-        enqueue_mission,
-        manager_triage,
-    )
+    from ..manager.config_intent import _apply_config_intent, _front_door_classify
+    from ..manager.dispatch import enqueue_mission, maybe_promote_to_continuous
+    from ..manager.front_door import _accepts_keyword, manager_triage
 
     body = (text or "").strip()
     if not body:
@@ -323,7 +313,7 @@ def manager_message(
                 pass
 
         # Journal the operator turn (transcript.jsonl role=operator) for
-        # resume/replay, mirroring the REPL. Best-effort — never block the reply.
+        # resume/replay. Best-effort — never block the reply.
         try:
             append_turn(life_dir, "operator", body)
         except Exception:  # noqa: BLE001
@@ -460,7 +450,7 @@ def manager_message(
                 route=route,
                 root_task_id=root_task_id,
             )
-        except Exception:  # noqa: BLE001 — triage failure → task path (same as REPL)
+        except Exception:  # noqa: BLE001 — triage failure biases to task
             reply = None
 
         if reply is not None:
@@ -494,13 +484,11 @@ def manager_message(
         try:
             if not chat_state.get("config", {}).get("continuous", False):
                 _phase("Manager · deciding task lifetime")
-                _maybe_auto_promote_to_continuous(
+                maybe_promote_to_continuous(
                     mem,
                     body,
                     chat_state,
-                    None,
                     root_task_id=root_task_id,
-                    announce=False,
                 )
             item, daemon_alive, daemon_pid = enqueue_mission(
                 mem,
@@ -539,8 +527,8 @@ def manager_plan(
 ) -> dict[str, Any]:
     """Draft one bounded execution plan through the configured Planner role."""
     from ..life.memory import MemoryBundle
+    from ..manager.front_door import _ensure_manager_runner
     from ..manager.plan_mode import draft_plan
-    from ..manager.repl import _ensure_manager_runner
 
     body = (text or "").strip()
     if not body:

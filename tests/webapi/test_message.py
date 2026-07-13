@@ -1,6 +1,6 @@
 """POST /message — the Manager front-door endpoint (webapi).
 
-The endpoint reuses the REPL's ``manager_triage``/``enqueue_mission`` via
+The endpoint uses ``manager_triage``/``enqueue_mission`` via
 ``webapi.manager_bridge.manager_message``. Here we stub that bridge so the test
 stays offline (no LLM call) and asserts the endpoint's contract: chat replies
 pass through, task classifications lazily spawn the daemon, empty text 400s, and
@@ -18,8 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager import front_door
-from argus_skill.manager import repl as manager_repl
+from argus_skill.manager import config_intent, dispatch, front_door
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
@@ -123,8 +122,8 @@ def test_active_mission_message_cannot_enqueue_even_if_classified_team(
         seen["route"] = kwargs.get("route")
         return "current mission is still running"
 
-    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
-    monkeypatch.setattr(manager_repl, "manager_triage", direct_manager_reply)
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", direct_manager_reply)
 
     result = manager_bridge.manager_message(
         sid,
@@ -155,10 +154,10 @@ def test_mission_claimed_during_classification_cannot_enqueue_second_item(
         assert memory.backlog.mark_running(item.id) is not None
         return None, None, "complex"
 
-    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
-    monkeypatch.setattr(manager_repl, "manager_triage", lambda *a, **k: None)
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: None)
     monkeypatch.setattr(
-        manager_repl,
+        dispatch,
         "enqueue_mission",
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("claim-during-classification must not enqueue")
@@ -186,13 +185,13 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
     seen: dict[str, object] = {}
 
     monkeypatch.setattr(
-        manager_repl,
+        config_intent,
         "_front_door_classify",
         lambda *args, **kwargs: (None, None, "complex"),
     )
-    monkeypatch.setattr(manager_repl, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    def promote(mem, body, chat_state, theme, **kwargs):
+    def promote(mem, body, chat_state, **kwargs):
         seen["promoted_body"] = body
         seen["root_task_id"] = kwargs.get("root_task_id")
         chat_state.setdefault("config", {})["continuous"] = True
@@ -202,8 +201,8 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
         seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
         return None, False, None
 
-    monkeypatch.setattr(manager_repl, "_maybe_auto_promote_to_continuous", promote)
-    monkeypatch.setattr(manager_repl, "enqueue_mission", enqueue)
+    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
+    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
         sid,
@@ -245,16 +244,16 @@ def test_standing_web_task_persists_only_manager_authored_objective(
 
     runner = _Runner()
     monkeypatch.setattr(
-        manager_repl,
+        front_door,
         "_ensure_manager_runner",
         lambda chat_state, mem: runner,
     )
     monkeypatch.setattr(
-        manager_repl,
+        config_intent,
         "_front_door_classify",
         lambda *args, **kwargs: (None, None, "complex"),
     )
-    monkeypatch.setattr(manager_repl, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
     result = manager_bridge.manager_message(sid, raw, global_root=tmp_path)
 

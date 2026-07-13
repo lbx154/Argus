@@ -12,7 +12,7 @@ per-mission call the daemon's supervisor makes (``_SkillLoopRunner.execute``)
 writing a result shard when the mission returns.
 
 Why in-process (not ``python -m argus_skill ...``): the CLI only offers the
-interactive cockpit (drops to the REPL, dies on EOF, no-op ``rc=0``) or a full
+interactive cockpit (dies on EOF, no-op ``rc=0``) or a full
 ``--daemon-fg`` daemon (acquires the per-project daemon lock + runs its own
 planner → would recurse into nested teams). Calling the runner directly gives a
 single headless engineer mission with **no cockpit, no daemon lock, no planner,

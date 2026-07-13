@@ -1,21 +1,18 @@
 """Life-mode 7×24 worker: detached background process that drains the
 backlog forever.
 
-This is the substrate behind ``argus-skill --daemon``. It is the
-non-interactive twin of :func:`argus_skill.manager.repl.run_manager_repl`:
-both build the same :class:`~argus_skill.life.supervisor.LifeSupervisor`
+This is the substrate behind ``argus-skill --daemon`` and the non-interactive
+executor behind the Ink/Web cockpit. Both build the same
+:class:`~argus_skill.life.supervisor.LifeSupervisor`
 against the current project's split memory bundle, but the worker has
-no TTY, no slash commands, and no exit on Ctrl-D — only on SIGTERM /
+no TTY and exits only on SIGTERM /
 SIGINT.
 
-Coordination with the REPL is provided by the backlog state machine
-(:meth:`Backlog.claim_next` is atomic) plus two distinct PID locks:
+Coordination with the cockpit is provided by the backlog state machine
+(:meth:`Backlog.claim_next` is atomic) plus the per-project ``daemon.pid`` lock.
 
-* ``<project-root>/repl.pid``    — REPL singleton (per project)
-* ``<project-root>/daemon.pid``  — daemon singleton (per project)
-
-The two can run side by side: a REPL session lets you /add and inspect
-journal/backlog while the daemon drains in the background. They cannot
+The cockpit can submit and inspect while the daemon drains in the background.
+Concurrent clients cannot
 double-execute because :meth:`Backlog.claim_next` performs an atomic
 CAS pending→running on the on-disk JSONL file.
 """
@@ -166,7 +163,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Disk-based continuous config (hot-reloadable by both daemon + REPL)
+# Disk-based continuous config (hot-reloadable by daemon + cockpit)
 # ---------------------------------------------------------------------------
 
 
@@ -627,7 +624,7 @@ class LifeWorker:
         os.environ["ARGUS_SKILL_SESSION_ROOT"] = str(runtime_root)
         os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(runtime_root / "events.jsonl")
 
-        # Build the runner the same way the REPL does. Importing here
+        # Build the runner through the shared runtime composition root. Importing here
         # keeps daemon.life_worker free of CLI-only deps until needed.
         from ..apps._runtime import LifeStderrSink, build_life_runner
         ns = _runner_namespace(cfg)
@@ -637,7 +634,7 @@ class LifeWorker:
         # Continuous drain: each LifeSupervisor.run() drains until the
         # backlog goes empty or the budget caps. Then we sleep
         # poll_interval seconds and try again — items may have been
-        # /add'd from a coexisting REPL.
+        # submitted from a coexisting cockpit.
         from ..life.event_log import JsonlEventSink
 
         # events.jsonl is the single persistent timeline.
@@ -686,7 +683,7 @@ class LifeWorker:
             )
 
         # Build a config provider that reads continuous.json from disk,
-        # so the REPL can enable/disable continuous mode while the daemon
+        # so the cockpit can enable/disable continuous mode while the daemon
         # is running — no daemon restart needed. A suppressed stale-boot
         # campaign stays off until the operator re-arms it (any change from the
         # boot state lifts the suppression and is then honored live).
@@ -744,7 +741,7 @@ class LifeWorker:
         except Exception:  # noqa: BLE001 — never block daemon start on session reset
             pass
         # Manager divides the task before the supervisor starts — same as the
-        # REPL path (apps/_runtime.run_life_supervisor): classify the vertical,
+        # foreground path (apps/_runtime.run_life_supervisor): classify the vertical,
         # split into Stages, and commit it so the supervisor trusts the persisted
         # vertical. A missing handoff fails closed: raw operator text never reaches
         # Planner/Engineer.
@@ -1327,7 +1324,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     # This is the ONE runner construction that actually drives real mission
     # rounds 7×24, so it is the only one that should ever consume a pending
     # mission-abort request (see ``apps/_runtime.py:_SkillLoopRunner._stop_reason``
-    # and ``tools.mission_control``) — the REPL-side quick-reply runner never
+    # and ``tools.mission_control``) — the front-door quick-reply runner never
     # sets this, so the Manager's own SELF-turn can never abort itself.
     ns.enable_mission_abort_signal = True
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))

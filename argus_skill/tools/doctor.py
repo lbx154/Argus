@@ -4,13 +4,13 @@ Answers the one question a stuck user actually has: *why is nothing
 executing my backlog, and what do I type to fix it?* This is the gap a real
 user hit on 2026-06-26 — a bare ``argus-skill`` opened a fresh empty session,
 the daemon auto-spawn failed silently (gpt-5.5 backend 429 / vault preflight),
-and the REPL gave no path forward.
+and the cockpit gave no path forward.
 
 The module is a thin,领域无关 diagnostic harness: it reuses the existing
 status / lock / vault / preflight primitives and reports their state. It makes
 **no** research judgement and **no** network call by default — every check is
 fail-soft (an import error or exception becomes a failed :class:`Check` with a
-concrete fix, never an exception into the REPL).
+concrete fix, never an exception into the cockpit).
 
 Public surface::
 
@@ -92,16 +92,16 @@ def _check_daemon(project_root: Path) -> Check:
 
 
 def _check_locks(project_root: Path) -> Check:
-    """(2) Lock sanity: flag stale ``daemon.pid`` / ``repl.pid`` (dead pid).
+    """(2) Lock sanity: flag a stale ``daemon.pid`` (dead pid).
 
-    A live lock (this REPL, a running daemon) is never flagged. A stale lock
+    A live daemon lock is never flagged. A stale lock
     is reclaimable — flock liveness is authoritative — but it is litter worth
     surfacing, and an orphan ``daemon.pid`` confuses a casual ``ps``.
     """
     from ..core.daemon_lock import is_pid_running, read_daemon_pid
 
     stale: list[tuple[str, int]] = []
-    for name in ("daemon.pid", "repl.pid"):
+    for name in ("daemon.pid",):
         path = project_root / name
         pid = read_daemon_pid(path)
         if pid is None:
@@ -132,7 +132,7 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
     """
     try:
         from ..tools.capability_vault import default_vault_path, load_model_api_route
-    except Exception as exc:  # noqa: BLE001 — fail-soft, never raise into REPL
+    except Exception as exc:  # noqa: BLE001 — fail-soft diagnostics
         return Check(
             "model API capability",
             False,
@@ -274,7 +274,7 @@ def _count_global_empty_sessions(global_root: Path) -> int:
     """Best-effort count of empty, not-live project shells under ``global_root``.
 
     Mirrors the project-GC notion of "empty" (no backlog/events) and "live"
-    (a running daemon/repl lock) so the number lines up with what ``--gc``
+    (a running daemon lock) so the number lines up with what ``--gc``
     would consider. Fully fail-soft.
     """
     root = Path(global_root) / "projects"
@@ -294,7 +294,7 @@ def _count_global_empty_sessions(global_root: Path) -> int:
             if not child.is_dir():
                 continue
             live = False
-            for lock_file in ("daemon.pid", "repl.pid"):
+            for lock_file in ("daemon.pid",):
                 pid = read_daemon_pid(child / lock_file)
                 if pid is not None and is_pid_running(pid):
                     live = True
@@ -357,8 +357,8 @@ def run_diagnostics(
 ) -> list[Check]:
     """Run every diagnostic and return the ordered list of :class:`Check`.
 
-    ``project_root`` is the per-project life dir (``mem.project.root`` in the
-    REPL) that owns the daemon/repl pid locks and event log. ``global_root``
+    ``project_root`` is the per-project life dir that owns the daemon pid lock
+    and event log. ``global_root``
     (``~/.argus-skill`` by default in callers) enables the empty-shell roll-up.
     ``probe`` is an optional reachability probe — when omitted the model-API
     check is offline (no network), which is the safe default for an
@@ -366,7 +366,7 @@ def run_diagnostics(
 
     Every check is fail-soft: a check that raises is converted into a failed
     Check with a reinstall fix, so this function never propagates an exception
-    into the REPL.
+    into the cockpit.
     """
     root = Path(project_root).expanduser()
 

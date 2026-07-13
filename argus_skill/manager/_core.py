@@ -158,7 +158,7 @@ def _restore_files_on_error(paths: list[Path]):
 class _ManagerSession:
     """A flock-serialized, persistent codex session shared by every Manager LLM
     call. The thread_id lives at ``<project_root>/.manager_session.json``; a
-    sibling ``.manager_session.lock`` serializes cross-process use so the REPL
+    sibling ``.manager_session.lock`` serializes cross-process use so the cockpit
     front-end and the daemon never interleave a turn. Fail-open: any lock/IO
     error degrades to a plain no-session call — the Manager's decision must never
     be blocked by this.
@@ -217,7 +217,7 @@ class _ManagerSession:
 
         The session lock is acquired NON-blocking with a bounded wait
         (``ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S``, default 120s), so a long/hung turn
-        in the peer process (REPL vs daemon share one lock per cwd) can't freeze
+        in the peer process (cockpit vs daemon share one lock per cwd) can't freeze
         this one indefinitely — if it can't be acquired in time we fall open to a
         plain no-session call.
 
@@ -326,7 +326,7 @@ class Division:
     execution_task: str = ""
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
-    # written yet — the caller (an interactive REPL) must confirm and then call
+    # written yet — the interactive caller must confirm and then call
     # :meth:`Manager.commit_domain`. Autonomous callers receive an already-
     # committed Division with ``pending_confirmation=False``.
     proposed_domain: Any = None
@@ -802,13 +802,13 @@ class Manager:
         """Write the authored data domain to disk and persist it as the active
         vertical (so the supervisor trusts it). FAIL-HARD: a write error
         PROPAGATES — no silent research fallback. Called autonomously by
-        :meth:`divide` or by the REPL after operator confirmation.
+        :meth:`divide` or by the cockpit after operator confirmation.
 
         ``_old_vertical`` (private, optional) lets :meth:`divide` pass along the
         vertical it read BEFORE deciding — so the new-intent-supersedes-a-
         finished-vertical stage reset (see :meth:`divide`'s docstring) still
         applies on the new-data-domain path. When called directly (e.g. by the
-        REPL after an operator confirms a pending proposal) it is re-read here.
+        cockpit after an operator confirms a pending proposal) it is re-read here.
         """
         lock = nullcontext() if _lock_held else self.pipeline_lock()
         with lock:

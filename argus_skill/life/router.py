@@ -1,4 +1,4 @@
-"""Tiny REPL front-door prompts."""
+"""Tiny Manager front-door prompts."""
 
 from __future__ import annotations
 

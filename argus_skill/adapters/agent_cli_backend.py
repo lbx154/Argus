@@ -469,7 +469,7 @@ class AgentCliBackend:
             0, int(default_watchdog_hard_idle_seconds or 0)
         )
         # Auth failure flag: set by run_exec() when the codex CLI
-        # reports auth-related stderr. Checked by the REPL runner to
+        # reports auth-related stderr. Checked by the runtime to
         # propagate to the supervisor's stop logic.
         self._auth_failure_detected: bool = False
         self._usage_lock = threading.Lock()

@@ -1,7 +1,7 @@
 """Plan mode — preview a step-by-step plan BEFORE any work is queued.
 
 Codex / Claude-Code / Cursor parity: when the operator types ``/plan <objective>``
-the REPL shows an ordered, scannable outline of HOW the agent *would* approach the
+the cockpit shows an ordered, scannable outline of HOW the agent *would* approach the
 objective and asks for confirmation before anything reaches the backlog/daemon.
 This is a preview only — drafting a plan must never run tools, write code, or
 execute the work.
@@ -9,9 +9,9 @@ execute the work.
 This module is deliberately thin and self-contained:
 
 * :class:`PlanStep` / :class:`Plan` — the in-memory plan shape.
-* :func:`draft_plan` — ask the model (via the runner the REPL already holds) for
+* :func:`draft_plan` — ask the model (via the runner the cockpit already holds) for
   an ordered plan and parse it. Failures are surfaced explicitly in the
-  returned :class:`Plan`; the REPL stays alive, but it does NOT silently
+  returned :class:`Plan`; the cockpit stays alive, but it does NOT silently
   invent a fake one-step plan.
 * :func:`render_plan` — pretty, scannable multi-line text (numbered steps + notes).
 * :func:`parse_plan_text` — the pure, unit-testable parser (no live model). Accepts
@@ -280,7 +280,7 @@ def _resolve_run_exec(
 ):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
-    The REPL hands us its high-level runner (``_SkillLoopRunner``), which exposes
+    The cockpit hands us its high-level runner (``_SkillLoopRunner``), which exposes
     the underlying backend as ``.backend`` / ``._backend`` rather than a top-level
     ``run_exec``. Test stubs and raw backends expose ``run_exec`` directly. We try
     each candidate and return a ``(prompt) -> result`` closure, or ``None`` when no
@@ -360,13 +360,13 @@ def draft_plan(
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
-    Uses the same runner the REPL already holds (its underlying backend is
+    Uses the same runner the cockpit already holds (its underlying backend is
     resolved automatically). The model is asked to OUTLINE only — never to do
     the work. The reply is parsed by :func:`parse_plan_text` /
     :func:`parse_plan_notes`.
 
     A missing/raising runner, a non-zero exit, an empty reply, or an
-    unparseable plan are surfaced explicitly via ``Plan.error`` so the REPL
+    unparseable plan are surfaced explicitly via ``Plan.error`` so the cockpit
     never crashes but also never silently invents a plan. On success,
     ``Plan.error`` is empty.
     """
@@ -385,7 +385,7 @@ def draft_plan(
 
     try:
         result = run_exec(build_plan_prompt(objective))
-    except Exception:  # noqa: BLE001 — keep the REPL alive but surface failure
+    except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")
         return _draft_failed(objective, reason="could not draft plan: backend error")
 
@@ -464,7 +464,7 @@ def render_plan(plan: Plan, theme: Any = None) -> str:
                 lines.append("  " + _style(theme, "dim", f"- {str(note).strip()}"))
 
         return "\n".join(lines)
-    except Exception:  # noqa: BLE001 — rendering must never crash the REPL
+    except Exception:  # noqa: BLE001 — rendering must never crash the cockpit
         try:
             return f"Plan · {plan.objective}"
         except Exception:  # noqa: BLE001

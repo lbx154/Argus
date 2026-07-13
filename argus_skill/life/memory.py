@@ -568,10 +568,10 @@ class BacklogItem:
     # non-empty ``operator_question`` (reviewer_schema.json) — i.e. it did not
     # fail on a bug/crash, it stopped because the REVIEWER needed the operator
     # to make a call. Persisted on the item (not just kept in an ephemeral
-    # REPL chat_state) so it survives a REPL/daemon restart and so /status can
+    # Manager state) so it survives a cockpit/daemon restart and so /status can
     # list every currently-unanswered question, not just the single most
     # recent one. Cleared back to "" once the operator's answer has been
-    # folded into a follow-up item (see ``enqueue_mission`` in manager/repl.py)
+    # folded into a follow-up item (see ``manager.dispatch.enqueue_mission``)
     # — a non-empty value always means "still waiting on the operator".
     pending_question: str = ""
     # --- iteration loop fields (Phase-7) -------------------------------
@@ -1393,7 +1393,7 @@ class ProjectMemory:
 class MemoryBundle:
     """Bundles one :class:`GlobalMemory` plus one :class:`ProjectMemory`.
 
-    Phase-3 reviewer prompt-builder + Phase-5 unified REPL both want
+    The reviewer prompt builder and unified cockpit both want
     "everything the agent knows about this run" in one object instead
     of juggling two facades. Construct via :meth:`for_cwd` to get
     automatic project-fingerprint resolution.

@@ -4,10 +4,14 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from argus_skill.apps._runtime import _build_repl_supervisor_config
+from argus_skill.apps._runtime import (
+    _build_supervisor_config as _build_runtime_supervisor_config,
+)
 from argus_skill.daemon.life_worker import (
     LifeWorkerConfig,
-    _build_supervisor_config,
+)
+from argus_skill.daemon.life_worker import (
+    _build_supervisor_config as _build_worker_supervisor_config,
 )
 
 
@@ -23,8 +27,8 @@ def _worker_cfg(tmp_path: Path, *, open_ended: bool) -> LifeWorkerConfig:
     )
 
 
-def test_bounded_disables_full_paper_gate(tmp_path: Path):
-    cfg = _build_supervisor_config(
+def test_worker_bounded_disables_full_paper_gate(tmp_path: Path):
+    cfg = _build_worker_supervisor_config(
         _worker_cfg(tmp_path, open_ended=False),
         runtime_root=tmp_path / "life",
         stop_event=threading.Event(),
@@ -40,8 +44,8 @@ def test_bounded_disables_full_paper_gate(tmp_path: Path):
     assert cfg.full_paper_gate is False
 
 
-def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
-    cfg = _build_supervisor_config(
+def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
+    cfg = _build_worker_supervisor_config(
         _worker_cfg(tmp_path, open_ended=True),
         runtime_root=tmp_path / "life",
         stop_event=threading.Event(),
@@ -58,8 +62,8 @@ def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
     assert cfg.full_paper_gate is False
 
 
-def test_repl_bounded_disables_full_paper_gate(tmp_path: Path):
-    cfg = _build_repl_supervisor_config(
+def test_bounded_disables_full_paper_gate(tmp_path: Path):
+    cfg = _build_runtime_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
@@ -78,8 +82,8 @@ def test_repl_bounded_disables_full_paper_gate(tmp_path: Path):
     assert cfg.full_paper_gate is False
 
 
-def test_repl_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
-    cfg = _build_repl_supervisor_config(
+def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
+    cfg = _build_runtime_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
@@ -99,12 +103,12 @@ def test_repl_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path)
     assert cfg.full_paper_gate is False
 
 
-def _repl_cfg_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
+def _config_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
     from argus_skill.skills.vertical_select import persist_vertical
 
     root = tmp_path / "life"
     persist_vertical(root, vertical)  # the Manager's decision, persisted
-    return _build_repl_supervisor_config(
+    return _build_runtime_supervisor_config(
         per_mission_cap_usd=10.0,
         daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
@@ -120,17 +124,17 @@ def _repl_cfg_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = 
     )
 
 
-def test_repl_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path):
+def test_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path):
     # Regression: an optimize vertical (kernelbench) must NOT carry paper_mission
     # into the supervisor config, or every bounded backlog item gets the
     # "continue through adjacent paper blockers" guidance (see
     # _render_backlog_item_metadata). The gate follows the resolved vertical.
-    cfg = _repl_cfg_for_vertical(tmp_path, "kernelbench")
+    cfg = _config_for_vertical(tmp_path, "kernelbench")
     assert cfg.paper_mission is False
 
 
-def test_repl_supervisor_paper_mission_on_for_research_vertical(tmp_path: Path):
-    cfg = _repl_cfg_for_vertical(tmp_path, "research")
+def test_supervisor_paper_mission_on_for_research_vertical(tmp_path: Path):
+    cfg = _config_for_vertical(tmp_path, "research")
     assert cfg.paper_mission is True
     assert cfg.full_paper_gate is True
 
@@ -141,7 +145,7 @@ def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
     from argus_skill.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
-    cfg = _build_supervisor_config(
+    cfg = _build_worker_supervisor_config(
         _worker_cfg(tmp_path, open_ended=True),
         runtime_root=tmp_path / "life",
         stop_event=threading.Event(),

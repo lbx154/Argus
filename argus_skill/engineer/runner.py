@@ -104,7 +104,7 @@ _COMPACTION_THRASH_MARKER = "compaction thrash"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 # Distinct from the daemon-stop interrupt above: this fires when the Manager
-# (running in the operator's REPL, a separate process) decided mid-mission
+# (running in the operator-facing API process) decided mid-mission
 # that *this one* backlog item should stop right now — the daemon process
 # itself keeps running and will move on to the next ready item. See
 # ``argus_skill.tools.mission_control`` for the writer side of this signal.
