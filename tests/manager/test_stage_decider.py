@@ -18,6 +18,7 @@ from argus_skill.manager.live_view import load_live_view_decision
 from argus_skill.manager.stage_decider import (
     build_stage_decision_prompt,
     fallback_empty_stage_decision,
+    final_stage_completion_decision,
     parse_stage_decision,
 )
 from argus_skill.skills.vertical_select import persist_vertical
@@ -57,6 +58,7 @@ def _review(
     *,
     checklist: list[dict] | None = None,
     forward_progress: bool | None = True,
+    scope: str = "",
 ):
     """A minimal ReviewDecision-shaped object the decider reads."""
     from argus_skill.core.models import ReviewDecision
@@ -79,6 +81,7 @@ def _review(
                 }
             ]
         ),
+        scope=scope,
         planner_report=report,
     )
 
@@ -400,6 +403,29 @@ def test_decide_persistent_empty_done_satisfied_completes_final_stage(
     assert st.target_stage == "submission"
     assert st.diagnostic == "empty_output_no_next_stage"
     assert _read_stage_status(root, "submission") == "done"
+
+
+def test_bounded_final_stage_completion_allows_empty_checklist() -> None:
+    decision = final_stage_completion_decision(
+        _review(checklist=[]),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        mission_scope="bounded",
+    )
+
+    assert decision is not None
+    assert decision.action == "complete"
+
+
+def test_final_submission_completion_requires_checklist() -> None:
+    decision = final_stage_completion_decision(
+        _review(checklist=[]),
+        current_stage="submission",
+        stage_order=("review", "submission"),
+        mission_scope="final_submission",
+    )
+
+    assert decision is None
 
 
 def test_decide_persistent_empty_unsatisfied_checklist_holds(

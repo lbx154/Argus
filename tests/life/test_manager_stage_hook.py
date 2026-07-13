@@ -150,6 +150,7 @@ def _review(
     *,
     checklist: list[dict] | None = None,
     forward_progress: bool | None = True,
+    scope: str = "",
 ) -> ReviewDecision:
     report = {"headline": "done"}
     if forward_progress is not None:
@@ -169,6 +170,7 @@ def _review(
                 }
             ]
         ),
+        scope=scope,
         planner_report=report,
     )
 
@@ -452,6 +454,24 @@ def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
     assert event["action"] == "complete"
     assert event["diagnostic"] == "empty_output_no_next_stage"
+
+
+def test_hook_explicit_hold_completes_bounded_final_stage_without_checklist(
+    tmp_path: Path,
+) -> None:
+    root = _submission_project(tmp_path)
+    backend = _StubRunner({"action": "hold", "reason": "no next stage"})
+    runner = _runner_with(backend)
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review(checklist=[]))],
+        workdir=root,
+        sink=_Sink(),
+        mission_scope="bounded",
+    )
+
+    assert decision["action"] == "complete"
+    assert decision["target_stage"] == "submission"
 
 
 def test_hook_persistent_empty_unsatisfied_checklist_holds(

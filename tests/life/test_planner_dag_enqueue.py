@@ -97,6 +97,7 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
         paper_mission=False,
         full_paper_gate=False,
         open_ended=False,
+        planner_task_iteration_budget_usd=123.0,
     )
     sink = _NullSink()
     sup = LifeSupervisor(
@@ -175,6 +176,8 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert c.deps == [a.id, b.id]
     # The local keys themselves never leak into the backlog.
     assert "a" not in c.deps and "b" not in c.deps
+    assert all(item.max_cost_usd == 123.0 for item in items.values())
+    assert all(item.iteration_budget_usd == 123.0 for item in items.values())
 
     # And the DAG actually schedules: a/b are ready, c is gated until both done.
     ready_titles = {it.title for it in sup.memory.backlog.ready()}

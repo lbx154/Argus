@@ -1089,6 +1089,7 @@ class Manager:
         root_task_id: str | None = None,
         open_ended: bool = False,
         continuous_objective: str = "",
+        mission_scope: str = "",
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -1332,6 +1333,7 @@ class Manager:
                     current_stage=cur,
                     stage_order=order,
                     vertical=resolve_vertical(root),
+                    mission_scope=mission_scope,
                     trigger_diagnostic=decision.diagnostic,
                     trigger_reason=decision.reason,
                 )
