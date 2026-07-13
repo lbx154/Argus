@@ -81,4 +81,3 @@ export function compactConfigSource(source: string): string {
   }
   return value;
 }
-

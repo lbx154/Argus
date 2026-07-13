@@ -45,7 +45,6 @@ describe('conciseConfigKnobs', () => {
     ]);
   });
 });
-
 describe('compactConfigSource', () => {
   it('shortens verbose resolver provenance', () => {
     expect(compactConfigSource('persisted:ARGUS_SKILL_MODEL')).toBe('model · persisted');
@@ -54,4 +53,3 @@ describe('compactConfigSource', () => {
     expect(compactConfigSource('capability vault / default: gpt-5.5')).toBe('vault / default');
   });
 });
-
