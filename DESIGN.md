@@ -186,6 +186,9 @@ The shell is flat by default. Depth is communicated with surface tone and transl
 - Expanded Sessions supports Local and All scopes; All groups by full launch path.
 - Collapsed Sessions shows the NIGHT PUPIL `a` mark and only exposes the square expand control; expanded Sessions shows the complete `argus` lockup.
 - Left and right sidebars collapse and resize independently while the center remains usable.
+- Activity always fills the available main column. On desktop, conversation
+  content (messages, role logs, system lines, and composer) is centered with
+  `width: min(61.8vw, 100% of the main column)`; mobile remains full width.
 
 ### Conversation Thread
 - User messages are right-aligned neutral bubbles.

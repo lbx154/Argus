@@ -66,7 +66,7 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
 function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
   const operator = String(ev.type) === 'ui.operator';
   return (
-    <article className={`group mx-auto w-full max-w-[760px] px-4 py-3 sm:px-6 ${operator ? 'animate-appear-right' : 'animate-appear'}`}>
+    <article className={`group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw] ${operator ? 'animate-appear-right' : 'animate-appear'}`}>
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
@@ -197,12 +197,12 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
       <ConversationRow ev={group.operator.ev} r={group.operator.r} />
       {replies.map((row) => <ConversationRow key={row.key} ev={row.ev} r={row.r} />)}
       {systemMessages.map((message, index) => (
-        <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-[760px] px-6 py-1.5 text-center text-xs text-ink-faint">
+        <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
           {message}
         </div>
       ))}
       {logCount > 0 ? (
-        <div className="mx-auto w-full max-w-[760px] border-t border-line/40 bg-bg/25">
+        <div className="mx-auto w-full max-w-full border-t border-line/40 bg-bg/25 lg:max-w-[61.8vw]">
           {ROLE_ORDER.map((role) => (
             <RoleLogGroup
               key={`${group.key}-${role}`}
@@ -394,7 +394,7 @@ export function EventStream({
               <details
                 open={earlierOpen}
                 onToggle={(event) => setEarlierOpen(event.currentTarget.open)}
-                className="border-b border-line/60"
+                className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]"
               >
                 <summary className="flex h-11 cursor-pointer list-none items-center gap-2 px-4 text-xs font-medium text-ink-dim hover:bg-bg/60">
                   Earlier activity
