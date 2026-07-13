@@ -118,6 +118,15 @@ def test_generic_roles_load_math_skill_context_only_for_math() -> None:
     assert "MATHEMATICS" not in vertical_role_banner(direct, "reviewer")
 
 
+def test_math_reviewer_populates_the_active_result_schema() -> None:
+    context = vertical_role_banner(load_vertical("math"), "reviewer")
+    normalized = " ".join(context.split())
+
+    assert "`research_result`" in context
+    assert "`math_result`" in context
+    assert "Follow the active schema exactly rather than omitting the result" in normalized
+
+
 def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
     items = vertical_checklist_items(load_vertical("math"))
     rendered = "\n".join(
