@@ -68,7 +68,7 @@ VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
-    "modern_poetry",
+    "modern_poetry", "prose",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -110,6 +110,11 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "NO 平仄/韵 machine check (free verse is not classical). Gates only DECLARED hard "
     "constraints (language/line-count/banned-words); imagery/lineation/tone are "
     "live-reviewer craft. NOT classical regulated verse and NOT narrative prose",
+    "prose": "literary PROSE (抒情/叙事散文/随笔/回忆, zh or en) — compose or revise an "
+    "essay/memoir. Machine layer is thin: prose_state structure completeness + declared "
+    "hard constraints (language/paragraph-count/banned-words). Concrete observation, the "
+    "fact/memory boundary, and paragraph movement are live-reviewer. NOT verse and NOT "
+    "plot-driven fiction",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
