@@ -805,8 +805,13 @@ class _SkillLoopRunner(SelfReplyMixin):
             ):
                 try:
                     from ..manager.plan_mode import draft_plan
-                    from ..verticals.math.runtime import math_role_banner
+                    from ..verticals.math.runtime import (
+                        LEAN_FORMALIZATION_KIND,
+                        enqueue_lean_formalization_task,
+                        math_role_banner,
+                    )
 
+                    math_planner_banner = math_role_banner(workdir, "planner")
                     plan = draft_plan(
                         getattr(self, "planner_backend", None) or self._backend,
                         original_objective or objective,
@@ -816,9 +821,54 @@ class _SkillLoopRunner(SelfReplyMixin):
                             "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
                         ),
                         run_label="planner-bounded-plan",
-                        role_banner=math_role_banner(workdir, "planner"),
+                        role_banner=math_planner_banner,
+                        allow_lean_formalization_subtask=bool(
+                            math_planner_banner
+                        ),
                     )
                     if plan.steps:
+                        if math_planner_banner and inbox_life_dir is not None:
+                            formalization_step = next(
+                                (
+                                    step
+                                    for step in plan.steps
+                                    if step.kind == LEAN_FORMALIZATION_KIND
+                                ),
+                                None,
+                            )
+                            if formalization_step is not None:
+                                try:
+                                    child, created = enqueue_lean_formalization_task(
+                                        workdir,
+                                        life_dir=inbox_life_dir,
+                                        parent_mission_id=str(mission_id or ""),
+                                        original_objective=(
+                                            original_objective or objective
+                                        ),
+                                        step_title=formalization_step.title,
+                                        step_detail=formalization_step.detail,
+                                    )
+                                    if created and child is not None:
+                                        sink.handle_event({
+                                            "type": "life.planner.task_added",
+                                            "item_id": child.id,
+                                            "title": child.title,
+                                            "objective": child.objective,
+                                            "deps": list(child.deps),
+                                            "priority": child.priority,
+                                        })
+                                except Exception as exc:  # noqa: BLE001
+                                    sink.handle_event({
+                                        "type": "life.planner.error",
+                                        "error": (
+                                            "Math Lean formalization child "
+                                            f"enqueue failed: {type(exc).__name__}: {exc}"
+                                        ),
+                                        "text": (
+                                            "Math Lean formalization child "
+                                            "enqueue failed; current mission continues"
+                                        ),
+                                    })
                         lines = ["## Planner execution plan (advisory)"]
                         for index, step in enumerate(plan.steps, 1):
                             detail = f" — {step.detail}" if step.detail else ""

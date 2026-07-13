@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
 import time
+import uuid
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -32,12 +36,19 @@ _SYNTAX_PATTERNS = (
 )
 _AXIOM_AUDIT_MARKER = "ARGUS_AXIOM_AUDIT_FOUND:"
 _AXIOM_AUDIT_PATH = Path(__file__).with_name("lean_axiom_audit.lean")
+CANONICAL_LEAN_SOURCE = "Main.lean"
+COMPILE_LOG = "compile.log"
+LEAN_CHECK_RESULT = "lean_check.json"
+STATEMENT_FIDELITY = "statement_fidelity.md"
 
 
-def audit_lean_tools() -> dict[str, dict[str, Any]]:
+def audit_lean_tools(
+    *,
+    cwd: Path | str | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return executable path/version facts without installing anything."""
     return {
-        name: _tool_info(name)
+        name: _tool_info(name, cwd=cwd)
         for name in ("lean", "lake", "elan")
     }
 
@@ -53,32 +64,6 @@ def run_lean_check(
     """Compile one Lean file and return a JSON-serializable result."""
     path = Path(source).expanduser().resolve()
     started = time.monotonic()
-    tools = audit_lean_tools()
-    if lean_bin:
-        tools["lean"] = _tool_info("lean", lean_bin)
-    if lake_bin:
-        tools["lake"] = _tool_info("lake", lake_bin)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        return _result(
-            "syntax_error",
-            path,
-            tools=tools,
-            stderr=f"cannot read source: {exc}",
-            duration_ms=_duration_ms(started),
-        )
-    proof_holes = find_proof_holes(text)
-    if proof_holes:
-        return _result(
-            "proof_hole",
-            path,
-            tools=tools,
-            proof_holes=proof_holes,
-            stderr="Lean source contains a proof hole or local assumption.",
-            duration_ms=_duration_ms(started),
-        )
-
     if use_lake:
         executable = _resolve_executable("lake", lake_bin)
         command = [executable, "env", "lean", str(path)] if executable else []
@@ -89,6 +74,25 @@ def run_lean_check(
         command = [executable, str(path)] if executable else []
         tool = "lean"
         working_dir = path.parent
+    tools = audit_lean_tools(cwd=working_dir)
+    if use_lake and executable:
+        tools["lake"] = _tool_info(
+            "lake",
+            executable,
+            cwd=working_dir,
+        )
+        tools["lean"] = _tool_info(
+            "lean",
+            cwd=working_dir,
+            version_command=[executable, "env", "lean", "--version"],
+            path_label=f"{executable} env lean",
+        )
+    elif executable:
+        tools["lean"] = _tool_info(
+            "lean",
+            executable,
+            cwd=working_dir,
+        )
     if not executable:
         return _result(
             "unavailable",
@@ -97,6 +101,30 @@ def run_lean_check(
             tool=tool,
             cwd=working_dir,
             stderr=f"{tool} executable is unavailable.",
+            duration_ms=_duration_ms(started),
+        )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _result(
+            "syntax_error",
+            path,
+            tools=tools,
+            tool=tool,
+            cwd=working_dir,
+            stderr=f"cannot read source: {exc}",
+            duration_ms=_duration_ms(started),
+        )
+    proof_holes = find_proof_holes(text)
+    if proof_holes:
+        return _result(
+            "proof_hole",
+            path,
+            tools=tools,
+            tool=tool,
+            cwd=working_dir,
+            proof_holes=proof_holes,
+            stderr="Lean source contains a proof hole or local assumption.",
             duration_ms=_duration_ms(started),
         )
     try:
@@ -124,6 +152,7 @@ def run_lean_check(
             tool=tool,
             command=command,
             cwd=working_dir,
+            exit_code=process.returncode,
             stdout=stdout or _text(exc.stdout),
             stderr=stderr or _text(exc.stderr),
             duration_ms=_duration_ms(started),
@@ -197,6 +226,7 @@ def run_lean_check(
                 stdout=stdout,
                 stderr=stderr,
                 audit_command=audit_command,
+                audit_exit_code=audit_process.returncode,
                 audit_stdout=audit_stdout or _text(exc.stdout),
                 audit_stderr=audit_stderr or _text(exc.stderr),
                 duration_ms=_duration_ms(started),
@@ -346,17 +376,32 @@ def _raw_string_end(source: str, index: int) -> int | None:
     return len(source) if end < 0 else end + len(delimiter)
 
 
-def _tool_info(name: str, path_override: str | None = None) -> dict[str, Any]:
-    path = _resolve_executable(name, path_override)
-    if not path:
-        return {"available": False, "path": None, "version": ""}
+def _tool_info(
+    name: str,
+    path_override: str | None = None,
+    *,
+    cwd: Path | str | None = None,
+    version_command: Sequence[str] | None = None,
+    path_label: str | None = None,
+) -> dict[str, Any]:
+    if version_command is None:
+        path = _resolve_executable(name, path_override)
+        if not path:
+            return {"available": False, "path": None, "version": ""}
+        command = [path, "--version"]
+    else:
+        command = list(version_command)
+        if not command or not command[0]:
+            return {"available": False, "path": None, "version": ""}
+        path = path_label or command[0]
     try:
         result = subprocess.run(
-            [path, "--version"],
+            command,
             capture_output=True,
             text=True,
             timeout=3.0,
             check=False,
+            cwd=cwd,
         )
         version = (result.stdout or result.stderr).strip()[:500]
     except (OSError, subprocess.TimeoutExpired):
@@ -463,6 +508,137 @@ def _text(value: Any) -> str:
     return str(value)
 
 
+def prepare_canonical_lean_artifacts(
+    source: Path | str,
+    artifact_dir: Path | str,
+    statement_fidelity: Path | str,
+) -> tuple[Path, Path]:
+    """Preserve descriptive inputs while materializing canonical Math artifacts."""
+    source_path = Path(source).expanduser().resolve()
+    artifact_root = Path(artifact_dir).expanduser().resolve()
+    fidelity_source = Path(statement_fidelity).expanduser().resolve()
+    canonical_paths = {
+        CANONICAL_LEAN_SOURCE: artifact_root / CANONICAL_LEAN_SOURCE,
+        COMPILE_LOG: artifact_root / COMPILE_LOG,
+        LEAN_CHECK_RESULT: artifact_root / LEAN_CHECK_RESULT,
+        STATEMENT_FIDELITY: artifact_root / STATEMENT_FIDELITY,
+    }
+    if source_path == fidelity_source:
+        raise ValueError("Lean source and statement fidelity must be distinct")
+    if source_path in {
+        canonical_paths[COMPILE_LOG],
+        canonical_paths[LEAN_CHECK_RESULT],
+        canonical_paths[STATEMENT_FIDELITY],
+    }:
+        raise ValueError(
+            f"Lean source aliases another canonical artifact: {source_path}"
+        )
+    if fidelity_source in {
+        canonical_paths[CANONICAL_LEAN_SOURCE],
+        canonical_paths[COMPILE_LOG],
+        canonical_paths[LEAN_CHECK_RESULT],
+    }:
+        raise ValueError(
+            "statement fidelity aliases another canonical artifact: "
+            f"{fidelity_source}"
+        )
+    fidelity_text = fidelity_source.read_text(encoding="utf-8")
+    if not fidelity_text.strip():
+        raise ValueError("statement fidelity artifact is empty")
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    for name in (
+        CANONICAL_LEAN_SOURCE,
+        COMPILE_LOG,
+        LEAN_CHECK_RESULT,
+        STATEMENT_FIDELITY,
+    ):
+        if canonical_paths[name].is_symlink():
+            raise ValueError(
+                f"artifact path is a symlink: {canonical_paths[name]}"
+            )
+
+    canonical_source = canonical_paths[CANONICAL_LEAN_SOURCE]
+    if source_path != canonical_source:
+        _atomic_artifact_write(
+            canonical_source,
+            source_path.read_bytes(),
+        )
+    canonical_fidelity = canonical_paths[STATEMENT_FIDELITY]
+    if fidelity_source != canonical_fidelity:
+        _atomic_artifact_write(
+            canonical_fidelity,
+            fidelity_text.encode("utf-8"),
+        )
+    return canonical_source, canonical_fidelity
+
+
+def _atomic_artifact_write(path: Path, content: bytes) -> None:
+    """Replace one explicit artifact without following an existing symlink."""
+    if path.is_symlink():
+        raise ValueError(f"artifact path is a symlink: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(content)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _artifact_directory_lock(artifact_root: Path):
+    """Serialize preparation, compilation, audit, and publication as one set."""
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    lock_path = artifact_root / ".lean-artifacts.lock"
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+    finally:
+        # fdopen owns and closes the descriptor on normal/exceptional exits.
+        pass
+
+
+def render_compile_log(result: dict[str, Any]) -> str:
+    """Render the exact compiler/audit transcript recorded in structured output."""
+    lines = [
+        f"status: {result.get('status')}",
+        f"source: {result.get('source')}",
+        f"cwd: {result.get('cwd')}",
+    ]
+    for name, info in (result.get("tools") or {}).items():
+        lines.append(
+            f"{name}: {info.get('version') or '(unavailable)'} "
+            f"[{info.get('path') or 'not found'}]"
+        )
+    command = [str(item) for item in (result.get("command") or [])]
+    if command:
+        lines.extend([
+            "",
+            f"$ {shlex.join(command)}",
+            f"exit_code: {result.get('exit_code')}",
+            "--- stdout ---",
+            str(result.get("stdout") or ""),
+            "--- stderr ---",
+            str(result.get("stderr") or ""),
+        ])
+    audit_command = [str(item) for item in (result.get("audit_command") or [])]
+    if audit_command:
+        lines.extend([
+            "",
+            f"$ {shlex.join(audit_command)}",
+            f"audit_exit_code: {result.get('audit_exit_code')}",
+            "--- audit stdout ---",
+            str(result.get("audit_stdout") or ""),
+            "--- audit stderr ---",
+            str(result.get("audit_stderr") or ""),
+        ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compile and audit one Lean file.")
     parser.add_argument("source", type=Path)
@@ -471,18 +647,82 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--lake-bin")
     parser.add_argument("--lake", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--artifact-dir", type=Path)
+    parser.add_argument("--statement-fidelity", type=Path)
     args = parser.parse_args(argv)
-    result = run_lean_check(
-        args.source,
-        timeout_seconds=args.timeout,
-        lean_bin=args.lean_bin,
-        lake_bin=args.lake_bin,
-        use_lake=args.lake,
+    source = args.source
+    artifact_root: Path | None = None
+    canonical_fidelity: Path | None = None
+    output_target = args.output.expanduser() if args.output is not None else None
+    if output_target is not None and not output_target.is_absolute():
+        output_target = Path.cwd() / output_target
+    if output_target is not None and output_target.is_symlink():
+        parser.error(f"output path is a symlink: {output_target}")
+    if args.artifact_dir is not None:
+        if args.statement_fidelity is None:
+            parser.error("--artifact-dir requires --statement-fidelity")
+        artifact_root = args.artifact_dir.expanduser().resolve()
+        if output_target is not None:
+            output_path = output_target.resolve()
+            input_source = args.source.expanduser().resolve()
+            fidelity_source = args.statement_fidelity.expanduser().resolve()
+            protected = {
+                artifact_root / CANONICAL_LEAN_SOURCE,
+                artifact_root / COMPILE_LOG,
+                artifact_root / STATEMENT_FIDELITY,
+                input_source,
+                fidelity_source,
+            }
+            if output_path in protected:
+                parser.error(
+                    "--output cannot overwrite a canonical Lean artifact"
+                )
+    lock = (
+        _artifact_directory_lock(artifact_root)
+        if artifact_root is not None
+        else nullcontext()
     )
-    rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
+    with lock:
+        if artifact_root is not None:
+            try:
+                source, canonical_fidelity = prepare_canonical_lean_artifacts(
+                    source,
+                    artifact_root,
+                    args.statement_fidelity,
+                )
+            except (OSError, UnicodeError, ValueError) as exc:
+                parser.error(f"cannot prepare canonical Lean artifacts: {exc}")
+        result = run_lean_check(
+            source,
+            timeout_seconds=args.timeout,
+            lean_bin=args.lean_bin,
+            lake_bin=args.lake_bin,
+            use_lake=args.lake,
+        )
+        if artifact_root is not None:
+            result["artifacts"] = {
+                "canonical_source": str(artifact_root / CANONICAL_LEAN_SOURCE),
+                "compile_log": str(artifact_root / COMPILE_LOG),
+                "lean_check": str(artifact_root / LEAN_CHECK_RESULT),
+                "statement_fidelity": str(canonical_fidelity),
+            }
+        rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        if artifact_root is not None:
+            _atomic_artifact_write(
+                artifact_root / LEAN_CHECK_RESULT,
+                rendered.encode("utf-8"),
+            )
+            _atomic_artifact_write(
+                artifact_root / COMPILE_LOG,
+                render_compile_log(result).encode("utf-8"),
+            )
+        if output_target is not None:
+            output_path = output_target.resolve()
+            if (
+                artifact_root is None
+                or output_path != artifact_root / LEAN_CHECK_RESULT
+            ):
+                _atomic_artifact_write(output_target, rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if result["status"] == "success" else 1
 
@@ -492,9 +732,15 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "CANONICAL_LEAN_SOURCE",
+    "COMPILE_LOG",
     "DIVISIBILITY_SMOKE_THEOREM",
+    "LEAN_CHECK_RESULT",
+    "STATEMENT_FIDELITY",
     "audit_lean_tools",
     "find_proof_holes",
     "main",
+    "prepare_canonical_lean_artifacts",
+    "render_compile_log",
     "run_lean_check",
 ]

@@ -8,6 +8,7 @@ import pytest
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.core.models import RunnerOptions, RunnerResult
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager.plan_mode import build_plan_prompt
 from argus_skill.planner.planner import Planner
 from argus_skill.reviewer import Reviewer, ReviewerConfig
@@ -18,6 +19,8 @@ from argus_skill.skills.scientist import (
 from argus_skill.skills.stage_checklists import advance_stage
 from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals.math.runtime import (
+    LEAN_FORMALIZATION_TAGS,
+    enqueue_lean_formalization_task,
     load_math_adaptation_state,
     math_adaptation_state_path,
     math_role_banner,
@@ -323,6 +326,89 @@ def test_bounded_non_math_plan_prompt_is_byte_identical() -> None:
     assert build_plan_prompt(objective, role_banner="") == build_plan_prompt(
         objective
     )
+
+
+def test_math_planner_formalization_creates_idempotent_child_task(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    life_dir = tmp_path / "life"
+    project_root.mkdir()
+    life_dir.mkdir()
+    persist_vertical(project_root, "math")
+    memory = LifeMemory.open(life_dir)
+    parent = memory.backlog.add(
+        BacklogItem.new(
+            item_id="parent-math",
+            title="Prove divisibility",
+            objective="prove the integer divisibility theorem",
+            priority=-1,
+            max_cost_usd=12.0,
+            iteration_budget_usd=12.0,
+        )
+    )
+
+    child, created = enqueue_lean_formalization_task(
+        project_root,
+        life_dir=life_dir,
+        parent_mission_id=parent.id,
+        original_objective=parent.objective,
+        step_title="Formalize the theorem",
+        step_detail="Compile the exact integer statement in Lean.",
+    )
+    duplicate, duplicate_created = enqueue_lean_formalization_task(
+        project_root,
+        life_dir=life_dir,
+        parent_mission_id=parent.id,
+        original_objective=parent.objective,
+        step_title="Formalize the theorem again",
+        step_detail="Do not create a duplicate.",
+    )
+
+    assert created is True
+    assert duplicate_created is False
+    assert child is not None and duplicate is not None
+    assert duplicate.id == child.id
+    assert child.deps == [parent.id]
+    assert child.iterate is False
+    assert set(LEAN_FORMALIZATION_TAGS) <= set(child.tags)
+    assert f"parent:{parent.id}" in child.tags
+    assert "Main.lean" in child.objective
+    assert "compile.log" in child.objective
+    assert "lean_check.json" in child.objective
+    assert "statement_fidelity.md" in child.objective
+    assert "planner" in child.tags
+    assert len(LifeMemory.open(life_dir).backlog.all()) == 2
+
+
+def test_non_math_project_cannot_enqueue_math_formalization_child(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    life_dir = tmp_path / "life"
+    project_root.mkdir()
+    life_dir.mkdir()
+    memory = LifeMemory.open(life_dir)
+    parent = memory.backlog.add(
+        BacklogItem.new(
+            item_id="parent-ordinary",
+            title="Ordinary task",
+            objective="ordinary task",
+        )
+    )
+
+    child, created = enqueue_lean_formalization_task(
+        project_root,
+        life_dir=life_dir,
+        parent_mission_id=parent.id,
+        original_objective=parent.objective,
+        step_title="Formalize",
+        step_detail="Should remain disabled.",
+    )
+
+    assert child is None
+    assert created is False
+    assert len(LifeMemory.open(life_dir).backlog.all()) == 1
 
 
 def test_math_reviewer_holds_unverified_novelty(tmp_path: Path) -> None:

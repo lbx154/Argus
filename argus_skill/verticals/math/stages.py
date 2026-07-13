@@ -107,9 +107,14 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="solve.lean-compiled",
             statement=(
                 "When Lean is used, the submitted source has fresh successful compilation "
-                "evidence and contains no `sorry`, `admit`, or equivalent proof hole."
+                "evidence, contains no `sorry`, `admit`, or equivalent proof hole, and "
+                "the canonical artifacts `Main.lean`, `compile.log`, `lean_check.json`, "
+                "and `statement_fidelity.md` are present."
             ),
-            evidence_hint="Lean source plus compiler command, version, exit status, and output",
+            evidence_hint=(
+                "the four canonical Lean artifacts, including exact commands, versions, "
+                "exit status, axiom audit, and a side-by-side statement audit"
+            ),
         ),
         ChecklistItem(
             id="solve.result-classified",
@@ -209,8 +214,11 @@ def role_banner(role: str) -> str:
             "Classify every result as a finite verification, local lemma, complete "
             "proof, known result, or new candidate; never promote one class into "
             "another. State the limits of every result and compile Lean claims for real "
-            "with `python -m argus_skill.tools.lean_check --lake <file> --output "
-            "<lean_check.json>`. "
+            "after authoring `statement_fidelity.md`, using `python -m "
+            "argus_skill.tools.lean_check <file> --lake --artifact-dir . "
+            "--statement-fidelity statement_fidelity.md`. This must preserve any "
+            "descriptive Lean file while materializing `Main.lean`, `compile.log`, "
+            "`lean_check.json`, and `statement_fidelity.md`. "
             "Spend the turn on the new mathematical delta and cite certified prior "
             "evidence instead of recreating its audit trail."
         )
@@ -229,7 +237,9 @@ def role_banner(role: str) -> str:
             "Independently check mathematical correctness and fidelity to the original "
             "definitions, quantifiers, assumptions, and conclusion. Check the boundary "
             "of computational evidence. If Lean is used, verify fresh real compilation "
-            "and reject proof holes. Lean compilation does not prove that the formal "
+            "and reject proof holes; require `Main.lean`, `compile.log`, "
+            "`lean_check.json`, and `statement_fidelity.md`. Lean compilation does not "
+            "prove that the formal "
             "statement faithfully represents the original problem. Audit the current "
             "claim and its dependency edges; do not demand a new full-project evidence "
             "inventory when prior stages are already reviewer-certified. Every verdict "

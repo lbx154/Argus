@@ -59,6 +59,7 @@ class PlanStep:
 
     title: str
     detail: str = ""
+    kind: str = "work"
 
 
 @dataclass
@@ -132,7 +133,10 @@ def _step_from_obj(obj: Any) -> PlanStep | None:
                 break
         if not title and detail:
             title, detail = detail, ""
-        return PlanStep(title, detail) if title else None
+        kind = str(obj.get("kind") or "work").strip().lower()
+        if kind not in {"work", "lean_formalization"}:
+            kind = "work"
+        return PlanStep(title, detail, kind) if title else None
     return None
 
 
@@ -245,12 +249,30 @@ def parse_plan_notes(text: str) -> list[str]:
 # Prompt + model call
 # ---------------------------------------------------------------------------
 
-def build_plan_prompt(objective: str, *, role_banner: str = "") -> str:
+def build_plan_prompt(
+    objective: str,
+    *,
+    role_banner: str = "",
+    allow_lean_formalization_subtask: bool = False,
+) -> str:
     """Render the prompt asking the model for a preview plan.
 
     The model must OUTLINE only — never do the work, run tools, or write code.
     """
     obj = (objective or "").strip()
+    formalization_rule = (
+        "4. If you choose Lean formalization, make it ONE independent bounded "
+        'step with `"kind": "lean_formalization"`. All other steps use '
+        '`"kind": "work"`.\n'
+        if allow_lean_formalization_subtask
+        else ""
+    )
+    step_shape = (
+        '{"title": "<imperative title>", "detail": "<what/why>", '
+        '"kind": "<work|lean_formalization>"}'
+        if allow_lean_formalization_subtask
+        else '{"title": "<imperative title>", "detail": "<what/why>"}'
+    )
     prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
@@ -261,12 +283,13 @@ def build_plan_prompt(objective: str, *, role_banner: str = "") -> str:
         "or write code. This is an outline only.\n"
         "2. Each step is one concrete action with an imperative title.\n"
         f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps, but include enough detail "
-        "for the operator to understand the approach.\n\n"
+        "for the operator to understand the approach.\n"
+        f"{formalization_rule}\n"
         "## Objective\n"
         f"{obj}\n\n"
         "## Your answer\n"
         "Reply with ONE JSON object and NOTHING else:\n"
-        '{"steps": [{"title": "<imperative title>", "detail": "<what/why>"}, ...], '
+        f'{{"steps": [{step_shape}, ...], '
         '"notes": ["<optional caveat or assumption>", ...]}\n'
     )
     banner = str(role_banner or "").strip()
@@ -362,6 +385,7 @@ def draft_plan(
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
     role_banner: str = "",
+    allow_lean_formalization_subtask: bool = False,
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
@@ -390,7 +414,11 @@ def draft_plan(
 
     try:
         result = run_exec(
-            build_plan_prompt(objective, role_banner=role_banner)
+            build_plan_prompt(
+                objective,
+                role_banner=role_banner,
+                allow_lean_formalization_subtask=allow_lean_formalization_subtask,
+            )
         )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")

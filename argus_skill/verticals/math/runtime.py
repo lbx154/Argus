@@ -9,6 +9,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+LEAN_FORMALIZATION_KIND = "lean_formalization"
+LEAN_FORMALIZATION_TAGS = (
+    "planner",
+    "math",
+    "formalization",
+    "lean_verification",
+    "scope:bounded",
+)
+
 
 def math_role_banner(project_root: Path | str, role: str) -> str:
     """Resolve the Math banner without changing any other vertical's prompt."""
@@ -39,6 +48,83 @@ def append_method_ledger(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
         )
     return path
+
+
+def enqueue_lean_formalization_task(
+    project_root: Path | str,
+    *,
+    life_dir: Path | str,
+    parent_mission_id: str,
+    original_objective: str,
+    step_title: str,
+    step_detail: str,
+) -> tuple[Any | None, bool]:
+    """Create one restart-safe bounded Lean child selected by the Math Planner."""
+    from ...life.memory import BacklogItem, LifeMemory
+    from ...skills.vertical_select import resolve_vertical
+
+    root = Path(project_root).expanduser()
+    if resolve_vertical(root) != "math":
+        return None, False
+    memory = LifeMemory.open(Path(life_dir).expanduser())
+    parent = next(
+        (
+            item
+            for item in memory.backlog.all()
+            if item.id == parent_mission_id
+        ),
+        None,
+    )
+    if parent is None:
+        return None, False
+    parent_tag = f"parent:{parent_mission_id}"
+    existing = next(
+        (
+            item
+            for item in memory.backlog.all()
+            if parent_tag in item.tags and "lean_verification" in item.tags
+        ),
+        None,
+    )
+    if existing is not None:
+        return existing, False
+
+    title = str(step_title or "Formalize and verify in Lean").strip()
+    detail = str(step_detail or "").strip()
+    objective = (
+        "Execute this independent bounded Math formalization / Lean verification "
+        "subtask selected by the Planner.\n\n"
+        f"Parent objective:\n{str(original_objective or '').strip()}\n\n"
+        f"Planner-selected step:\n{title}"
+        + (f"\n{detail}" if detail else "")
+        + "\n\nRequired canonical artifacts in the project root:\n"
+        "- Main.lean (canonical source). Preserve any descriptive Lean source "
+        "such as DivisibilityTransitive.lean.\n"
+        "- compile.log with the exact compiler and axiom-audit commands, versions, "
+        "outputs, and exit codes.\n"
+        "- lean_check.json from the structured checker.\n"
+        "- statement_fidelity.md comparing the original and Lean statements "
+        "object-by-object, quantifier-by-quantifier, hypothesis-by-hypothesis, "
+        "and conclusion-by-conclusion.\n\n"
+        "First author statement_fidelity.md. Then run:\n"
+        "python -m argus_skill.tools.lean_check <lean-source> --lake "
+        "--artifact-dir . --statement-fidelity statement_fidelity.md\n"
+        "Do not report success unless all four artifacts exist and the structured "
+        "check, proof-hole scan, and axiom audit succeed."
+    )
+    child = BacklogItem.new(
+        title=f"Lean verification · {title}",
+        objective=objective,
+        priority=parent.priority,
+        max_cost_usd=parent.max_cost_usd,
+        tags=[*LEAN_FORMALIZATION_TAGS, parent_tag],
+        notes=f"Planner-selected child of {parent_mission_id}",
+        iterate=False,
+        iteration_max_cycles=1,
+        iteration_budget_usd=parent.iteration_budget_usd,
+        deps=[parent_mission_id],
+    )
+    return memory.backlog.add(child), True
 
 
 def math_adaptation_state_path(
@@ -178,7 +264,10 @@ def _is_finite_nonnegative_number(value: Any) -> bool:
 
 
 __all__ = [
+    "LEAN_FORMALIZATION_KIND",
+    "LEAN_FORMALIZATION_TAGS",
     "append_method_ledger",
+    "enqueue_lean_formalization_task",
     "load_math_adaptation_state",
     "math_adaptation_state_path",
     "math_role_banner",
