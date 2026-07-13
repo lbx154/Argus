@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { api, openStream, type EventMsg } from './api';
 import { eventKey } from './lib/eventRender';
+import { cacheProjectName } from './lib/projectName';
 
 /* ------------------------------------------------------------------ REST */
 
@@ -93,7 +94,10 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
     stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
     updateProject: useMutation({
       mutationFn: (name: string) => api.updateProject(sid!, name),
-      onSuccess: invalidate,
+      onSuccess: (result) => {
+        cacheProjectName(qc, sid!, result.name);
+        invalidate();
+      },
     }),
     deleteProject: useMutation({
       mutationFn: () => api.deleteProject(sid!),
