@@ -218,7 +218,7 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "4. Claim support — does data actually support each claim?\n"
         "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
         "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an EMNLP paper, recommend pivot or more experiments.",
+        "If results are too weak to support an EMNLP paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "analysis": (
@@ -287,7 +287,7 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "4. Claim support — does data actually support each claim?\n"
         "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
         "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an AAAI paper, recommend pivot or more experiments.",
+        "If results are too weak to support an AAAI paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "review": (
@@ -429,7 +429,7 @@ def build_reviewer_checklists(
             "4. Claim support — does data actually support each claim?\n"
             "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
             "6. Completeness — all conditions run, no missing benchmark families?\n"
-            f"If results are too weak to support a {persona} paper, recommend pivot or more experiments.",
+            f"If results are too weak to support a {persona} paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
             ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
         ),
         "review": (
