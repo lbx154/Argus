@@ -8,10 +8,7 @@
       "enum": [
         "done",
         "continue",
-        "blocked",
-        "research_incomplete",
-        "paused_no_breakthrough",
-        "exhausted_current_methods"
+        "blocked"
       ]
     },
     "reason": {
@@ -118,12 +115,12 @@
         null
       ]
     },
-    "research_result": {
+    "math_result": {
       "type": [
         "object",
         "null"
       ],
-      "description": "Structured assessment for a mission with a persisted research_target_level. Ordinary missions use null.",
+      "description": "Compatibility contract for daemons started before research_result replaced the Math-only math_result field.",
       "additionalProperties": false,
       "properties": {
         "result_class": {
@@ -135,21 +132,10 @@
             "partial_result",
             "new_candidate",
             "novelty_unverified",
-            "verified_new_result",
-            "structured_failure_report",
-            "honest_final_report",
-            "literature_review",
-            "lean_local_verification",
-            "complete_solution",
-            "new_theorem",
-            "improved_bound",
-            "new_infinite_family",
-            "new_reduction",
-            "exact_counterexample",
-            "exhausted_current_methods"
+            "verified_new_result"
           ]
         },
-        "correctness_status": {
+        "correctness": {
           "type": "string",
           "enum": [
             "verified",
@@ -157,7 +143,7 @@
             "uncertain"
           ]
         },
-        "novelty_status": {
+        "novelty": {
           "type": "string",
           "enum": [
             "known",
@@ -166,23 +152,12 @@
             "not_applicable"
           ]
         },
-        "statement_fidelity_status": {
+        "statement_fidelity": {
           "type": "string",
           "enum": [
             "verified",
             "failed",
-            "uncertain",
-            "not_applicable"
-          ]
-        },
-        "significance_status": {
-          "type": "string",
-          "enum": [
-            "exploratory",
-            "publishable",
-            "doctoral",
-            "unverified",
-            "not_applicable"
+            "uncertain"
           ]
         },
         "evidence": {
@@ -206,10 +181,9 @@
       },
       "required": [
         "result_class",
-        "correctness_status",
-        "novelty_status",
-        "statement_fidelity_status",
-        "significance_status",
+        "correctness",
+        "novelty",
+        "statement_fidelity",
         "evidence",
         "limitations"
       ]
@@ -682,7 +656,7 @@
     "achievement",
     "failure_cause",
     "scope",
-    "research_result",
+    "math_result",
     "planner_report",
     "checklist",
     "checkpoint",

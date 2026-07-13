@@ -61,11 +61,23 @@ def test_research_reviewer_schema_is_strict_and_isolated() -> None:
     assert not list(_strict_violations(research))
 
 
-def test_legacy_math_schema_alias_matches_research_schema() -> None:
+def test_legacy_math_schema_remains_compatible_with_pre_research_daemons() -> None:
     research_path = Path(RESEARCH_SCHEMA_PATH)
     legacy_path = research_path.with_name("reviewer_math_schema.json")
+    legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
 
-    assert legacy_path.read_bytes() == research_path.read_bytes()
+    assert "research_result" not in legacy["properties"]
+    assert "math_result" in legacy["properties"]
+    assert "math_result" in legacy["required"]
+    assert set(legacy["properties"]["math_result"]["required"]) == {
+        "result_class",
+        "correctness",
+        "novelty",
+        "statement_fidelity",
+        "evidence",
+        "limitations",
+    }
+    assert not list(_strict_violations(legacy))
 
 
 def test_skill_ops_items_require_all_keys():
