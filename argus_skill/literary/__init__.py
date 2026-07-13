@@ -8,7 +8,9 @@ DELIBERATELY NOT a vertical: it ships no ``stages`` contract, exposes no
 CONTRACTS and their validators:
 
 * :mod:`.task_envelope` — the creative-authoring task contract (intake);
-* (later) review contract, artifact manifest, source/provenance, stage protocol.
+* :mod:`.review_contract` — the structured reviewer finding/verdict contract;
+* :mod:`.artifact_manifest` — the creative-artifact version & lineage contract;
+* (later) source/provenance, stage protocol.
 
 Vertical-PRIVATE semantics (fiction's story_state, poetry's prosody, prose's
 paragraph movement, each vertical's reviewer rubric) never move here — only the

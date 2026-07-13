@@ -113,6 +113,17 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Revision plan covers every blocking finding with its must_not_break",
          "{python} -m argus_skill.verticals.fiction_writing.review_check "
          "check-plan fiction/review.json fiction/revision_plan.json"),
+        ("Artifact manifest records the produced chain",
+         "test -s fiction/artifact_manifest.json"),
+        ("Artifact manifest conforms to the shared lineage contract",
+         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
+         "validate fiction/artifact_manifest.json"),
+        ("Every artifact the manifest records is present on disk",
+         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
+         "check-content fiction/artifact_manifest.json"),
+        ("Final prose traces back to its draft and review (provenance closed)",
+         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
+         "check-lineage fiction/artifact_manifest.json"),
     ],
 }
 
@@ -181,10 +192,14 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "introduced, and that updated_story_state.json is consistent with "
         "final.md. Confirm fiction/revision_plan.json was derived from "
         "review.json via the literary review contract and that every blocking "
-        "finding's must_not_break invariant is preserved. Craft findings may "
-        "remain as accepted trade-offs with a rationale.",
+        "finding's must_not_break invariant is preserved. Confirm "
+        "fiction/artifact_manifest.json records the produced chain — final "
+        "traces back to its draft and review, and supersedes the draft it "
+        "replaced. Craft findings may remain as accepted trade-offs with a "
+        "rationale.",
         ["fiction/final.md", "fiction/updated_story_state.json",
-         "fiction/review.json", "fiction/revision_plan.json"],
+         "fiction/review.json", "fiction/revision_plan.json",
+         "fiction/artifact_manifest.json"],
     ),
 }
 
@@ -315,7 +330,12 @@ def role_banner(role: str) -> str:
             "slogan endings, abstract-word piling, and telegraphed twists. (7) In "
             "revise, derive fiction/revision_plan.json from fiction/review.json "
             "via the literary review contract — address every BLOCKING finding "
-            "first and never break a finding's must_not_break invariants."
+            "first and never break a finding's must_not_break invariants. (8) "
+            "Record fiction/artifact_manifest.json — the versioned artifact chain "
+            "(brief -> plan -> draft -> state -> review -> revision_plan -> final) "
+            "with each artifact's parents, producer_stage, content_path and "
+            "status, so final.md's provenance (which draft + which review) is "
+            "auditable and final SUPERSEDES the draft it replaced."
         )
     if role == "reviewer":
         return common + (
