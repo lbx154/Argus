@@ -119,7 +119,9 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
 - **消费**：runner 每轮把 checkpoint 渲染成「Curated working memory」块 prepend 到
   engineer prompt（同 failed-tool advisory 的拼接方式，`loop.py` 不动）。
 - **Session roll**：`SupervisedConfig.shift_round_limit`（env
-  `ARGUS_SKILL_SHIFT_ROUND_LIMIT`，默认 8，0=禁用）。一个 thread 活满 N 轮就主动
+  `ARGUS_SKILL_SHIFT_ROUND_LIMIT`，默认 3，0=禁用）或前一轮 input 达到
+  `ARGUS_SKILL_THREAD_TOKEN_LIMIT`（默认 1,500,000，0=禁用）。一个 thread 达到任一
+  边界就主动
   drop，下一轮从 checkpoint 重新播种一个**全新 session**，per-session 上下文有界 →
   上百次压缩的 runaway 不可能发生。已有的 context-pressure / poisoned-session 清
   thread 路径现在也带着 checkpoint = 重生而非失忆。
