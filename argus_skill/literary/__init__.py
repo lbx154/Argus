@@ -12,7 +12,8 @@ CONTRACTS and their validators:
 * :mod:`.artifact_manifest` — the creative-artifact version & lineage contract;
 * :mod:`.source_registry` — the rights/provenance catalog of usable sources;
 * :mod:`.provenance` — the per-mission source-usage ledger + rights cross-check;
-* (later) stage protocol.
+* :mod:`.stage_protocol` — the minimal shared stage interface (extracted from the
+  real verticals; each vertical keeps its own stage flow).
 
 Vertical-PRIVATE semantics (fiction's story_state, poetry's prosody, prose's
 paragraph movement, each vertical's reviewer rubric) never move here — only the
