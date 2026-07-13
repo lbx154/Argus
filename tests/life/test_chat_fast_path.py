@@ -354,6 +354,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         full_auto: bool = False
         skip_git_repo_check: bool = True
         matcher_reasoning_effort: str = "high"
+        workflow_mode: str = "staged"
 
         def resolved_matcher_model(self) -> str:
             return self.engineer_model
@@ -381,6 +382,30 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert loop_kwargs[0]["config"].wiki_ops_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
+
+    from argus_skill.apps import _runtime
+
+    monkeypatch.setattr(
+        _runtime,
+        "_workflow_mode_for_project_root",
+        lambda root: "direct",
+    )
+    backend.calls.clear()
+    planned_tasks.clear()
+    loop_kwargs.clear()
+    runner.execute(
+        objective="write one short poem",
+        sink=_RecordingSink(),
+    )
+    assert not any(
+        call["run_label"] == "planner-bounded-plan"
+        for call in backend.calls
+    )
+    assert "## Planner execution plan" not in planned_tasks[0]
+    assert loop_kwargs[0]["config"].workflow_mode == "direct"
+    assert loop_kwargs[0]["config"].skill_ops_enabled is False
+    assert loop_kwargs[0]["config"].wiki_ops_enabled is False
+    assert loop_kwargs[0]["config"].auto_init_wiki is False
 
     backend.calls.clear()
     planned_tasks.clear()
@@ -484,14 +509,14 @@ def test_classify_needs_continuous_false_for_bounded_answer() -> None:
     assert runner.classify_needs_continuous("fix the flaky test in test_foo.py") is False
 
 
-def test_classify_needs_continuous_fails_soft_to_false_on_backend_error() -> None:
-    """A classify hiccup must never force an expensive 7x24 campaign."""
+def test_classify_needs_continuous_defaults_true_on_backend_error() -> None:
+    """A classify hiccup must not silently turn substantive TEAM work one-shot."""
     class _BoomBackend(_FakeBackend):
         def run_exec(self, **kwargs: Any) -> RunnerResult:  # noqa: ANN401
             raise RuntimeError("boom")
 
     runner = _make_runner(_BoomBackend())
-    assert runner.classify_needs_continuous("anything") is False
+    assert runner.classify_needs_continuous("anything") is True
 
 
 # ---------- supervisor: chat outcomes skip the critic loop ---------------

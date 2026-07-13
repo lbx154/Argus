@@ -20,7 +20,17 @@ from argus_skill.core.project_gc import (
 from argus_skill.core.session import list_sessions
 
 
-def _mk(gr: Path, sid: str, *, name="", objective="", backlog="", pid=None, now=100.0):
+def _mk(
+    gr: Path,
+    sid: str,
+    *,
+    name="",
+    objective="",
+    origin="",
+    backlog="",
+    pid=None,
+    now=100.0,
+):
     d = gr / "projects" / sid
     d.mkdir(parents=True, exist_ok=True)
     meta = {"id": sid, "created": now, "last_active": now}
@@ -28,6 +38,8 @@ def _mk(gr: Path, sid: str, *, name="", objective="", backlog="", pid=None, now=
         meta["display_name"] = name
     if objective:
         meta["objective"] = objective
+    if origin:
+        meta["origin"] = origin
     session = d / "session.json"
     session.write_text(json.dumps(meta), encoding="utf-8")
     if backlog:
@@ -46,13 +58,16 @@ def test_list_sessions_hides_empty_litter(tmp_path):
     _mk(tmp_path, "s-named02", name="optimize 079")              # named
     _mk(tmp_path, "s-work03", backlog='{"id":"x","title":"t"}')  # has content
     _mk(tmp_path, "s-live04", pid=os.getpid())                   # live daemon
+    _mk(tmp_path, "s-web005", origin="web")                     # deliberate idle Web session
 
     all_ids = {s.id for s in list_sessions(tmp_path)}
-    assert all_ids == {"s-empty01", "s-named02", "s-work03", "s-live04"}
+    assert all_ids == {
+        "s-empty01", "s-named02", "s-work03", "s-live04", "s-web005",
+    }
 
     kept = {s.id for s in list_sessions(tmp_path, include_empty=False)}
     assert "s-empty01" not in kept           # litter hidden
-    assert {"s-named02", "s-work03", "s-live04"} <= kept  # real/live kept
+    assert {"s-named02", "s-work03", "s-live04", "s-web005"} <= kept
 
 
 # ---- GC empty sweep ------------------------------------------------------
@@ -61,9 +76,11 @@ def test_project_is_empty_detection(tmp_path):
     empty = _mk(tmp_path, "s-e1")
     named = _mk(tmp_path, "s-n1", name="x")
     work = _mk(tmp_path, "s-w1", backlog='{"id":"a"}')
+    web = _mk(tmp_path, "s-web1", origin="web")
     assert _project_is_empty(empty) is True
     assert _project_is_empty(named) is False
     assert _project_is_empty(work) is False
+    assert _project_is_empty(web) is False
 
 
 def test_gc_protects_recent_empty_session_during_startup(tmp_path):
@@ -83,11 +100,12 @@ def test_gc_sweeps_empty_after_startup_grace(tmp_path):
     _mk(tmp_path, "s-named1", name="real", now=200)
     _mk(tmp_path, "s-work1", backlog='{"id":"a"}', now=200)
     _mk(tmp_path, "s-live1", pid=os.getpid(), now=200)
+    _mk(tmp_path, "s-web001", origin="web", now=200)
 
     pruned = set(gc_stale_projects(tmp_path, now=4000.0))
     assert pruned == {"s-empty1", "s-empty2"}
     # survivors still on disk; litter moved to trash (reversible, not deleted)
-    for keep in ("s-named1", "s-work1", "s-live1"):
+    for keep in ("s-named1", "s-work1", "s-live1", "s-web001"):
         assert (tmp_path / "projects" / keep).is_dir()
     for gone in ("s-empty1", "s-empty2"):
         assert not (tmp_path / "projects" / gone).exists()

@@ -136,6 +136,58 @@ def test_no_advisory_without_inflight_subagents(tmp_path: Path) -> None:
     assert "Background subagents in flight" not in prompts["engineer-r1"]
 
 
+def test_advisory_reaches_engineer_and_reviewer(tmp_path: Path) -> None:
+    _write_record(tmp_path / ".argus_subagents", "train-1")
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="Did independent work.", thread_id="t1"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    _engineer(backend).run(
+        objective="do the thing",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=3),
+        workdir=tmp_path,
+        on_event=None,
+    )
+
+    prompts = {label: prompt for (label, prompt, _options) in backend.history}
+    assert "Background subagents in flight" in prompts["engineer-r1"]
+    assert "train-1" in prompts["engineer-r1"]
+    assert "Background subagents in flight" in prompts["reviewer"]
+    assert "train-1" in prompts["reviewer"]
+
+
+def test_reviewer_advisory_refreshes_after_engineer_turn(tmp_path: Path) -> None:
+    registry = tmp_path / ".argus_subagents"
+    record_path = registry / "train-1.json"
+    _write_record(registry, "train-1")
+    backend = MemoryBackend()
+
+    def complete_subagent(_prompt, _options) -> str:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["state"] = "completed"
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        return "Finished independent work."
+
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message_factory=complete_subagent, thread_id="t1"),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    _engineer(backend).run(
+        objective="do the thing",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=3),
+        workdir=tmp_path,
+        on_event=None,
+    )
+
+    prompts = {label: prompt for (label, prompt, _options) in backend.history}
+    assert "Background subagents in flight" in prompts["engineer-r1"]
+    assert "Background subagents in flight" not in prompts["reviewer"]
+
+
 def test_flag_disables_advisory(tmp_path: Path) -> None:
     _write_record(tmp_path / ".argus_subagents", "train-1")
     backend = MemoryBackend()

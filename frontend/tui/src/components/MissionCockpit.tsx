@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 
 import {
@@ -7,10 +7,10 @@ import {
   missionMetricImprovement,
 } from '../../../core/src/missionView.js';
 import type { MissionTimelineItem, MissionView } from '../../../core/src/types.js';
+import type { RequestUsage } from '../api.js';
 import { theme } from '../theme.js';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 function cap(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -28,15 +28,48 @@ function timelineColor(item: MissionTimelineItem): string | undefined {
   return undefined;
 }
 
-export function MissionCockpit({ view, width }: { view: MissionView; width: number }) {
-  const [tick, setTick] = useState(0);
-  const active = view.roles.some((role) => role.status === 'active');
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setTick((value) => value + 1), 90);
-    return () => clearInterval(timer);
-  }, [active]);
+export function budgetSummary(
+  spentUsd?: number | null,
+  spendStatus?: string,
+  dailyCapUsd?: number | null,
+  globalDailyCapUsd?: number | null,
+  wide = true,
+): string {
+  const spent = spentUsd == null
+    ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 spent'
+    : `$${spentUsd.toFixed(2)} spent`;
+  const daily = dailyCapUsd ? ` / $${dailyCapUsd.toFixed(0)} daily` : '';
+  const global = globalDailyCapUsd && wide ? ` · $${globalDailyCapUsd.toFixed(0)} global` : '';
+  return spent + daily + global;
+}
 
+export function requestSummary(requestUsage?: RequestUsage | null): string {
+  const codex = requestUsage?.codex;
+  const copilot = requestUsage?.copilot;
+  return [
+    `Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'}`,
+    `Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`,
+    `premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`,
+  ].join(' · ');
+}
+
+export function MissionCockpit({
+  view,
+  width,
+  spentUsd,
+  spendStatus,
+  dailyCapUsd,
+  globalDailyCapUsd,
+  requestUsage,
+}: {
+  view: MissionView;
+  width: number;
+  spentUsd?: number | null;
+  spendStatus?: string;
+  dailyCapUsd?: number | null;
+  globalDailyCapUsd?: number | null;
+  requestUsage?: RequestUsage | null;
+}) {
   const mission = view.mission.objective || view.mission.title || 'Waiting for a mission';
   const metric = view.primary_metric;
   const improvement = missionMetricImprovement(metric);
@@ -46,7 +79,7 @@ export function MissionCockpit({ view, width }: { view: MissionView; width: numb
     .map((item) => item.role)
     .filter((role, index, rows) => ROLE_ORDER.includes(role) && (index === 0 || role !== rows[index - 1]));
   const handoff = recentRoles.length > 1
-    ? `${cap(recentRoles[recentRoles.length - 2])} ${tick % 2 ? '⇢' : '→'} ${cap(recentRoles[recentRoles.length - 1])}`
+    ? `${cap(recentRoles[recentRoles.length - 2])} → ${cap(recentRoles[recentRoles.length - 1])}`
     : '';
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
@@ -72,6 +105,22 @@ export function MissionCockpit({ view, width }: { view: MissionView; width: numb
           {metric && metric.verification_status !== 'accepted' ? ' · reported' : ''}
         </Text>
       </Box>
+      <Box>
+        <Text dimColor>BUDGET </Text>
+        <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
+          {budgetSummary(
+            spentUsd,
+            spendStatus,
+            dailyCapUsd,
+            globalDailyCapUsd,
+            width >= 90,
+          )}
+        </Text>
+      </Box>
+      <Box>
+        <Text dimColor>REQUESTS </Text>
+        <Text dimColor wrap="truncate-end">{requestSummary(requestUsage)}</Text>
+      </Box>
 
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>AI RESEARCH TEAM</Text>
@@ -80,7 +129,7 @@ export function MissionCockpit({ view, width }: { view: MissionView; width: numb
           const role = roleByName.get(name);
           const status = role?.status ?? 'waiting';
           const glyph = status === 'active'
-            ? SPINNER[tick % SPINNER.length]
+            ? '●'
             : status === 'done'
             ? '✓'
             : status === 'rejected' || status === 'error'

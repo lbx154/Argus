@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _Result:
@@ -63,6 +65,28 @@ class _MissionOutcome:
     checklist_feedback: dict = {}
     step_back = None
     auth_failure = False
+
+
+class _StageMissionRunner:
+    def __init__(self, action: str) -> None:
+        self.action = action
+
+    def execute(
+        self,
+        *,
+        objective: str,
+        sink,  # noqa: ANN001
+        prelude_context: str = "",
+        scope: str = "",
+        original_objective: str = "",
+    ) -> _MissionOutcome:
+        outcome = _MissionOutcome()
+        outcome.stage_transition = {
+            "action": self.action,
+            "current_stage": "scope",
+            "target_stage": "solve" if self.action == "advance" else "scope",
+        }
+        return outcome
 
 
 class _WritesRollbackPacketMissionRunner:
@@ -215,6 +239,59 @@ def _stage(root: Path) -> str:
     )["current_stage"]
 
 
+def test_open_ended_terminal_planner_error_triggers_manager_rollback(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "done"},
+            },
+        },
+    )
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "the open problem remains unresolved",
+    })
+    sink = _Sink()
+    statuses: list[str] = []
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.config = SimpleNamespace(
+        open_ended=True,
+        continuous_objective="Continue until proof or counterexample.",
+        artifact_root=tmp_path,
+    )
+    supervisor.planner_runner = backend
+    supervisor.skill_store = None
+    supervisor.sink = sink
+    supervisor._emit = sink.handle_event  # type: ignore[method-assign]
+    supervisor._emit_status = statuses.append  # type: ignore[method-assign]
+    supervisor._reset_idle_backoff = lambda: None  # type: ignore[method-assign]
+    supervisor._last_open_ended_project_done_signature = "old"
+    verdict = SimpleNamespace(
+        project_done=False,
+        new_tasks=[],
+        reason="review checkpoint done, objective unresolved",
+    )
+
+    assert supervisor._reconcile_open_ended_terminal_stage(verdict) is True
+    assert _stage(tmp_path) == "solve"
+    assert supervisor._last_open_ended_project_done_signature == ""
+    assert any("reopened open-ended campaign" in text for text in statuses)
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "rollback"
+        for event in sink.events
+    )
+
+
 def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     runner = _runner_with(_StubRunner(
@@ -232,6 +309,84 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
+
+
+def test_bounded_item_stays_pending_after_intermediate_stage_advance(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("advance"),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "stage_continues"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "pending"
+    assert not any(
+        event.get("type") == "life.mission.completed" for event in sink.events
+    )
+
+
+def test_bounded_item_finishes_only_after_final_stage_complete(tmp_path: Path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("complete"),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "done"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "done"
+
+
+def test_bounded_stage_hold_stays_pending_without_immediate_rerun(tmp_path: Path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="full bounded task", objective="finish every stage")
+    )
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("hold"),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.run()
+
+    assert result["stopped_by"] == "stage_hold"
+    assert result["missions_run"] == 1
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "pending"
 
 
 def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch) -> None:
@@ -271,6 +426,32 @@ def test_hook_persistent_empty_done_satisfied_advances(
     assert _stage(root) == "plan"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
     assert event["diagnostic"] == "empty_output_certified_advance"
+
+
+def test_hook_persistent_empty_done_satisfied_completes_final_stage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _submission_project(tmp_path)
+    backend = _EmptyThenRunner({}, empties=99)
+    runner = _runner_with(backend)
+    sink = _Sink()
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review())], workdir=root, sink=sink
+    )
+
+    assert backend.calls == 3
+    assert decision["action"] == "complete"
+    assert decision["target_stage"] == "submission"
+    assert decision["diagnostic"] == "empty_output_no_next_stage"
+    state = json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["stages"]["submission"]["status"] == "done"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "complete"
+    assert event["diagnostic"] == "empty_output_no_next_stage"
 
 
 def test_hook_persistent_empty_unsatisfied_checklist_holds(

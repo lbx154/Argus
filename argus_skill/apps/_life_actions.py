@@ -314,12 +314,11 @@ def render_config_cmd(
             lines.append(f"  bad value for {key}: {val!r}")
             continue
         if key == "continuous" and parsed:
-            backend = str(chat_state.get("backend", "") or "codex")
-            current_objective = str(chat_state.get("continuous_objective", "") or "")
-            error = _continuous_session_error(backend, True, current_objective)
-            if error:
-                lines.append(error)
-                continue
+            lines.append(
+                "  use /continuous start <objective> so Manager can author "
+                "the Planner/Engineer handoff"
+            )
+            continue
         cfg[key] = parsed
         if key in _ROLE_EFFORT_ENVS:
             os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
@@ -342,13 +341,19 @@ def render_config_cmd(
         else:
             lines.append(f"  {key} = {parsed}")
     if life_dir is not None and sync_continuous:
-        from ..daemon.life_worker import write_continuous_config
-
-        write_continuous_config(
-            life_dir,
-            enabled=cfg.get("continuous", False),
-            objective=chat_state.get("continuous_objective", ""),
+        from ..daemon.life_worker import (
+            disable_continuous_config,
+            write_continuous_config,
         )
+
+        if cfg.get("continuous", False):
+            write_continuous_config(
+                life_dir,
+                enabled=True,
+                objective=chat_state.get("continuous_objective", ""),
+            )
+        else:
+            disable_continuous_config(life_dir)
         lines.append("  (synced to daemon — takes effect within seconds)")
     return "\n".join(lines)
 
@@ -447,7 +452,8 @@ def render_skills_cmd(tokens: Sequence[str]) -> str:
             to_vertical = rest[i + 1].strip().lower()
 
         from ..core import paths as core_paths
-        from ..manager.skill_tidy import commit_to_source, write_skill_to_source
+        from ..manager.skill_tidy import write_skill_to_source
+        from ..manager.source_writeback import commit_to_source
         from ..skills.store import SkillStore
         from ..skills.vertical_select import VERTICALS
 

@@ -170,6 +170,36 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
+def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    for i in range(1, 5):
+        backend.queue(f"engineer-r{i}", CannedResponse(message=f"attempt {i}"))
+        backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("scientist.skill_distill", CannedResponse(message=SKILL_MD.replace(
+        "Write a hello message", "Alternative greeting strategy"
+    )))
+    backend.queue("engineer-r5", CannedResponse(message="new strategy succeeded"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    events: list[dict] = []
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=5, adaptive_skill_interval=4),
+        on_event=events.append,
+    )
+    outcome = loop.run("say hi to the user", workdir=tmp_path)
+
+    assert outcome.successful
+    r5_prompt = next(p for label, p, _ in backend.history if label == "engineer-r5")
+    assert "Alternative greeting strategy" in r5_prompt
+    assert any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
+
+
 def test_skill_loop_scientist_distills_active_skill_on_miss(tmp_path: Path) -> None:
     """A matcher miss authors an active skill and records its reviewed use."""
     backend = MemoryBackend()
@@ -218,47 +248,26 @@ general
         if label == "scientist.skill_distill"
     )
     assert scientist_options.live_search is True
-
-def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> None:
-    from argus_skill.skills.store import Skill
-
-    skills_dir = tmp_path / "skills"
-    store = SkillStore(skills_dir)
-
-    def _mk(name: str, desc: str) -> Skill:
-        return Skill(
-            name=name,
-            description=desc,
-            category="demo",
-            content="## When to use\n- demo tasks\n\n## How to solve\n- step 1\n",
-            version=1,
-            created_at="2026-05-03T00:00:00+00:00",
-        )
-
+def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message="Delivered the requested standalone artifact."),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
     loop = SkillLoop(
-        skills_dir=skills_dir,
-        skill_store=store,
-        engineer_runner=MemoryBackend(),
-        reviewer_runner=MemoryBackend(),
-        config=SkillLoopConfig(max_rounds=1),
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=2, workflow_mode="direct"),
+        on_event=events.append,
     )
 
-    one = _mk("Alpha Skill", "do alpha")
-    two = _mk("Beta Skill", "do beta")
+    outcome = loop.run("write one short poem", workdir=tmp_path)
 
-    # Single match: plain render (content only), no multi-candidate framing.
-    single = loop._render_skill_playbook([one])
-    assert "How to solve" in single
-    assert "candidates, not orders" not in single
-    assert "### Candidate skill:" not in single
-
-    # Multiple high-fit matches: all bodies injected, agent judges relevance.
-    multi = loop._render_skill_playbook([one, two])
-    assert "Alpha Skill" in multi
-    assert "Beta Skill" in multi
-    assert "candidates, not orders" in multi
-    assert "### Candidate skill: Alpha Skill" in multi
-    assert "### Candidate skill: Beta Skill" in multi
-
-    # Empty match: empty playbook.
-    assert loop._render_skill_playbook([]) == ""
+    assert outcome.successful
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "matcher" not in labels
+    assert "scientist.skill_distill" not in labels
+    assert not any(event.get("type") == "skill.scientist.started" for event in events)

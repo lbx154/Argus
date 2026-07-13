@@ -8,9 +8,11 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
+import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
+import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
 import { TAGLINE } from './lib/soul';
-import { rankProjects, resolveProjectSelection } from '../../core/src/projects';
+import { rankProjects, reconcileProjectSelection, resolveProjectSelection } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ResearchCanvas } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
@@ -23,10 +25,12 @@ import { SplitHandle } from './components/SplitHandle';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
+import { OperationsModal } from './components/OperationsModal';
+import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
 interface ActiveMessageRequest {
   id: number;
@@ -34,10 +38,28 @@ interface ActiveMessageRequest {
   controller: AbortController;
 }
 let noticeSequence = 0;
+const BROWSER_PROJECT_KEY = 'argus.browser.project.v1';
 
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = localStorage.getItem(key);
   return value == null ? fallback : value === 'true';
+}
+
+function storedBrowserProject(): string | null {
+  try {
+    return window.sessionStorage.getItem(BROWSER_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeBrowserProject(id: string | null): void {
+  try {
+    if (id) window.sessionStorage.setItem(BROWSER_PROJECT_KEY, id);
+    else window.sessionStorage.removeItem(BROWSER_PROJECT_KEY);
+  } catch {
+    /* storage can be disabled; the URL remains authoritative */
+  }
 }
 
 const errorText = (error: unknown): string =>
@@ -110,8 +132,11 @@ export default function App() {
   const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
   const localCwd = projectsQ.data?.local_cwd ?? '';
 
-  const [sid, setSid] = useState<string | null>(params.get('project'));
+  const [sid, setSid] = useState<string | null>(
+    params.get('project') || storedBrowserProject(),
+  );
   const sidRef = useRef(sid);
+  const initialSelectionResolvedRef = useRef(false);
   sidRef.current = sid;
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
@@ -136,12 +161,16 @@ export default function App() {
   );
   const [composerFocus, setComposerFocus] = useState(0);
   const [chatPending, setChatPending] = useState(false);
+  const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
+  const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
+  const promptedReplyRef = useRef('');
   const [managerPhase, setManagerPhase] = useState('');
   const [managerStartedAt, setManagerStartedAt] = useState(0);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
@@ -201,6 +230,7 @@ export default function App() {
     }
     sidRef.current = id;
     setSid(id);
+    storeBrowserProject(id);
   }, [cancelActiveMessage]);
 
   useEffect(() => () => {
@@ -243,15 +273,25 @@ export default function App() {
     }
   };
 
-  // Resolve the initial/deleted project only after the authoritative list is
-  // available. Invalid IDs never reach snapshot/stream endpoints.
+  // Resolve exactly once. Project polling must NEVER auto-follow a newly live
+  // session created by another browser/operator.
   useEffect(() => {
     if (!projectsQ.isSuccess) return;
-    const selection = resolveProjectSelection(projects, sidRef.current);
-    if (selection.id === sidRef.current) return;
-    activateProject(selection.id);
-    if (selection.recovered) {
+    const wasResolved = initialSelectionResolvedRef.current;
+    const selection = reconcileProjectSelection(
+      projects,
+      sidRef.current,
+      wasResolved,
+    );
+    if (wasResolved) return;
+    initialSelectionResolvedRef.current = true;
+    if (selection.id !== sidRef.current) activateProject(selection.id);
+    else storeBrowserProject(selection.id);
+    const locationId = new URLSearchParams(window.location.search).get('project');
+    if (locationId !== selection.id) {
       writeProjectLocation(selection.id, 'replace');
+    }
+    if (selection.recovered) {
       const fallback = projects.find((project) => project.id === selection.id);
       notify(
         'info',
@@ -268,6 +308,10 @@ export default function App() {
     const onPopState = () => {
       const requested = new URLSearchParams(window.location.search).get('project');
       setSidebarOpen(false);
+      if (!requested) {
+        activateProject(null);
+        return;
+      }
       if (!projectsQ.isSuccess) {
         activateProject(requested);
         return;
@@ -304,8 +348,33 @@ export default function App() {
   const artifactsQ = useArtifacts(loadedSid, true);
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
   const { events, connected } = useEventStream(loadedSid);
+  const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
+  const pendingReply = useMemo<PendingReply | null>(() => {
+    const row = (snap?.pending_questions ?? []).find((item) => {
+      const id = String(item.id ?? '').trim();
+      const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
+      return Boolean(id && question);
+    });
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      title: String(row.title ?? row.objective ?? 'Blocked task'),
+      question: String(row.pending_question ?? row.question ?? row.text),
+    };
+  }, [snap?.pending_questions]);
+  useEffect(() => {
+    if (!pendingReply || !activeSid) {
+      setPendingReplyOpen(false);
+      return;
+    }
+    const key = `${activeSid}:${pendingReply.id}`;
+    if (promptedReplyRef.current !== key) {
+      promptedReplyRef.current = key;
+      setPendingReplyOpen(true);
+    }
+  }, [activeSid, pendingReply]);
   const activityEvents = useMemo(() => {
     const liveCounts = new Map<string, number>();
     events.forEach((event) => {
@@ -400,6 +469,21 @@ export default function App() {
       return false;
     }
   };
+  const requestManageSession = useCallback((projectId: string) => {
+    setDaemonManageOpen(false);
+    if (projectId === activeSid && snap?.session.id === projectId) {
+      setManageTargetSid(null);
+      setDaemonManageOpen(true);
+      return;
+    }
+    setManageTargetSid(projectId);
+    selectProject(projectId);
+  }, [activeSid, selectProject, snap?.session.id]);
+  useEffect(() => {
+    if (!manageTargetSid || activeSid !== manageTargetSid || snap?.session.id !== manageTargetSid) return;
+    setManageTargetSid(null);
+    setDaemonManageOpen(true);
+  }, [activeSid, manageTargetSid, snap?.session.id]);
   const requestDispose = (id: string, op: 'done' | 'skip' | 'rm') =>
     actions.disposeBacklog.mutate(
       { id, op },
@@ -535,8 +619,21 @@ export default function App() {
     setManagerPhase('');
     setManagerStartedAt(Date.now());
 
-    const dispatchTask = () => {
+    const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
+      const daemon = result.daemon && typeof result.daemon === 'object'
+        ? result.daemon as Record<string, unknown>
+        : null;
+      if (daemon?.admission_required) {
+        notify(
+          'error',
+          `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+        );
+      } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
+        notify('error', `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+      } else if (daemon?.auto_parked_idle) {
+        notify('success', `Started · parked idle session ${String(daemon.auto_parked_idle)}`);
+      }
       snapQ.refetch?.();
     };
 
@@ -554,7 +651,7 @@ export default function App() {
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            if (result.kind === 'task') dispatchTask();
+            if (result.kind === 'task') dispatchTask(result);
             void transcriptQ.refetch();
           },
           onError: (err) => {
@@ -572,7 +669,7 @@ export default function App() {
         try {
           const result = await api.message(requestSid, text, controller.signal);
           if (!isCurrent()) return;
-          if (result.kind === 'task') dispatchTask();
+          if (result.kind === 'task') dispatchTask(result);
           void transcriptQ.refetch();
         } catch (error) {
           if (!isCurrent()) return;
@@ -589,6 +686,28 @@ export default function App() {
     }
   };
 
+  const answerPendingReply = async (text: string) => {
+    if (!activeSid || !pendingReply || pendingReplyBusy) return;
+    setPendingReplyBusy(true);
+    try {
+      const result = await api.answerPending(activeSid, pendingReply.id, text);
+      setPendingReplyOpen(false);
+      await snapQ.refetch();
+      if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
+        notify(
+          'error',
+          `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
+        );
+      } else {
+        notify('success', 'Answer sent directly to the blocked task.');
+      }
+    } catch (error) {
+      notify('error', `Could not send answer: ${errorText(error)}`);
+    } finally {
+      setPendingReplyBusy(false);
+    }
+  };
+
   const paletteItems: PaletteItem[] = useMemo(() => {
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: 'New daemon', hint: '+', group: 'View', run: () => setNewDaemonOpen(true) }]),
@@ -597,6 +716,7 @@ export default function App() {
       { id: 'identity', label: 'Open Identity', hint: '/identity', group: 'View', run: () => setOverlay('identity') },
       { id: 'transcript', label: 'Open Transcript', hint: '/transcript', group: 'View', run: () => setOverlay('transcript') },
       { id: 'inspector', label: 'Open Project', hint: 'work · memory · agents', group: 'View', run: () => setOverlay('inspector') },
+      { id: 'operations', label: 'Open Operations', hint: 'backend controls', group: 'View', run: () => setOverlay('operations') },
       { id: 'help', label: 'Keyboard shortcuts', hint: '?', group: 'View', run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -666,6 +786,7 @@ export default function App() {
             setSidebarOpen(false);
           }}
           onPrefetch={prefetchProject}
+          onManage={requestManageSession}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}
@@ -713,8 +834,10 @@ export default function App() {
               <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
                 <button type="button" onClick={() => setWorkspaceView('mission')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'mission' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Mission</button>
                 <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
-                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : null}
+                {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : <span className="ml-auto" />}
+                {!kiosk ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">Operations</button> : null}
               </div>
+              <GuardianBanner alert={guardianAlert} />
               {workspaceView === 'mission' && missionView ? (
                 <MissionControl view={missionView} gitDiff={gitDiffQ.data} onOpenArtifact={setArtifactPath} />
               ) : (
@@ -732,7 +855,7 @@ export default function App() {
                   <PendingBanner
                     questions={snap.pending_questions ?? []}
                     backlog={snap.backlog}
-                    onAnswer={() => setComposerFocus((value) => value + 1)}
+                    onAnswer={() => setPendingReplyOpen(true)}
                   />
                   <ChatBox
                     onSend={sendMessage}
@@ -840,6 +963,22 @@ export default function App() {
           onInspect={setTaskItemId}
         />
       ) : null}
+      {activeSid && snap ? (
+        <OperationsModal
+          open={overlay === 'operations'}
+          sid={activeSid}
+          snap={snap}
+          onClose={() => setOverlay('none')}
+          onChanged={() => {
+            void snapQ.refetch();
+            void projectsQ.refetch();
+          }}
+          onRestored={async (restoredSid) => {
+            await projectsQ.refetch();
+            selectProject(restoredSid);
+          }}
+        />
+      ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} onClose={() => setArtifactPath(null)} />
       <TaskDetailModal
         sid={activeSid}
@@ -856,6 +995,13 @@ export default function App() {
         busy={creatingDaemon}
         onClose={() => setNewDaemonOpen(false)}
         onCreate={createDaemon}
+      />
+      <PendingReplyDialog
+        reply={pendingReply}
+        open={pendingReplyOpen}
+        busy={pendingReplyBusy}
+        onClose={() => setPendingReplyOpen(false)}
+        onSubmit={answerPendingReply}
       />
       {activeSid && snap ? (
         <DaemonManageModal

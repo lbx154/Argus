@@ -22,7 +22,6 @@ from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
-from ..core.transcript import first_operator_text
 from ..core.usage import UsageSummary, project_usage_summary
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
@@ -483,11 +482,6 @@ def list_projects(
         if not item.get("objective") and campaign_objective:
             item["objective"] = campaign_objective
         label = item.get("display_name") or item.get("objective") or ""
-        if not label:
-            try:
-                label = first_operator_text(life_dir)[:60]
-            except Exception:  # noqa: BLE001
-                label = ""
         item["label"] = label or meta.id
         out.append(item)
         if limit and len(out) >= limit:

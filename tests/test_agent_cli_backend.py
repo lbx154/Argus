@@ -43,6 +43,7 @@ class ArgusRunnerOptions:
     max_budget_usd: float | None = None
     max_ai_credits: int | None = None
     skip_git_repo_check: bool = False
+    sandbox_mode: str | None = None
     extra_args: list[str] | None = None
     working_dir: str | None = None
     output_schema_path: str | None = None
@@ -212,6 +213,7 @@ def test_run_exec_translates_options_and_result(
         working_dir=str(tmp_path),
         extra_args=["-c", "config_profile=tb"],
         full_auto=True,
+        sandbox_mode="read-only",
         skip_git_repo_check=True,
         dangerous_yolo=False,
         output_schema_path="/tmp/schema.json",
@@ -230,6 +232,7 @@ def test_run_exec_translates_options_and_result(
     assert forwarded.working_dir == str(tmp_path)
     assert forwarded.extra_args == ["-c", "config_profile=tb"]
     assert forwarded.full_auto is True
+    assert forwarded.sandbox_mode == "read-only"
     assert forwarded.skip_git_repo_check is True
     assert forwarded.dangerous_yolo is False
     assert forwarded.output_schema_path == "/tmp/schema.json"
@@ -514,6 +517,66 @@ def test_unpriced_call_blocks_next_provider_spawn(
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
 
 
+def test_missing_copilot_resume_target_does_not_poison_cost_control(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda *args, **kwargs: None,
+    )
+    backend = AgentCliBackend(backend="copilot")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+    resumes: list[str | None] = []
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        resume = kwargs["resume_thread_id"]
+        resumes.append(resume)
+        if resume:
+            return _make_argus_result(
+                exit_code=1,
+                thread_id=resume,
+                fatal_error=(
+                    "Error: No session, task, or name matched 'stale-thread'."
+                ),
+            )
+        return _make_argus_result(thread_id="fresh-thread")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+
+    stale = backend.run_exec(
+        prompt="resume",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+        resume_thread_id="stale-thread",
+    )
+    fresh = backend.run_exec(
+        prompt="fresh",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="manager",
+    )
+
+    assert resumes == ["stale-thread", None]
+    assert stale.pricing_status == "not_billed"
+    assert stale.cost_usd == 0.0
+    assert fresh.exit_code == 0
+
+
 def test_run_exec_writes_full_agent_io_log(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -530,7 +593,7 @@ def test_run_exec_writes_full_agent_io_log(
         run_label: str,
     ) -> AgentRunResult:
         assert self.event_callback is not None
-        self.event_callback("stdout", '{"type":"agent_message","message":"thinking"}')
+        self.event_callback("manager.stdout", '{"type":"agent_message","message":"thinking"}')
         self.event_callback("stderr", "tool stderr line")
         return _make_argus_result(
             command=["copilot", "-p", "<prompt>"],
@@ -570,6 +633,10 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
+    assert [row["stream"] for row in rows if row["type"] == "agent.io.stream"] == [
+        "stdout",
+        "stderr",
+    ]
     assert rows[1]["stream"] == "stdout"
     assert rows[1]["model"] == "gpt-5.5"
     assert rows[1]["line"].startswith('{"type"')
@@ -1137,6 +1204,44 @@ def test_run_exec_forwards_watchdog_hooks(
     assert forwarded.inactivity_callback is inactivity_callback
     assert forwarded.watchdog_soft_idle_seconds == 120
     assert forwarded.watchdog_hard_idle_seconds == 600
+
+
+def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "0")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    backend = AgentCliBackend(backend="copilot")
+    provider_calls = 0
+
+    def one_shot_interrupt() -> str | None:
+        nonlocal provider_calls
+        provider_calls += 1
+        return "operator abort requested: stop now" if provider_calls == 1 else None
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider must not start after interrupt is consumed")
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="x",
+        options=RunnerOptions(
+            model="gpt-5.6-sol",
+            external_interrupt_reason_provider=one_shot_interrupt,
+        ),
+        run_label="engineer-r1",
+    )
+
+    assert provider_calls == 1
+    assert result.exit_code == -1
+    assert result.fatal_error == (
+        "External interrupt: operator abort requested: stop now"
+    )
 
 
 def test_run_exec_applies_default_watchdog_hooks(

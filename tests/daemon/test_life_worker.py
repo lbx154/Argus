@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -77,18 +78,18 @@ def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> 
     assert status.life_dir == tmp_path
 
 
-def test_inspect_project_bootstrap_detects_empty_repo(tmp_path: Path) -> None:
+def test_inspect_project_bootstrap_leaves_generic_empty_repo_to_agent(
+    tmp_path: Path,
+) -> None:
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
 
     preflight = inspect_project_bootstrap(repo_dir)
 
-    assert preflight.should_bootstrap is True
+    assert preflight.should_bootstrap is False
     assert preflight.missing_artifacts == (".git", "build manifest", "README*", "source files")
-    assert "pyproject.toml" in preflight.bootstrap_objective
-    assert "README.md" in preflight.bootstrap_objective
-    assert f"src/{repo_dir.name.replace('-', '_')}/__init__.py" in preflight.bootstrap_objective
-    assert "uninitialized project root" in preflight.event_text
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
 
 
 def test_inspect_project_bootstrap_detects_research_profile(
@@ -117,8 +118,7 @@ def test_inspect_project_bootstrap_ignores_objective_keywords(
 ) -> None:
     # Philosophy: the harness must NOT sniff the objective text for keywords
     # like "emnlp" / "auto-research" to choose a research scaffold. Without a
-    # structured research profile, a research-sounding objective falls back to
-    # the GENERIC bootstrap — the agent decides the science, not the harness.
+    # structured research profile, workspace shape belongs to the agent.
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
     repo_dir = tmp_path / "empty-repo"
@@ -129,11 +129,28 @@ def test_inspect_project_bootstrap_ignores_objective_keywords(
         objective_hint="EMNLP auto-research bootstrap mission",
     )
 
+    assert preflight.should_bootstrap is False
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
+
+
+def test_structured_research_candidate_does_not_sniff_objective(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+
+    preflight = inspect_project_bootstrap(
+        repo_dir,
+        objective_hint="写一篇赤壁赋",
+        research_requested=True,
+    )
+
     assert preflight.should_bootstrap is True
-    # Generic bootstrap, NOT the research seed.
-    assert "pyproject.toml" in preflight.bootstrap_objective
-    assert "research bootstrap mission" not in preflight.bootstrap_objective.lower()
-    assert "research bootstrap requested" not in preflight.event_text
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
 
 
 def test_inspect_project_bootstrap_heals_partial_research_seed(
@@ -157,6 +174,48 @@ def test_inspect_project_bootstrap_heals_partial_research_seed(
     assert "research/EXPERIMENT_PLAN.md" in preflight.missing_artifacts
     assert "research bootstrap requested" in preflight.event_text
     assert "missing research artifacts" in preflight.event_text
+
+
+def test_explicit_research_profile_repairs_code_bearing_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "existing-code"
+    source = repo_dir / "src" / "package" / "__init__.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is True
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
+    assert preflight.event_text.startswith("research scaffold incomplete")
+    assert "uninitialized project root" not in preflight.event_text
+
+
+def test_memory_runner_repairs_research_after_starter_code_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.apps._runtime_backends import _MemoryRunner
+
+    source = tmp_path / "code" / "experiment_io.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# seeded before backlog execution\n", encoding="utf-8")
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "quant")
+    runner = _MemoryRunner()
+    runner.workdir = tmp_path
+
+    runner._materialize_bootstrap_skeleton("research objective")
+
+    assert (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+    assert (tmp_path / "research" / "RESEARCH_BRIEF.md").exists()
+    assert (tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
 
 
 def test_inspect_project_bootstrap_treats_research_seed_as_initialized(
@@ -592,12 +651,14 @@ def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
         log_path=tmp_path / "daemon.log",
         continuous=True,
         continuous_objective="keep improving",
+        resume_continuous=True,
         continuous_open_ended=False,
     )
 
     restored = _config_from_payload(_config_payload(cfg))
 
     assert restored == cfg
+    assert restored.resume_continuous is True
     assert restored.continuous_open_ended is False
 
 
@@ -1003,6 +1064,64 @@ def test_write_continuous_config_atomic(tmp_path: Path) -> None:
     assert (tmp_path / "continuous.json").exists()
 
 
+def test_continuous_config_cas_preserves_newer_command(tmp_path: Path) -> None:
+    from argus_skill.daemon.state import compare_and_swap_continuous_config
+
+    write_continuous_config(tmp_path, enabled=True, objective="older objective")
+    expected = read_continuous_state(tmp_path)
+    write_continuous_config(tmp_path, enabled=False, objective="newer objective")
+
+    assert compare_and_swap_continuous_config(
+        tmp_path,
+        expected=expected,
+        enabled=True,
+        objective="cleaned older objective",
+    ) is False
+    assert read_continuous_state(tmp_path) == ContinuousConfigState(
+        enabled=False,
+        objective="newer objective",
+    )
+
+
+def test_continuous_config_cas_detects_same_value_command(tmp_path: Path) -> None:
+    from argus_skill.daemon.state import compare_and_swap_continuous_config
+
+    write_continuous_config(tmp_path, enabled=False, objective="paused objective")
+    expected = read_continuous_state(tmp_path)
+    write_continuous_config(tmp_path, enabled=False, objective="paused objective")
+
+    assert compare_and_swap_continuous_config(
+        tmp_path,
+        expected=expected,
+        enabled=True,
+        objective="clean objective",
+    ) is False
+    assert read_continuous_state(tmp_path).generation > expected.generation
+
+
+def test_continuous_config_callback_rollback_restores_generation(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.daemon.state import compare_and_swap_continuous_config
+
+    write_continuous_config(tmp_path, enabled=True, objective="objective")
+    expected = read_continuous_state(tmp_path)
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        compare_and_swap_continuous_config(
+            tmp_path,
+            expected=expected,
+            enabled=True,
+            objective="clean objective",
+            before_write=lambda: (_ for _ in ()).throw(RuntimeError("commit failed")),
+        )
+
+    restored = read_continuous_state(tmp_path)
+    assert restored.enabled == expected.enabled
+    assert restored.objective == expected.objective
+    assert restored.generation == expected.generation
+
+
 def test_life_worker_hot_reload_rejects_memory_continuous(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1072,6 +1191,23 @@ def test_life_worker_retries_planning_after_planner_error(
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task=task,
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
 
     seen: dict[str, Any] = {"runs": 0, "continuous": []}
 
@@ -1133,6 +1269,23 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task=task,
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
 
     seen: dict[str, Any] = {"runs": 0, "continuous": []}
 
@@ -1176,6 +1329,390 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     assert state.enabled is True
     assert state.objective == "keep going"
     assert state.done_reason == ""
+
+
+def test_daemon_manager_handoff_does_not_overwrite_newer_continuous_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(tmp_path, enabled=True, objective="older objective")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    def decide_vertical(self, task, **kwargs):
+        write_continuous_config(
+            tmp_path,
+            enabled=False,
+            objective="newer objective",
+        )
+        return SimpleNamespace(
+            execution_task="cleaned older objective",
+            choice="existing",
+            vertical="research",
+        )
+
+    commits = []
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        decide_vertical,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: commits.append(task),
+    )
+    seen = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["continuous"] = self.config.continuous
+            seen["objective"] = self.config.continuous_objective
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert seen == {"continuous": False, "objective": "newer objective"}
+    assert commits == []
+    assert read_continuous_state(tmp_path) == ContinuousConfigState(
+        enabled=False,
+        objective="newer objective",
+    )
+
+
+def test_daemon_boot_uses_state_snapshot_that_produced_objective(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(tmp_path, enabled=True, objective="older objective")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    def reset_manager_session(_root):
+        write_continuous_config(
+            tmp_path,
+            enabled=False,
+            objective="newer objective",
+        )
+        return False
+
+    monkeypatch.setattr(
+        "argus_skill.manager.reset_manager_session",
+        reset_manager_session,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task="cleaned older objective",
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    commits = []
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: commits.append(task),
+    )
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    state = read_continuous_state(tmp_path)
+    assert state.enabled is False
+    assert state.objective == "newer objective"
+    assert commits == []
+
+
+def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.daemon import state as daemon_state
+
+    LifeMemory.open(tmp_path).init()
+    raw = "older objective; Manager owns the sidebar"
+    write_continuous_config(tmp_path, enabled=True, objective=raw)
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task="clean older objective",
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
+    monkeypatch.setattr(
+        daemon_state,
+        "_write_continuous_config_unlocked",
+        lambda *args, **kwargs: False,
+    )
+    seen = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            enabled, objective = self.config.continuous_config_provider()
+            seen.update(enabled=enabled, objective=objective)
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert seen == {"enabled": False, "objective": raw}
+    assert read_continuous_state(tmp_path).enabled is True
+
+
+def test_daemon_manager_decision_failure_preserves_persisted_campaign(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    raw = "objective; Manager owns the sidebar"
+    write_continuous_config(tmp_path, enabled=True, objective=raw)
+    before = read_continuous_state(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("backend unavailable")
+        ),
+    )
+    seen = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen.update(
+                enabled=self.config.continuous,
+                objective=self.config.continuous_objective,
+            )
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    after = read_continuous_state(tmp_path)
+    assert seen == {"enabled": False, "objective": raw}
+    assert after.enabled is True
+    assert after.objective == raw
+    assert after.generation == before.generation
+
+
+def test_daemon_boot_leaves_paused_objective_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="paused objective",
+    )
+    before = read_continuous_state(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("paused objective must not be processed at boot")
+        ),
+    )
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    after = read_continuous_state(tmp_path)
+    assert after.enabled is False
+    assert after.objective == "paused objective"
+    assert after.generation == before.generation
+
+
+def test_project_done_does_not_disable_newer_same_value_rearm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(tmp_path, enabled=True, objective="objective")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task=task,
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            write_continuous_config(
+                tmp_path,
+                enabled=True,
+                objective="objective",
+            )
+            self.config.stop_event.set()
+            return {"stopped_by": "project_done"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    state = read_continuous_state(tmp_path)
+    assert state.enabled is True
+    assert state.objective == "objective"
+
+
+def test_operator_stop_freezes_adopted_generation_before_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(tmp_path, enabled=True, objective="objective")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda self, task, **kwargs: SimpleNamespace(
+            execution_task=task,
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            worker._operator_stop_requested = True
+            write_continuous_config(
+                tmp_path,
+                enabled=True,
+                objective="objective",
+            )
+            self.config.continuous_config_provider()
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert read_continuous_state(tmp_path).enabled is True
 
 
 def test_continuous_mode_error_allows_memory_backend_only_in_tests(

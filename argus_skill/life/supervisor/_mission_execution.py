@@ -262,6 +262,46 @@ class MissionExecutionMixin:
                 "pricing_status": usage_summary.pricing_status,
             }
 
+        stage_transition = getattr(outcome, "stage_transition", {})
+        stage_action = (
+            str(stage_transition.get("action") or "").strip().lower()
+            if isinstance(stage_transition, dict)
+            else ""
+        )
+        staged_item_continues = (
+            success
+            and not self.config.continuous
+            and isinstance(stage_transition, dict)
+            and bool(stage_transition)
+            and stage_action != "complete"
+        )
+        if staged_item_continues:
+            self.memory.backlog.update(
+                item.id,
+                status="pending",
+                started_ts=None,
+                finished_ts=None,
+                last_error="",
+            )
+            held = stage_action not in {"advance", "rollback"}
+            if held:
+                self._update_no_progress_streak(
+                    kind="mission_failed",
+                    report={
+                        "forward_progress": False,
+                        "headline": f"manager stage decision: {stage_action or 'unknown'}",
+                    },
+                )
+            return {
+                "success": True,
+                "status": "stage_hold" if held else "stage_continues",
+                "item_id": item.id,
+                "stage_transition": stage_transition,
+                "cost_usd": usd,
+                "known_cost_usd": known_usd,
+                "pricing_status": usage_summary.pricing_status,
+            }
+
         # Update backlog row.
         if success:
             self.memory.backlog.mark_done(item.id)

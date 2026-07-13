@@ -82,6 +82,7 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
         "continuous": config.continuous,
         "continuous_objective": config.continuous_objective,
+        "resume_continuous": config.resume_continuous,
         "continuous_open_ended": config.continuous_open_ended,
     }
 
@@ -136,6 +137,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),
         continuous_objective=str(data.get("continuous_objective") or ""),
+        resume_continuous=bool(data.get("resume_continuous")),
         continuous_open_ended=bool(data.get("continuous_open_ended", True)),
     )
 

@@ -571,7 +571,8 @@ function ArtifactsPanel({ rows, selected, pageSize }: { rows: ArtifactInfo[]; se
 }
 
 function ArtifactPanel({ artifact, page, pageSize }: { artifact: ArtifactInfo; page: number; pageSize: number }) {
-  const lines = artifact?.kind === 'text'
+  const textual = ['text', 'markdown', 'json', 'table'].includes(artifact?.kind);
+  const lines = textual
     ? (artifact.preview || '(empty file)').split('\n')
     : [];
   const view = pageSlice(lines, page, pageSize);
@@ -586,7 +587,7 @@ function ArtifactPanel({ artifact, page, pageSize }: { artifact: ArtifactInfo; p
       <Row k="size" v={formatBytes(artifact.size)} />
       {artifact.why ? <Row k="reviewer" v={artifact.why} c={theme.accent} /> : null}
       <Text> </Text>
-      {artifact.kind === 'text' ? (
+      {textual ? (
         <>
           {view.shown.map((line, index) => <Text key={`${view.page}-${index}`}>{line || ' '}</Text>)}
           {artifact.truncated && view.page === view.pages - 1 ? (

@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.manager import Manager, StageTransition
+from argus_skill.manager.live_view import load_live_view_decision
 from argus_skill.manager.stage_decider import (
+    build_stage_decision_prompt,
     fallback_empty_stage_decision,
     parse_stage_decision,
 )
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _Result:
@@ -33,9 +37,13 @@ class _StubRunner:
     def __init__(self, verdict: dict | str) -> None:
         self._text = verdict if isinstance(verdict, str) else json.dumps(verdict)
         self.calls = 0
+        self.last_prompt = ""
+        self.last_options = None
 
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         self.calls += 1
+        self.last_prompt = prompt
+        self.last_options = options
         return _Result(self._text)
 
 
@@ -83,10 +91,30 @@ def _project(tmp_path: Path, *, current: str) -> Path:
     return tmp_path
 
 
+def _submission_project(tmp_path: Path) -> Path:
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "submission",
+                "stages": {"submission": {"status": "pending"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 def _read_stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["current_stage"]
+
+
+def _read_stage_status(root: Path, stage: str) -> str:
+    return json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )["stages"][stage]["status"]
 
 
 # --- decide_stage_transition: writes -------------------------------------
@@ -146,6 +174,41 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     assert _read_stage(root) == "research"  # untouched
 
 
+def test_decide_stage_refreshes_manager_owned_live_view(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    backend = _StubRunner({
+        "action": "hold",
+        "target_stage": "research",
+        "reason": "more work",
+        "live_view": {
+            "title": "Manager view",
+            "reason": "Polished intermediate result",
+            "paths": [".argus/live/current.md"],
+        },
+        "presentations": [{
+            "path": ".argus/live/current.md",
+            "content": "# Current result\n",
+        }],
+    })
+    mgr = Manager(project_root=root, runner=backend)
+
+    st = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert st.action == "hold"
+    view = load_live_view_decision(root)
+    assert view is not None
+    assert view.paths == (".argus/live/current.md",)
+    assert (root / ".argus" / "live" / "current.md").exists()
+    assert backend.last_options.working_dir == str(root)
+    assert backend.last_options.sandbox_mode == "read-only"
+    assert backend.last_options.dangerous_yolo is False
+    assert "MANAGER ownership" in backend.last_prompt
+    assert "Do not assign" in backend.last_prompt
+
+
 def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     root = _project(tmp_path, current="run")
     mgr = Manager(project_root=root, runner=_StubRunner(
@@ -194,6 +257,88 @@ def test_decide_review_none_holds(tmp_path: Path) -> None:
     assert _read_stage(root) == "research"
 
 
+def test_open_ended_terminal_reconciliation_can_rollback(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "done"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "objective remains unresolved",
+    })
+    planner_verdict = SimpleNamespace(
+        project_done=False,
+        reason="proof not found; another solve direction remains",
+        new_tasks=[],
+    )
+
+    st = Manager(project_root=tmp_path, runner=backend).decide_stage_transition(
+        review=None,
+        planner_verdict=planner_verdict,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Continue until a complete proof or counterexample.",
+    )
+
+    assert st.action == "rollback"
+    assert st.target_stage == "solve"
+    assert _read_stage(tmp_path) == "solve"
+    assert "Open-ended campaign contract" in backend.last_prompt
+    assert "Continue until a complete proof" in backend.last_prompt
+
+
+def test_open_ended_final_review_is_not_forced_complete(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {"review": {"status": "pending"}},
+        }),
+        encoding="utf-8",
+    )
+    mgr = Manager(project_root=tmp_path, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "review found the original problem unresolved",
+    }))
+
+    st = mgr.decide_stage_transition(
+        review=_review(),
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Keep solving the open problem.",
+    )
+
+    assert st.action == "rollback"
+    assert _read_stage(tmp_path) == "solve"
+
+
+def test_open_ended_prompt_explains_terminal_checkpoint_semantics() -> None:
+    text = build_stage_decision_prompt(
+        current_stage="review",
+        next_stage="",
+        earlier_stages=("scope", "solve"),
+        checklist_md="done",
+        review=_review(),
+        open_ended=True,
+        continuous_objective="Keep solving.",
+    )
+
+    assert "final-stage checkpoint does not complete" in text
+    assert "ROLL BACK" in text
+
+
 def test_decide_llm_error_holds(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     st = Manager(project_root=root, runner=_BoomRunner()).decide_stage_transition(
@@ -238,6 +383,23 @@ def test_decide_persistent_empty_done_satisfied_advances(
     assert st.target_stage == "plan"
     assert st.diagnostic == "empty_output_certified_advance"
     assert _read_stage(root) == "plan"
+
+
+def test_decide_persistent_empty_done_satisfied_completes_final_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _submission_project(tmp_path)
+    backend = _StubRunner("")
+    mgr = Manager(project_root=root, runner=backend)
+
+    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+
+    assert backend.calls == 3
+    assert st.action == "complete"
+    assert st.target_stage == "submission"
+    assert st.diagnostic == "empty_output_no_next_stage"
+    assert _read_stage_status(root, "submission") == "done"
 
 
 def test_decide_persistent_empty_unsatisfied_checklist_holds(

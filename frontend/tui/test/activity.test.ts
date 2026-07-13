@@ -70,6 +70,19 @@ test('UI-local activity adds a role before the first snapshot arrives', () => {
   }]);
 });
 
+test('operator transcript, local echo, and wire event coalesce to one line', () => {
+  let events = reduceOperatorEvent([], {
+    type: 'ui.operator', text: '你好', ts: 10,
+  });
+  events = reduceOperatorEvent(events, {
+    type: 'ui.operator', text: '你好', message_id: 'web-1', ts: 10.1,
+  });
+  events = reduceOperatorEvent(events, {
+    type: 'ui.operator', text: '你好', ts: 10.2,
+  });
+  assert.equal(events.length, 1);
+});
+
 test('stream protocol is coalesced by call id and rate-limited to one heartbeat per second', () => {
   const start = Date.now() / 1000 - 2;
   const callId = `${Math.floor(start * 1000)}-7`;

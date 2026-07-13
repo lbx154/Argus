@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -65,6 +66,10 @@ class SkillLoopConfig:
     hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
+    # Repeated reviewer rejection is evidence that a matched playbook is not
+    # enough. Ask the Scientist for a genuinely different strategy every N
+    # non-terminal rounds; 0 disables.
+    adaptive_skill_interval: int = 4
     # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
     # (create/update/delete/archive) and the loop applies them via
     # SkillRouter — no Manager approval gate. Off by default; the daemon
@@ -94,6 +99,9 @@ class SkillLoopConfig:
     dangerous_yolo: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
+    # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
+    # deliverable; the Engineer and Reviewer still run normally.
+    workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
     # submission task. When True the engineer prompt carries the
     # long-horizon paper execution contract. Replaces the old keyword-based
@@ -231,7 +239,8 @@ class SkillLoop:
         Falls back to ``task`` when not supplied for back-compat.
         """
         workdir = Path(workdir) if workdir else Path.cwd()
-        if self.config.wiki_ops_enabled:
+        direct_workflow = self.config.workflow_mode == "direct"
+        if self.config.wiki_ops_enabled and not direct_workflow:
             from .wiki.lifecycle import ensure_project_wiki
 
             ensure_project_wiki(
@@ -253,9 +262,14 @@ class SkillLoop:
         # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        match = self.skill_router.select(
-            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
-        )
+        if direct_workflow:
+            from .skills.role_match import RoleSkillMatch
+
+            match = RoleSkillMatch(role="engineer")
+        else:
+            match = self.skill_router.select(
+                skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+            )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
@@ -271,7 +285,7 @@ class SkillLoop:
 
         # Scientist tool on miss: author one reusable playbook, persist it in the
         # project layer immediately, and inject that exact version into this mission.
-        if skill is None:
+        if skill is None and not direct_workflow:
             try:
                 from .skills.scientist import SkillScientist
 
@@ -312,6 +326,46 @@ class SkillLoop:
             self.skill_store, primary_skills, reference_skills
         )
         skill_name = skill.name if skill else None
+
+        def adapt_after_rejections(rounds: list) -> str:
+            nonlocal skill_text, skill_name, skill_distilled, distill_result
+            interval = max(0, int(self.config.adaptive_skill_interval or 0))
+            if skill is None or interval == 0 or len(rounds) % interval:
+                return ""
+            evidence = "\n".join(
+                f"- Round {rec.round_index}: {rec.review.reason}; next: "
+                f"{rec.review.next_action}"
+                for rec in rounds[-interval:]
+            )
+            from .skills.scientist import SkillScientist
+
+            self._emit({
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
+                "text": f"{interval} reviewer rejections; seeking a different playbook",
+            })
+            scientist = SkillScientist(
+                self.engineer_runner,
+                model=self.config.engineer_model,
+                reasoning_effort=self.config.engineer_reasoning_effort,
+            )
+            raw_skill = scientist.distill_alternative(skill_task, evidence)
+            distill_result = scientist.last_result
+            if not raw_skill:
+                return ""
+            distilled = self.skill_router.create_from_scientist(
+                raw_skill, task=skill_task, on_event=self._emit
+            )
+            if distilled is None:
+                return ""
+            adaptive_text = render_skill_playbook(self.skill_store, [distilled], [])
+            skill_text = skill_text + "\n\n" + adaptive_text
+            skill_name = distilled.name
+            skill_distilled = True
+            self._emit({
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
+                "text": f"Scientist created alternative skill {distilled.name}",
+            })
+            return adaptive_text
 
         # Candidate SOURCE augmentation: on the "research" VERTICAL's research
         # stage only, run ONE codex live-web-search ideation and APPEND its
@@ -423,6 +477,20 @@ class SkillLoop:
                 include_static=include_static,
             )
 
+        run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
+
+        def prepare_review_context() -> None:
+            if not self.config.wiki_ops_enabled:
+                return
+            from .wiki.auto_hooks import run_post_mission_hooks
+
+            run_post_mission_hooks(
+                workdir,
+                mission_id=run_id,
+                success=False,
+                emit=self.on_event,
+            )
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -443,6 +511,8 @@ class SkillLoop:
             seed_thread_id=seed_thread_id,
             scope=scope,
             per_mission_budget=per_mission_budget,
+            prepare_review_context=prepare_review_context,
+            continue_adaptor=adapt_after_rejections,
         )
 
         # Step 4: learn from the OUTCOME. The REVIEWER owns skill AND wiki
@@ -504,6 +574,23 @@ class SkillLoop:
             workdir=str(workdir),
             last_thread_id=last_thread_id,
         )
+        final_review = rounds[-1].review if rounds else None
+        achievement = (
+            final_review.achievement
+            if final_review is not None and status == "done"
+            else None
+        )
+        if isinstance(achievement, dict):
+            self._emit({
+                "type": EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
+                "achievement_id": f"reviewer-{run_id}",
+                "title": achievement["title"],
+                "goal": achievement["goal"],
+                "metric_id": achievement.get("metric_id", ""),
+                "summary": achievement.get("summary", ""),
+                "evidence": list(achievement.get("evidence") or []),
+                "reviewer_certified": True,
+            })
         # Step 4c: project-wiki evolution. The lifecycle module owns mechanical
         # source ingestion, scratch lift, reviewer wiki_ops, promotion and optional
         # reversible compaction so this main loop stays orchestration-only.
@@ -514,11 +601,7 @@ class SkillLoop:
                 rounds=rounds,
                 workdir=workdir,
                 task=skill_task,
-                mission_id=(
-                    self.config.session_id
-                    or (last_thread_id or "")[:12]
-                    or "unknown"
-                ),
+                mission_id=run_id,
                 success=(status == "done"),
                 reviewer_runner=self.reviewer_runner,
                 reviewer_model=self.config.resolved_reviewer_model(),
@@ -646,15 +729,6 @@ class SkillLoop:
             self.on_event(event)
         except Exception:  # never let UI errors kill the loop
             log.exception("on_event handler raised")
-
-    def _render_skill_playbook(self, skills: list[Skill]) -> str:
-        """Deprecated shim — delegates to the shared role-mission renderer.
-
-        Kept so external callers/tests referencing this method keep working;
-        new code should call ``render_skill_playbook`` directly. Treats every
-        passed skill as a primary (own-role) playbook.
-        """
-        return render_skill_playbook(self.skill_store, skills)
 
     @staticmethod
     def _build_engineer_prompt(

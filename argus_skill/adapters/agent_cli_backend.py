@@ -55,6 +55,7 @@ from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
+from ..core.runner_errors import result_has_pre_provider_refusal
 
 log = logging.getLogger(__name__)
 
@@ -894,6 +895,17 @@ class AgentCliBackend:
             if self._is_copilot or codex_quota_active
             else None
         )
+        if interrupted:
+            reason = f"External interrupt: {interrupted}"
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=reason,
+                ),
+                status="denied",
+                error=reason,
+            )
         if self._is_copilot and not interrupted:
             from ..core.copilot_guard import (
                 acquire_copilot_permit,
@@ -1128,6 +1140,19 @@ class AgentCliBackend:
         stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
         fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
         failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+        pre_provider_refusal = bool(
+            result_has_pre_provider_refusal(argus_result)
+            and translated.total_nano_aiu is None
+            and not translated.model_usage
+            and not translated.premium_requests_present
+            and not any((
+                translated.input_tokens_present,
+                translated.cached_input_tokens_present,
+                translated.cache_write_tokens_present,
+                translated.output_tokens_present,
+                translated.reasoning_output_tokens_present,
+            ))
+        )
 
         # Detect auth/policy failures even when Copilot exits 0 but reports
         # turn_failed=true. Policy denial previously looked "successful" at the
@@ -1190,7 +1215,13 @@ class AgentCliBackend:
         self._log_agent_io(log_path, complete_row)
         return _finalize_result(
             translated,
-            status="error" if failed else "completed",
+            status=(
+                "denied"
+                if pre_provider_refusal
+                else "error"
+                if failed
+                else "completed"
+            ),
             error=failure_text,
         )
 
@@ -1222,6 +1253,9 @@ class AgentCliBackend:
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
         log_path = str(ctx.get("log_path") or "")
+        canonical_stream = stream.rsplit(".", 1)[-1]
+        if canonical_stream not in {"stdout", "stderr"}:
+            canonical_stream = "stdout"
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
@@ -1230,7 +1264,7 @@ class AgentCliBackend:
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),
                 "model": ctx.get("model"),
-                "stream": stream,
+                "stream": canonical_stream,
                 "line": line,
                 "ts": time.time(),
             })
@@ -1277,6 +1311,8 @@ class AgentCliBackend:
         # field; then we degrade gracefully to no live search rather than crash.
         if "live_search" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["live_search"] = getattr(options, "live_search", False)
+        if "sandbox_mode" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
         # Forward the live assistant-block callback the same guarded way — only
         # the Manager chat front-door sets it, and a vendored copy without the
         # field degrades to no streaming rather than crashing.

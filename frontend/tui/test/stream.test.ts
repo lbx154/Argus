@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiClient, parseSSEFrames, taskDispatchMessage } from '../src/api.js';
 import { messageId, mergeFragment, renderEvent } from '../src/eventRender.js';
+import { buildEventLines, partitionEventLines } from '../src/eventLines.js';
 
 test('parseSSEFrames decodes whole frames and keeps the partial tail', () => {
   const { frames, rest } = parseSSEFrames(
@@ -45,6 +46,21 @@ test('mergeFragment grows a multi-block Manager reply (nothing dropped)', () => 
   // a cumulative resend replaces; a duplicate is skipped
   assert.equal(mergeFragment('你好', '你好,需要帮忙吗'), '你好,需要帮忙吗');
   assert.equal(mergeFragment('full reply here', 'reply'), 'full reply here');
+});
+
+test('a message_id stays live only for the active Manager request', () => {
+  const lines = buildEventLines([
+    { type: 'ui.argus', text: 'partial', message_id: 'reply-1' },
+    { type: 'ui.argus', text: 'partial answer', message_id: 'reply-1' },
+  ] as never);
+
+  const streaming = partitionEventLines(lines, 'reply-1');
+  assert.equal(streaming.committed.length, 0);
+  assert.equal(streaming.live?.r.text, 'partial answer');
+
+  const settled = partitionEventLines(lines);
+  assert.equal(settled.live, null);
+  assert.equal(settled.committed[0]?.r.text, 'partial answer');
 });
 
 test('renderEvent surfaces the guardian signals that actually persist to the feed', () => {
@@ -248,6 +264,31 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
       name: 'Kernel run',
       launch_cwd: '/work/kernel',
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ink /abort posts a control request instead of a backlog task', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = '';
+  let seenBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(input);
+    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      requested: true,
+      item_id: 'task-1',
+      message: 'Stop requested for running task task-1.',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
+    const result = await api.abortMission('operator used /abort');
+    assert.match(seenUrl, /\/api\/projects\/s-test\/mission\/abort$/);
+    assert.equal(seenBody.reason, 'operator used /abort');
+    assert.equal(result.requested, true);
+    assert.equal(result.item_id, 'task-1');
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -91,12 +91,29 @@ def build_stage_decision_prompt(
     checklist_md: str,
     review: Any,
     planner_verdict: Any = None,
+    rendering_block: str = "",
+    open_ended: bool = False,
+    continuous_objective: str = "",
 ) -> str:
     """Render the prompt asking the Manager to rule on the stage transition."""
     earlier = ", ".join(f"`{s}`" for s in earlier_stages) or "(none — already first)"
     advance_target = f"`{next_stage}`" if next_stage else "(none — already the final stage)"
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+
+    open_ended_block = ""
+    if open_ended:
+        open_ended_block = (
+            "## Open-ended campaign contract\n"
+            "This is an open-ended campaign. Completing the final-stage checkpoint "
+            "does not complete the operator objective by itself. If the original "
+            "objective remains unresolved and the Planner identifies further "
+            "high-impact work that belongs to an earlier stage, ROLL BACK to the "
+            "earliest stage needed for that work. HOLD only when no legal work can "
+            "run yet; do not mark the campaign complete merely because a report or "
+            "review artifact exists.\n"
+            f"Operator objective:\n{continuous_objective.strip()}\n\n"
+        )
 
     return (
         "You are the MANAGER of an automated research pipeline, and the SOLE "
@@ -117,6 +134,8 @@ def build_stage_decision_prompt(
         f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
+        f"{open_ended_block}"
+        f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "
         "with concrete evidence the reviewer confirmed.\n"
@@ -126,7 +145,8 @@ def build_stage_decision_prompt(
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
         '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>"}\n'
+        '"reason": "<clear explanation>", "live_view": null | {"title": "<title>", '
+        '"reason": "<why>", "paths": ["<path>", ...]}}\n'
         "For HOLD, set target_stage to the current stage."
     )
 

@@ -4,8 +4,8 @@ The hybrid domain lifecycle's second half: a data domain
 (``research/DOMAINS/<name>.json`` + the Planner-authored
 ``research/CHECKLISTS.json``) that has proven out is rendered into a real
 ``argus_skill/verticals/<name>/`` Python package, so a good domain becomes a
-version-controlled, shipped vertical. Mirrors
-:mod:`argus_skill.manager.skill_tidy` (atomic write + opt-in ``commit_to_source``).
+version-controlled, shipped vertical. Source writes and optional commits share the
+neutral :mod:`argus_skill.manager.source_writeback` boundary with skill promotion.
 
 USER APPROVAL IS MANDATORY. Writing a domain back into the argus source is an
 irreversible, outward-facing change, so :func:`promote_data_domain` writes ONLY
@@ -25,6 +25,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from . import source_writeback
 
 log = logging.getLogger(__name__)
 
@@ -220,12 +222,12 @@ def promote_data_domain(
             log.info("promote_data_domain(%r): package already exists; skipping", name)
             return None
         stages_src = _render_stages_py(name, root)
-        from .skill_tidy import _atomic_write, commit_to_source
-
         init_path = pkg / "__init__.py"
         stages_path = pkg / "stages.py"
-        _atomic_write(init_path, f'"""Promoted data domain `{name}`."""\n')
-        _atomic_write(stages_path, stages_src)
+        source_writeback.atomic_write(
+            init_path, f'"""Promoted data domain `{name}`."""\n'
+        )
+        source_writeback.atomic_write(stages_path, stages_src)
     except Exception:  # noqa: BLE001 — promotion is best-effort
         log.warning("promote_data_domain(%r) failed to render/write", name, exc_info=True)
         return None
@@ -240,7 +242,7 @@ def promote_data_domain(
 
     _emit(on_event, f"promoted data domain `{name}` → verticals/{name}/ (operator-approved)")
     msg = f"feat(verticals): promote data domain `{name}` to source [manager, operator-approved]"
-    if not commit_to_source([init_path, stages_path], msg):
+    if not source_writeback.commit_to_source([init_path, stages_path], msg):
         log.info("promote_data_domain(%r): wrote package but did not commit (left in tree)", name)
     return stages_path
 

@@ -60,7 +60,7 @@ def read_turns(life_dir: Any, *, limit: int | None = None) -> list[dict[str, Any
 
 
 def first_operator_text(life_dir: Any) -> str:
-    """The first thing the operator said — used to label the session."""
+    """Return the first operator turn for transcript inspection."""
     for turn in read_turns(life_dir):
         if turn.get("role") == "operator":
             return str(turn.get("text") or "")

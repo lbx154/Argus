@@ -6,6 +6,7 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
+  reconcileProjectSelection,
   deriveMissionView,
   EVENT_TYPES,
   eventKey,
@@ -22,6 +23,11 @@ import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generat
 import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
+import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { Sidebar } from '../components/Sidebar';
+import { activeProviderRequest } from '../components/EventStream';
+import { HtmlPreview } from '../components/HtmlPreview';
+import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -35,11 +41,80 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('renders generated HTML only inside an opaque script sandbox', () => {
+    const markup = renderToStaticMarkup(createElement(HtmlPreview, {
+      html: '<button onclick="document.body.dataset.ok=1">Start</button>',
+      title: 'Timer preview',
+    }));
+    expect(markup).toContain('sandbox="allow-scripts"');
+    expect(markup).not.toContain('allow-same-origin');
+    expect(markup).toContain('referrerPolicy="no-referrer"');
+    expect(markup).toContain('&lt;button');
+  });
+
+  it('formats JSON and parses quoted CSV tables', () => {
+    expect(formatStructuredData('{"answer":42}')).toContain('"answer": 42');
+    expect(parseDelimited('name,note\nA,"x,y"', ',')).toEqual([
+      ['name', 'note'],
+      ['A', 'x,y'],
+    ]);
+  });
+
+  it('tracks the still-running provider request across concurrent calls', () => {
+    const first = { type: 'provider.request.started', call_id: 'a', run_label: 'engineer-r1' };
+    const second = { type: 'provider.request.started', call_id: 'b', run_label: 'manager' };
+    expect(activeProviderRequest([
+      first,
+      second,
+      { type: 'provider.request.completed', call_id: 'b' },
+    ])).toEqual(first);
+  });
+
   it('uses the canonical event catalog and explicit legacy aliases', () => {
     expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
     expect(typedUsageEvent.payload_schema_version).toBe(2);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
+  });
+
+  it('renders operator questions in a dedicated direct-reply dialog', () => {
+    const html = renderToStaticMarkup(createElement(PendingReplyDialog, {
+      reply: {
+        id: 'blocked-1',
+        title: 'Blocked task',
+        question: 'Which dataset should the process use?',
+      },
+      open: true,
+      busy: false,
+      onClose: () => undefined,
+      onSubmit: () => undefined,
+    }));
+    expect(html).toContain('Answer required');
+    expect(html).toContain('Which dataset should the process use?');
+    expect(html).toContain('Send answer');
+    expect(html).toContain('directly to the process');
+  });
+
+  it('renders Settings and icon-only theme controls in the sidebar footer', () => {
+    const html = renderToStaticMarkup(createElement(Sidebar, {
+      projects: [],
+      activeId: null,
+      localCwd: '/workspace',
+      onSelect: () => undefined,
+      onManage: () => undefined,
+      onOpenPanel: () => undefined,
+      onNew: () => undefined,
+      loading: false,
+      collapsed: false,
+      onToggleCollapse: () => undefined,
+      themeMode: 'light',
+      onCycleTheme: () => undefined,
+    }));
+    expect(html).toContain('Settings');
+    expect(html).toContain('data-icon="gear"');
+    expect(html).toContain('data-icon="sun"');
+    expect(html).not.toContain('>Runtime<');
+    expect(html).not.toContain('>light<');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {
@@ -85,12 +160,28 @@ describe('shared frontend core', () => {
     expect(resolveProjectSelection(rows, 's-kernel-42')).toEqual({
       id: 's-kernel-42', requested: 's-kernel-42', recovered: false,
     });
+
     expect(resolveProjectSelection(rows, 'missing')).toEqual({
       id: 's-kernel-42', requested: 'missing', recovered: true,
     });
     expect(resolveProjectSelection([], 'missing')).toEqual({
       id: null, requested: 'missing', recovered: true,
     });
+  });
+
+  it('never auto-follows another operator session after initial selection', () => {
+    const current = {
+      id: 'mine', label: 'Mine', objective: '', last_active: 1,
+      daemon_alive: false, daemon_pid: null, uptime_seconds: null,
+    };
+    const other = {
+      id: 'other', label: 'Other live session', objective: '', last_active: 2,
+      daemon_alive: true, daemon_pid: 42, uptime_seconds: 3,
+    };
+    expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
+    expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], null, true).id).toBeNull();
   });
 
   it('uses only the authoritative project ledger total', () => {
@@ -163,8 +254,17 @@ describe('shared frontend core', () => {
       { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
     ];
 
-    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.pdf');
+    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.tex');
     expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
+    expect(selectPreferredLiveArtifact([{
+      ...artifacts[1],
+      source: 'research_registered' as const,
+    }])).toBeNull();
+    expect(selectPreferredLiveArtifact([artifacts[2]])).toBeNull();
+    expect(selectPreferredLiveArtifact([
+      { ...artifacts[0], exists: false },
+      artifacts[2],
+    ])).toBeNull();
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {

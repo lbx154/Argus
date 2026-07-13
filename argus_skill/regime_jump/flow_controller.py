@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..verticals._base import VerticalDefinition
 
 from .config import MetaConfig, load_meta_config
 from .ledger import (
@@ -44,7 +47,7 @@ class FlowDecision:
     forbidden_axes: set[str] = field(default_factory=set)
 
 
-def _strategy_pool(vmod: ModuleType | None, project_root: object) -> str:
+def _strategy_pool(vmod: VerticalDefinition | None, project_root: object) -> str:
     try:
         from ..verticals._base import vertical_strategy_pool
 
@@ -55,7 +58,7 @@ def _strategy_pool(vmod: ModuleType | None, project_root: object) -> str:
 
 def decide(
     project_root: object,
-    vmod: ModuleType | None = None,
+    vmod: VerticalDefinition | None = None,
     config: MetaConfig | None = None,
 ) -> FlowDecision:
     """Analyze the search state and choose exploit / explore / jump.

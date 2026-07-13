@@ -25,14 +25,8 @@ class Prompts:
         summaries: list[dict],
         *,
         requesting_role: str | None = None,
+        primary_pool: frozenset[str] = frozenset(),
     ) -> str:
-        from .store import ROLE_SKILL_POOLS
-
-        primary_pool = (
-            ROLE_SKILL_POOLS.get(requesting_role, frozenset())
-            if requesting_role else frozenset()
-        )
-
         def _role_tag(s: dict) -> str:
             if not requesting_role:
                 return ""

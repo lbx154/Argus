@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from .models import AgentRunResult
+from .models import AgentRunResult, InactivitySnapshot
 
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_MANAGER_TIMEOUT_S = 300.0
@@ -655,11 +655,6 @@ class CopilotAcpClient:
                     ):
                         last_soft_check_at = now
                         try:
-                            # Import lazily: copilot_acp is itself loaded by
-                            # AgentCliRunner's warm fast path, so a module-level
-                            # import would create a cycle.
-                            from .agent_cli_runner import InactivitySnapshot
-
                             decision = inactivity_cb(
                                 InactivitySnapshot(
                                     idle_seconds=idle_seconds,

@@ -134,6 +134,23 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     assert "unresolved provider cost" in reason
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 
+    control, reason = reserve_call_budget(
+        call_id="control-1",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert control is not None and reason == ""
+    assert control.amount_usd == pytest.approx(1.0)
+    control.release(reason="test")
+
     usage_path = project / "usage.jsonl"
     row = json.loads(usage_path.read_text().splitlines()[0])
     row.update({
@@ -148,6 +165,129 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     assert recovered is not None and reason == ""
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 0
     recovered.release(reason="test")
+
+
+def test_interrupted_partial_cost_holds_reservation_without_global_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setattr(
+        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        lambda _project_root: False,
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="aborted",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert reservation is not None and reason == ""
+    record = build_usage_record(
+        call_id="aborted",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        started_at=time.time() - 1,
+        completed_at=time.time(),
+        status="error",
+        error="External interrupt: operator abort requested: stop now",
+    )
+    assert record.pricing_status == "partial" and record.cost_usd is None
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["unresolved_calls"] == 1
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(5.0)
+    assert snapshot["reserved_usd"] == pytest.approx(5.0)
+
+    next_reservation, reason = reserve_call_budget(
+        call_id="next",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert next_reservation is not None
+    assert reason == ""
+    next_reservation.release(reason="test")
+
+
+def test_interrupted_unknown_settlement_holds_exact_reservation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="aborted-unknown",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=4.25,
+    )
+    assert reservation is not None and reason == ""
+
+    reservation.settle_unknown(
+        reason="External interrupt: operator abort requested: stop"
+    )
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(4.25)
+    assert snapshot["unresolved"][0]["held_usd"] == pytest.approx(4.25)
+
+
+def test_legacy_interrupt_without_recorded_hold_remains_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_PER_CALL_CAP_USD", "0")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, _ = _reserve(tmp_path, project, "legacy-abort")
+    assert reservation is not None
+    reservation.settle_unknown(
+        reason="External interrupt: operator abort requested: old row"
+    )
+    state_path = tmp_path / COST_CONTROL_STATE_FILE
+    state = json.loads(state_path.read_text())
+    state["unresolved"][0].pop("blocking", None)
+    state["unresolved"][0].pop("held_usd", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    blocked, reason = _reserve(tmp_path, project, "next")
+
+    assert blocked is None
+    assert "unresolved provider cost" in reason
 
 
 def test_unknown_settlement_blocks_and_corrupt_state_fails_closed(
@@ -327,6 +467,30 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
     assert blocked is None
     assert "cooling down after budget fence breach" in reason
 
+    other_project = tmp_path / "projects" / "p2"
+    other_project.mkdir()
+    isolated, reason = _reserve(
+        tmp_path,
+        other_project,
+        "codex-other-project",
+        per_call_cap_usd=1.0,
+    )
+    assert isolated is not None and reason == ""
+    isolated.release(reason="test")
+
+    state_path = tmp_path / COST_CONTROL_STATE_FILE
+    state = json.loads(state_path.read_text())
+    state["breaches"][0].pop("project_id")
+    state_path.write_text(json.dumps(state))
+    legacy_blocked, reason = _reserve(
+        tmp_path,
+        other_project,
+        "codex-legacy-breach",
+        per_call_cap_usd=1.0,
+    )
+    assert legacy_blocked is None
+    assert "cooling down after budget fence breach" in reason
+
     copilot, reason = reserve_call_budget(
         call_id="copilot-still-allowed",
         project_root=project,
@@ -369,6 +533,101 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
         for line in (tmp_path / COST_CONTROL_AUDIT_FILE).read_text().splitlines()
     ]
     assert "budget.fence_breach.blocked" in {row["type"] for row in audit}
+
+
+def test_control_plane_overrun_does_not_block_mission_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_FENCE_BREACH_POLICY", "block")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="manager-overrun",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert reservation is not None and reason == ""
+    assert reservation.amount_usd == pytest.approx(1.0)
+    record = replace(
+        _record(project, "manager-overrun"),
+        provider="copilot",
+        run_label="simple-1",
+        cost_usd=1.25,
+    )
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    blocked, reason = reserve_call_budget(
+        call_id="manager-follow-up",
+        project_root=project,
+        mission_id="manager-turn-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert blocked is None
+    assert "cooling down after budget fence breach" in reason
+
+    mission, reason = reserve_call_budget(
+        call_id="reviewer-still-allowed",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=1.0,
+    )
+    assert mission is not None and reason == ""
+    mission.release(reason="test")
+    breach = cost_control_snapshot(global_root=tmp_path)["fence_breaches"][0]
+    assert breach["control_plane"] is True
+
+
+def test_control_plane_call_cap_can_be_raised_by_operator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "4")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+
+    reservation, reason = reserve_call_budget(
+        call_id="raised-manager-cap",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="simple-1",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+
+    assert reservation is not None and reason == ""
+    assert reservation.amount_usd == pytest.approx(4.0)
+    reservation.release(reason="test")
 
 
 def test_fence_breach_policy_can_explicitly_allow_follow_up(

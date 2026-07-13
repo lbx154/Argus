@@ -11,11 +11,16 @@ from __future__ import annotations
 import json
 import queue
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.webapi import project_state, server
+from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.manager import front_door
+from argus_skill.manager import repl as manager_repl
+from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -36,6 +41,28 @@ def _make_project(root: Path, sid: str = "s-msgtest0") -> Path:
 def client(tmp_path: Path) -> TestClient:
     _make_project(tmp_path)
     return TestClient(server.create_app(global_root=tmp_path))
+
+
+@pytest.fixture(autouse=True)
+def _identity_manager_handoff(monkeypatch) -> None:
+    _install_manager(monkeypatch, lambda text: text)
+
+
+def _install_manager(monkeypatch, execution_for) -> None:
+    manager_bridge._STATES.clear()
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task=execution_for(text))
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
 
 
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
@@ -61,7 +88,7 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "optimize the matmul kernel fully"})
@@ -74,6 +101,171 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert "daemon" in body
 
 
+def test_active_mission_message_cannot_enqueue_even_if_classified_team(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-active001"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(
+        title="current work",
+        objective="finish current work",
+    ))
+    assert memory.backlog.claim_next() is not None
+    manager_bridge._STATES.clear()
+    seen = {"classify": 0}
+
+    def classify(*args, **kwargs):
+        seen["classify"] += 1
+        return None, None, "complex"
+
+    def direct_manager_reply(mem, body, state, **kwargs):
+        seen["route"] = kwargs.get("route")
+        return "current mission is still running"
+
+    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
+    monkeypatch.setattr(manager_repl, "manager_triage", direct_manager_reply)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "你怎么不动了？",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["reply"] == "current mission is still running"
+    assert seen["classify"] == 1
+    assert seen["route"] == "simple"
+    assert len(memory.backlog.all()) == 1
+
+
+def test_mission_claimed_during_classification_cannot_enqueue_second_item(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-active-race"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    manager_bridge._STATES.clear()
+
+    def classify(*args, **kwargs):
+        item = memory.backlog.add(
+            BacklogItem.new(title="concurrent work", objective="work")
+        )
+        assert memory.backlog.mark_running(item.id) is not None
+        return None, None, "complex"
+
+    monkeypatch.setattr(manager_repl, "_front_door_classify", classify)
+    monkeypatch.setattr(manager_repl, "manager_triage", lambda *a, **k: None)
+    monkeypatch.setattr(
+        manager_repl,
+        "enqueue_mission",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("claim-during-classification must not enqueue")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "start another task",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert "not dispatched" in str(result["reply"])
+    assert len(memory.backlog.all()) == 1
+
+
+def test_team_message_runs_manager_lifetime_decision_before_enqueue(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-standing-front-door"
+    _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(manager_repl, "manager_triage", lambda *args, **kwargs: None)
+
+    def promote(mem, body, chat_state, theme, **kwargs):
+        seen["promoted_body"] = body
+        seen["root_task_id"] = kwargs.get("root_task_id")
+        chat_state.setdefault("config", {})["continuous"] = True
+        return True
+
+    def enqueue(mem, body, chat_state, **kwargs):
+        seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
+        return None, False, None
+
+    monkeypatch.setattr(manager_repl, "_maybe_auto_promote_to_continuous", promote)
+    monkeypatch.setattr(manager_repl, "enqueue_mission", enqueue)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "keep researching this conjecture",
+        global_root=tmp_path,
+    )
+
+    assert seen["promoted_body"] == "keep researching this conjecture"
+    assert seen["root_task_id"]
+    assert seen["continuous_at_enqueue"] is True
+    assert result["kind"] == "task"
+    assert result["item"] is None
+    assert result["continuous"] is True
+
+
+def test_standing_web_task_persists_only_manager_authored_objective(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-standing-objective"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    state = manager_bridge._chat_state_for(sid)
+    state["backend"] = "codex"
+    raw = "research this forever; internal operator note must not persist"
+
+    class _Manager:
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(execution_task="research the conjecture autonomously")
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    class _Runner:
+        manager = _Manager()
+
+        def classify_needs_continuous(self, objective, **kwargs):
+            return True
+
+    runner = _Runner()
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: runner,
+    )
+    monkeypatch.setattr(
+        manager_repl,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(manager_repl, "manager_triage", lambda *args, **kwargs: None)
+
+    result = manager_bridge.manager_message(sid, raw, global_root=tmp_path)
+
+    continuous = json.loads((life / "continuous.json").read_text(encoding="utf-8"))
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == "research the conjecture autonomously"
+    assert raw not in (life / "continuous.json").read_text(encoding="utf-8")
+    assert result["item"] is None
+    assert result["continuous"] is True
+
+
 def test_message_empty_400(client: TestClient) -> None:
     assert client.post("/api/projects/s-msgtest0/message", json={"text": "  "}).status_code == 400
 
@@ -84,6 +276,80 @@ def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
         lambda sid, text, *, global_root=None: {"kind": "chat", "reply": "x"},
     )
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
+
+
+def test_pending_answer_bypasses_manager_and_continues_blocked_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    mem = LifeMemory.open(life)
+    blocked = BacklogItem.new(
+        title="Choose paper format",
+        objective="Write the camera-ready paper",
+        tags=["paper"],
+        iterate=False,
+        iteration_budget_usd=12.0,
+    )
+    blocked.pending_question = "Should the appendix be included?"
+    mem.backlog.add(blocked)
+    started: list[str] = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
+            started.append(sid) or {"rc": 0},
+    )
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    response = client.post(
+        f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
+        json={"text": "Yes, include it after the references."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answered_item_id"] == blocked.id
+    assert started == ["s-msgtest0"]
+    items = LifeMemory.open(life).backlog.all()
+    original = next(item for item in items if item.id == blocked.id)
+    continuation = next(item for item in items if item.id == payload["item"]["id"])
+    assert original.pending_question == ""
+    assert "Operator reply to blocked question" in continuation.objective
+    assert "include it after the references" in continuation.objective
+    assert continuation.iterate is False
+    assert continuation.iteration_budget_usd == 12.0
+    assert continuation.tags == ["paper", "operator-reply"]
+    assert not (life / "inbox.jsonl").exists()
+
+    duplicate = client.post(
+        f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
+        json={"text": "A duplicate answer."},
+    )
+    assert duplicate.status_code == 409
+    assert len(LifeMemory.open(life).backlog.all()) == 2
+
+
+def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Blocked", objective="Original objective")
+    blocked.pending_question = "Choose A or B?"
+    LifeMemory.open(life).backlog.add(blocked)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda answer: server.answer_pending_question(
+                "s-msgtest0",
+                blocked.id,
+                answer,
+                global_root=tmp_path,
+            ),
+            ["A", "B"],
+        ))
+
+    assert sum(bool(result and result.get("item")) for result in results) == 1
+    assert sum(bool(result and result.get("error")) for result in results) == 1
+    assert len(LifeMemory.open(life).backlog.all()) == 2
 
 
 # ── streaming front-door: POST /message/stream (Server-Sent Events) ──────────
@@ -158,7 +424,7 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
     spawned: dict[str, object] = {}
     monkeypatch.setattr(
         server, "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "optimize the matmul kernel"})
@@ -188,7 +454,7 @@ def test_message_stream_standing_task_starts_continuous_executor(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda sid, *, global_root=None, resume_continuous=False:
+        lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
     r = client.post(
@@ -245,6 +511,31 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
         "continuous_objective": "reproduce the recursive kernel task",
         "resume_continuous": True,
     }
+
+
+def test_create_daemon_persists_only_manager_execution_handoff(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    spawned: dict[str, object] = {}
+    _install_manager(monkeypatch, lambda text: "write the MRAM paper")
+    monkeypatch.setattr(
+        server,
+        "spawn_detached_daemon",
+        lambda cfg, quiet=True: spawned.update(
+            objective=cfg.continuous_objective,
+        ) or 0,
+    )
+    raw = "write the MRAM paper; Manager owns the right sidebar"
+
+    result = server.create_daemon(objective=raw, global_root=tmp_path)
+
+    life_dir = tmp_path / "projects" / result["sid"]
+    continuous = json.loads((life_dir / "continuous.json").read_text())
+    session = json.loads((life_dir / "session.json").read_text())
+    assert continuous["objective"] == "write the MRAM paper"
+    assert session["objective"] == "write the MRAM paper"
+    assert spawned["objective"] == "write the MRAM paper"
+    assert raw not in (life_dir / "continuous.json").read_text()
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:

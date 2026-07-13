@@ -15,13 +15,18 @@ entry point with a fake memory and fake budget.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from argus_skill.core.project import project_fingerprint
+from argus_skill.life import project_lifecycle_io
 from argus_skill.life.project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -197,21 +202,91 @@ def test_load_history_tolerates_malformed_entries(tmp_path: Path) -> None:
     assert history[1].reason == "ok-2"
 
 
+def test_concurrent_lifecycle_appends_serialize_read_modify_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_load = project_lifecycle_io.load_persisted
+    start = threading.Barrier(3)
+    guard = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def slow_load(root: Path) -> dict:
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.05)
+            return original_load(root)
+        finally:
+            with guard:
+                active -= 1
+
+    monkeypatch.setattr(project_lifecycle_io, "load_persisted", slow_load)
+    status = ProjectStatus(
+        project_id="p",
+        state=ProjectState.RUNNING,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    def append(reason: str) -> None:
+        start.wait()
+        project_lifecycle_io.append_event(
+            tmp_path,
+            new_status=status,
+            event=LifecycleEvent(
+                at=datetime.now(timezone.utc),
+                from_state=ProjectState.INCUBATING,
+                to_state=ProjectState.RUNNING,
+                reason=reason,
+            ),
+        )
+
+    threads = [
+        threading.Thread(target=append, args=("first",)),
+        threading.Thread(target=append, args=("second",)),
+    ]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert max_active == 1
+    assert {event.reason for event in load_history(tmp_path)} == {"first", "second"}
+
+
 # ---------------------------------------------------------------------------
 # CLI: --lifecycle-resume / --lifecycle-archive
 # ---------------------------------------------------------------------------
+
+
+def _cli_env(project_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["ARGUS_SKILL_HOME"] = str(
+        project_root.parent / f".{project_root.name}-argus-home"
+    )
+    return env
+
+
+def _cli_lifecycle_root(project_root: Path) -> Path:
+    home = Path(_cli_env(project_root)["ARGUS_SKILL_HOME"])
+    return home / "projects" / project_fingerprint(project_root).fingerprint
 
 
 def test_cli_archive_writes_persisted_state(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--lifecycle-archive", "--project-root", str(tmp_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
     assert "ARCHIVED" in proc.stdout.upper() or "archived" in proc.stdout
 
-    persisted = load_persisted(tmp_path)
+    persisted = load_persisted(_cli_lifecycle_root(tmp_path))
     assert persisted["state"] == "archived"
 
 
@@ -219,11 +294,36 @@ def test_cli_resume_refuses_non_quarantined(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--lifecycle-resume", "--project-root", str(tmp_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=_cli_env(tmp_path),
     )
     # Fresh project is incubating, not quarantined → resume refuses.
     assert proc.returncode == 1
     assert "cannot resume" in proc.stderr or "cannot resume" in proc.stdout
+
+
+def test_cli_lifecycle_transition_aborts_when_explicit_session_is_missing(
+    tmp_path: Path,
+) -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-archive",
+            "--resume",
+            "s-missing0",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=_cli_env(tmp_path),
+    )
+
+    assert proc.returncode == 2
+    assert "lifecycle command aborted" in proc.stderr
+    assert not lifecycle_path(_cli_lifecycle_root(tmp_path)).exists()
+    assert not lifecycle_path(tmp_path).exists()
 
 
 def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
@@ -238,16 +338,17 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
         state=ProjectState.QUARANTINED,
         created_at=datetime.now(timezone.utc),
     )
-    write_persisted(tmp_path, status=qstatus, history=[])
+    lifecycle_root = _cli_lifecycle_root(tmp_path)
+    write_persisted(lifecycle_root, status=qstatus, history=[])
 
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--lifecycle-resume", "--project-root", str(tmp_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
 
-    persisted = load_persisted(tmp_path)
+    persisted = load_persisted(lifecycle_root)
     assert persisted["state"] == "running"
 
 
@@ -260,12 +361,13 @@ def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:
         state=ProjectState.QUARANTINED,
         created_at=datetime.now(timezone.utc),
     )
-    write_persisted(tmp_path, status=qstatus, history=[])
+    lifecycle_root = _cli_lifecycle_root(tmp_path)
+    write_persisted(lifecycle_root, status=qstatus, history=[])
 
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--lifecycle-status", "--project-root", str(tmp_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
     assert "observed_state    : incubating" in proc.stdout

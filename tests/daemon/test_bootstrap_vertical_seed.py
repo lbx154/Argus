@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.core.bootstrap import structured_research_bootstrap_requested
 from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -223,7 +224,11 @@ def test_bootstrap_seed_race_closed_by_deferring_seed_past_manager_divide(
     # completely empty, nothing persisted yet (matches `run`'s call site,
     # which runs before Manager.divide()).
     assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
-    preflight = inspect_project_bootstrap(tmp_path, objective_hint="quant factor research")
+    preflight = inspect_project_bootstrap(
+        tmp_path,
+        objective_hint="quant factor research",
+        research_requested=True,
+    )
     assert preflight.should_bootstrap is True
 
     # (2) Manager.divide()/decide_vertical() resolving + persisting the
@@ -255,7 +260,11 @@ def test_bootstrap_seed_before_divide_reproduces_the_closed_race(
     from argus_skill.core.bootstrap import inspect_project_bootstrap
 
     assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
-    preflight = inspect_project_bootstrap(tmp_path, objective_hint="quant factor research")
+    preflight = inspect_project_bootstrap(
+        tmp_path,
+        objective_hint="quant factor research",
+        research_requested=True,
+    )
     assert preflight.should_bootstrap is True
 
     worker = _worker("quant factor research")
@@ -267,3 +276,20 @@ def test_bootstrap_seed_before_divide_reproduces_the_closed_race(
 
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert "EMNLP" not in agents  # sealed onto LEAN — this is the bug, pre-fix
+
+
+def test_bootstrap_gate_rejects_custom_vertical_and_accepts_research_kind(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    custom_root = tmp_path / "custom"
+    custom_root.mkdir()
+    persist_vertical(custom_root, "learning")
+    assert structured_research_bootstrap_requested(custom_root) is False
+
+    research_root = tmp_path / "research"
+    research_root.mkdir()
+    persist_vertical(research_root, "quant")
+    assert structured_research_bootstrap_requested(research_root) is True

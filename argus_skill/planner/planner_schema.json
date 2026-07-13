@@ -67,7 +67,7 @@
           },
           "impact_score": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 4,
             "maximum": 5
           },
           "impact_area": {

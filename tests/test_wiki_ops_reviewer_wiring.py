@@ -24,12 +24,26 @@ from pathlib import Path
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.core.models import ReviewDecision, RoundRecord
+from argus_skill.skills.builtins import builtin_skill_source_path
 from argus_skill.wiki.bootstrap import init_wiki
 from argus_skill.wiki.lifecycle import collect_wiki_ops
-from argus_skill.wiki.schema import SourceNote
+from argus_skill.wiki.schema import SourceNote, SourcePaper
 from argus_skill.wiki.store import WikiStore
 
 _MATERIAL = "The GRPO trick clips the ratio asymmetrically for training stability."
+
+
+def test_bundled_wiki_curator_uses_router_only() -> None:
+    text = (
+        builtin_skill_source_path() / "reviewer" / "wiki-curator.md"
+    ).read_text(encoding="utf-8")
+
+    assert "wiki_ops" in text
+    assert "WikiRouter" in text
+    assert "from argus_skill.wiki.store import" not in text
+    assert "PageCard(" not in text
+    assert "store.write_page" not in text
+    assert "rebuild_indexes(" not in text
 
 
 def _init_wiki_with_source(workdir: Path) -> Path:
@@ -45,13 +59,19 @@ def _init_wiki_with_source(workdir: Path) -> Path:
     return root
 
 
-def _review_with_wiki_ops(*, status: str = "done", wiki_ops: list[dict]) -> str:
+def _review_with_wiki_ops(
+    *,
+    status: str = "done",
+    wiki_ops: list[dict],
+    achievement: dict | None = None,
+) -> str:
     return json.dumps({
         "status": status,
         "reason": "verdict with wiki ops",
         "next_action": "none" if status == "done" else "carry the lesson forward",
         "round_summary_markdown": "# Review\n\n- proposed wiki ops\n",
         "completion_summary_markdown": "",
+        "achievement": achievement,
         "wiki_ops": wiki_ops,
     })
 
@@ -102,6 +122,87 @@ def test_create_page_applied_with_valid_evidence(tmp_path: Path) -> None:
     page = wiki_root / "pages" / "techniques" / "grpo-async-clip.md"
     assert page.exists()
     assert "clips the ratio asymmetrically" in page.read_text(encoding="utf-8")
+
+
+def test_current_mission_sources_are_ingested_before_reviewer(tmp_path: Path) -> None:
+    wiki_root = init_wiki("demo", base=tmp_path)
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "refs.bib").write_text(
+        "@article{smith2025attention,\n"
+        "  title={Visual attention in VLMs},\n"
+        "  author={Smith, A.},\n"
+        "  year={2025}\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
+    backend.queue("engineer-r1", CannedResponse(message="Added a grounded citation."))
+    reviewer_saw_source = False
+
+    def reviewer_response(_prompt, _options) -> str:
+        nonlocal reviewer_saw_source
+        assert (
+            wiki_root / "sources" / "papers" / "smith2025attention.md"
+        ).exists()
+        reviewer_saw_source = True
+        return _review_with_wiki_ops(status="done", wiki_ops=[])
+
+    backend.queue(
+        "reviewer",
+        CannedResponse(message_factory=reviewer_response),
+    )
+
+    outcome = _loop(tmp_path / "skills", backend, []).run(
+        "ground the literature",
+        workdir=tmp_path,
+    )
+    assert outcome.status == "done"
+    assert reviewer_saw_source is True
+    source = WikiStore(wiki_root).read_source(
+        SourcePaper, "papers/smith2025attention"
+    )
+    assert source.ingested_by.startswith("wiki-auto-hook@mission-run-")
+    assert "unknown" not in source.ingested_by
+
+
+def test_reviewer_achievement_emits_the_authoritative_event(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
+    backend.queue("engineer-r1", CannedResponse(message="Improved the kernel."))
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_review_with_wiki_ops(
+            wiki_ops=[],
+            achievement={
+                "title": "Kernel gain certified",
+                "goal": "Optimize the kernel",
+                "metric_id": "sol-percent",
+                "summary": "Official scorer improved.",
+                "evidence": ["experiments/result.json"],
+            },
+        )),
+    )
+    events: list[dict] = []
+
+    outcome = _loop(tmp_path / "skills", backend, events, enabled=False).run(
+        "optimize the kernel",
+        workdir=tmp_path,
+    )
+
+    assert outcome.status == "done"
+    certified = [
+        event
+        for event in events
+        if event.get("type") == "research.achievement.certified"
+    ]
+    assert len(certified) == 1
+    assert certified[0]["reviewer_certified"] is True
+    assert certified[0]["achievement_id"].startswith("reviewer-run-")
+    assert certified[0]["evidence"] == ["experiments/result.json"]
 
 
 def test_create_page_rejected_when_evidence_fabricated(tmp_path: Path) -> None:

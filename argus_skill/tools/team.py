@@ -186,7 +186,7 @@ def cmd_dissolve(a: argparse.Namespace) -> int:
 def cmd_pool_set(a: argparse.Namespace) -> int:
     doc = pool.update(Path(a.root),
                       width=a.width if a.width is not None else None,
-                      state=a.state or None, now=time.time())
+                      state=a.state or None)
     print(json.dumps(doc, ensure_ascii=False))
     return 0
 

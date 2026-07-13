@@ -46,6 +46,7 @@ class SessionMeta:
     cwd: str = ""
     objective: str = ""
     launch_cwd: str = ""
+    origin: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -60,6 +61,7 @@ class SessionMeta:
             cwd=str(d.get("cwd", "") or ""),
             objective=str(d.get("objective", "") or ""),
             launch_cwd=str(d.get("launch_cwd", "") or ""),
+            origin=str(d.get("origin", "") or ""),
         )
 
 
@@ -204,6 +206,8 @@ def _project_has_content(project_dir: Path) -> bool:
 def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
     """A session is worth listing if it is named, has an objective, holds real
     work, or has a LIVE daemon — otherwise it is bare-launch litter."""
+    if (meta.origin or "").strip() in {"tui", "web"}:
+        return True
     if (meta.display_name or "").strip() or (meta.objective or "").strip():
         return True
     if _project_has_content(project_dir):

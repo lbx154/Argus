@@ -14,10 +14,12 @@ from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
-    ".bib", ".cfg", ".csv", ".html", ".ini", ".json", ".jsonl", ".log",
-    ".md", ".py", ".rst", ".sh", ".tex", ".toml", ".tsv", ".txt", ".yaml",
-    ".yml",
+    ".bib", ".cfg", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
+    ".ts", ".txt", ".yaml", ".yml",
 }
+_MARKDOWN_ARTIFACT_SUFFIXES = {".md", ".markdown"}
+_JSON_ARTIFACT_SUFFIXES = {".ipynb", ".json", ".jsonl"}
+_TABLE_ARTIFACT_SUFFIXES = {".csv", ".tsv"}
 _INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 _GIT_DIFF_LIMIT = 128 * 1024
 
@@ -38,6 +40,28 @@ def project_workspace(
     return workspace if workspace.is_dir() else None
 
 
+def artifact_workspace(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> Path | None:
+    """Return the workspace where this session's agent writes artifacts.
+
+    Web/TUI sessions execute inside their isolated ``cwd`` while ``launch_cwd``
+    records where the operator opened Argus.  Artifact reads must prefer the
+    former so a same-named file from the launch folder cannot be exposed.
+    """
+    root = resolve_global_root(global_root)
+    meta = read_session_meta(root, sid)
+    if meta is None or not (meta.cwd.strip() or meta.launch_cwd.strip()):
+        return project_life_dir(sid, global_root=root)
+    try:
+        workspace = Path(meta.cwd or meta.launch_cwd).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    return workspace if workspace.is_dir() else None
+
+
 def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] | None:
     raw = str(relative_path or "").strip().replace("\\", "/")
     if not raw or "\x00" in raw:
@@ -48,10 +72,16 @@ def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] 
     normalized = rel.as_posix()
     if normalized in {"", "."}:
         return None
+    from ..manager.live_view import normalize_live_view_path
+
+    if normalize_live_view_path(normalized) is None:
+        return None
     try:
         resolved = (workspace / normalized).resolve(strict=False)
-        resolved.relative_to(workspace)
+        resolved_relative = resolved.relative_to(workspace).as_posix()
     except (OSError, RuntimeError, ValueError):
+        return None
+    if normalize_live_view_path(resolved_relative) is None:
         return None
     return normalized, resolved
 
@@ -143,9 +173,15 @@ def artifact_metadata(
     mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     suffix = resolved.suffix.lower()
     kind = (
-        "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
+        "html" if suffix == ".html"
+        else "markdown" if suffix in _MARKDOWN_ARTIFACT_SUFFIXES
+        else "json" if suffix in _JSON_ARTIFACT_SUFFIXES
+        else "table" if suffix in _TABLE_ARTIFACT_SUFFIXES
+        else "text" if suffix in _TEXT_ARTIFACT_SUFFIXES
         else "image" if mime in _INLINE_IMAGE_MIMES
         else "pdf" if mime == "application/pdf"
+        else "audio" if mime.startswith("audio/")
+        else "video" if mime.startswith("video/")
         else "binary"
     )
     row: dict[str, Any] = {
@@ -158,7 +194,9 @@ def artifact_metadata(
         "size": int(stat.st_size) if stat is not None else 0,
         "mtime": float(stat.st_mtime) if stat is not None else None,
     }
-    if preview_bytes > 0 and exists and kind == "text":
+    if preview_bytes > 0 and exists and kind in {
+        "text", "html", "markdown", "json", "table",
+    }:
         try:
             with resolved.open("rb") as handle:
                 raw = handle.read(preview_bytes + 1)
@@ -177,7 +215,7 @@ def list_project_artifacts(
 ) -> list[dict[str, Any]] | None:
     if project_life_dir(sid, global_root=global_root) is None:
         return None
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if workspace is None:
         return []
     rows: list[dict[str, Any]] = []
@@ -214,7 +252,7 @@ def get_project_artifact(
     artifacts = list_project_artifacts(sid, global_root=global_root)
     if artifacts is None:
         return None
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if workspace is None:
         return None
     safe_requested = safe_artifact_path(workspace, artifact_path)
@@ -249,7 +287,7 @@ def resolved_project_artifact(
         global_root=global_root,
         preview_bytes=0,
     )
-    workspace = project_workspace(sid, global_root=global_root)
+    workspace = artifact_workspace(sid, global_root=global_root)
     if info is None or workspace is None:
         return None
     safe = safe_artifact_path(workspace, str(info["path"]))
@@ -314,6 +352,7 @@ def project_git_diff(
 
 
 __all__ = [
+    "artifact_workspace",
     "artifact_metadata",
     "get_project_artifact",
     "latest_evidence_files",

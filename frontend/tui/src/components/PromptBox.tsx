@@ -133,6 +133,8 @@ export function PromptBox({ edit, width = 80 }: { edit: Edit; width?: number }) 
       paddingX={1}
       marginTop={1}
       width="100%"
+      minHeight={3}
+      flexShrink={0}
       overflow="hidden"
       alignItems="flex-start"
     >

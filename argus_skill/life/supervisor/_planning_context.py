@@ -32,6 +32,16 @@ log = logging.getLogger(__name__)
 class PlanningContextMixin:
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
+        if (
+            scope == PLANNER_SCOPE_FINAL_SUBMISSION
+            and not self._effective_full_paper_gate(self._artifact_root())
+        ):
+            # ``final_submission`` is a paper-only transport scope. A Planner
+            # may still choose it for another vertical's terminal review task,
+            # but persisting that tag makes ``tick()`` retire the task as stale
+            # and re-plan it forever. Normalize at the enqueue boundary; the
+            # old skip path remains as migration support for persisted rows.
+            scope = PLANNER_SCOPE_BOUNDED
         return ["planner", f"scope:{scope}"]
 
     @staticmethod
@@ -285,6 +295,15 @@ class PlanningContextMixin:
                 root = getattr(self.memory, "root", None)
             if root is None:
                 return {}
+            try:
+                continuous = json.loads(
+                    (Path(root) / "continuous.json").read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                return {}
+            if not isinstance(continuous, dict) or not continuous.get("enabled"):
+                return {}
+            target_generation = int(continuous.get("generation", 0) or 0)
             data: dict[str, Any] | None = None
             for name in ("events.jsonl", "events.jsonl.1"):
                 path = Path(root) / name
@@ -299,7 +318,12 @@ class PlanningContextMixin:
                         continue
                     if not isinstance(event, dict):
                         continue
-                    if str(event.get("type") or "").startswith("life.manager.intent."):
+                    if str(event.get("type") or "") == "life.manager.intent.completed":
+                        execution_task = event.get("execution_task")
+                        if not isinstance(execution_task, str) or not execution_task.strip():
+                            continue
+                        if event.get("continuous_generation") != target_generation:
+                            continue
                         data = event
                         break
                 if data is not None:
@@ -307,7 +331,8 @@ class PlanningContextMixin:
             if data is None:
                 return {}
             keep = (
-                "intent_id", "source", "objective", "vertical", "kind",
+                "intent_id", "source", "execution_task", "vertical", "kind",
+                "continuous_generation",
                 "regular", "stages", "reason", "text", "error",
             )
             return {k: data.get(k) for k in keep if k in data}
@@ -322,7 +347,8 @@ class PlanningContextMixin:
             "## Manager intent boundary (authoritative)",
             f"- intent_id: {intent.get('intent_id') or ''}",
             f"- source: {intent.get('source') or ''}",
-            f"- user_objective: {intent.get('objective') or ''}",
+            f"- execution_objective: "
+            f"{intent.get('execution_task') or ''}",
             f"- interpreted_vertical: {intent.get('vertical') or ''}",
             f"- kind: {intent.get('kind') or ''}",
             f"- stages: {', '.join(str(s) for s in (intent.get('stages') or []))}",

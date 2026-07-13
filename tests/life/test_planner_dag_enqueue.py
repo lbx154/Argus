@@ -181,18 +181,82 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert ready_titles == {"run seed 0", "run seed 1"}
 
 
+def test_planner_can_enqueue_dynamic_math_route_as_a_dag(tmp_path, monkeypatch) -> None:
+    def task(key, deps, title, objective):
+        return {
+            "key": key,
+            "deps": deps,
+            "title": title,
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "the open conjecture needs this problem-specific route",
+            "scope": "bounded",
+            "objective": objective,
+        }
+
+    verdict = json.dumps({
+        "project_done": False,
+        "reason": "use a problem-specific mathematical research route",
+        "restart_daemon": False,
+        "restart_reason": "",
+        "waiting": False,
+        "waiting_reason": "",
+        "new_tasks": [
+            task("literature", [], "literature search", "Find and assess relevant prior results"),
+            task("experiment", [], "computational experiment", "Search examples and counterexamples"),
+            task(
+                "proof",
+                ["literature", "experiment"],
+                "proof construction",
+                "Use the grounded evidence to construct or refute the conjecture",
+            ),
+            task(
+                "review",
+                ["proof"],
+                "independent proof review",
+                "Audit statement fidelity, proof correctness, and remaining uncertainty",
+            ),
+        ],
+    })
+    sup = _make_supervisor(tmp_path, monkeypatch, verdict)
+
+    assert sup._plan_next_work() is True
+    items = {item.title: item for item in sup.memory.backlog.all()}
+    assert set(items) == {
+        "literature search",
+        "computational experiment",
+        "proof construction",
+        "independent proof review",
+    }
+    assert items["proof construction"].deps == [
+        items["literature search"].id,
+        items["computational experiment"].id,
+    ]
+    assert items["independent proof review"].deps == [items["proof construction"].id]
+    assert {item.title for item in sup.memory.backlog.ready()} == {
+        "literature search",
+        "computational experiment",
+    }
+
+
 def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> None:
     sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
     intent = {
         "intent_id": "intent-1",
         "source": "user",
         "objective": "study B200 skill",
+        "execution_task": "study the B200 skill artifacts",
+        "continuous_generation": 7,
         "vertical": "learning",
         "kind": "custom",
         "stages": ["ingest", "study"],
         "reason": "manager routed to learning",
     }
     sup.memory.root.mkdir(parents=True, exist_ok=True)
+    (sup.memory.root / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "x", "generation": 7}),
+        encoding="utf-8",
+    )
     (sup.memory.root / "events.jsonl").write_text(
         json.dumps({"type": "life.manager.intent.completed", **intent}) + "\n",
         encoding="utf-8",
@@ -207,6 +271,61 @@ def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> N
     assert planner_start["manager_intent"]["vertical"] == "learning"
     assert task_added["manager_intent"]["intent_id"] == "intent-1"
     assert verdict["manager_intent"]["reason"] == "manager routed to learning"
+    block = sup._manager_intent_prompt_block(planner_start["manager_intent"])
+    assert "execution_objective: study the B200 skill artifacts" in block
+    assert "study B200 skill" not in block
+
+
+def test_planner_ignores_newer_uncompleted_manager_intent(
+    tmp_path, monkeypatch,
+) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    sup.memory.root.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "type": "life.manager.intent.completed",
+            "intent_id": "completed",
+            "objective": "raw completed request",
+            "execution_task": "clean completed handoff",
+            "continuous_generation": 8,
+        },
+        {
+            "type": "life.manager.intent.started",
+            "intent_id": "in-flight",
+            "objective": "raw in-flight request; Manager owns the sidebar",
+        },
+    ]
+    (sup.memory.root / "events.jsonl").write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+    (sup.memory.root / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": "x", "generation": 8}),
+        encoding="utf-8",
+    )
+
+    intent = sup._manager_intent_context()
+    assert intent["intent_id"] == "completed"
+    block = sup._manager_intent_prompt_block(intent)
+    assert "clean completed handoff" in block
+    assert "raw in-flight request" not in block
+
+
+def test_planner_ignores_legacy_completed_intent_without_execution_task(
+    tmp_path, monkeypatch,
+) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    sup.memory.root.mkdir(parents=True, exist_ok=True)
+    (sup.memory.root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.manager.intent.completed",
+            "intent_id": "legacy",
+            "objective": "raw request; Manager owns the sidebar",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    assert sup._manager_intent_context() == {}
 
 
 def test_dag_topological_claim_order(tmp_path, monkeypatch) -> None:

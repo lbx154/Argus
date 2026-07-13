@@ -28,7 +28,7 @@ def test_mandate_contains_key_ideas(role: str) -> None:
     text = ground_truth_mandate(role)
     low = text.lower()
     # Core principle: investigate the real thing yourself.
-    assert "investigate" in low
+    assert "inspect" in low or "investigat" in low
     # 实事求是 / verification language must be present.
     assert "实事求是" in text or "verified" in low or "verify" in low
     # The shared fact-based picture file is named.
@@ -58,18 +58,32 @@ def test_ground_truth_module_source_has_zero_task_specific_terms() -> None:
 
 
 @pytest.mark.parametrize("role", ROLES)
-def test_mandate_makes_ground_truth_a_required_first_gate(role: str) -> None:
-    # The fix: GROUND_TRUTH.md is a GATED first-stage deliverable, not a soft
-    # "record facts" exhortation. The mandate must convey that structurally.
-    text = ground_truth_mandate(role)
+def test_mandate_scales_evidence_to_the_actual_task(role: str) -> None:
+    text = ground_truth_mandate(role, workflow_mode="direct")
     low = text.lower()
     assert GROUND_TRUTH_RELPATH in text
-    # Framed as the FIRST deliverable and a GATE.
-    assert "first" in low
+    assert "proportional" in low
+    assert "creative composition" in low
+    assert "normally needs no such file" in low
+    assert "do not invent" in low
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_staged_mandate_keeps_required_first_gate(role: str) -> None:
+    low = ground_truth_mandate(role, workflow_mode="staged").lower()
+    assert "first required deliverable" in low
     assert "gate" in low
-    # The binding constraint must be named and backed by MEASURED numbers.
-    assert "binding constraint" in low
+    assert "binding" in low and "constraint" in low
     assert "measured" in low
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_proportional_mandate_reuses_certified_evidence(role: str) -> None:
+    low = ground_truth_mandate(role, workflow_mode="proportional").lower()
+    assert "proportional ground truth" in low
+    assert "reuse certified evidence" in low
+    assert "first required deliverable" not in low
+    assert "fresh snapshot, manifest, checksum" in low
 
 
 def test_speedrun_setup_stage_gates_on_ground_truth() -> None:
@@ -113,7 +127,7 @@ def test_unknown_role_gets_shared_block_without_slant() -> None:
     assert text.strip()
     assert "SLANT" not in text
     # Shared block still present.
-    assert "investigate" in text.lower()
+    assert "inspect" in text.lower()
 
 
 def test_default_role_is_shared_block_only() -> None:

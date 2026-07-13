@@ -113,6 +113,8 @@ class EventType(StrEnum):
     SKILL_OUTCOME = "skill.outcome"
     SKILL_SCIENTIST_STARTED = "skill.scientist.started"
     SKILL_SCIENTIST_CREATED = "skill.scientist.created"
+    SKILL_SCIENTIST_ADAPTATION_STARTED = "skill.scientist.adaptation_started"
+    SKILL_SCIENTIST_ADAPTATION_CREATED = "skill.scientist.adaptation_created"
     SKILL_TIDIED = "skill.tidied"
     SKILL_COMPACTED = "skill.compacted"
     SKILL_COMPACT_ERROR = "skill.compact.error"
@@ -169,6 +171,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_OUTCOME,
     EventType.SKILL_SCIENTIST_STARTED,
     EventType.SKILL_SCIENTIST_CREATED,
+    EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
+    EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
     EventType.SKILL_TIDIED,
     EventType.SKILL_COMPACTED,
     EventType.SKILL_COMPACT_ERROR,

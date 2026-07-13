@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, useApp, useInput, useStdout } from 'ink';
+import { Box, Static, useApp, useInput, useStdout } from 'ink';
 import type { WebSocket } from 'ws';
 import {
   ApiClient,
@@ -29,7 +29,7 @@ import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs,
 import { Header } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
-import { SlashMenu } from './components/SlashMenu.js';
+import { SlashMenu, slashMenuVisibleRows } from './components/SlashMenu.js';
 import { Footer } from './components/Footer.js';
 import { ThinkingLine } from './components/ThinkingLine.js';
 import { GuardianBanner } from './components/GuardianBanner.js';
@@ -67,6 +67,7 @@ interface ActiveManagerRequest {
   id: number;
   project: string;
   controller: AbortController;
+  messageId: string;
 }
 
 export interface AppProps {
@@ -143,6 +144,10 @@ export function App({
   const [tick, setTick] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const aliveRef = useRef(true);
+
+  useEffect(() => {
+    setMenuSel(0);
+  }, [edit.value]);
   const creatingProjectRef = useRef(false);
   const dismissedAdmissionRef = useRef(0);
   const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
@@ -333,7 +338,14 @@ export function App({
       (turns) => {
         if (!active) return;
         const persisted = transcriptEvents(turns);
-        setEvents((live) => [...persisted, ...live].slice(-MAX_EVENTS));
+        setEvents((live) =>
+          [...persisted, ...live]
+            .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
+            .reduce(
+              (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
+              [] as EventMsg[],
+            ),
+        );
       },
       () => {
         // Event streaming remains usable when an old project has no transcript.
@@ -578,6 +590,12 @@ export function App({
       case '/cancel':
         stopWaiting();
         break;
+      case '/abort':
+        void api.abortMission('operator used /abort').then(
+          (result) => setNotice(result.message),
+          err,
+        );
+        break;
       case '/quit':
         quit();
         break;
@@ -681,7 +699,12 @@ export function App({
     const requestProject = projectRef.current;
     const requestId = ++managerEpochRef.current;
     const controller = new AbortController();
-    managerRequestRef.current = { id: requestId, project: requestProject, controller };
+    managerRequestRef.current = {
+      id: requestId,
+      project: requestProject,
+      controller,
+      messageId: '',
+    };
     const isCurrent = () => {
       const request = managerRequestRef.current;
       return Boolean(
@@ -701,12 +724,12 @@ export function App({
     setPending(true);
     setNotice('');
 
-    const say = (t: string) => {
+    const say = (t: string, messageId = replyId) => {
       if (!isCurrent()) return;
       setEvents((events) => isCurrent()
         ? [
             ...events,
-            { type: 'ui.argus', text: t, message_id: replyId, ts: Date.now() / 1000 } as EventMsg,
+            { type: 'ui.argus', text: t, message_id: messageId, ts: Date.now() / 1000 } as EventMsg,
           ]
         : events);
     };
@@ -719,10 +742,13 @@ export function App({
           onPhase: (label) => {
             if (isCurrent()) setPhase(label);
           },
-          onDelta: (block) => {
+          onDelta: (block, messageId) => {
             if (!isCurrent()) return;
             gotDelta = true;
-            say(block); // same message_id → EventLog merges into the growing reply
+            const activeMessageId = messageId || replyId;
+            const request = managerRequestRef.current;
+            if (request?.id === requestId) request.messageId = activeMessageId;
+            say(block, activeMessageId);
           },
           onDone: (result) => {
             if (!isCurrent()) return;
@@ -1035,6 +1061,7 @@ export function App({
   });
 
   const comps = slashCompletions(edit.value);
+  const slashMenuOpen = comps.length > 0 && !replacement && !daemonDraft && !panel;
   const backgroundExcludedRoles = pending ? ['manager'] : [];
   const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
   const managerPhase = (phase || 'handling your message')
@@ -1069,8 +1096,10 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header width={terminal.columns} health={healthNotice} />
-      <GuardianBanner alert={activeGuardianAlert(events)} />
+      <Static items={['argus-header']}>
+        {() => <Header width={terminal.columns} />}
+      </Static>
+      {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
       ) : daemonDraft ? (
@@ -1086,22 +1115,46 @@ export function App({
         />
       ) : (
         <>
-          {missionView ? <MissionCockpit view={missionView} width={terminal.columns} /> : null}
-          <EventLog events={events} width={terminal.columns} mode="conversation" />
-          {pending && (
+          {missionView && !slashMenuOpen ? (
+            <MissionCockpit
+              view={missionView}
+              width={terminal.columns}
+              spentUsd={snap?.spend_usd}
+              spendStatus={snap?.spend_status}
+              dailyCapUsd={snap?.daemon.daily_cap_usd}
+              globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}
+              requestUsage={snap?.request_usage}
+            />
+          ) : null}
+          <EventLog
+            events={events}
+            width={terminal.columns}
+            mode="conversation"
+            liveMessageId={managerRequestRef.current?.messageId}
+            collapsed={slashMenuOpen}
+          />
+          {pending && !slashMenuOpen && (
             <ThinkingLine
               tick={tick}
               phase={phase}
               elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
             />
           )}
-          <PromptBox edit={edit} width={terminal.columns} />
-          <SlashMenu items={comps} selected={Math.min(menuSel, comps.length - 1)} />
-          <Footer
-            notice={notice}
-            health={healthNotice}
-            width={terminal.columns}
-          />
+          <Box flexDirection="column" flexShrink={0}>
+            <SlashMenu
+              items={comps}
+              selected={Math.min(menuSel, comps.length - 1)}
+              maxVisible={slashMenuVisibleRows(terminal.rows)}
+            />
+            <PromptBox edit={edit} width={terminal.columns} />
+          </Box>
+          {!slashMenuOpen ? (
+            <Footer
+              notice={notice}
+              health={healthNotice}
+              width={terminal.columns}
+            />
+          ) : null}
         </>
       )}
     </Box>

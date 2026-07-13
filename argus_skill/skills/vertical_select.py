@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "research", "quant", "speedrun",
+    "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam",
 )
@@ -75,8 +75,15 @@ VERTICALS: tuple[str, ...] = (
 #: expert per-stage reviewer checklists) over authoring a fresh, checklist-less
 #: data domain. Keys must stay in sync with ``VERTICALS``.
 VERTICAL_PURPOSES: dict[str, str] = {
+    "direct": "bounded one-off deliverable that an Engineer can produce and a "
+    "Reviewer can judge in one mission, without a staged research lifecycle "
+    "(creative composition, focused edits, small standalone artifacts)",
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
+    "math": "mathematical conjectures, proofs, and open research problems; dynamically "
+    "choose background retrieval, examples/counterexamples, computation, natural-language "
+    "proof, and Lean formalization as appropriate; not a paper pipeline or a "
+    "metric-optimization vertical",
     "quant": "finance factor-research REPORT — mine/evaluate equity factors "
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
@@ -153,6 +160,16 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
         except Exception:  # noqa: BLE001 — data-domain probe must never raise here
             return None
     return None
+
+
+def explicit_builtin_vertical() -> str | None:
+    """Return the built-in vertical explicitly selected by the environment.
+
+    Project-local data domains are intentionally excluded: this signal is the
+    operator choosing a stable built-in capability, not the Manager recovering a
+    previously-authored project route.
+    """
+    return _known_vertical(os.environ.get(ENV_VERTICAL))
 
 
 def require_vertical(value: object, project_root: object = None) -> str:
@@ -490,6 +507,7 @@ __all__ = [
     "ENV_VERTICAL",
     "VerticalResolutionError",
     "UnknownVerticalError",
+    "explicit_builtin_vertical",
     "require_vertical",
     "resolve_vertical",
     "persist_vertical",

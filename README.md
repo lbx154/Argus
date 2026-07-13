@@ -52,7 +52,7 @@ Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串�
 - **记忆是纯 recency 的中立管道。** 注入给 agent 的"过往工作"上下文按时间倒序给最近 N 条（按项目隔离、标注 non-authoritative），**不**用关键词 Jaccard 替 agent 猜"哪条相关"——相关性是 agent 读完自己判断的。
 - **代码/任务产物和 Argus 内部状态必须分开。** Agent 可以在任务需要的代码工作目录里读代码、改代码、跑测试，也可以把用户要的报告、实验结果、benchmark output 写到目标项目或用户指定目录；但 `events.jsonl`、`backlog.jsonl`、`PIPELINE_STATE.json`、`CHECKLISTS.json`、`DOMAINS/` 这类 harness 调度状态必须写到当前 session 的 artifact root（`~/.argus-skill/projects/<session>/`），不能污染 repo 里的 `research/`。判断标准很简单：**用户想要的结果放项目里；Argus 为了调度自己写的内部状态放 session 里。**
 - **唯一正当的"硬规则"是防造假护栏。** 必须用真实公开 benchmark、不许重复行灌水、要留审计包——这些约束的是**作弊**，不是科研选择，所以它们留在 harness 里是合理的。
-- **入口必须显式配置。** 启动 daemon / 进 cockpit 前，必须同时给出 (1) mission objective 和 (2) 至少一个受信任的 special prompt。缺任何一个直接 `exit 2`——我们绝不让 agent 在"不知道目标、不知道机器规则"的情况下空跑或靠猜。
+- **Manager 拥有 lifetime objective。** 启动 daemon / 进 cockpit 前必须有至少一个受信任的 special prompt；objective 不由 operator 预填。首条真实 TEAM task 由 Manager 判断 `STANDING` / `BOUNDED`、生成 execution objective，并在 STANDING 时持久化到 `continuous.json`。没有机器规则才会 `exit 2`。
 
 **第二条：**
 
@@ -265,7 +265,7 @@ argus-skill --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-daemon 是 **cwd-bound** 的（项目状态绑在当前目录）。启动前须满足下方「Daemon 启动硬门禁」——① 用 `--continuous --objective` 提供 mission objective；② `~/.argus-skill/special_prompts/` 至少放一个机器规则 `*.md`。日常交互直接运行 `argus` 进入 Ink TUI。
+daemon 是 **cwd-bound** 的（项目状态绑在当前目录）。启动前须满足下方「Daemon 启动硬门禁」：`~/.argus-skill/special_prompts/` 至少放一个机器规则 `*.md`。日常交互直接运行 `argus` 进入 Ink TUI；首条真实任务由 Manager 生成 objective 并决定是否持续运行。
 
 > **会议格式（research vertical）**：论文排版契约由 `PIPELINE_STATE.json` 的 `target_venue` 决定（默认 `emnlp`）。`emnlp` = ACL/EMNLP 8 页正文、References 第 9 页起、强制 Limitations/Ethics、acl.sty；`aaai` = AAAI-2026 两栏 7 页正文、References 后接 Reproducibility Checklist、aaai2026.sty。所有格式 gate、stage checklist 与 reviewer skill 都按 `target_venue` 自动切换。
 
@@ -283,22 +283,23 @@ export ARGUS_SKILL_TELEGRAM_CHAT_ID="123456789"
 
 ## Daemon：7×24 自主运行
 
-> **启动硬门禁**：进 cockpit 或启动 daemon 前，必须同时配好两样东西，否则 `argus-skill` 直接 `exit 2` 并打印指引——
-> 1. **mission objective**：用 `--continuous --objective "<目标>"` 提供（持久化到 `continuous.json`，之后可省略）；
-> 2. **至少一个 special prompt**：在 `~/.argus-skill/special_prompts/` 放一个 `*.md`（这台机器/部署的操作规则：GPU、路径、调度），文件须属主本人且不可 group/world-writable。
+> **启动硬门禁**：进 cockpit 或启动 daemon 前，必须配好至少一个 special prompt，否则 `argus-skill` 直接 `exit 2` 并打印指引。在 `~/.argus-skill/special_prompts/` 放一个 `*.md`（这台机器/部署的操作规则：GPU、路径、调度），文件须属主本人且不可 group/world-writable。
 >    ```bash
 >    mkdir -p ~/.argus-skill/special_prompts
 >    printf 'Operational house rules for this box.\n' > ~/.argus-skill/special_prompts/10-house-rules.md
 >    chmod 0644 ~/.argus-skill/special_prompts/10-house-rules.md
 >    ```
-> 这取代了一切"从 objective 文本猜任务类型"的隐式逻辑——agent 必须被**显式**告知目标和机器规则。只读 / admin 命令（`--status`、`--watch`…）不受门禁限制。
+> objective 可留空：首条真实 TEAM task 由 Manager 生成 execution objective。Manager 默认选择 `STANDING`；只有明确存在自然的一次性终点时才选择 `BOUNDED`。只读 / admin 命令（`--status`、`--watch`…）不受门禁限制。
 
 ```bash
-# 默认 open-ended：planner 认证 project_done 后继续生成新工作，永续运行
+# 推荐：先进入 cockpit，Manager 根据首条 prompt 自动设置 lifetime
+argus-skill
+
+# 非交互部署仍可显式提供 objective
 argus-skill --daemon --continuous \
   --objective "Complete the EMNLP paper on world models for agent action selection"
 
-# 有界一次性目标：planner 认证 project_done 后硬停
+# operator 可显式覆盖为有界一次性目标
 argus-skill --daemon --continuous --bounded \
   --objective "Add a unit-test suite for the data loader"
 
@@ -307,7 +308,7 @@ argus-skill --daemon-stop --drain # 优雅停止：排空到 mission 边界再�
 argus-skill --daemon-runbook      # 升级清单
 ```
 
-> open-ended vs `--bounded` 是**显式开关**（`LifeSupervisorConfig.open_ended`），取代了过去从 objective 里猜 `7×24`/`ongoing`/`perpetual` 关键词的做法。
+> cockpit 前门由 Manager 语义判断 `STANDING` / `BOUNDED`，不使用 harness 关键词或正则。直接 daemon 启动时，`--bounded` 仍是显式 override（`LifeSupervisorConfig.open_ended`）。
 
 Daemon 特性：POSIX double-fork（断 SSH 不影响）、预算控制（单任务/每日上限，纯管道）、Telegram 远程 nudge / 加任务。
 
