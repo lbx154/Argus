@@ -358,6 +358,30 @@ def test_manager_live_view_is_available_during_active_work(ctx) -> None:
     assert preview.json()["preview"].startswith("# Live progress")
 
 
+def test_manager_live_view_uses_life_dir_without_session_metadata(ctx) -> None:
+    _, sid, life, client = ctx
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Long-running research",
+            "paths": ["FINAL_REPORT.md"],
+        }),
+        encoding="utf-8",
+    )
+    (life / "FINAL_REPORT.md").write_text("# Living report\n", encoding="utf-8")
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert [row["path"] for row in rows] == ["FINAL_REPORT.md"]
+    assert rows[0]["source"] == "manager_live"
+    preview = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "FINAL_REPORT.md"},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["preview"].startswith("# Living report")
+
+
 def test_artifacts_prefer_executor_cwd_over_launch_metadata(ctx) -> None:
     root, sid, life, client = ctx
     launch = root / "launch-context"

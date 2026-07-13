@@ -54,7 +54,7 @@ def artifact_workspace(
     root = resolve_global_root(global_root)
     meta = read_session_meta(root, sid)
     if meta is None or not (meta.cwd.strip() or meta.launch_cwd.strip()):
-        return None
+        return project_life_dir(sid, global_root=root)
     try:
         workspace = Path(meta.cwd or meta.launch_cwd).expanduser().resolve(strict=True)
     except (OSError, RuntimeError):
