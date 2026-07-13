@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "argus://fiction_writing/story_state.schema.json",
+  "title": "story_state",
+  "description": "Language-agnostic, genre-agnostic narrative state for fiction_writing. Only ever mutated through a validated state_patch (see state_patch.schema.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "meta", "characters", "relationships", "world_rules", "locations",
+    "items", "timeline", "open_threads", "foreshadowing",
+    "chapter_summaries", "applied_patches"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "form", "revision"],
+      "properties": {
+        "language": {"type": "string", "enum": ["zh", "en"]},
+        "form": {"type": "string"},
+        "title": {"type": "string"},
+        "revision": {"type": "integer", "minimum": 0}
+      }
+    },
+    "characters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "aliases": {"type": "array", "items": {"type": "string"}},
+          "status": {"type": "string", "enum": ["alive", "dead", "absent", "unknown"]},
+          "knows": {"type": "array", "items": {"type": "string"}},
+          "location": {"type": ["string", "null"]},
+          "motivation": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "type"],
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "type": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "world_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement"],
+        "properties": {
+          "id": {"type": "string"},
+          "statement": {"type": "string"}
+        }
+      }
+    },
+    "locations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "items": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "holder": {"type": ["string", "null"]},
+          "location": {"type": ["string", "null"]},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "order", "label"],
+        "properties": {
+          "id": {"type": "string"},
+          "order": {"type": "integer"},
+          "label": {"type": "string"},
+          "chapter": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    "open_threads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "statement": {"type": "string"},
+          "status": {"type": "string", "enum": ["open", "resolved"]}
+        }
+      }
+    },
+    "foreshadowing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "statement": {"type": "string"},
+          "planted_chapter": {"type": ["integer", "null"]},
+          "payoff_chapter": {"type": ["integer", "null"]},
+          "status": {"type": "string", "enum": ["planted", "paid_off", "dropped"]}
+        }
+      }
+    },
+    "chapter_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chapter", "summary"],
+        "properties": {
+          "chapter": {"type": "integer"},
+          "summary": {"type": "string"}
+        }
+      }
+    },
+    "applied_patches": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  }
+}

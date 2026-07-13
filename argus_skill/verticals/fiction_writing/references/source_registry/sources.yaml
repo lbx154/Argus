@@ -1,0 +1,98 @@
+# Source registry for fiction_writing — TWO LAYERS.
+#
+# Rights are decided per WORK/EDITION, not per website, so this splits into:
+#   providers  : the site/service and whether its TERMS were reviewed
+#   items      : a specific work/edition + its jurisdiction-based rights status
+#
+# allowed_uses draws ONLY from allowed_use_vocabulary below (granular: querying
+# is not downloading, indexing is not training, training is not redistribution).
+#
+# STATUS: nothing here is ingested yet. rights_status starts `pending_review`;
+# `ingested: true` requires `checksum` + a completed rights review. Seed
+# knowledge in ../shared|zh|en is model-seed and does NOT count as ingested.
+
+allowed_use_vocabulary:
+  - query_only          # run queries against a hosted corpus; no local copy kept
+  - human_research      # a human reads/studies it
+  - evidence_citation   # quote a short verbatim span with attribution
+  - local_indexing      # keep a local index/copy for retrieval
+  - model_training      # use content to train/fine-tune a model
+  - redistribution      # re-publish the content
+
+providers:
+  - id: project_gutenberg
+    name: Project Gutenberg
+    access_mode: public_web
+    provider_terms_reviewed: false
+    notes: "Per-text status varies by jurisdiction; not a blanket worldwide grant."
+  - id: ctext
+    name: Chinese Text Project
+    access_mode: public_web_api
+    provider_terms_reviewed: false
+    notes: "Classical Chinese only; wrong provider for modern zh fiction style."
+  - id: bcc
+    name: BCC Modern Chinese Corpus (BLCU)
+    access_mode: hosted_query
+    provider_terms_reviewed: false
+    notes: "Query interface; naturalness/threshold calibration only."
+  - id: coca
+    name: COCA (Corpus of Contemporary American English)
+    access_mode: hosted_query
+    provider_terms_reviewed: false
+    notes: "Query interface; register/collocation checks only."
+  - id: self_licensed
+    name: Team-authored / explicitly licensed set
+    access_mode: internal
+    provider_terms_reviewed: false
+    notes: "The real basis for modern-genre + continuation coverage."
+
+items:
+  - id: gutenberg_1661_sherlock
+    provider: project_gutenberg
+    title: The Adventures of Sherlock Holmes
+    edition: "Project Gutenberg eBook #1661"
+    language: en
+    period: "1892"
+    genres: [mystery]
+    jurisdiction_basis: "US public domain (pre-1929); other jurisdictions TBD"
+    rights_status: pending_review
+    allowed_uses: [human_research, evidence_citation]
+    prohibited_uses: [model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: bcc_query_access
+    provider: bcc
+    title: "BCC modern Chinese (fiction + press subcorpora)"
+    language: zh
+    period: contemporary
+    genres: [mixed]
+    jurisdiction_basis: "hosted corpus; terms of use govern"
+    rights_status: pending_review
+    allowed_uses: [query_only, human_research]
+    prohibited_uses: [local_indexing, model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: coca_query_access
+    provider: coca
+    title: "COCA fiction subcorpus"
+    language: en
+    period: contemporary
+    genres: [mixed]
+    jurisdiction_basis: "licensed query access; terms of use govern"
+    rights_status: pending_review
+    allowed_uses: [query_only, human_research]
+    prohibited_uses: [local_indexing, model_training, redistribution]
+    checksum: null
+    ingested: false
+  - id: sample_zh_webfiction_ch1
+    provider: self_licensed
+    title: "(placeholder) team-authored zh web-fiction sample, ch.1"
+    language: zh
+    period: contemporary
+    genres: [suspense, web_fiction]
+    jurisdiction_basis: "authored in-house / explicit license"
+    rights_status: pending_review
+    allowed_uses: [human_research, evidence_citation, local_indexing]
+    prohibited_uses: [redistribution]
+    checksum: null
+    ingested: false

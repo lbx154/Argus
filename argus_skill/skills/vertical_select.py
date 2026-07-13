@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
-    "learning", "ale_last_exam",
+    "learning", "ale_last_exam", "fiction_writing",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -96,6 +96,11 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "libraries (produce a change plan: create/update/archive skills)",
     "ale_last_exam": "complete one Agents' Last Exam long-horizon professional "
     "workflow in a real computer sandbox; hidden-reference, artifact-first GUI+CLI delivery",
+    "fiction_writing": "creative FICTION authoring (zh/en) — write a short story or "
+    "chapter from a brief, OR continue an existing work, holding characters/world/"
+    "timeline consistent via a structured story_state; intake→plan→draft→state_update"
+    "→review→revise. NOT a research paper and NOT a 'literature review' — this "
+    "produces original narrative prose, not a survey of prior work",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
