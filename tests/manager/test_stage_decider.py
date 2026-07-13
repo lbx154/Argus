@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.manager import Manager, StageTransition
 from argus_skill.manager.live_view import load_live_view_decision
 from argus_skill.manager.stage_decider import (
+    build_stage_decision_prompt,
     fallback_empty_stage_decision,
     parse_stage_decision,
 )
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _Result:
@@ -252,6 +255,88 @@ def test_decide_review_none_holds(tmp_path: Path) -> None:
     assert st.action == "hold"
     assert st.source == "no_review_hold"
     assert _read_stage(root) == "research"
+
+
+def test_open_ended_terminal_reconciliation_can_rollback(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "done"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "objective remains unresolved",
+    })
+    planner_verdict = SimpleNamespace(
+        project_done=False,
+        reason="proof not found; another solve direction remains",
+        new_tasks=[],
+    )
+
+    st = Manager(project_root=tmp_path, runner=backend).decide_stage_transition(
+        review=None,
+        planner_verdict=planner_verdict,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Continue until a complete proof or counterexample.",
+    )
+
+    assert st.action == "rollback"
+    assert st.target_stage == "solve"
+    assert _read_stage(tmp_path) == "solve"
+    assert "Open-ended campaign contract" in backend.last_prompt
+    assert "Continue until a complete proof" in backend.last_prompt
+
+
+def test_open_ended_final_review_is_not_forced_complete(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {"review": {"status": "pending"}},
+        }),
+        encoding="utf-8",
+    )
+    mgr = Manager(project_root=tmp_path, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "review found the original problem unresolved",
+    }))
+
+    st = mgr.decide_stage_transition(
+        review=_review(),
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Keep solving the open problem.",
+    )
+
+    assert st.action == "rollback"
+    assert _read_stage(tmp_path) == "solve"
+
+
+def test_open_ended_prompt_explains_terminal_checkpoint_semantics() -> None:
+    text = build_stage_decision_prompt(
+        current_stage="review",
+        next_stage="",
+        earlier_stages=("scope", "solve"),
+        checklist_md="done",
+        review=_review(),
+        open_ended=True,
+        continuous_objective="Keep solving.",
+    )
+
+    assert "final-stage checkpoint does not complete" in text
+    assert "ROLL BACK" in text
 
 
 def test_decide_llm_error_holds(tmp_path: Path) -> None:

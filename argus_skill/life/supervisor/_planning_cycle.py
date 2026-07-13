@@ -28,6 +28,67 @@ log = logging.getLogger(__name__)
 
 
 class PlanningCycleMixin:
+    def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
+        """Ask the Manager to reopen a completed final stage when work remains.
+
+        A Planner at a certified final stage cannot legally enqueue earlier-stage
+        work and cannot write ``PIPELINE_STATE.json``. When it structurally
+        returns ``project_done=False`` with no tasks in an open-ended campaign,
+        give its advisory verdict to the Manager, which may roll back or hold.
+        """
+        if not getattr(self.config, "open_ended", False):
+            return False
+        if bool(getattr(verdict, "project_done", False)):
+            return False
+        if list(getattr(verdict, "new_tasks", []) or []):
+            return False
+
+        root = self._artifact_root()
+        from ...skills.vertical_select import (
+            resolve_vertical,
+            vertical_reached_own_terminal_stage,
+        )
+
+        vertical = resolve_vertical(root)
+        if not vertical_reached_own_terminal_stage(root, vertical):
+            return False
+
+        from ...manager import Manager
+
+        manager = Manager(
+            project_root=root,
+            runner=self.planner_runner,
+            skill_store=self.skill_store,
+        )
+        on_event = getattr(self.sink, "handle_event", None)
+        decision = manager.decide_stage_transition(
+            review=None,
+            planner_verdict=verdict,
+            project_root=root,
+            on_event=on_event,
+            open_ended=True,
+            continuous_objective=self.config.continuous_objective,
+        )
+        if decision.action != "rollback":
+            return False
+
+        self._emit({
+            "type": EventType.LIFE_MANAGER_STAGE_DECISION,
+            "action": decision.action,
+            "target_stage": decision.target_stage,
+            "reason": decision.reason,
+            "current_stage": decision.current_stage,
+            "source": decision.source,
+            "diagnostic": decision.diagnostic,
+        })
+        self._emit_status(
+            "manager reopened open-ended campaign at "
+            f"{decision.target_stage}"
+        )
+        self._last_open_ended_project_done_signature = ""
+        self._reset_idle_backoff()
+        return True
+
     def _resolve_vertical_once(self) -> None:
         """DECIDE + persist the active vertical exactly once per mission, BEFORE
         any gate/stage read (``resolve_vertical``) runs.
@@ -229,6 +290,8 @@ class PlanningCycleMixin:
         ) + copilot_usd_for_premium_requests(verdict.premium_requests)
 
         if verdict.error:
+            if self._reconcile_open_ended_terminal_stage(verdict):
+                return PLAN_RETRY
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,

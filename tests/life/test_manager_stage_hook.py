@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _Result:
@@ -235,6 +237,59 @@ def _stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["current_stage"]
+
+
+def test_open_ended_terminal_planner_error_triggers_manager_rollback(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "done"},
+            },
+        },
+    )
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "the open problem remains unresolved",
+    })
+    sink = _Sink()
+    statuses: list[str] = []
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.config = SimpleNamespace(
+        open_ended=True,
+        continuous_objective="Continue until proof or counterexample.",
+        artifact_root=tmp_path,
+    )
+    supervisor.planner_runner = backend
+    supervisor.skill_store = None
+    supervisor.sink = sink
+    supervisor._emit = sink.handle_event  # type: ignore[method-assign]
+    supervisor._emit_status = statuses.append  # type: ignore[method-assign]
+    supervisor._reset_idle_backoff = lambda: None  # type: ignore[method-assign]
+    supervisor._last_open_ended_project_done_signature = "old"
+    verdict = SimpleNamespace(
+        project_done=False,
+        new_tasks=[],
+        reason="review checkpoint done, objective unresolved",
+    )
+
+    assert supervisor._reconcile_open_ended_terminal_stage(verdict) is True
+    assert _stage(tmp_path) == "solve"
+    assert supervisor._last_open_ended_project_done_signature == ""
+    assert any("reopened open-ended campaign" in text for text in statuses)
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "rollback"
+        for event in sink.events
+    )
 
 
 def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:

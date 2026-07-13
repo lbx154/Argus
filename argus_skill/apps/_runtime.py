@@ -926,6 +926,10 @@ class _SkillLoopRunner(SelfReplyMixin):
                 workdir=workdir,
                 sink=sink,
                 root_task_id=mission_id,
+                open_ended=bool(getattr(config, "open_ended", False)),
+                continuous_objective=str(
+                    getattr(config, "continuous_objective", "") or ""
+                ),
             )
         )
         return _Outcome(
@@ -953,6 +957,8 @@ class _SkillLoopRunner(SelfReplyMixin):
         workdir: Path,
         sink: EventSink,
         root_task_id: str | None = None,
+        open_ended: bool = False,
+        continuous_objective: str = "",
     ) -> dict:
         """Hand this round's reviewer verdict to the Manager — the SOLE
         post-bootstrap writer of the pipeline stage — and let it judge
@@ -981,6 +987,8 @@ class _SkillLoopRunner(SelfReplyMixin):
                 project_root=getattr(self, "_artifact_root", workdir),
                 on_event=sink.handle_event,
                 root_task_id=root_task_id,
+                open_ended=open_ended,
+                continuous_objective=continuous_objective,
             )
             decision = {
                 "action": st.action,

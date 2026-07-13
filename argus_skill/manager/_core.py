@@ -1078,6 +1078,8 @@ class Manager:
         run_exec: Any = None,
         on_event: Any = None,
         root_task_id: str | None = None,
+        open_ended: bool = False,
+        continuous_objective: str = "",
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -1160,11 +1162,46 @@ class Manager:
                 "accepted_manager_blocked_artifact",
             )
 
-        # No reviewer feedback → never advance.
+        # An open-ended final-stage checkpoint may need a new solve cycle after
+        # the Planner confirms the operator's objective is still unresolved.
+        # The Manager remains the sole rollback authority; the Planner only
+        # supplies the advisory reason.
+        open_ended_reconciliation = bool(
+            open_ended
+            and planner_verdict is not None
+            and order
+            and cur == order[-1]
+        )
+
+        # No reviewer feedback normally means no stage transition. The sole
+        # exception is the structured open-ended terminal reconciliation above.
         if review is None:
-            return StageTransition(
-                "hold", cur, "no reviewer feedback", current_stage=cur,
-                source="no_review_hold",
+            if not open_ended_reconciliation:
+                return StageTransition(
+                    "hold", cur, "no reviewer feedback", current_stage=cur,
+                    source="no_review_hold",
+                )
+            from types import SimpleNamespace
+
+            planner_reason = str(
+                getattr(planner_verdict, "reason", "") or planner_verdict
+            )
+            review = SimpleNamespace(
+                status="done",
+                reason=(
+                    "The final-stage checkpoint is reviewer-certified, but the "
+                    "open-ended campaign objective remains unresolved. "
+                    f"Planner advisory: {planner_reason}"
+                ),
+                planner_report={
+                    "forward_progress": False,
+                    "blocker": planner_reason,
+                    "recommended_next": (
+                        "Manager decides whether to roll back for another "
+                        "evidence-led cycle or hold."
+                    ),
+                },
+                checklist=[],
             )
 
         # Build the LLM caller (mirrors is_conversational): no backend → safe HOLD.
@@ -1223,6 +1260,8 @@ class Manager:
                 review=review,
                 planner_verdict=planner_verdict,
                 rendering_block=manager_rendering_prompt(root, review=review),
+                open_ended=open_ended,
+                continuous_objective=continuous_objective,
             )
             # Inject the Manager's fixed role skill (+ any matched adaptive
             # manager skill) ahead of the decision prompt. No-op when no
@@ -1278,15 +1317,16 @@ class Manager:
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )
-            final_decision = final_stage_completion_decision(
-                review,
-                current_stage=cur,
-                stage_order=order,
-                trigger_diagnostic=decision.diagnostic,
-                trigger_reason=decision.reason,
-            )
-            if final_decision is not None:
-                decision = final_decision
+            if not open_ended:
+                final_decision = final_stage_completion_decision(
+                    review,
+                    current_stage=cur,
+                    stage_order=order,
+                    trigger_diagnostic=decision.diagnostic,
+                    trigger_reason=decision.reason,
+                )
+                if final_decision is not None:
+                    decision = final_decision
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(
