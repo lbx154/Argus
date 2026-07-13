@@ -68,6 +68,7 @@ VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
+    "modern_poetry",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -105,6 +106,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "prosody-check 律诗/绝句/五言/七言; gates the poem on a reproducible machine "
     "prosody check (押韵/平仄/粘对/孤平/三平尾 via 平水韵) plus live-reviewer 立意/炼字/"
     "反AI. zh only; NOT modern free verse (route that to modern_poetry) and NOT prose",
+    "modern_poetry": "modern FREE VERSE / prose poems (zh or en) — compose or revise; "
+    "NO 平仄/韵 machine check (free verse is not classical). Gates only DECLARED hard "
+    "constraints (language/line-count/banned-words); imagery/lineation/tone are "
+    "live-reviewer craft. NOT classical regulated verse and NOT narrative prose",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
