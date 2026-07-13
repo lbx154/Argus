@@ -67,6 +67,42 @@ The reviewer ranks clusters by:
   limits, honor those.
 - **Recency** — is the baseline current enough that beating it is a real result?
 
+### Step 3.5 — diagnose the bottleneck, then select a research move
+
+Before writing candidates, sharpen each top-ranked cluster into a *structural
+bottleneck* and choose the *research move* that closes it. This keeps generation
+at "move-applied-to-gap" rather than free brainstorming.
+
+1. **Method-lineage + gap type.** Arrange the 3–5 closest retrieved methods into
+   a refine/replace lineage (each node refines or replaces an earlier one). From
+   it, name ONE concrete structural gap and classify it:
+   - **ADDITIVE** — an unmet need at a leaf; or
+   - **SUBTRACTIVE** — a load-bearing assumption every method in the lineage
+     inherits that you could *remove* (often the stronger, more surprising move).
+
+   Then a **regression check**: confirm your fix is NOT something an older
+   ancestor already did. The gap must rest on what the retrieved papers actually
+   show, not on model recall.
+
+2. **Select the research move (pattern).** Read the corpus-derived ideation
+   patterns bundled with this skill:
+   `references/ideation/ideation-patterns/overview.md` (15 patterns; each has a
+   definition + operational signature + when-to-apply inlined — under
+   `argus_builtin_skills/**/references/ideation/`; find by filename if the exact
+   path differs). Pick the **1–3 patterns** whose operational signature
+   structurally closes the gap (`ideation-patterns/companion-combos.md` shows
+   which patterns pair into one paper — k=2 is the modal composition). The
+   pattern is diagnostic vocabulary — never the contribution claim itself, and
+   never a hard filter: a common pattern is fine if the delivery is substantive.
+
+3. **Read the sub-pattern tactical card.** For the chosen pattern, open the ONE
+   matching sub-pattern card in `references/ideation/ideation-sub-patterns/`
+   (the `ideation-sub-patterns/overview.md` table maps every `C##` to its parent
+   pattern). Follow its **Step-by-Step** to instantiate the mechanism, and read
+   its **failure-mode** panel so the candidate visibly avoids that cluster's
+   documented rejection (`references/ideation/anti-patterns.md` lists
+   reject-enriched compositions to steer clear of).
+
 ### Step 4 — write IDEA_CANDIDATES.md
 
 > **Pre-seeded candidates**: a codex live-web-search pass may have already
@@ -82,6 +118,14 @@ For each top-ranked cluster, produce:
 ## Candidate I-1: <one line: the proposed method and what it beats>
 
 **Problem & gap**: <what's open + the strong prior work/baseline that leaves it open>
+
+**Bottleneck (gap type + regression check)**: <the structural gap from Step 3.5;
+label ADDITIVE or SUBTRACTIVE; one line on the regression check — which ancestor
+could already do this, and why yours differs>
+
+**Research move (pattern → sub-pattern)**: <the selected pattern(s) by name and
+the `C##` sub-pattern whose Step-by-Step you instantiated; name the failure mode
+you are avoiding>
 
 **Proposed method**: <a concrete, named technique/mechanism you introduce — the
 contribution, NOT a measurement or taxonomy>

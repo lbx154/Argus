@@ -23,6 +23,7 @@ Design rules:
 """
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
 from typing import Any
@@ -38,27 +39,68 @@ SOURCE_MARKER = "<!-- source: codex-web-search -->"
 _CANDIDATES_RELPATH = ("research", "IDEA_CANDIDATES.md")
 _BRIEF_RELPATH = ("research", "RESEARCH_BRIEF.md")
 
-#: Corpus-derived research-move menu (a compact vocabulary of ideation
-#: operators distilled from ML-conference outcomes). Baked into the prompt so
-#: generation stays at "move-applied-to-gap" rather than open brainstorming.
-#: The move is diagnostic vocabulary — never the contribution claim itself.
+#: Corpus-derived research-move menu — the 15 ideation patterns induced from
+#: 1,947 ICLR/ICML/NeurIPS papers (ResearchStudio-Idea / IdeaSpark, arXiv
+#: 2607.04439; MIT). Baked into the prompt so generation stays at
+#: "move-applied-to-gap" rather than open brainstorming. The move is diagnostic
+#: vocabulary — never the contribution claim itself. Full pattern + 31
+#: sub-pattern tactical cards live under
+#: ``builtin_skills/engineer/references/ideation/`` (read by ``idea-discovery``).
 _RESEARCH_MOVES = (
-    "1. Prove an equivalence/duality to unify two views\n"
-    "2. Substitute the operator or representation\n"
-    "3. Encode structure by construction (bake in an invariant/constraint)\n"
-    "4. Manufacture the supervisory signal (self / weak / synthetic supervision)\n"
-    "5. Design a property-targeting pretext / auxiliary objective\n"
-    "6. Adapt by conditioning, not retraining (inference-time / steering / prompt)\n"
-    "7. Relax or REMOVE a load-bearing assumption every prior method inherits\n"
-    "8. Characterize a limit / derive a scaling law\n"
-    "9. Reallocate compute or capacity to where it decides the outcome\n"
-    "10. Add a verifier / test-time search or selection\n"
-    "11. Decompose then recompose (phase- or stage-wise)\n"
-    "12. Transfer a mechanism across domains / modalities\n"
-    "13. Tighten a bound / add a guarantee\n"
-    "14. Exploit an asymmetry (train/test, cost, or information)\n"
-    "15. Compress / distill while provably preserving the target property\n"
+    "1. Audit and Pivot an Assumption — relax or violate a load-bearing assumption\n"
+    "2. Substitute the Operator or Representation — swap a costly operator/representation for a cheaper property-preserving surrogate\n"
+    "3. Liberate a Fixed Generative Component — treat a conventionally-fixed part of a generative process as a design variable\n"
+    "4. Design a Confound-Isolating Diagnostic — construct instances that hold a suspected confound fixed or varied\n"
+    "5. Unify Heterogeneous Inputs into One Space — map heterogeneous inputs into one shared representation\n"
+    "6. Reframe as a Solvable Object — reformulate the unsolved as a solvable object (game, program, equilibrium)\n"
+    "7. Manufacture the Supervisory Signal — build self / weak / synthetic / comparative supervision\n"
+    "8. Encode Structure by Construction — bake a symmetry / topology / forward process into the model\n"
+    "9. Prove Equivalence to Unify — prove two procedures or objectives coincide, then exploit it\n"
+    "10. Decompose for Differentiated Treatment — split a heterogeneous artifact and treat its parts unequally\n"
+    "11. Decompose and Delegate to Solvers — hand an unreliable sub-problem to a sound external solver/oracle\n"
+    "12. Relax Discrete Search to Continuous — relax a hand-designed discrete choice into continuous search\n"
+    "13. Adapt by Conditioning, Not Retraining — adapt at inference via conditioning/steering, no retrain\n"
+    "14. Characterize a Limit, Then Surpass It — characterize a method's limit, then exceed it\n"
+    "15. Design a Property-Targeting Pretext Objective — inject a relational/geometric property via a pretext objective\n"
 )
+
+#: Directory of vendored ideation-pattern reference cards (the evidence tier
+#: shared with ``idea-discovery``): 15 pattern cards + 31 sub-pattern cards.
+_PATTERN_REF_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "builtin_skills"
+    / "engineer"
+    / "references"
+    / "ideation"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _pattern_reference() -> str:
+    """The full 15-pattern + 31-sub-pattern selection vocabulary, read from the
+    vendored ideation cards so this web-search source uses the SAME evidence tier
+    as ``idea-discovery`` (definitions, operational signatures, when-to-apply,
+    and the sub-pattern → parent mapping). Falls back to the compact inline
+    :data:`_RESEARCH_MOVES` menu when the reference files are unavailable, so the
+    fail-open / never-raise contract still holds."""
+    try:
+        patterns = (
+            _PATTERN_REF_DIR / "ideation-patterns" / "overview.md"
+        ).read_text(encoding="utf-8")
+        subs = (
+            _PATTERN_REF_DIR / "ideation-sub-patterns" / "overview.md"
+        ).read_text(encoding="utf-8")
+    except OSError:
+        return "Research-move menu (15 corpus-derived patterns):\n" + _RESEARCH_MOVES
+    blob = (
+        "## Ideation patterns (15 moves — definition · operational signature · "
+        "when-to-apply)\n\n"
+        + patterns.strip()
+        + "\n\n## Sub-patterns (31 tactical clusters, each mapped to its parent "
+        "pattern)\n\n"
+        + subs.strip()
+    )
+    return blob[:20000]
 
 
 def _candidates_path(workdir: Any) -> Path:
@@ -111,10 +153,13 @@ def _build_prompt(direction: str, n: int) -> str:
         "REGRESSION CHECK: confirm your fix is NOT something an older ancestor "
         "already did. The gap must rest on what the retrieved papers actually "
         "show, not on model memory.\n"
-        "STEP 2 — RESEARCH MOVE: pick exactly ONE move from the menu below whose "
-        "operational signature structurally closes that gap. The move is thinking "
-        "vocabulary, never the contribution itself:\n"
-        f"{_RESEARCH_MOVES}"
+        "STEP 2 — RESEARCH MOVE: from the corpus-derived ideation patterns below, "
+        "pick the ONE pattern whose operational signature structurally closes the "
+        "gap, then name the specific sub-pattern (`C##`) whose tactic you will "
+        "apply. The pattern is thinking vocabulary, never the contribution itself, "
+        "and never a hard filter (a common pattern is fine if the delivery is "
+        "substantive):\n\n"
+        f"{_pattern_reference()}\n\n"
         "STEP 3 — INSTANTIATE: turn the chosen move applied to the specific gap "
         "into one concrete, named mechanism that plausibly BEATS a reproduced, "
         "competitive baseline — NOT a diagnostic, a probe, a benchmark, or a "
@@ -129,7 +174,7 @@ def _build_prompt(direction: str, n: int) -> str:
         "**Lineage & gap type**: <the 3-5 method refine/replace chain; label the "
         "gap ADDITIVE or SUBTRACTIVE; one line for the regression check — which "
         "ancestor could already do this, and why yours differs>\n\n"
-        "**Research move**: <the ONE menu move, by name, that closes the gap>\n\n"
+        "**Research move**: <the ONE pattern by name + the `C##` sub-pattern whose tactic you applied>\n\n"
         "**Proposed method**: <the move instantiated as a concrete, named "
         "technique/mechanism you introduce — the contribution, not a "
         "measurement>\n\n"
