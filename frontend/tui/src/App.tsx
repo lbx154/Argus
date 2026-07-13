@@ -778,7 +778,9 @@ export function App({
               );
               say(taskDispatchMessage(result));
             }
-            else if (!gotDelta) say(result.reply || '(no reply)');
+            else if (!gotDelta) {
+              say(result.reply || '[Manager reply unavailable] No task was dispatched.');
+            }
           },
           onError: (err) => {
             if (isCurrent()) streamErr = err;

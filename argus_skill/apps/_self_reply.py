@@ -30,7 +30,7 @@ def self_retryable_transport_failure(result: Any) -> bool:
         return False
     fatal = str(getattr(result, "fatal_error", "") or "").strip().casefold()
     if not fatal:
-        return False
+        return int(getattr(result, "exit_code", 0) or 0) == 0
     if fatal.startswith(("external interrupt:", "refused before start:")):
         return False
     return any(marker in fatal for marker in _SELF_RETRYABLE_ACP_ERRORS)
@@ -417,9 +417,11 @@ class SelfReplyMixin:
             self._current_sink = None
 
         last_msg = (result.last_agent_message or "").strip()
+        fatal = getattr(result, "fatal_error", None)
+        success = result.exit_code == 0 and not fatal and bool(last_msg)
         new_thread_id = getattr(result, "thread_id", None)
         round_thread_id = new_thread_id or seed
-        result_status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
+        result_status = "done" if success else "error"
         if should_clear_thread_id_after_outcome(
             status=result_status,
             fatal_error=str(getattr(result, "fatal_error", "") or ""),
@@ -462,16 +464,24 @@ class SelfReplyMixin:
             "last_message": last_msg,
             "session_id": round_thread_id,
             "turn_completed": bool(
-                getattr(result, "exit_code", 0) == 0
-                and not getattr(result, "fatal_error", None)
+                success
             ),
             "attempt_count": len(attempt_results),
         })
 
-        fatal = getattr(result, "fatal_error", None)
-        success = result.exit_code == 0 and not fatal
         status = "done" if success else "error"
-        stop_reason = "" if success else str(fatal or f"exit={result.exit_code}")
+        stop_reason = (
+            ""
+            if success
+            else str(
+                fatal
+                or (
+                    "Manager SELF turn completed without an assistant message"
+                    if result.exit_code == 0
+                    else f"exit={result.exit_code}"
+                )
+            )
+        )
         auth_failure = self._consume_auth_failure()
         sink.handle_event({
             "type": "loop.done",

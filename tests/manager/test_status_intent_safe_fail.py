@@ -77,6 +77,13 @@ class _PreProviderRefusalRunner:
         )
 
 
+class _HandledWithoutReplyRunner:
+    last_thread_id = None
+
+    def chat_reply_if_conversational(self, **kwargs: Any) -> bool:
+        return True
+
+
 def test_triage_failure_safe_fails_for_do_not_run_input() -> None:
     chat_state = {"manager_runner": _RaisingRunner()}
     reply = manager_triage(
@@ -103,6 +110,18 @@ def test_pre_provider_refusal_never_dispatches_unclassified_input() -> None:
     assert reply is not None
     assert reply.startswith("[not dispatched]")
     assert "refused before start" in reply
+
+
+def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
+    reply = manager_triage(
+        object(),
+        "这个进程还活着吗",
+        {"manager_runner": _HandledWithoutReplyRunner()},
+    )
+
+    assert reply is not None
+    assert reply != "(no reply)"
+    assert "No task was dispatched" in reply
 
 
 def test_successful_task_classify_is_not_overridden() -> None:

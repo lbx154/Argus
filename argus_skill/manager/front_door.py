@@ -620,6 +620,10 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     captured: list[str] = []
+    empty_reply = (
+        "[Manager reply unavailable] The SELF turn completed without an assistant "
+        "message. No task was dispatched and the current mission was not changed."
+    )
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
@@ -721,7 +725,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             triage_kwargs["root_task_id"] = root_task_id
         if runner.chat_reply_if_conversational(**triage_kwargs):
             chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-            return captured[0] if captured else "(no reply)"
+            return captured[0] if captured else empty_reply
     except TypeError:
         # Older runner without phase_cb / route support — retry without them
         # (fail-soft; the older runner will classify route internally).
@@ -731,7 +735,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 seed_thread_id=chat_state.get("last_thread_id"),
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-                return captured[0] if captured else "(no reply)"
+                return captured[0] if captured else empty_reply
         except Exception as exc:  # noqa: BLE001 — triage failure
             if looks_like_do_not_run_request(body):
                 return _DO_NOT_RUN_SAFE_REPLY

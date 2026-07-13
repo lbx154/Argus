@@ -247,6 +247,25 @@ def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:
     assert any(event.get("kind") == "provider_retry" for event in sink.events)
 
 
+def test_self_retries_empty_success_then_returns_explicit_error() -> None:
+    backend = _FakeBackend(response_message="")
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="这个进程还活着吗", sink=sink)
+
+    assert len(backend.calls) == 2
+    assert out.success is False
+    assert out.status == "error"
+    assert "without an assistant message" in out.stop_reason
+    main = next(
+        event for event in sink.events
+        if event.get("type") == "round.main.completed"
+    )
+    assert main["attempt_count"] == 2
+    assert main["turn_completed"] is False
+
+
 @pytest.mark.parametrize(
     "fatal_error",
     [
