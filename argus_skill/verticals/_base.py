@@ -169,6 +169,18 @@ def vertical_completion_gate(mod: VerticalDefinition) -> str:
     return "full_paper"
 
 
+def vertical_research_target_levels(mod: VerticalDefinition) -> tuple[str, ...]:
+    """Return the research target levels supported by this vertical."""
+    raw = getattr(mod, "RESEARCH_TARGET_LEVELS", ())
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(
+        level
+        for value in raw
+        if (level := str(value or "").strip().lower())
+    )
+
+
 def vertical_workflow_mode(mod: VerticalDefinition) -> str:
     """Return the vertical's supported workflow mode."""
     mode = str(getattr(mod, "WORKFLOW_MODE", "") or "").strip().lower()
@@ -241,6 +253,7 @@ __all__ = [
     "vertical_checklist_items",
     "vertical_role_banner",
     "vertical_completion_gate",
+    "vertical_research_target_levels",
     "vertical_workflow_mode",
     "vertical_search_altitude",
     "vertical_search_altitude_facts",

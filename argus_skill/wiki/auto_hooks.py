@@ -213,7 +213,7 @@ def _write_run_source(
     verification = str(
         getattr(review, "verification_summary", "") or ""
     ).strip()
-    math_result = getattr(review, "math_result", None)
+    research_result = getattr(review, "research_result", None)
     body_parts = [f"Reviewer verdict: {getattr(review, 'status', '')}"]
     if reason:
         body_parts.append(f"Reviewer reason:\n{reason[:4000]}")
@@ -229,11 +229,11 @@ def _write_run_source(
                 default=str,
             )[:8000]
         )
-    if isinstance(math_result, dict) and math_result:
+    if isinstance(research_result, dict) and research_result:
         body_parts.append(
-            "Math result:\n"
+            "Research result:\n"
             + json.dumps(
-                math_result,
+                research_result,
                 ensure_ascii=False,
                 sort_keys=True,
                 default=str,

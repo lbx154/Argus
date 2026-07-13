@@ -203,8 +203,10 @@ __all__ = [
     "VerticalDecision",
     "VerticalDecisionError",
     "build_domain_author_prompt",
+    "build_research_target_prompt",
     "build_vertical_decision_prompt",
     "parse_domain_proposal",
+    "parse_research_target_level",
     "parse_vertical_decision",
 ]
 
@@ -231,6 +233,9 @@ class VerticalDecision:
     # Manager-authored handoff for Planner/Engineer. Presentation/right-sidebar
     # ownership stays with Manager and is intentionally omitted here.
     execution_task: str = ""
+    # Optional research success bar, decided from the operator's requested
+    # outcome rather than re-inferred by Planner/Reviewer/Life independently.
+    research_target_level: str = ""
     # Raw validated Manager response, applied only when the decision commits.
     rendering_response: str = ""
 
@@ -322,12 +327,22 @@ def build_vertical_decision_prompt(
         "level of specificity: do NOT invent mandatory word counts, enumerated "
         "content requirements, research files, stages, or acceptance gates that "
         "the operator did not request.\n\n"
+        "If and only if you choose `math`, also set `research_target_level` from "
+        "the operator's requested success bar (not from how hard you think the "
+        "problem is): `exploratory` when a bounded investigation, known proof, "
+        "finite computation, local Lean check, or honest negative report can "
+        "satisfy the request; `publishable` when success requires a verified "
+        "original result of publication significance; `doctoral` when success "
+        "explicitly requires doctoral/thesis-level original mathematical "
+        "research. For every non-math vertical set it to null.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"execution_task": "<Planner/Engineer task only>", '
+        '"research_target_level": "<exploratory|publishable|doctoral when math, '
+        'otherwise null>", '
         '"live_view": null | {"title": "<short title>", "reason": "<why these '
         'files>", "paths": ["<relative/path>", ...]}, "presentations": '
         '[{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
@@ -337,12 +352,44 @@ def build_vertical_decision_prompt(
         'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"execution_task": "<Planner/Engineer task only>", '
+        '"research_target_level": null, '
         '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
         '"reason": "<why these files>", "paths": ["<relative/path>", ...]}, '
         '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", "content": '
         '"<presentation>"}]}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
+
+
+def build_research_target_prompt(task: str) -> str:
+    """Ask the Manager for a success bar when research routing is fixed."""
+    return (
+        "You are the MANAGER of a targeted research pipeline. The operator has "
+        "already fixed the vertical; do not revisit routing. Decide only the "
+        "requested research success bar from the task below. Judge what outcome "
+        "the operator requires, not the problem's apparent difficulty.\n\n"
+        "- exploratory: a bounded investigation, known proof, finite computation, "
+        "local Lean verification, or honest negative report may satisfy the task.\n"
+        "- publishable: success requires a correctness-verified, novelty-verified "
+        "original result with publishable significance.\n"
+        "- doctoral: success explicitly requires doctoral/thesis-level original "
+        "mathematical research. Reports, literature review, finite checks, and "
+        "local formalization alone are not success.\n\n"
+        "Task:\n"
+        f"{(task or '').strip()}\n\n"
+        "Reply with one JSON object and nothing else:\n"
+        '{"research_target_level":"exploratory|publishable|doctoral",'
+        '"rationale":"brief reason tied to the requested success bar"}'
+    )
+
+
+def parse_research_target_level(raw_text: str) -> str | None:
+    """Parse the Manager's explicit research-target verdict, fail-closed."""
+    obj = _loads_first_json(raw_text)
+    if not isinstance(obj, dict):
+        return None
+    level = str(obj.get("research_target_level") or "").strip().lower()
+    return level if level in {"exploratory", "publishable", "doctoral"} else None
 
 
 def parse_vertical_decision(
@@ -375,8 +422,17 @@ def parse_vertical_decision(
     choice = str(obj.get("choice") or "").strip().lower()
     if choice == "existing":
         name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+        target_level = str(obj.get("research_target_level") or "").strip().lower()
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
+        if name == "math" and target_level not in {
+            "exploratory",
+            "publishable",
+            "doctoral",
+        }:
+            return None
+        if name != "math":
+            target_level = ""
         if name and name in known:
             return VerticalDecision(
                 choice="existing",
@@ -385,6 +441,7 @@ def parse_vertical_decision(
                 live_view=parsed_live_view,
                 live_view_decided=live_view_decided,
                 execution_task=execution_task,
+                research_target_level=target_level,
             )
         return None
     if choice == "new":

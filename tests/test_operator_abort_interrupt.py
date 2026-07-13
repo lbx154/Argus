@@ -136,7 +136,6 @@ class _SuccessfulEngineerRunner:
             exit_code=0,
             agent_messages=["implemented and verified"],
             thread_id="engineer-thread",
-            turn_completed=True,
         )
 
 

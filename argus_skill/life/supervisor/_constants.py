@@ -11,7 +11,19 @@ PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
 PLAN_HANDOFF = "daemon_handoff"
 PLAN_RETRY = "planner_retry"
-PLANNER_DEDUP_STATUSES = frozenset({"pending", "running", "done"})
+PLANNER_DEDUP_STATUSES = frozenset({
+    "pending",
+    "running",
+    "paused",
+    "paused_budget",
+    "paused_provider_cooldown",
+    "paused_provider_fence",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+    "infra_blocked",
+    "done",
+})
 PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
 VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0

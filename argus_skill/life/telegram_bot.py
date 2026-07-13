@@ -382,7 +382,9 @@ class _CommandRouter:
         cs = read_continuous_state(self.life_dir)
 
         all_items = mem.backlog.all()
-        pending, running, done, failed, skipped = count_backlog_statuses(all_items)
+        pending, running, paused, done, failed, skipped = count_backlog_statuses(
+            all_items
+        )
         current_task = select_current_running_item(all_items)
         inbox_pending = count_pending_inbox_messages(self.life_dir)
 
@@ -436,7 +438,9 @@ class _CommandRouter:
                 lines.append("\n💤 空闲中")
 
         # Backlog
-        lines.append(f"\n📋 active: {pending} pending · {running} running")
+        lines.append(
+            f"\n📋 active: {pending} pending · {running} running · {paused} paused"
+        )
         history_parts = [part for part in (
             f"{done} done" if done else "",
             f"{failed} failed" if failed else "",

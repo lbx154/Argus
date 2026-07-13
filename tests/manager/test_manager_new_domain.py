@@ -57,6 +57,7 @@ _NEW_MATH_DOMAIN_DECISION = {
     "stages": ["literature", "experiment", "proof", "review"],
     "rationale": "task-specific mathematical route",
     "confidence": 0.9,
+    "research_target_level": "doctoral",
 }
 # A task carrying NO preset (research/optimize/quant) signal → novel domain.
 _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
@@ -112,12 +113,15 @@ def test_explicit_math_env_reuses_builtin_without_authoring_data_domain(
     )
 
     assert div.vertical == "math"
-    assert runner.calls == []
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-research-target"
+    ]
     assert not (tmp_path / "research" / "DOMAINS" / "math_conjecture.json").exists()
     state = json.loads(
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["vertical"] == "math"
+    assert state["research_target_level"] == "doctoral"
 
 
 def test_explicit_math_env_replaces_persisted_math_conjecture_selection(
@@ -141,11 +145,14 @@ def test_explicit_math_env_replaces_persisted_math_conjecture_selection(
     )
 
     assert div.vertical == "math"
-    assert runner.calls == []
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-research-target"
+    ]
     state = json.loads(
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["vertical"] == "math"
+    assert state["research_target_level"] == "doctoral"
     assert vs.resolve_vertical(tmp_path) == "math"
 
 

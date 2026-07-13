@@ -1094,6 +1094,12 @@ def _cmd_lifecycle_transition(
         sys.stderr.write(f"argus-skill: cannot persist transition: {exc}\n")
         return 1
 
+    resumed_items = []
+    if action == "resume":
+        from ...life.memory import LifeMemory
+
+        resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_all_paused()
+
     print(
         f"argus-skill: lifecycle transition "
         f"{event.from_state.value} → {event.to_state.value} "
@@ -1102,6 +1108,8 @@ def _cmd_lifecycle_transition(
     print(f"  worktree   : {worktree}")
     print(f"  state_root : {lifecycle_root}")
     print(f"  state : {new_status.state.value}")
+    if resumed_items:
+        print(f"  resumed backlog items : {len(resumed_items)}")
     return 0
 
 
@@ -1364,7 +1372,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     bundle = _resolve_project_bundle(args)
     status = read_daemon_status(bundle.project.root)
     all_items = bundle.backlog.all()
-    pending, running, done, failed, skipped = count_backlog_statuses(all_items)
+    pending, running, paused, done, failed, skipped = count_backlog_statuses(all_items)
     current_running = select_current_running_item(all_items)
     # Status should stay cheap even on a long-lived daemon.
     journal_tail = bundle.journal.tail(3)
@@ -1385,7 +1393,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
     else:
         print("  daemon   : not running   (start with `argus-skill --daemon`)")
     print(f"  {format_budget_status(bundle.journal, status=status)}")
-    print(f"  active   : {pending} pending · {running} running")
+    print(
+        f"  active   : {pending} pending · {running} running · {paused} paused"
+    )
     if current_running is not None:
         print("  current  :")
         print(f"    id       : {getattr(current_running, 'id', '')}")

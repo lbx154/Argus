@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.stop_kinds import (
+    normalize_stop_kind,
+    pause_status_for_stop_kind,
+    stop_kind_is_recoverable,
+)
 from ...core.usage import UsageLedger, UsageRecord
 from ..memory import BacklogItem
 from ._constants import PLANNER_SCOPE_FINAL_SUBMISSION
@@ -41,6 +46,7 @@ class MissionExecutionMixin:
                     log.exception("life supervisor: claim rollback failed")
             return {"status": "claim_lost", "item_id": item.id}
         item = claimed
+        usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
 
         self._emit({
@@ -51,7 +57,10 @@ class MissionExecutionMixin:
             # entry) so the live mission-context line renders the
             # real goal instead of "objective=-".
             "objective": item.objective,
+            "scope": self._planner_scope_from_item(item),
             "missions_started": self._missions_started,
+            "attempt": item.attempt,
+            "usage_attempt_id": usage_attempt_id,
         })
         # Phase-change callback.
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
@@ -81,7 +90,7 @@ class MissionExecutionMixin:
             reviewer_model=self.reviewer_model,
             on_phase_change=_phase_cb,
             usage_ledger=usage_ledger,
-            mission_id=item.id,
+            mission_id=usage_attempt_id,
         )
 
         telemetry_monitor: Any = None
@@ -154,10 +163,13 @@ class MissionExecutionMixin:
                     )
                 if "mission_id" in params or _accepts_kw:
                     execute_kwargs["mission_id"] = item.id
+                if "usage_mission_id" in params or _accepts_kw:
+                    execute_kwargs["usage_mission_id"] = usage_attempt_id
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
                 execute_kwargs["per_mission_budget"] = mission_budget
                 execute_kwargs["mission_id"] = item.id
+                execute_kwargs["usage_mission_id"] = usage_attempt_id
             outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
@@ -174,9 +186,12 @@ class MissionExecutionMixin:
         status = str(getattr(outcome, "status", "error") if outcome else "error")
         rounds = int(getattr(outcome, "rounds", 0) or 0)
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
+        stop_kind = normalize_stop_kind(getattr(outcome, "stop_kind", None))
+        if status == "budget_exhausted" and stop_kind is None:
+            stop_kind = "budget_exhausted"
         self._evolve_runtime_skills_after_mission(
             success=success,
-            item_id=item.id,
+            usage_mission_id=usage_attempt_id,
             mission_budget=mission_budget,
         )
         usage_summary = cost_sink.usage_summary()
@@ -190,7 +205,7 @@ class MissionExecutionMixin:
                 UsageRecord(
                     call_id=f"memory-mission:{item.id}:{int(t0 * 1_000_000)}",
                     project_id=usage_root.name,
-                    mission_id=item.id,
+                    mission_id=usage_attempt_id,
                     provider="memory",
                     model="",
                     run_label="memory.mission.aggregate",
@@ -240,14 +255,25 @@ class MissionExecutionMixin:
         # Roll the item back to PENDING (next tick re-runs from its checkpoint).
         # Anti-cheat: a budget-stopped mission is NEVER marked done/success —
         # the reviewer stays the sole done-ness authority.
+        pause_status = pause_status_for_stop_kind(stop_kind)
         if status == "budget_exhausted":
+            status = "paused_budget"
+            pause_status = status
+        if pause_status:
             cap = self._effective_per_mission_cap(item)
-            self.memory.backlog.update(item.id, status="pending")
+            self.memory.backlog.update(
+                item.id,
+                status=pause_status,
+                finished_ts=time.time(),
+                last_error=stop_reason,
+            )
             self._emit({
                 "type": EventType.LIFE_MISSION_COMPLETED,
                 "item_id": item.id,
                 "success": False,
-                "status": "budget_pause",
+                "status": pause_status,
+                "stop_kind": stop_kind,
+                "recoverable": True,
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
@@ -255,8 +281,11 @@ class MissionExecutionMixin:
                 "spent_usd": known_usd,
             })
             return {
-                "status": "budget_pause",
+                "status": pause_status,
                 "item_id": item.id,
+                "success": False,
+                "stop_kind": stop_kind,
+                "recoverable": True,
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
@@ -302,11 +331,26 @@ class MissionExecutionMixin:
                 "pricing_status": usage_summary.pricing_status,
             }
 
-        # Update backlog row.
+        research_pause = status in {
+            "research_incomplete",
+            "paused_no_breakthrough",
+            "exhausted_current_methods",
+            "infra_blocked",
+        }
+        err = exc_str or stop_reason or "unspecified failure"
+
+        # Update backlog row. A bounded research cycle that did not achieve its
+        # persisted success target is resumable, not a success or terminal failure.
         if success:
             self.memory.backlog.mark_done(item.id)
+        elif research_pause:
+            self.memory.backlog.update(
+                item.id,
+                status=status,
+                finished_ts=time.time(),
+                last_error=stop_reason,
+            )
         else:
-            err = exc_str or stop_reason or "unspecified failure"
             self.memory.backlog.mark_failed(item.id, error=err)
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
@@ -354,6 +398,11 @@ class MissionExecutionMixin:
             if isinstance(getattr(outcome, "step_back", None), dict)
             else None
         )
+        research_result = (
+            dict(getattr(outcome, "research_result", {}))
+            if isinstance(getattr(outcome, "research_result", {}), dict)
+            else {}
+        )
         completion_summary = self._completion_evidence_from_outcome(outcome)
         if final_submission_certified:
             self._persist_final_submission_certification(title=item.title)
@@ -369,6 +418,7 @@ class MissionExecutionMixin:
             "item_id": item.id,
             "title": item.title,
             "objective": item.objective,
+            "scope": self._planner_scope_from_item(item),
             "success": success,
             "status": status,
             "rounds": rounds,
@@ -386,6 +436,12 @@ class MissionExecutionMixin:
             if kind == "mission_failed"
             else {},
             "terminal_status": status if kind == "mission_failed" else "",
+            "resumable": research_pause or stop_kind_is_recoverable(stop_kind),
+            "recoverable": bool(
+                getattr(outcome, "recoverable", False)
+                or stop_kind_is_recoverable(stop_kind)
+            ),
+            "stop_kind": stop_kind,
             "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
             "failure_reason": err if kind == "mission_failed" else "",
             "agent_layer": "engineer",
@@ -424,6 +480,7 @@ class MissionExecutionMixin:
             "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
             "completion_summary": completion_summary,
+            "research_result": research_result or None,
             "planner_report": planner_report,
             "checklist_feedback": checklist_feedback,
             "step_back": step_back,

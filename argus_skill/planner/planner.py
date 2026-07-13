@@ -357,9 +357,32 @@ class Planner:
         # other vertical (e.g. speedrun) those blocks are suppressed and the
         # vertical's banner is prepended so the planner runs that vertical's loop
         # instead of demanding/rebuilding a research gate.
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
+        _active_vertical = resolve_vertical(_proot)
+        _vmod = load_vertical(_active_vertical, project_root=_proot)
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "planner")
+        from ..core.research_contract import resolve_research_target_level
+
+        research_target_block = ""
+        _research_target_level = resolve_research_target_level(_proot)
+        if _research_target_level is not None:
+            research_target_block = (
+                "## Manager-owned research target\n"
+                f"`research_target_level` is `{_research_target_level}` in "
+                "`research/PIPELINE_STATE.json`. Every mission and completion "
+                "recommendation must preserve this exact success bar. For "
+                "`publishable` or `doctoral`, do not set project_done or route a "
+                "final-report-only mission as completion unless the Reviewer has "
+                "certified correctness_status=verified, "
+                "novelty_status=verified_new, and an original result "
+                "with publishable/doctoral significance. Literature review, known "
+                "results, finite computation, local Lean verification, and honest "
+                "failure reports remain useful artifacts but are not success. A "
+                "bounded review ends only the current cycle; route a new method or "
+                "leave the work resumable instead of declaring the research goal "
+                "complete. For `exploratory`, an independently verified honest "
+                "negative report may satisfy the goal.\n\n"
+            )
 
         # Live search-altitude facts (NO verdict) so the planner can SEE the
         # floor / distance-to-target / how long it has been frozen / what it has
@@ -673,6 +696,7 @@ class Planner:
                 workflow_mode=vertical_workflow_mode(_vmod),
             )
             + optimize_banner
+            + research_target_block
             + format_role_context(
                 "Argus planner role skill",
                 "argus-planner-role.md",

@@ -94,7 +94,7 @@ def test_parse_json_object_with_steps_and_notes() -> None:
     assert parse_plan_notes(text) == ["assumes B200", "no ncu access"]
 
 
-def test_parse_structured_lean_formalization_kind() -> None:
+def test_plan_parser_ignores_domain_specific_step_kinds() -> None:
     text = json.dumps({
         "steps": [
             {
@@ -111,20 +111,23 @@ def test_parse_structured_lean_formalization_kind() -> None:
 
     steps = parse_plan_text(text)
 
-    assert [step.kind for step in steps] == ["lean_formalization", "work"]
+    assert [step.title for step in steps] == [
+        "Formalize the lemma",
+        "Write the explanation",
+    ]
 
 
-def test_non_math_plan_prompt_does_not_request_formalization_kind() -> None:
+def test_plan_prompt_has_no_domain_specific_orchestration_kind() -> None:
     ordinary = build_plan_prompt("ordinary task")
     math = build_plan_prompt(
         "prove the theorem",
         role_banner="MISSION TYPE: MATHEMATICS.",
-        allow_lean_formalization_subtask=True,
     )
 
     assert "lean_formalization" not in ordinary
     assert '"kind"' not in ordinary
-    assert '"kind": "lean_formalization"' in math
+    assert "lean_formalization" not in math
+    assert '"kind"' not in math
 
 
 def test_parse_json_list_of_strings() -> None:

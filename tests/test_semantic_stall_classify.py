@@ -7,6 +7,8 @@ missing field, never below threshold, and never on the final round (where
 """
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.core.models import ReviewDecision
 from argus_skill.engineer.runner import SupervisedEngineer
 
@@ -57,3 +59,24 @@ def test_max_rounds_wins_on_final_round() -> None:
     # the terminal label instead of a stall kill.
     status, _ = _classify(streak=50, threshold=8, round_index=500, max_rounds=500)
     assert status is None
+
+
+@pytest.mark.parametrize(
+    "research_status",
+    [
+        "research_incomplete",
+        "paused_no_breakthrough",
+        "exhausted_current_methods",
+    ],
+)
+def test_research_pause_status_ends_current_cycle(research_status: str) -> None:
+    status, reason = SupervisedEngineer._classify(
+        review=_review(research_status),
+        no_progress_streak=0,
+        no_progress_threshold=2,
+        round_index=1,
+        max_rounds=500,
+    )
+
+    assert status == research_status
+    assert reason == "r"

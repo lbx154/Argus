@@ -178,7 +178,10 @@ export interface LifeMissionStartedEvent extends EventMsg {
   "item_id": string;
   "title"?: string;
   "objective"?: string;
+  "scope"?: string;
   "missions_started"?: number;
+  "attempt"?: number;
+  "usage_attempt_id"?: string;
 }
 
 export interface LifeMissionCompletedEvent extends EventMsg {
@@ -187,6 +190,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "item_id": string;
   "title"?: string;
   "objective"?: string;
+  "scope"?: string;
   "status": string;
   "success"?: boolean;
   "rounds"?: number;
@@ -194,6 +198,9 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "cost_usd"?: number | null;
   "known_cost_usd"?: number;
   "pricing_status"?: string;
+  "research_result"?: Record<string, unknown> | null;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "recoverable"?: boolean;
 }
 
 export interface RoundStartEvent extends EventMsg {
@@ -213,6 +220,7 @@ export interface RoundMainCompletedEvent extends EventMsg {
   "cached_input_tokens"?: number;
   "output_tokens"?: number;
   "reasoning_output_tokens"?: number;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
 }
 
 export interface RoundReviewStartedEvent extends EventMsg {
@@ -236,12 +244,13 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   type: "round.review.completed";
   payload_schema_version?: 1;
   "round_index"?: number;
-  "status": "done" | "continue" | "blocked";
+  "status": "done" | "continue" | "blocked" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
   "reason": string;
   "next_action"?: string;
   "scope"?: string;
   "checklist"?: Array<Record<string, unknown>>;
-  "math_result"?: Record<string, unknown> | null;
+  "research_result"?: Record<string, unknown> | null;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "planner_report"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
   "achievement"?: Record<string, unknown> | null;

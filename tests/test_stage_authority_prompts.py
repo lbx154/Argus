@@ -30,7 +30,7 @@ def test_planner_role_gives_stage_authority_to_manager() -> None:
     assert "Reviewer certifies work and reports defects" in text
     assert "Planner owns checklist edits" in text
     assert "Reviewer only reports `checklist_feedback`" in text
-    assert "Manager-authored domain starts with no checklist" in text
+    assert "Manager-authored domain starts with no checklist" in " ".join(text.split())
     assert "author the current" in text
     # the old "the reviewer advances the stage" wording is gone
     assert "until the reviewer has" not in text

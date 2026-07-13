@@ -10,9 +10,36 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 from .event_catalog import EventType
+from .stop_kinds import StopKind
 
-ReviewStatus = Literal["done", "continue", "blocked"]
-LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error", "budget_exhausted"]
+ResearchPauseStatus = Literal[
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+]
+ReviewStatus = Literal[
+    "done",
+    "continue",
+    "blocked",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+]
+LoopStatus = Literal[
+    "done",
+    "max_rounds",
+    "blocked",
+    "no_progress",
+    "error",
+    "budget_exhausted",
+    "paused_budget",
+    "paused_provider_cooldown",
+    "paused_provider_fence",
+    "infra_blocked",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+]
 
 
 @dataclass
@@ -89,6 +116,7 @@ class RunnerResult:
     stderr_lines: list[str] = field(default_factory=list)
     thread_id: str | None = None
     fatal_error: str | None = None
+    stop_kind: StopKind | None = None
     input_tokens: int = 0
     cached_input_tokens: int = 0
     cache_write_tokens: int = 0
@@ -169,11 +197,9 @@ class ReviewDecision:
     # ordinary bounded missions.
     scope: str = ""
     checklist: list[dict[str, Any]] = field(default_factory=list)
-    # Math-only structured result classification. Non-math reviewers leave this
-    # ``None``. Completion of a Math mission is fail-closed on this payload.
-    # Shape: ``{"result_class", "correctness", "novelty",
-    # "statement_fidelity", "evidence", "limitations"}``.
-    math_result: dict[str, Any] | None = None
+    # Structured research assessment used only when the Manager persisted a
+    # research_target_level. Ordinary missions leave this ``None``.
+    research_result: dict[str, Any] | None = None
     # Planner-facing structured briefing authored by the reviewer. The L4
     # planner routes the next mission from this clean, structured report
     # rather than from raw engineer output or noisy verdict prose. Shape:
@@ -277,6 +303,7 @@ class ReviewDecision:
     # an intentional operator/daemon interrupt from a genuine backend outage.
     backend_fatal_error: str = ""
     backend_exit_code: int | None = None
+    backend_stop_kind: StopKind | None = None
 
     @property
     def final_submission_certified(self) -> bool:
@@ -346,10 +373,11 @@ class ReviewDecision:
             # Copilot premium-request delta (cost sinks fold it into USD).
             "premium_requests": float(self.premium_requests or 0.0),
             "backend_unavailable": bool(self.backend_unavailable),
+            "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
-        if isinstance(self.math_result, dict):
-            payload["math_result"] = dict(self.math_result)
+        if isinstance(self.research_result, dict):
+            payload["research_result"] = dict(self.research_result)
         payload.update(extras)
         return payload
 
@@ -362,6 +390,7 @@ class RoundRecord:
     engineer_exit_code: int
     review: ReviewDecision
     fatal_error: str | None = None
+    stop_kind: StopKind | None = None
 
 
 @dataclass
@@ -380,6 +409,8 @@ class LoopOutcome:
     reason: str
     workdir: str
     last_thread_id: str | None = None
+    stop_kind: StopKind | None = None
+    recoverable: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     @property

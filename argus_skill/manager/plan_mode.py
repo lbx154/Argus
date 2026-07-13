@@ -59,7 +59,6 @@ class PlanStep:
 
     title: str
     detail: str = ""
-    kind: str = "work"
 
 
 @dataclass
@@ -133,10 +132,7 @@ def _step_from_obj(obj: Any) -> PlanStep | None:
                 break
         if not title and detail:
             title, detail = detail, ""
-        kind = str(obj.get("kind") or "work").strip().lower()
-        if kind not in {"work", "lean_formalization"}:
-            kind = "work"
-        return PlanStep(title, detail, kind) if title else None
+        return PlanStep(title, detail) if title else None
     return None
 
 
@@ -253,26 +249,13 @@ def build_plan_prompt(
     objective: str,
     *,
     role_banner: str = "",
-    allow_lean_formalization_subtask: bool = False,
 ) -> str:
     """Render the prompt asking the model for a preview plan.
 
     The model must OUTLINE only — never do the work, run tools, or write code.
     """
     obj = (objective or "").strip()
-    formalization_rule = (
-        "4. If you choose Lean formalization, make it ONE independent bounded "
-        'step with `"kind": "lean_formalization"`. All other steps use '
-        '`"kind": "work"`.\n'
-        if allow_lean_formalization_subtask
-        else ""
-    )
-    step_shape = (
-        '{"title": "<imperative title>", "detail": "<what/why>", '
-        '"kind": "<work|lean_formalization>"}'
-        if allow_lean_formalization_subtask
-        else '{"title": "<imperative title>", "detail": "<what/why>"}'
-    )
+    step_shape = '{"title": "<imperative title>", "detail": "<what/why>"}'
     prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
@@ -284,7 +267,7 @@ def build_plan_prompt(
         "2. Each step is one concrete action with an imperative title.\n"
         f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps, but include enough detail "
         "for the operator to understand the approach.\n"
-        f"{formalization_rule}\n"
+        "\n"
         "## Objective\n"
         f"{obj}\n\n"
         "## Your answer\n"
@@ -385,7 +368,6 @@ def draft_plan(
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
     role_banner: str = "",
-    allow_lean_formalization_subtask: bool = False,
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
@@ -417,7 +399,6 @@ def draft_plan(
             build_plan_prompt(
                 objective,
                 role_banner=role_banner,
-                allow_lean_formalization_subtask=allow_lean_formalization_subtask,
             )
         )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure

@@ -20,7 +20,9 @@ from argus_skill.daemon.protocol import (
 
 def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_SOURCE_ROOT", raising=False)
     payload = _daemon_status_payload(
         LifeWorkerConfig(life_dir=tmp_path, backend="memory"),
         started_at_iso="2026-07-11T00:00:00+00:00",

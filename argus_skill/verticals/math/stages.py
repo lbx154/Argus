@@ -6,11 +6,14 @@ methods selected for the problem at hand, not mandatory pipeline stages.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...skills.stage_checklists import ChecklistItem
 
 STAGE_ORDER = ("scope", "solve", "review")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
 WORKFLOW_MODE = "proportional"
+RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 
 # Math missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
@@ -27,21 +30,21 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "scope": (
-        "reviewer/argus-reviewer-role.md",
+        "reviewer/math-research-review.md",
         "Check that the original mathematical problem, objects, quantifiers, "
         "assumptions, problem type, success criterion, and problem-specific "
         "research route are explicit.",
         [],
     ),
     "solve": (
-        "reviewer/argus-reviewer-role.md",
+        "reviewer/math-research-review.md",
         "Check the mathematical evidence actually produced. Enforce the limits "
         "of counterexamples, finite computation, natural-language proof, and any "
         "claimed Lean compilation.",
         [],
     ),
     "review": (
-        "reviewer/argus-reviewer-role.md",
+        "reviewer/math-research-review.md",
         "Independently audit correctness and fidelity to the original problem. "
         "Reject hidden assumptions, weakened conclusions, uncompiled Lean, and "
         "overclaims about open or unresolved questions.",
@@ -184,76 +187,31 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 
 def role_banner(role: str) -> str:
-    """Frame each role around dynamic mathematical research and honest evidence."""
-    common = (
-        "MISSION TYPE: MATHEMATICS. Work on a conjecture, proof, construction, "
-        "counterexample, or open research problem. This is NOT a paper pipeline "
-        "and NOT a metric-optimization mission.\n"
+    """Load Math context as a Skill for the generic role implementation."""
+    role_name = (role or "").strip().lower()
+    skill_name = {
+        "manager": "manager/math-research-manager.md",
+        "planner": "planner/math-research-planning.md",
+        "engineer": "engineer/math-research-execution.md",
+        "reviewer": "reviewer/math-research-review.md",
+        "scientist": "scientist/math-research-adaptation.md",
+    }.get(role_name)
+    if skill_name is None:
+        return ""
+    text = (Path(__file__).parent / "skills" / skill_name).read_text(
+        encoding="utf-8"
     )
-    role_norm = (role or "").strip().lower()
-    if role_norm == "planner":
-        return common + (
-            "Choose work from the actual mathematical structure of the problem. "
-            "Use background retrieval, examples, counterexamples, computation, "
-            "proof construction, or Lean only when they are useful; do not turn "
-            "the method menu into a fixed pipeline. Reuse reviewer-certified "
-            "prior-stage evidence by precise reference; do not assign another "
-            "full-tree audit, snapshot, manifest, or checksum without a concrete "
-            "new dependency that requires it. Plan explicit novelty checks for any "
-            "new candidate. When formalization would reduce uncertainty, create a "
-            "bounded formalization subtask that runs the structured lean_check tool "
-            "with `--lake` and saves its JSON output; "
-            "if Lean is unavailable, record that result and continue with honest "
-            "non-formal evidence."
-        )
-    if role_norm == "engineer":
-        return common + (
-            "Dynamically choose the path that fits this problem; do not mechanically "
-            "execute a fixed workflow. Clearly distinguish conjecture, finite or "
-            "numerical evidence, natural-language proof, and formal verification. "
-            "Classify every result as a finite verification, local lemma, complete "
-            "proof, known result, or new candidate; never promote one class into "
-            "another. State the limits of every result and compile Lean claims for real "
-            "after authoring `statement_fidelity.md`, using `python -m "
-            "argus_skill.tools.lean_check <file> --lake --artifact-dir . "
-            "--statement-fidelity statement_fidelity.md`. This must preserve any "
-            "descriptive Lean file while materializing `Main.lean`, `compile.log`, "
-            "`lean_check.json`, and `statement_fidelity.md`. "
-            "Spend the turn on the new mathematical delta and cite certified prior "
-            "evidence instead of recreating its audit trail."
-        )
-    if role_norm == "scientist":
-        return common + (
-            "Design reusable mathematical research methods, not one-off answers. "
-            "Read the failed-round evidence and name the failed mechanism before "
-            "proposing a replacement. The replacement must change the proof/search "
-            "mechanism and be structural rather than parametric, not merely change "
-            "constants, bounds, prompts, or other parameters. "
-            "Separate correctness from novelty and include the cheapest decisive "
-            "counterexample, proof, literature, or formalization test."
-        )
-    if role_norm == "reviewer":
-        return common + (
-            "Independently check mathematical correctness and fidelity to the original "
-            "definitions, quantifiers, assumptions, and conclusion. Check the boundary "
-            "of computational evidence. If Lean is used, verify fresh real compilation "
-            "and reject proof holes; require `Main.lean`, `compile.log`, "
-            "`lean_check.json`, and `statement_fidelity.md`. Lean compilation does not "
-            "prove that the formal "
-            "statement faithfully represents the original problem. Audit the current "
-            "claim and its dependency edges; do not demand a new full-project evidence "
-            "inventory when prior stages are already reviewer-certified. Every verdict "
-            "must populate math_result with separate correctness, statement-fidelity, "
-            "and novelty judgments. A correct known result is not new; finite evidence "
-            "is not a complete proof; novelty-unverified work cannot complete the mission."
-        )
-    return common
+    if text.startswith("---"):
+        _frontmatter, _separator, body = text[3:].partition("---")
+        return body.strip()
+    return text.strip()
 
 
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
     "REVIEWER_CHECKLISTS",
+    "RESEARCH_TARGET_LEVELS",
     "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",

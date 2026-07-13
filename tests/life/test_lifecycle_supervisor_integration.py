@@ -27,6 +27,7 @@ import pytest
 
 from argus_skill.core.project import project_fingerprint
 from argus_skill.life import project_lifecycle_io
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -340,6 +341,11 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
     )
     lifecycle_root = _cli_lifecycle_root(tmp_path)
     write_persisted(lifecycle_root, status=qstatus, history=[])
+    memory = LifeMemory.open(lifecycle_root)
+    paused_item = memory.backlog.add(
+        BacklogItem.new(title="paused", objective="resume safely")
+    )
+    memory.backlog.update(paused_item.id, status="paused_budget")
 
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
@@ -350,6 +356,11 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
 
     persisted = load_persisted(lifecycle_root)
     assert persisted["state"] == "running"
+    resumed = next(
+        item for item in memory.backlog.all() if item.id == paused_item.id
+    )
+    assert resumed.status == "pending"
+    assert resumed.attempt == 2
 
 
 def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:

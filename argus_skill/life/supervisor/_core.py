@@ -434,6 +434,8 @@ class LifeSupervisor(
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()
             if stop_reason:
+                if stop_reason == "paused_budget":
+                    self._enter_pause_backoff()
                 if stop_reason != "__silent_stop__":
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
@@ -563,7 +565,9 @@ class LifeSupervisor(
                 continue
             results.append(outcome)
             if outcome.get("status") in {
-                "budget_pause",
+                "paused_budget",
+                "paused_provider_cooldown",
+                "paused_provider_fence",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
@@ -572,7 +576,10 @@ class LifeSupervisor(
                 # the wait like the idle path (15→300s) instead of resetting to
                 # poll_interval, so a budget pause / F5 hold doesn't busy-spin and
                 # re-flood the journal every 5s until the daily cap rolls over.
-                self._enter_idle_backoff()
+                if str(outcome.get("status") or "").startswith("paused_"):
+                    self._enter_pause_backoff()
+                else:
+                    self._enter_idle_backoff()
             else:
                 # A real mission ran: clear any accumulated no-work backoff.
                 self._reset_idle_backoff()
@@ -607,7 +614,9 @@ class LifeSupervisor(
             # busy-spin ``infer_observable_status`` at 100% CPU). The
             # daemon's outer loop re-enters after ``poll_interval``.
             if outcome.get("status") in {
-                "budget_pause",
+                "paused_budget",
+                "paused_provider_cooldown",
+                "paused_provider_fence",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
@@ -723,7 +732,12 @@ class LifeSupervisor(
                     "reason": reason,
                     "agent_layer": "supervisor",
                 })
-            return {"status": "budget_pause", "item_id": item.id, "reason": reason}
+            return {
+                "status": "paused_budget",
+                "item_id": item.id,
+                "reason": reason,
+                "recoverable": True,
+            }
 
         if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:
             # Only narrate the cap when there's actually pending work
@@ -766,9 +780,10 @@ class LifeSupervisor(
                 "agent_layer": "supervisor",
             })
             return {
-                "status": "budget_pause",
+                "status": "paused_budget",
                 "item_id": item.id,
                 "reason": reserve_reason,
+                "recoverable": True,
             }
         try:
             return self._run_one(item)

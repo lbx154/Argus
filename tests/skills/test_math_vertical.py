@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps._runtime import _workflow_mode_for_project_root
+import pytest
+
+from argus_skill.core.research_contract import (
+    normalize_research_result,
+    research_completion_issue,
+    resolve_research_target_level,
+)
 from argus_skill.manager.stage_decider import final_stage_completion_decision
-from argus_skill.skills.role_context import load_builtin_skill_text
 from argus_skill.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
@@ -16,131 +23,32 @@ from argus_skill.verticals._base import (
     vertical_checklist_items,
     vertical_checklist_stage_order,
     vertical_completion_gate,
+    vertical_research_target_levels,
     vertical_role_banner,
     vertical_workflow_mode,
 )
-from argus_skill.verticals.math.results import math_completion_issue
 
 
-def test_math_is_registered_and_loadable() -> None:
-    assert "math" in VERTICALS
-    assert "math" in VERTICAL_PURPOSES
-    assert require_vertical("math") == "math"
-
-    mod = load_vertical("math")
-    assert mod.__name__ == "argus_skill.verticals.math.stages"
-
-
-def test_math_stage_contract_is_three_coarse_stages() -> None:
-    mod = load_vertical("math")
-
-    assert mod.STAGE_ORDER == ("scope", "solve", "review")
-    assert vertical_checklist_stage_order(mod) == ("scope", "solve", "review")
-    assert tuple(mod.STAGE_CHECKS) == mod.STAGE_ORDER
-    assert tuple(mod.REVIEWER_CHECKLISTS) == mod.STAGE_ORDER
-    assert vertical_workflow_mode(mod) == "proportional"
-
-
-def test_math_runtime_uses_proportional_staged_evidence(tmp_path) -> None:
-    persist_vertical(tmp_path, "math")
-
-    assert _workflow_mode_for_project_root(tmp_path) == "proportional"
-
-
-def test_planner_reuses_nonempty_expert_checklists() -> None:
-    role = load_builtin_skill_text("argus-planner-role.md")
-
-    assert "do not restate it or expand it with generic snapshots" in role
-    assert "manifests" in role and "checksums" in role
-
-
-def test_math_uses_reviewer_certified_non_paper_gate() -> None:
-    mod = load_vertical("math")
-
-    gate = vertical_completion_gate(mod)
-    assert gate == "none"
-    assert gate not in {"metric", "full_paper"}
-
-
-def test_none_gate_can_complete_after_certified_review_stage() -> None:
-    review = SimpleNamespace(
-        status="done",
-        planner_report={"forward_progress": True},
-        checklist=[
-            {"item": "review.statement-fidelity", "satisfied": True, "evidence": "audit"},
-        ],
-    )
-
-    decision = final_stage_completion_decision(
-        review,
-        current_stage="review",
-        stage_order=("scope", "solve", "review"),
-    )
-
-    assert decision is not None
-    assert decision.action == "complete"
-    assert decision.target_stage == "review"
-
-
-def test_every_math_stage_has_checklist_items() -> None:
-    mod = load_vertical("math")
-    items = vertical_checklist_items(mod)
-
-    assert set(items) == {"scope", "solve", "review"}
-    assert all(items[stage] for stage in mod.CHECKLIST_STAGE_ORDER)
-
-
-def test_math_role_banners_encode_dynamic_execution_and_independent_review() -> None:
-    mod = load_vertical("math")
-
-    engineer = vertical_role_banner(mod, "engineer")
-    planner = vertical_role_banner(mod, "planner")
-    reviewer = vertical_role_banner(mod, "reviewer")
-    scientist = vertical_role_banner(mod, "scientist")
-
-    assert "Reuse reviewer-certified" in planner
-    assert "snapshot, manifest, or checksum" in planner
-    assert "structured lean_check tool" in planner
-    assert "Dynamically choose" in engineer
-    assert "fixed workflow" in engineer
-    assert "conjecture" in engineer
-    assert "natural-language proof" in engineer
-    assert "formal verification" in engineer
-    assert "new mathematical delta" in engineer
-    assert "finite verification" in engineer
-    assert "new candidate" in engineer
-
-    assert "failed mechanism" in scientist
-    assert "structural rather than parametric" in scientist
-
-    assert "Independently check mathematical correctness" in reviewer
-    assert "computational evidence" in reviewer
-    assert "fresh real compilation" in reviewer
-    assert "Lean compilation does not prove" in reviewer
-    assert "faithfully represents the original problem" in reviewer
-    assert "current claim and its dependency edges" in reviewer
-    assert "math_result" in reviewer
-    assert "novelty-unverified work cannot complete" in reviewer
-
-
-def _math_result(
+def _research_result(
     result_class: str,
     *,
     correctness: str = "verified",
     novelty: str = "not_applicable",
+    significance: str = "exploratory",
     fidelity: str = "verified",
 ) -> dict:
     return {
         "result_class": result_class,
-        "correctness": correctness,
-        "novelty": novelty,
-        "statement_fidelity": fidelity,
-        "evidence": ["checked proof"],
+        "correctness_status": correctness,
+        "novelty_status": novelty,
+        "significance_status": significance,
+        "statement_fidelity_status": fidelity,
+        "evidence": ["independently checked evidence"],
         "limitations": [],
     }
 
 
-def _final_math_decision(math_result: dict):
+def _final_stage_decision(result: dict, target: str, *, scope: str = ""):
     review = SimpleNamespace(
         status="done",
         planner_report={"forward_progress": True},
@@ -151,98 +59,194 @@ def _final_math_decision(math_result: dict):
                 "evidence": "semantic audit",
             }
         ],
-        math_result=math_result,
+        research_result=result,
+        scope=scope,
     )
     return final_stage_completion_decision(
         review,
         current_stage="review",
         stage_order=("scope", "solve", "review"),
         vertical="math",
+        research_target_level=target,
     )
 
 
-def test_math_novelty_unverified_cannot_complete() -> None:
-    result = _math_result(
-        "novelty_unverified",
-        novelty="unverified",
+def test_math_is_registered_as_three_stage_targeted_vertical() -> None:
+    assert "math" in VERTICALS
+    assert "math" in VERTICAL_PURPOSES
+    assert require_vertical("math") == "math"
+
+    module = load_vertical("math")
+    assert module.STAGE_ORDER == ("scope", "solve", "review")
+    assert vertical_checklist_stage_order(module) == ("scope", "solve", "review")
+    assert vertical_workflow_mode(module) == "proportional"
+    assert vertical_completion_gate(module) == "none"
+    assert vertical_research_target_levels(module) == (
+        "exploratory",
+        "publishable",
+        "doctoral",
     )
 
-    assert math_completion_issue(result)
-    assert _final_math_decision(result) is None
+
+def test_math_vertical_contains_only_contract_skills_and_metadata() -> None:
+    root = Path(__file__).parents[2] / "argus_skill" / "verticals" / "math"
+    files = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+
+    assert files == {
+        "__init__.py",
+        "stages.py",
+        "skills/manager/math-research-manager.md",
+        "skills/planner/math-research-planning.md",
+        "skills/engineer/math-research-execution.md",
+        "skills/reviewer/math-research-review.md",
+        "skills/scientist/math-research-adaptation.md",
+    }
 
 
-def test_math_finite_verification_cannot_complete_as_proof() -> None:
-    result = _math_result("finite_verification")
+def test_generic_roles_load_math_skill_context_only_for_math() -> None:
+    math = load_vertical("math")
+    for role in ("manager", "planner", "engineer", "reviewer", "scientist"):
+        context = vertical_role_banner(math, role)
+        assert "MATHEMATICS" in context
 
-    assert math_completion_issue(result)
-    assert _final_math_decision(result) is None
-
-
-def test_math_counterexample_with_unverified_novelty_cannot_complete() -> None:
-    result = _math_result("counterexample", novelty="unverified")
-
-    assert math_completion_issue(result) == "math_novelty_not_verified"
-    assert _final_math_decision(result) is None
+    direct = load_vertical("direct")
+    assert "MATHEMATICS" not in vertical_role_banner(direct, "engineer")
+    assert "MATHEMATICS" not in vertical_role_banner(direct, "reviewer")
 
 
-def test_math_counterexample_requires_valid_novelty_verdict() -> None:
-    result = _math_result("counterexample", novelty="bogus")
+def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
+    items = vertical_checklist_items(load_vertical("math"))
+    rendered = "\n".join(
+        item.statement for stage in ("scope", "solve", "review") for item in items[stage]
+    )
 
-    assert math_completion_issue(result) == "invalid_novelty"
-    assert _final_math_decision(result) is None
+    assert "statement" in rendered.lower()
+    for artifact in (
+        "Main.lean",
+        "compile.log",
+        "lean_check.json",
+        "statement_fidelity.md",
+    ):
+        assert artifact in rendered
+    assert "argus_skill.tools.lean_check" in vertical_role_banner(
+        load_vertical("math"),
+        "engineer",
+    )
 
 
-def test_math_explicit_counterexample_can_complete_false_claim() -> None:
-    result = _math_result("counterexample")
-    result["evidence"] = ["n = 1 gives 1 + 1 != 1"]
-    result["limitations"] = ["refutes only the stated universal claim"]
+@pytest.mark.parametrize(
+    "result",
+    [
+        _research_result("finite_verification"),
+        _research_result("partial_result"),
+        _research_result("known_result"),
+        _research_result(
+            "novelty_unverified",
+            novelty="unverified",
+            significance="unverified",
+        ),
+        _research_result("structured_failure_report"),
+        _research_result("exhausted_current_methods"),
+        _research_result("lean_local_verification"),
+        _research_result(
+            "new_candidate",
+            novelty="verified_new",
+            significance="doctoral",
+        ),
+    ],
+)
+def test_doctoral_non_breakthrough_results_are_not_success(result: dict) -> None:
+    assert research_completion_issue(
+        result,
+        research_target_level="doctoral",
+    )
+    assert _final_stage_decision(result, "doctoral") is None
 
-    assert math_completion_issue(result) == ""
-    assert _final_math_decision(result) is not None
+
+def test_doctoral_verified_new_publishable_or_doctoral_result_succeeds() -> None:
+    for significance in ("publishable", "doctoral"):
+        result = _research_result(
+            "new_theorem",
+            novelty="verified_new",
+            significance=significance,
+        )
+        assert research_completion_issue(
+            result,
+            research_target_level="doctoral",
+        ) == ""
+        assert _final_stage_decision(result, "doctoral") is not None
 
 
-def test_math_statement_fidelity_failure_cannot_complete() -> None:
-    result = _math_result(
-        "verified_new_result",
+def test_exploratory_honest_failure_report_can_end_normally() -> None:
+    result = _research_result("structured_failure_report")
+
+    assert research_completion_issue(
+        result,
+        research_target_level="exploratory",
+    ) == ""
+    assert _final_stage_decision(result, "exploratory") is not None
+
+
+@pytest.mark.parametrize(
+    "result_class",
+    ["finite_verification", "lean_local_verification"],
+)
+def test_exploratory_bounded_evidence_can_end_normally(result_class: str) -> None:
+    result = _research_result(result_class)
+
+    assert research_completion_issue(
+        result,
+        research_target_level="exploratory",
+    ) == ""
+
+
+def test_bounded_cycle_cannot_complete_doctoral_target() -> None:
+    result = _research_result(
+        "new_theorem",
         novelty="verified_new",
-        fidelity="failed",
+        significance="doctoral",
     )
 
-    assert math_completion_issue(result) == "statement_fidelity_not_verified"
-    assert _final_math_decision(result) is None
+    assert research_completion_issue(
+        result,
+        research_target_level="doctoral",
+        scope="bounded",
+    ) == "bounded_cycle_cannot_complete_doctoral"
+    assert _final_stage_decision(result, "doctoral", scope="bounded") is None
 
 
-def test_math_known_result_cannot_be_claimed_as_new() -> None:
-    result = _math_result("known_result", novelty="verified_new")
+def test_legacy_math_result_gets_conservative_significance() -> None:
+    migrated = normalize_research_result({
+        "result_class": "known_result",
+        "correctness": "verified",
+        "novelty": "known",
+        "statement_fidelity": "verified",
+        "evidence": ["legacy evidence"],
+        "limitations": [],
+    })
 
-    assert math_completion_issue(result) == "known_result_novelty_mismatch"
-    assert _final_math_decision(result) is None
-
-
-def test_math_verified_new_result_requires_verified_novelty() -> None:
-    result = _math_result("verified_new_result", novelty="unverified")
-
-    assert math_completion_issue(result) == "math_novelty_not_verified"
-    assert _final_math_decision(result) is None
-
-
-def test_math_correctness_and_novelty_are_independent() -> None:
-    result = _math_result(
-        "verified_new_result",
-        correctness="uncertain",
-        novelty="verified_new",
-    )
-
-    assert result["novelty"] == "verified_new"
-    assert math_completion_issue(result) == "math_correctness_not_verified"
-    assert _final_math_decision(result) is None
+    assert migrated is not None
+    assert migrated["significance_status"] == "exploratory"
 
 
-def test_math_verified_new_result_can_complete() -> None:
-    result = _math_result(
-        "verified_new_result",
-        novelty="verified_new",
-    )
+def test_math_stage_completion_does_not_bypass_doctoral_target() -> None:
+    finite = _research_result("finite_verification")
+    assert _final_stage_decision(finite, "doctoral") is None
 
-    assert math_completion_issue(result) == ""
-    assert _final_math_decision(result) is not None
+
+def test_research_target_persists_and_non_target_vertical_clears_it(tmp_path) -> None:
+    persist_vertical(tmp_path, "math", research_target_level="doctoral")
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert resolve_research_target_level(tmp_path) == "doctoral"
+    assert state["research_target_set_at"] > 0
+
+    persist_vertical(tmp_path, "direct")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "research_target_level" not in state
+    assert "research_target_set_at" not in state

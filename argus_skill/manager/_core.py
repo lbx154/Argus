@@ -529,6 +529,71 @@ class Manager:
         return block
 
     # ---- the Manager's grounded vertical decision (agent, not keywords) ----
+    def _decide_research_target(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None,
+    ) -> str:
+        """Decide the success bar when the operator fixed a research vertical."""
+        from ..core.research_contract import normalize_research_target_level
+
+        raw_override = os.environ.get(
+            "ARGUS_SKILL_RESEARCH_TARGET_LEVEL",
+            os.environ.get("ARGUS_SKILL_MATH_RESEARCH_TARGET_LEVEL"),
+        )
+        if raw_override is not None:
+            override = normalize_research_target_level(raw_override)
+            if override is None:
+                raise VerticalDecisionError(
+                    "ARGUS_SKILL_RESEARCH_TARGET_LEVEL must be one of "
+                    "exploratory, publishable, doctoral"
+                )
+            return override
+        backend = self._session or self.runner
+        if backend is None:
+            log.warning(
+                "explicit research vertical has no Manager backend; defaulting "
+                "research_target_level to doctoral so enqueue remains available "
+                "without permitting an unclassified success"
+            )
+            return "doctoral"
+        from ..core.models import RunnerOptions
+        from .domain_author import (
+            build_research_target_prompt,
+            parse_research_target_level,
+        )
+        from .stage_decider import extract_answer
+
+        with self._task_usage_scope(root_task_id):
+            result = gateway_run_exec(
+                backend,
+                prompt=build_research_target_prompt(task),
+                options=RunnerOptions(
+                    reasoning_effort=_manager_reasoning_effort(),
+                    working_dir=str(self.project_root),
+                    sandbox_mode="read-only",
+                    skip_git_repo_check=True,
+                ),
+                run_label="manager-research-target",
+            )
+        detail = str(getattr(result, "fatal_error", "") or "").strip()
+        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+            if not detail:
+                detail = "\n".join(
+                    map(str, getattr(result, "stderr_lines", None) or [])
+                ).strip()
+            raise VerticalDecisionError(
+                "Manager research-target backend failed"
+                + (f": {detail}" if detail else "")
+            )
+        target_level = parse_research_target_level(extract_answer(result))
+        if target_level is None:
+            raise VerticalDecisionError(
+                "Manager did not produce a valid research_target_level"
+            )
+        return target_level
+
     def decide_vertical(
         self,
         task: str,
@@ -556,6 +621,14 @@ class Manager:
                 choice="existing",
                 vertical=explicit_builtin,
                 execution_task=task.strip(),
+                research_target_level=(
+                    self._decide_research_target(
+                        task,
+                        root_task_id=root_task_id,
+                    )
+                    if explicit_builtin == "math"
+                    else ""
+                ),
             )
 
         backend = self._session or self.runner
@@ -777,7 +850,15 @@ class Manager:
         stages = self.plan_stages(vertical)
         pipeline_state = self.project_root / "research" / "PIPELINE_STATE.json"
         with _restore_files_on_error([pipeline_state]):
-            persist_vertical(self.project_root, vertical)
+            persist_vertical(
+                self.project_root,
+                vertical,
+                research_target_level=(
+                    decision.research_target_level
+                    if vertical == "math"
+                    else None
+                ),
+            )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
                 old_vertical=old_vertical,
@@ -1273,6 +1354,17 @@ class Manager:
                 open_ended=open_ended,
                 continuous_objective=continuous_objective,
             )
+            from ..verticals._base import load_vertical, vertical_role_banner
+
+            manager_vertical_context = vertical_role_banner(
+                load_vertical(resolve_vertical(root), project_root=root),
+                "manager",
+            )
+            if manager_vertical_context:
+                prompt = (
+                    "## Active vertical Manager skill\n"
+                    f"{manager_vertical_context}\n\n{prompt}"
+                )
             # Inject the Manager's fixed role skill (+ any matched adaptive
             # manager skill) ahead of the decision prompt. No-op when no
             # skill_store is wired — the prompt is then byte-for-byte identical to
@@ -1328,12 +1420,17 @@ class Manager:
                     raw, current_stage=cur, stage_order=order
                 )
             if not open_ended:
+                _completion_vertical = resolve_vertical(root)
+                from ..core.research_contract import resolve_research_target_level
+
+                _research_target_level = resolve_research_target_level(root)
                 final_decision = final_stage_completion_decision(
                     review,
                     current_stage=cur,
                     stage_order=order,
-                    vertical=resolve_vertical(root),
+                    vertical=_completion_vertical,
                     mission_scope=mission_scope,
+                    research_target_level=_research_target_level,
                     trigger_diagnostic=decision.diagnostic,
                     trigger_reason=decision.reason,
                 )

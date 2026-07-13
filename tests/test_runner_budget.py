@@ -71,7 +71,7 @@ def _build_loop(backend: MemoryBackend, skills_dir: Path, events: list) -> Skill
 
 def test_per_mission_cap_breaks_before_round_two(tmp_path: Path) -> None:
     """Cap already exceeded by the time round 2 is entered → the mission stops
-    as ``budget_exhausted`` and round 2's engineer turn never runs."""
+    as ``paused_budget`` and round 2's engineer turn never runs."""
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
@@ -85,7 +85,9 @@ def test_per_mission_cap_breaks_before_round_two(tmp_path: Path) -> None:
     budget = MissionBudget(cap_usd=0.50, spent=lambda: 1.00)  # already over
     out = loop.run("task", workdir=tmp_path, per_mission_budget=budget)
 
-    assert out.status == "budget_exhausted", out.status
+    assert out.status == "paused_budget", out.status
+    assert out.stop_kind == "budget_exhausted"
+    assert out.recoverable is True
     assert not out.successful
     # Round 1 ran; round 2 (and its reviewer) did NOT.
     labels = [label for label, _, _ in backend.history]
@@ -113,7 +115,8 @@ def test_round_one_always_runs_even_when_over_cap(tmp_path: Path) -> None:
     budget = MissionBudget(cap_usd=0.01, spent=lambda: 999.0)
     out = loop.run("task", workdir=tmp_path, per_mission_budget=budget)
 
-    assert out.status == "budget_exhausted"
+    assert out.status == "paused_budget"
+    assert out.stop_kind == "budget_exhausted"
     assert [label for label, _, _ in backend.history].count("engineer-r1") == 1
 
 

@@ -211,10 +211,11 @@ def _denied_permit(
     run_label: str,
     root: Path,
     slot: BinaryIO | None,
+    stop_kind: str,
 ) -> "CopilotPermit":
     """Return a denial without retaining a provider-concurrency slot."""
     _release_slot(slot)
-    return CopilotPermit(False, reason, run_label, root)
+    return CopilotPermit(False, reason, run_label, root, stop_kind=stop_kind)
 
 
 def _circuit(error_text: str) -> tuple[float, str]:
@@ -244,6 +245,7 @@ class CopilotPermit:
     reason: str
     run_label: str
     root: Path
+    stop_kind: str | None = None
     slot: BinaryIO | None = None
     guarded: bool = True
     daily_calls: int = 0
@@ -326,7 +328,13 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
 
     slot, slot_error = _acquire_slot(root)
     if slot_error:
-        return CopilotPermit(False, slot_error, run_label, root)
+        return CopilotPermit(
+            False,
+            slot_error,
+            run_label,
+            root,
+            stop_kind="transient_error",
+        )
 
     lock = _lock_state(root)
     try:
@@ -343,6 +351,7 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 run_label=run_label,
                 root=root,
                 slot=slot,
+                stop_kind="provider_cooldown",
             )
 
         premium_cap = _float_setting(
@@ -359,6 +368,7 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 run_label=run_label,
                 root=root,
                 slot=slot,
+                stop_kind="budget_exhausted",
             )
 
         daily_cap = _int_setting(
@@ -371,6 +381,7 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 run_label=run_label,
                 root=root,
                 slot=slot,
+                stop_kind="budget_exhausted",
             )
 
         recent = [
@@ -387,6 +398,7 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 run_label=run_label,
                 root=root,
                 slot=slot,
+                stop_kind="provider_cooldown",
             )
 
         recent.append(now)

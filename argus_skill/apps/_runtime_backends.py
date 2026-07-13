@@ -21,6 +21,8 @@ class _Outcome:
     success: bool
     status: str
     stop_reason: str = ""
+    stop_kind: str | None = None
+    recoverable: bool = False
     rounds: int = 1
     matched_skill_name: str | None = None
     skill_distilled: bool = False
@@ -47,6 +49,9 @@ class _Outcome:
     # ``{"forward_progress": bool, "headline": str, "blocker": str,
     # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
     planner_report: dict = field(default_factory=dict)
+    # Final reviewer's generic research assessment, journaled so Planner/Life
+    # cannot declare a targeted research project done without the same evidence.
+    research_result: dict = field(default_factory=dict)
     # Reviewer → Planner checklist feedback from the final round (advisory; the
     # reviewer never edits the checklist). Surfaced in the reviewer→planner
     # journal block so the project Planner can act on it (via checklist_ops) next

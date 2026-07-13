@@ -47,6 +47,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -327,13 +328,20 @@ def _vertical_first_stage(vertical: str, project_root: object = None) -> str | N
         return None
 
 
-def persist_vertical(project_root: object, vertical: str) -> None:
+def persist_vertical(
+    project_root: object,
+    vertical: str,
+    *,
+    research_target_level: str | None = None,
+) -> None:
     """Persist the chosen ``vertical`` into ``research/PIPELINE_STATE.json``.
 
     Validates ``vertical`` against the known built-ins + existing project data
     domains; an unknown name RAISES ``UnknownVerticalError`` (no silent coercion
     to ``research``). A corrupt existing state file RAISES. IO errors PROPAGATE —
     persisting the Manager's decision is load-bearing, not best-effort.
+    For Math, the Manager may provide ``research_target_level``; vertical, target,
+    and target revision timestamp are then committed by the same atomic replace.
 
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
@@ -366,6 +374,35 @@ def persist_vertical(project_root: object, vertical: str) -> None:
             )
 
     payload["vertical"] = vert
+    if research_target_level is not None:
+        from ..core.research_contract import normalize_research_target_level
+        from ..verticals._base import (
+            load_vertical,
+            vertical_research_target_levels,
+        )
+
+        supported_levels = vertical_research_target_levels(
+            load_vertical(vert, project_root=project_root)
+        )
+        if not supported_levels:
+            raise ValueError(
+                f"research_target_level is not supported by vertical {vert!r}"
+            )
+        normalized_target = normalize_research_target_level(research_target_level)
+        if normalized_target is None or normalized_target not in supported_levels:
+            raise ValueError(
+                f"invalid research target level: {research_target_level!r}"
+            )
+        payload["research_target_level"] = normalized_target
+        payload["research_target_set_at"] = time.time()
+    else:
+        from ..verticals._base import load_vertical, vertical_research_target_levels
+
+        if not vertical_research_target_levels(
+            load_vertical(vert, project_root=project_root)
+        ):
+            payload.pop("research_target_level", None)
+            payload.pop("research_target_set_at", None)
 
     # SEED-ONLY, NEVER RESET. Stage authority belongs to the reviewer agent
     # (see docstring). Write an initial stage only when none exists yet — leave

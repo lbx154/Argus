@@ -192,7 +192,10 @@
         "item_id": {"type": "string", "minLength": 1},
         "title": {"type": "string"},
         "objective": {"type": "string"},
-        "missions_started": {"type": "integer", "minimum": 0}
+        "scope": {"type": "string"},
+        "missions_started": {"type": "integer", "minimum": 0},
+        "attempt": {"type": "integer", "minimum": 1},
+        "usage_attempt_id": {"type": "string"}
       }
     },
     "life.mission.completed": {
@@ -202,13 +205,28 @@
         "item_id": {"type": "string", "minLength": 1},
         "title": {"type": "string"},
         "objective": {"type": "string"},
+        "scope": {"type": "string"},
         "status": {"type": "string", "minLength": 1},
         "success": {"type": "boolean"},
         "rounds": {"type": "integer", "minimum": 0},
         "elapsed_seconds": {"type": "number", "minimum": 0},
         "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "known_cost_usd": {"type": "number", "minimum": 0},
-        "pricing_status": {"type": "string"}
+        "pricing_status": {"type": "string"},
+        "research_result": {"type": ["object", "null"]},
+        "stop_kind": {
+          "type": ["string", "null"],
+          "enum": [
+            "budget_exhausted",
+            "provider_cooldown",
+            "provider_fence",
+            "backend_unavailable",
+            "transient_error",
+            "permanent_error",
+            null
+          ]
+        },
+        "recoverable": {"type": "boolean"}
       }
     },
     "round.start": {
@@ -229,7 +247,19 @@
         "input_tokens": {"type": "integer", "minimum": 0},
         "cached_input_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
-        "reasoning_output_tokens": {"type": "integer", "minimum": 0}
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "stop_kind": {
+          "type": ["string", "null"],
+          "enum": [
+            "budget_exhausted",
+            "provider_cooldown",
+            "provider_fence",
+            "backend_unavailable",
+            "transient_error",
+            "permanent_error",
+            null
+          ]
+        }
       }
     },
     "round.review.started": {
@@ -256,12 +286,34 @@
       "required": ["status", "reason"],
       "properties": {
         "round_index": {"type": "integer", "minimum": 0},
-        "status": {"type": "string", "enum": ["done", "continue", "blocked"]},
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "continue",
+            "blocked",
+            "research_incomplete",
+            "paused_no_breakthrough",
+            "exhausted_current_methods"
+          ]
+        },
         "reason": {"type": "string"},
         "next_action": {"type": "string"},
         "scope": {"type": "string"},
         "checklist": {"type": "array", "items": {"type": "object"}},
-        "math_result": {"type": ["object", "null"]},
+        "research_result": {"type": ["object", "null"]},
+        "stop_kind": {
+          "type": ["string", "null"],
+          "enum": [
+            "budget_exhausted",
+            "provider_cooldown",
+            "provider_fence",
+            "backend_unavailable",
+            "transient_error",
+            "permanent_error",
+            null
+          ]
+        },
         "planner_report": {"type": "object"},
         "checkpoint": {"type": "object"},
         "achievement": {"type": ["object", "null"]}

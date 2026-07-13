@@ -13,21 +13,30 @@ def _backlog_item_time(item: object, attr: str) -> float:
         return float("-inf")
 
 
-def count_backlog_statuses(items: Sequence[object]) -> tuple[int, int, int, int, int]:
-    pending = running = done = failed = skipped = 0
+def count_backlog_statuses(
+    items: Sequence[object],
+) -> tuple[int, int, int, int, int, int]:
+    pending = running = paused = done = failed = skipped = 0
     for item in items:
         status = getattr(item, "status", "")
         if status == "pending":
             pending += 1
         elif status == "running":
             running += 1
+        elif status in {
+            "paused",
+            "research_incomplete",
+            "exhausted_current_methods",
+            "infra_blocked",
+        } or str(status).startswith("paused_"):
+            paused += 1
         elif status == "done":
             done += 1
         elif status == "failed":
             failed += 1
         elif status == "skipped":
             skipped += 1
-    return pending, running, done, failed, skipped
+    return pending, running, paused, done, failed, skipped
 
 
 def select_current_running_item(items: Sequence[object]) -> object | None:

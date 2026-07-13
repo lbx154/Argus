@@ -36,11 +36,14 @@ class _DecisionRunner:
 
 
 def _existing(vertical: str) -> _DecisionRunner:
-    return _DecisionRunner({
+    decision = {
         "choice": "existing",
         "vertical": vertical,
         "execution_task": "perform the requested task",
-    })
+    }
+    if vertical == "math":
+        decision["research_target_level"] = "exploratory"
+    return _DecisionRunner(decision)
 
 
 def test_triage_existing_research():
@@ -69,11 +72,43 @@ def test_explicit_builtin_vertical_preserves_execution_task(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", vertical)
 
-    decision = Manager(project_root=tmp_path).decide_vertical("  execute this task  ")
+    runner = _existing("math") if vertical == "math" else None
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "  execute this task  "
+    )
 
     assert decision.choice == "existing"
     assert decision.vertical == vertical
     assert decision.execution_task == "execute this task"
+    if vertical == "math":
+        assert decision.research_target_level == "exploratory"
+
+
+def test_explicit_math_without_backend_uses_fail_closed_target(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
+
+    decision = Manager(project_root=tmp_path).decide_vertical("prove the lemma")
+
+    assert decision.execution_task == "prove the lemma"
+    assert decision.research_target_level == "doctoral"
+
+
+def test_explicit_math_target_env_override_needs_no_backend(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
+    monkeypatch.setenv(
+        "ARGUS_SKILL_MATH_RESEARCH_TARGET_LEVEL",
+        "exploratory",
+    )
+
+    decision = Manager(project_root=tmp_path).decide_vertical("prove the lemma")
+
+    assert decision.research_target_level == "exploratory"
 
 
 def test_plan_stages_research_is_the_8_stage_pipeline():
@@ -123,6 +158,24 @@ def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "nanochat"
+
+
+def test_math_divide_persists_manager_owned_research_target(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    manager = Manager(project_root=tmp_path, runner=_existing("math"))
+
+    division = manager.divide("verify this bounded lemma")
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
+    )
+    assert division.vertical == "math"
+    assert state["vertical"] == "math"
+    assert state["research_target_level"] == "exploratory"
+    assert state["research_target_set_at"] > 0
 
 
 def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_path):

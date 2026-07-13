@@ -329,6 +329,7 @@ def _review_certifies_completion(
     *,
     vertical: str = "",
     mission_scope: str = "",
+    research_target_level: str | None = None,
 ) -> str:
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
@@ -356,10 +357,14 @@ def _review_certifies_completion(
             return "unsatisfied_checklist"
         if not str(item.get("evidence", "")).strip():
             return "missing_checklist_evidence"
-    if (vertical or "").strip().lower() == "math":
-        from ..verticals.math.results import math_completion_issue
+    if research_target_level is not None:
+        from ..core.research_contract import research_completion_issue
 
-        issue = math_completion_issue(getattr(review, "math_result", None))
+        issue = research_completion_issue(
+            getattr(review, "research_result", None),
+            research_target_level=research_target_level,
+            scope=scope or review_scope,
+        )
         if issue:
             return issue
     return ""
@@ -372,6 +377,7 @@ def final_stage_completion_decision(
     stage_order: Sequence[str],
     vertical: str = "",
     mission_scope: str = "",
+    research_target_level: str | None = None,
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
 ) -> StageDecision | None:
@@ -384,6 +390,7 @@ def final_stage_completion_decision(
         review,
         vertical=vertical,
         mission_scope=mission_scope,
+        research_target_level=research_target_level,
     )
     if missing:
         return None

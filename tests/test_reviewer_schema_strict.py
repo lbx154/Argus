@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.reviewer import MATH_SCHEMA_PATH, SCHEMA_PATH
+from argus_skill.reviewer import RESEARCH_SCHEMA_PATH, SCHEMA_PATH
 
 
 def _strict_violations(node, path="root"):
@@ -50,15 +50,15 @@ def test_reviewer_schema_is_strict_structured_output_compliant():
     )
 
 
-def test_math_reviewer_schema_is_strict_and_isolated() -> None:
+def test_research_reviewer_schema_is_strict_and_isolated() -> None:
     base = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
-    math = json.loads(Path(MATH_SCHEMA_PATH).read_text(encoding="utf-8"))
+    research = json.loads(Path(RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8"))
 
-    assert "math_result" not in base["properties"]
-    assert "math_result" not in base["required"]
-    assert "math_result" in math["properties"]
-    assert "math_result" in math["required"]
-    assert not list(_strict_violations(math))
+    assert "research_result" not in base["properties"]
+    assert "research_result" not in base["required"]
+    assert "research_result" in research["properties"]
+    assert "research_result" in research["required"]
+    assert not list(_strict_violations(research))
 
 
 def test_skill_ops_items_require_all_keys():
@@ -94,3 +94,20 @@ def test_operator_question_parsing_blocked_only():
     cont = parse_decision_text(
         '{"status":"continue","reason":"r","next_action":"keep going",' + common + '}')
     assert cont is not None and cont.operator_question == ""
+
+
+def test_research_pause_status_parses_only_when_targeted() -> None:
+    from argus_skill.reviewer._parsing import parse_decision_text
+
+    payload = json.dumps({
+        "status": "research_incomplete",
+        "reason": "No original theorem was verified.",
+        "next_action": "Resume with a distinct method.",
+        "round_summary_markdown": "# Review\n",
+        "completion_summary_markdown": "",
+    })
+
+    assert parse_decision_text(payload) is None
+    decision = parse_decision_text(payload, allow_research_pause=True)
+    assert decision is not None
+    assert decision.status == "research_incomplete"

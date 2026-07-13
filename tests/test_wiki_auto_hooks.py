@@ -89,7 +89,7 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
         verification_summary="Independent replay passed.",
         failure_cause="",
         next_action="Audit the general-rank extension.",
-        math_result={
+        research_result={
             "result_class": "theorem",
             "correctness": "verified",
         },
@@ -225,7 +225,7 @@ def test_run_source_failure_is_isolated_from_other_hooks(project: Path):
         verification_summary="",
         failure_cause="",
         next_action="",
-        math_result={},
+        research_result={},
         planner_report={
             "forward_progress": True,
             "non_json_value": date(2026, 7, 13),

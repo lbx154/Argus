@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,6 +17,9 @@ from argus_skill.life.supervisor import (
     global_daily_spend,
 )
 from argus_skill.life.supervisor._config import reserve_global_daily_budget
+from argus_skill.life.supervisor._constants import PLANNER_DEDUP_STATUSES
+from argus_skill.life.supervisor._planning_cycle import _research_project_done_issue
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _RecordingSink:
@@ -50,6 +54,7 @@ class _Outcome:
     had_follow_up: bool = False
     final_message: str = "done"
     operator_question: str = ""
+    research_result: dict[str, Any] | None = None
 
 
 class _ScientistSpendRunner:
@@ -82,6 +87,155 @@ class _ScientistSpendRunner:
             "usage_scope": "delta",
         })
         return _Outcome()
+
+
+class _ResearchIncompleteRunner:
+    def execute(self, **kwargs) -> _Outcome:
+        return _Outcome(
+            success=False,
+            status="research_incomplete",
+            stop_reason="doctoral target not reached",
+        )
+
+
+class _ResearchBreakthroughRunner:
+    def execute(self, **kwargs) -> _Outcome:
+        return _Outcome(
+            research_result=_certified_research_result("verified_new_result"),
+        )
+
+
+def _certified_research_result(result_class: str) -> dict[str, Any]:
+    return {
+        "result_class": result_class,
+        "correctness_status": "verified",
+        "novelty_status": (
+            "verified_new"
+            if result_class == "verified_new_result"
+            else "not_applicable"
+        ),
+        "statement_fidelity_status": "verified",
+        "significance_status": (
+            "doctoral"
+            if result_class == "verified_new_result"
+            else "exploratory"
+        ),
+        "evidence": ["independently checked evidence"],
+        "limitations": [],
+    }
+
+
+def test_doctoral_planner_done_requires_current_reviewer_certification(
+    tmp_path,
+) -> None:
+    persist_vertical(
+        tmp_path,
+        "math",
+        research_target_level="doctoral",
+    )
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
+    )
+    target_set_at = state["research_target_set_at"]
+    failure = SimpleNamespace(
+        kind="mission_complete",
+        ts=target_set_at + 1,
+        extra={"research_result": _certified_research_result("honest_final_report")},
+    )
+    breakthrough = SimpleNamespace(
+        kind="mission_complete",
+        ts=target_set_at + 2,
+        extra={"research_result": _certified_research_result("verified_new_result")},
+    )
+    bounded_breakthrough = SimpleNamespace(
+        kind="mission_complete",
+        ts=target_set_at + 2,
+        extra={
+            "scope": "bounded",
+            "research_result": _certified_research_result("verified_new_result"),
+        },
+    )
+
+    assert _research_project_done_issue(tmp_path, []) == (
+        "missing_doctoral_reviewer_certification"
+    )
+    assert _research_project_done_issue(tmp_path, [failure]) == (
+        "missing_doctoral_reviewer_certification"
+    )
+    assert _research_project_done_issue(tmp_path, [bounded_breakthrough]) == (
+        "missing_doctoral_reviewer_certification"
+    )
+    assert _research_project_done_issue(tmp_path, [failure, breakthrough]) == ""
+
+
+def test_successful_research_result_is_journaled_for_planner_gate(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchBreakthroughRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=1),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    mem.backlog.add(
+        BacklogItem.new(title="breakthrough", objective="prove a new theorem")
+    )
+
+    result = sup.tick()
+
+    assert result is not None and result["success"] is True
+    event = next(
+        event
+        for event in sink.events
+        if event.get("type") == "life.mission.completed"
+    )
+    assert event["research_result"]["result_class"] == "verified_new_result"
+
+
+def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
+    assert "paused" in PLANNER_DEDUP_STATUSES
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchIncompleteRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=1),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(
+        BacklogItem.new(title="doctoral research", objective="prove a new theorem")
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["success"] is False
+    assert result["status"] == "research_incomplete"
+    paused = next(
+        (candidate for candidate in mem.backlog.all() if candidate.id == item.id),
+        None,
+    )
+    assert paused is not None
+    assert paused.status == "research_incomplete"
+    assert paused.last_error == "doctoral target not reached"
+    event = next(
+        event
+        for event in sink.events
+        if event.get("type") == "life.mission.completed"
+    )
+    assert event["success"] is False
+    assert event["resumable"] is True
+
+    resumed = mem.backlog.resume_paused(item.id)
+    assert resumed is not None
+    assert resumed.status == "pending"
+    assert resumed.attempt == 2
 
 
 def test_skill_miss_scientist_spend_is_journaled_and_budgeted(
@@ -134,7 +288,7 @@ def test_skill_miss_scientist_spend_is_journaled_and_budgeted(
     blocked = sup.tick()
 
     assert blocked is not None
-    assert blocked["status"] == "budget_pause"
+    assert blocked["status"] == "paused_budget"
     assert blocked["item_id"] == second.id
     assert "daily budget remaining" in blocked["reason"]
 
@@ -383,7 +537,7 @@ class _BudgetExhaustedRunner:
         return _Outcome(success=False, status="budget_exhausted", final_message="paused")
 
 
-def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
+def test_budget_exhausted_outcome_pauses_item_and_journals_budget_pause(
     tmp_path,
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
@@ -406,12 +560,12 @@ def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
 
     # Hard pause, NOT a completion — reviewer stays the sole done-ness authority.
     assert result is not None
-    assert result["status"] == "budget_pause"
+    assert result["status"] == "paused_budget"
     assert result["item_id"] == item.id
     assert result.get("success") is not True
-    # Item rolled back to pending so the next tick resumes it from checkpoint.
+    # Item is recoverably paused until an explicit resume starts a fresh attempt.
     rows = {row.id: row for row in mem.backlog.all()}
-    assert rows[item.id].status == "pending"
+    assert rows[item.id].status == "paused_budget"
     # Exactly one budget_pause journal entry; no mission_complete.
     pauses = [e for e in mem.journal.all() if e.kind == "budget_pause"]
     assert len(pauses) == 1
@@ -420,7 +574,7 @@ def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
     assert not [e for e in mem.journal.all() if e.kind == "mission_complete"]
     # A life.mission.completed event marks it as a non-success budget_pause.
     completed = [e for e in sink.events if e.get("type") == "life.mission.completed"]
-    assert completed and completed[-1]["status"] == "budget_pause"
+    assert completed and completed[-1]["status"] == "paused_budget"
     assert completed[-1]["success"] is False
 
 

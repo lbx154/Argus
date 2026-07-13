@@ -83,6 +83,11 @@ class IdleCycleMixin:
                     return f"max-missions cap reached ({self.config.budget.max_missions})"
                 return "__silent_stop__"
         if self.config.budget.remaining_today(self.memory.journal) <= 0:
+            try:
+                if self.memory.backlog.next_pending() is not None:
+                    return "paused_budget"
+            except Exception:  # noqa: BLE001
+                pass
             return "daily budget exhausted"
         return ""
 
@@ -116,6 +121,13 @@ class IdleCycleMixin:
         self._consecutive_idle_planner_cycles += 1
         if getattr(self, "_idle_since", None) is None:
             self._idle_since = time.monotonic()
+        self._suggested_sleep_s = self._idle_backoff_seconds()
+        return self._suggested_sleep_s
+
+    def _enter_pause_backoff(self) -> float:
+        """Back off a recoverable pause without starting the idle-exit clock."""
+        self._consecutive_idle_planner_cycles += 1
+        self._idle_since = None
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
 

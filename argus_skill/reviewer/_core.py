@@ -20,6 +20,7 @@ from typing import Any
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.stop_kinds import normalize_stop_kind
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
@@ -54,7 +55,7 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
-MATH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_math_schema.json"))
+RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.json"))
 def _load_reviewer_engineer_handoff_skill() -> str:
     return load_builtin_skill_text("reviewer-engineer-handoff.md")
 
@@ -276,15 +277,15 @@ class Reviewer:
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
         schema_path = self.schema_path
-        math_vertical = False
+        research_target_level = None
         try:
+            from ..core.research_contract import resolve_research_target_level
             from ..skills.harness_overlay import resolve_project_root
-            from ..skills.vertical_select import resolve_vertical
 
             root = resolve_project_root(config.working_dir)
-            math_vertical = resolve_vertical(root) == "math"
-            if math_vertical and schema_path == SCHEMA_PATH:
-                schema_path = MATH_SCHEMA_PATH
+            research_target_level = resolve_research_target_level(root)
+            if research_target_level is not None and schema_path == SCHEMA_PATH:
+                schema_path = RESEARCH_SCHEMA_PATH
         except Exception:  # noqa: BLE001 — default schema remains safe
             pass
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
@@ -313,6 +314,7 @@ class Reviewer:
                 completion_summary_markdown="",
                 failure_cause="environmental",
                 backend_unavailable=True,
+                backend_stop_kind="backend_unavailable",
             )
         # F7: split the prompt into a byte-stable STATIC preamble (the ~50KB
         # role/rubric/decision-rules + mission anchors) and a per-round DELTA
@@ -383,6 +385,7 @@ class Reviewer:
                 completion_summary_markdown="",
                 failure_cause="environmental",
                 backend_unavailable=True,
+                backend_stop_kind="backend_unavailable",
             )
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
@@ -400,6 +403,10 @@ class Reviewer:
         # stays None (the loop must start a fresh reviewer session there).
         rev_tid = getattr(result, "thread_id", None)
         fatal = str(getattr(result, "fatal_error", "") or "").strip()
+        backend_stop_kind = (
+            normalize_stop_kind(getattr(result, "stop_kind", None))
+            or "backend_unavailable"
+        )
         if fatal or result.exit_code != 0:
             reason = (
                 "Reviewer backend returned no complete verdict "
@@ -427,6 +434,7 @@ class Reviewer:
                 static_fingerprint=new_fp,
                 backend_fatal_error=fatal,
                 backend_exit_code=result.exit_code,
+                backend_stop_kind=backend_stop_kind,
             )
         if not result.agent_messages:
             return ReviewDecision(
@@ -442,7 +450,10 @@ class Reviewer:
                 thread_id=rev_tid,
                 static_fingerprint=new_fp,
             )
-        parsed = _find_decision_in_messages(result.agent_messages)
+        parsed = _find_decision_in_messages(
+            result.agent_messages,
+            allow_research_pause=research_target_level is not None,
+        )
         if parsed is None:
             return ReviewDecision(
                 status="continue",
@@ -470,59 +481,30 @@ class Reviewer:
         # reviewer thread next round and detects mid-mission static drift.
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
-        # Math completion is fail-closed on the reviewer's own structured
-        # correctness/fidelity/novelty verdict. This is not prose or keyword
-        # second-guessing: the Reviewer remains the semantic authority.
-        completion_is_math = math_vertical
-        try:
-            from ..skills.harness_overlay import resolve_project_root
-            from ..skills.stage_checklists import current_stage
-            from ..skills.vertical_select import resolve_vertical
-            from ..verticals._base import load_vertical, vertical_checklist_stage_order
-            from ..verticals.math.results import math_completion_issue
-
-            _project_root = resolve_project_root(config.working_dir)
-            _vertical = resolve_vertical(_project_root)
-            completion_is_math = _vertical == "math"
-            _order = tuple(
-                vertical_checklist_stage_order(
-                    load_vertical(_vertical, project_root=_project_root)
-                )
+        if research_target_level is not None and parsed.status == "done":
+            from ..core.research_contract import (
+                research_completion_issue,
+                research_pause_status,
             )
-            _final_stage = _order[-1] if _order else ""
-            if _vertical == "math" and parsed.status == "done":
-                _project_completion = (
-                    (scope or "").strip().lower() != "bounded"
-                    and current_stage(_project_root) == _final_stage
-                )
-                issue = math_completion_issue(
-                    parsed.math_result,
-                    bounded=not _project_completion,
-                )
-                if issue:
-                    parsed.status = "continue"
-                    parsed.achievement = None
-                    parsed.reason = (
-                        f"Math completion gate held: {issue}. {parsed.reason}"
-                    )[:5000]
-                    parsed.next_action = (
-                        "Provide a structured Math result whose correctness, "
-                        "statement fidelity, evidence, and novelty status satisfy "
-                        f"the completion policy ({issue})."
-                    )[:1500]
-        except Exception:  # noqa: BLE001 — non-math behavior remains unchanged
-            log.debug("Math completion policy lookup failed", exc_info=True)
-            if completion_is_math and parsed.status == "done":
-                parsed.status = "continue"
+
+            issue = research_completion_issue(
+                parsed.research_result,
+                research_target_level=research_target_level,
+                scope=scope,
+            )
+            if issue:
+                parsed.status = research_pause_status(parsed.research_result)
                 parsed.achievement = None
                 parsed.reason = (
-                    "Math completion gate held: completion policy evaluation "
-                    f"failed. {parsed.reason}"
+                    "Research completion gate held for "
+                    f"{research_target_level} target: {issue}. {parsed.reason}"
                 )[:5000]
                 parsed.next_action = (
-                    "Repair the Math completion-policy environment and obtain a "
-                    "fresh independent structured verdict before completing."
-                )
+                    "Preserve this cycle's evidence and resume or re-plan toward "
+                    "a structured result whose correctness, novelty, and significance "
+                    "satisfy the persisted research target "
+                    f"({research_target_level}; {issue})."
+                )[:1500]
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess it with keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a
@@ -621,13 +603,33 @@ class Reviewer:
         # only that vertical's metric instead of paper-pipeline artifacts.
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
-        math_result_instruction = (
-            "For this Math mission, `math_result` is REQUIRED on every verdict. "
-            "Judge result_class, correctness, statement_fidelity, and novelty "
-            "independently; use concrete evidence and limitations.\n\n"
-            if _active_vertical == "math"
-            else ""
-        )
+        research_result_instruction = ""
+        from ..core.research_contract import resolve_research_target_level
+
+        _research_target_level = resolve_research_target_level(_proot)
+        if _research_target_level is not None:
+            research_result_instruction = (
+                "For this targeted research mission, `research_result` is REQUIRED "
+                "on every verdict. Judge result_class, correctness_status, "
+                "novelty_status, significance_status, and any domain-specific "
+                "fidelity field independently; use concrete evidence and limitations.\n"
+                f"The Manager-persisted `research_target_level` is "
+                f"`{_research_target_level}`. Use exactly this success bar; do not "
+                "downgrade it because a report is polished or a bounded cycle ended. "
+                "For `publishable` or `doctoral`, `done` requires "
+                "correctness_status=verified, novelty_status=verified_new, "
+                "significance_status publishable or "
+                "doctoral, and an original terminal result (complete solution, "
+                "verified new result/theorem, improved bound, new infinite family, "
+                "new reduction, or exact counterexample). Literature review, known "
+                "results, finite verification, local Lean verification, "
+                "novelty-unverified work, and honest/structured failure reports are "
+                "artifacts, not mission success. When the current cycle should end "
+                "without that result, use `research_incomplete`, "
+                "`paused_no_breakthrough`, or `exhausted_current_methods`; these "
+                "preserve evidence and permit a future resume. For `exploratory`, "
+                "an independently verified honest failure report may be `done`.\n\n"
+            )
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
         # floor history when judging forward_progress — i.e. distinguish "this
         # round advanced a declared structural line" from "Nth single-knob
@@ -907,7 +909,7 @@ class Reviewer:
                 workflow_mode=vertical_workflow_mode(_vmod),
             )
             + optimize_banner
-            + math_result_instruction
+            + research_result_instruction
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             + _verification_directive()

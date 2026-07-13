@@ -91,6 +91,7 @@ def test_backend_budget_guard_refuses_run_exec(monkeypatch) -> None:
                       run_label="engineer")
     assert res.exit_code != 0
     assert "budget" in (res.fatal_error or "")
+    assert res.stop_kind == "budget_exhausted"
 
 
 def test_backend_guard_clear_restores_normal(monkeypatch) -> None:
@@ -113,6 +114,7 @@ def test_backend_reservation_uses_effective_item_cap(monkeypatch, tmp_path) -> N
 
     seen = {}
     monkeypatch.setattr(cost_control, "cost_control_enabled", lambda: True)
+    monkeypatch.setattr(cost_control, "per_call_budget_cap_usd", lambda: 5.0)
 
     def _reserve(**kwargs):
         seen.update(kwargs)

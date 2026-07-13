@@ -298,6 +298,11 @@ def test_explicit_math_vertical_web_enqueue_enters_backlog(
     manager_bridge._STATES.clear()
     objective = "prove the bounded integer lemma"
     manager = Manager(project_root=life)
+    monkeypatch.setattr(
+        manager,
+        "_decide_research_target",
+        lambda *args, **kwargs: "exploratory",
+    )
 
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
     monkeypatch.setattr(
@@ -339,6 +344,7 @@ def test_explicit_math_vertical_web_enqueue_enters_backlog(
         (life / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["vertical"] == "math"
+    assert state["research_target_level"] == "exploratory"
 
 
 def test_standing_web_task_persists_only_manager_authored_objective(

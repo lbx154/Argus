@@ -26,7 +26,7 @@ class EvolutionMixin:
         self,
         *,
         success: bool,
-        item_id: str,
+        usage_mission_id: str,
         mission_budget: Any,
     ) -> dict[str, int]:
         """Run opted-in source promotion inside the mission ledger and cap."""
@@ -37,7 +37,7 @@ class EvolutionMixin:
         set_guard = getattr(self.runner, "_set_budget_guard", None)
         try:
             if callable(set_usage):
-                set_usage(item_id)
+                set_usage(usage_mission_id)
             if callable(set_guard):
                 set_guard(build_mission_budget_guard(mission_budget))
 

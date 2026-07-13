@@ -75,7 +75,7 @@ def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
             UsageRecord(
                 call_id="tidy-call",
                 project_id=memory.root.name,
-                mission_id=item.id,
+                mission_id=f"{item.id}:attempt:1",
                 provider="codex",
                 model="gpt-5.5-mini",
                 run_label="manager.skill_placement",
@@ -105,6 +105,6 @@ def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
     )
     assert completed["usage_record_count"] == 1
     assert completed["known_cost_usd"] == 0.25
-    assert runner.usage_contexts == [item.id, None]
+    assert runner.usage_contexts == [f"{item.id}:attempt:1", None]
     assert runner.guards[0].cap_usd == 2.5
     assert runner.guards[-1] is None

@@ -596,6 +596,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         per_mission_budget: Any | None = None,
         preplanned: bool = False,
         mission_id: str | None = None,
+        usage_mission_id: str | None = None,
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -603,7 +604,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # not classify arbitrary autonomous work — agent-produced backlog work
         # must not be second-guessed.
         if self._allow_chat_fast_path:
-            self._set_usage_context(mission_id)
+            self._set_usage_context(usage_mission_id or mission_id)
             try:
                 _chat = self._maybe_chat_outcome(
                     objective=objective,
@@ -791,7 +792,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # live per-mission spend. Set the guard on the role backends for the
         # duration of the mission and clear it in the finally so it can never leak
         # into a later mission. ``None`` budget → no guard (cap unenforced, as before).
-        self._set_usage_context(mission_id)
+        self._set_usage_context(usage_mission_id or mission_id)
         _guarded = self._set_budget_guard(_budget_reason_provider(per_mission_budget))
         try:
             # User-authored bounded work now follows the full team chain:
@@ -805,13 +806,21 @@ class _SkillLoopRunner(SelfReplyMixin):
             ):
                 try:
                     from ..manager.plan_mode import draft_plan
-                    from ..verticals.math.runtime import (
-                        LEAN_FORMALIZATION_KIND,
-                        enqueue_lean_formalization_task,
-                        math_role_banner,
+                    from ..skills.vertical_select import resolve_vertical
+                    from ..verticals._base import (
+                        load_vertical,
+                        vertical_role_banner,
                     )
 
-                    math_planner_banner = math_role_banner(workdir, "planner")
+                    active_vertical = resolve_vertical(workdir)
+                    vertical_module = load_vertical(
+                        active_vertical,
+                        project_root=workdir,
+                    )
+                    planner_role_banner = vertical_role_banner(
+                        vertical_module,
+                        "planner",
+                    )
                     plan = draft_plan(
                         getattr(self, "planner_backend", None) or self._backend,
                         original_objective or objective,
@@ -821,54 +830,9 @@ class _SkillLoopRunner(SelfReplyMixin):
                             "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
                         ),
                         run_label="planner-bounded-plan",
-                        role_banner=math_planner_banner,
-                        allow_lean_formalization_subtask=bool(
-                            math_planner_banner
-                        ),
+                        role_banner=planner_role_banner,
                     )
                     if plan.steps:
-                        if math_planner_banner and inbox_life_dir is not None:
-                            formalization_step = next(
-                                (
-                                    step
-                                    for step in plan.steps
-                                    if step.kind == LEAN_FORMALIZATION_KIND
-                                ),
-                                None,
-                            )
-                            if formalization_step is not None:
-                                try:
-                                    child, created = enqueue_lean_formalization_task(
-                                        workdir,
-                                        life_dir=inbox_life_dir,
-                                        parent_mission_id=str(mission_id or ""),
-                                        original_objective=(
-                                            original_objective or objective
-                                        ),
-                                        step_title=formalization_step.title,
-                                        step_detail=formalization_step.detail,
-                                    )
-                                    if created and child is not None:
-                                        sink.handle_event({
-                                            "type": "life.planner.task_added",
-                                            "item_id": child.id,
-                                            "title": child.title,
-                                            "objective": child.objective,
-                                            "deps": list(child.deps),
-                                            "priority": child.priority,
-                                        })
-                                except Exception as exc:  # noqa: BLE001
-                                    sink.handle_event({
-                                        "type": "life.planner.error",
-                                        "error": (
-                                            "Math Lean formalization child "
-                                            f"enqueue failed: {type(exc).__name__}: {exc}"
-                                        ),
-                                        "text": (
-                                            "Math Lean formalization child "
-                                            "enqueue failed; current mission continues"
-                                        ),
-                                    })
                         lines = ["## Planner execution plan (advisory)"]
                         for index, step in enumerate(plan.steps, 1):
                             detail = f" — {step.detail}" if step.detail else ""
@@ -917,6 +881,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         if should_clear_thread_id_after_outcome(
             status=str(getattr(outcome, "status", "")),
             fatal_error=str(getattr(outcome, "stop_reason", "") or ""),
+            stop_kind=getattr(outcome, "stop_kind", None),
         ):
             self.last_thread_id = None
             self._next_seed_thread_id = None
@@ -936,6 +901,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         checklist_feedback: dict = {}
         step_back: dict | None = None
         operator_question = ""
+        research_result: dict = {}
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -952,6 +918,9 @@ class _SkillLoopRunner(SelfReplyMixin):
                 operator_question = str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
+                _research_result = getattr(_final_review, "research_result", None)
+                if isinstance(_research_result, dict):
+                    research_result = dict(_research_result)
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -968,25 +937,57 @@ class _SkillLoopRunner(SelfReplyMixin):
         # pipeline stage. After this round's reviewer verdict, the Manager makes
         # its OWN judgment (advance / hold / rollback) and writes
         # PIPELINE_STATE.json. See ``_decide_stage_transition``.
-        stage_transition = (
-            {}
-            if getattr(config, "workflow_mode", "staged") == "direct"
-            else self._decide_stage_transition(
-                rounds_list=rounds_list,
-                workdir=workdir,
-                sink=sink,
-                root_task_id=mission_id,
-                mission_scope=mission_scope,
-                open_ended=bool(getattr(config, "open_ended", False)),
-                continuous_objective=str(
-                    getattr(config, "continuous_objective", "") or ""
-                ),
+        effective_status = str(outcome.status)
+        effective_stop_kind = getattr(outcome, "stop_kind", None)
+        effective_recoverable = bool(getattr(outcome, "recoverable", False))
+        effective_reason = outcome.reason or ""
+        stage_transition: dict = {}
+        paused_before_stage = effective_status.startswith("paused_")
+        if (
+            getattr(config, "workflow_mode", "staged") != "direct"
+            and not paused_before_stage
+        ):
+            stage_budget_exhausted = bool(
+                per_mission_budget is not None
+                and per_mission_budget.exceeded()
             )
-        )
+            if not stage_budget_exhausted:
+                self._current_sink = sink
+                self._set_usage_context(usage_mission_id or mission_id)
+                stage_guarded = self._set_budget_guard(
+                    _budget_reason_provider(per_mission_budget)
+                )
+                try:
+                    stage_transition = self._decide_stage_transition(
+                        rounds_list=rounds_list,
+                        workdir=workdir,
+                        sink=sink,
+                        root_task_id=usage_mission_id or mission_id,
+                        mission_scope=mission_scope,
+                        open_ended=bool(getattr(config, "open_ended", False)),
+                        continuous_objective=str(
+                            getattr(config, "continuous_objective", "") or ""
+                        ),
+                    )
+                finally:
+                    self._current_sink = None
+                    for backend in stage_guarded:
+                        try:
+                            backend.set_budget_reason_provider(None)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    self._set_usage_context(None)
+            else:
+                effective_status = "paused_budget"
+                effective_stop_kind = "budget_exhausted"
+                effective_recoverable = True
+                effective_reason = "per-mission budget exhausted before Manager stage decision"
         return _Outcome(
-            success=outcome.successful,
-            status=outcome.status,
-            stop_reason=outcome.reason or "",
+            success=bool(outcome.successful and effective_status == "done"),
+            status=effective_status,
+            stop_reason=effective_reason,
+            stop_kind=effective_stop_kind,
+            recoverable=effective_recoverable,
             rounds=outcome.round_count,
             matched_skill_name=outcome.skill_used,
             skill_distilled=outcome.skill_distilled,
@@ -999,6 +1000,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             step_back=step_back,
             stage_transition=stage_transition,
             operator_question=operator_question,
+            research_result=research_result,
         )
 
     def _decide_stage_transition(

@@ -10,12 +10,14 @@ import json
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
-from ..verticals.math.results import (
-    CORRECTNESS_VERDICTS,
-    FIDELITY_VERDICTS,
-    NOVELTY_VERDICTS,
-    RESULT_CLASSES,
-)
+from ..core.research_contract import normalize_research_result
+
+_BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
+_RESEARCH_PAUSE_STATUSES = {
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+}
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -30,17 +32,31 @@ def _strip_markdown_fences(text: str) -> str:
     return "\n".join(lines[start:end]).strip()
 
 
-def _find_decision_in_messages(messages: list[str]) -> "ReviewDecision | None":
+def _find_decision_in_messages(
+    messages: list[str],
+    *,
+    allow_research_pause: bool = False,
+) -> "ReviewDecision | None":
     for msg in reversed(messages):
-        result = parse_decision_text(msg)
+        result = parse_decision_text(
+            msg,
+            allow_research_pause=allow_research_pause,
+        )
         if result is not None:
             return result
     if len(messages) > 1:
-        return parse_decision_text("\n".join(messages))
+        return parse_decision_text(
+            "\n".join(messages),
+            allow_research_pause=allow_research_pause,
+        )
     return None
 
 
-def parse_decision_text(text: str) -> ReviewDecision | None:
+def parse_decision_text(
+    text: str,
+    *,
+    allow_research_pause: bool = False,
+) -> ReviewDecision | None:
     candidate = _strip_markdown_fences(text.strip())
     parsed = _load_json(candidate)
     if parsed is None:
@@ -50,8 +66,16 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
             parsed = _load_json(candidate[left : right + 1])
     if parsed is None:
         return None
-    status = _parse_status(parsed)
-    if status not in {"done", "continue", "blocked"}:
+    status = _parse_status(
+        parsed,
+        allow_research_pause=allow_research_pause,
+    )
+    allowed_statuses = (
+        _BASE_REVIEW_STATUSES | _RESEARCH_PAUSE_STATUSES
+        if allow_research_pause
+        else _BASE_REVIEW_STATUSES
+    )
+    if status not in allowed_statuses:
         return None
     round_summary_markdown = _parse_round_summary(parsed)
     reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
@@ -82,7 +106,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         achievement=_parse_achievement(parsed, status=status),
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
-        math_result=_parse_math_result(parsed),
+        research_result=_parse_research_result(parsed),
         planner_report=_parse_planner_report(parsed, status=status, reason=reason),
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
@@ -93,39 +117,13 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
     )
 
 
-def _parse_math_result(parsed: dict[str, Any]) -> dict[str, Any] | None:
-    raw = parsed.get("math_result")
+def _parse_research_result(parsed: dict[str, Any]) -> dict[str, Any] | None:
+    # ``math_result`` is accepted only as an on-read migration path for persisted
+    # pre-contract verdicts. New schemas and events emit ``research_result``.
+    raw = parsed.get("research_result")
     if not isinstance(raw, dict):
-        return None
-    result_class = str(raw.get("result_class") or "").strip()
-    correctness = str(raw.get("correctness") or "").strip()
-    novelty = str(raw.get("novelty") or "").strip()
-    fidelity = str(raw.get("statement_fidelity") or "").strip()
-    if (
-        result_class not in RESULT_CLASSES
-        or correctness not in CORRECTNESS_VERDICTS
-        or novelty not in NOVELTY_VERDICTS
-        or fidelity not in FIDELITY_VERDICTS
-    ):
-        return None
-    evidence = [
-        str(item or "").strip()[:500]
-        for item in (raw.get("evidence") or [])[:12]
-        if str(item or "").strip()
-    ] if isinstance(raw.get("evidence"), list) else []
-    limitations = [
-        str(item or "").strip()[:500]
-        for item in (raw.get("limitations") or [])[:12]
-        if str(item or "").strip()
-    ] if isinstance(raw.get("limitations"), list) else []
-    return {
-        "result_class": result_class,
-        "correctness": correctness,
-        "novelty": novelty,
-        "statement_fidelity": fidelity,
-        "evidence": evidence,
-        "limitations": limitations,
-    }
+        raw = parsed.get("math_result")
+    return normalize_research_result(raw)
 
 
 def _parse_achievement(
@@ -465,13 +463,22 @@ def _load_json(text: str) -> dict | None:
     return value
 
 
-def _parse_status(parsed: dict) -> ReviewStatus | None:
+def _parse_status(
+    parsed: dict,
+    *,
+    allow_research_pause: bool = False,
+) -> ReviewStatus | None:
+    allowed_statuses = (
+        _BASE_REVIEW_STATUSES | _RESEARCH_PAUSE_STATUSES
+        if allow_research_pause
+        else _BASE_REVIEW_STATUSES
+    )
     for key in ("status", "decision", "action"):
         value = parsed.get(key)
         if not isinstance(value, str):
             continue
         normalized = value.strip().lower()
-        if normalized in {"done", "continue", "blocked"}:
+        if normalized in allowed_statuses:
             return cast(ReviewStatus, normalized)
     return None
 

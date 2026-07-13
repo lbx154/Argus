@@ -27,7 +27,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
@@ -43,6 +43,11 @@ from ..core.models import (
 )
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.stop_kinds import (
+    NON_FAILURE_STOP_KINDS,
+    normalize_stop_kind,
+    pause_status_for_stop_kind,
+)
 from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
     emit_subagent_cost_events,
@@ -311,7 +316,12 @@ def _review_event_payload(
     )
 
 
-def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None) -> bool:
+def should_clear_thread_id_after_outcome(
+    *,
+    status: str,
+    fatal_error: str | None,
+    stop_kind: str | None = None,
+) -> bool:
     """Return True when the carried Codex thread id should be cleared."""
     return (
         str(status).strip().casefold() == "no_progress"
@@ -319,6 +329,7 @@ def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None
         or fatal_error_looks_like_effective_progress_timeout(fatal_error)
         or fatal_error_looks_like_compaction_thrash(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
+        or normalize_stop_kind(stop_kind) in {"backend_unavailable", "transient_error"}
     )
 
 
@@ -327,6 +338,8 @@ def _runner_result_has_successful_work_signal(
     *,
     engineer_message: str,
 ) -> bool:
+    if normalize_stop_kind(getattr(result, "stop_kind", None)) is not None:
+        return False
     if fatal_error_looks_like_effective_progress_timeout(
         getattr(result, "fatal_error", None)
     ):
@@ -345,6 +358,13 @@ def _runner_result_has_successful_work_signal(
         if event is not None and _event_has_successful_work_signal(event):
             return True
     return False
+
+
+def runner_result_is_backend_failure(result: RunnerResult) -> bool:
+    stop_kind = normalize_stop_kind(getattr(result, "stop_kind", None))
+    if stop_kind is not None:
+        return stop_kind in {"backend_unavailable", "transient_error"}
+    return fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None))
 
 
 def parse_continue_work_request(message: str | None) -> str | None:
@@ -1066,7 +1086,7 @@ class SupervisedEngineer:
                         ),
                     })
                 return (
-                    "budget_exhausted",
+                    "paused_budget",
                     rounds,
                     last_engineer_message,
                     f"per-mission cap ${_cap:.2f} reached (spent ${_spent:.2f})",
@@ -1200,6 +1220,9 @@ class SupervisedEngineer:
             # via the return value) can resume the same codex session.
             new_tid = getattr(engineer_result, "thread_id", None)
             fatal_error = getattr(engineer_result, "fatal_error", None)
+            stop_kind = normalize_stop_kind(
+                getattr(engineer_result, "stop_kind", None)
+            )
             round_thread_id = new_tid or current_thread_id
             engineer_message = engineer_result.last_agent_message or ""
             last_engineer_message = engineer_message or last_engineer_message
@@ -1220,6 +1243,7 @@ class SupervisedEngineer:
                     "session_id": round_thread_id,
                     "exit_code": getattr(engineer_result, "exit_code", 0),
                     "fatal_error": getattr(engineer_result, "fatal_error", None),
+                    "stop_kind": stop_kind,
                     "last_message": engineer_message,
                     "input_tokens": int(getattr(engineer_result, "input_tokens", 0) or 0),
                     "cached_input_tokens": int(
@@ -1235,7 +1259,11 @@ class SupervisedEngineer:
                     "usage_scope": "delta",
                 })
 
-            if should_clear_thread_id_after_outcome(status="", fatal_error=fatal_error):
+            if should_clear_thread_id_after_outcome(
+                status="",
+                fatal_error=fatal_error,
+                stop_kind=stop_kind,
+            ):
                 # Context-pressure / poisoned-session / backend-failure roll.
                 # The checkpoint carries memory across this drop, so a cleared
                 # thread is a clean rebirth, not amnesia.
@@ -1343,7 +1371,61 @@ class SupervisedEngineer:
                     None,
                 )
 
-            if fatal_error_looks_like_backend_failure(fatal_error):
+            pause_status = pause_status_for_stop_kind(stop_kind)
+            if stop_kind in NON_FAILURE_STOP_KINDS and pause_status:
+                review = external_pause_review_decision(
+                    stop_kind=stop_kind,
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                )
+                if on_event:
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text=f"review: skipped ({stop_kind})",
+                        review_skipped=True,
+                    ))
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                    stop_kind=stop_kind,
+                ))
+                return (
+                    pause_status,
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    round_thread_id,
+                )
+
+            if stop_kind == "permanent_error":
+                review = backend_failure_review_decision(
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                    streak=1,
+                    threshold=1,
+                )
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                    stop_kind=stop_kind,
+                ))
+                return (
+                    "error",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    None,
+                )
+
+            if runner_result_is_backend_failure(engineer_result):
                 backend_failure_streak += 1
                 no_progress_streak = 0
                 review = backend_failure_review_decision(
@@ -1369,6 +1451,7 @@ class SupervisedEngineer:
                     engineer_exit_code=engineer_result.exit_code,
                     review=review,
                     fatal_error=engineer_result.fatal_error,
+                    stop_kind=stop_kind,
                 ))
                 threshold = max(1, int(supervised_config.backend_failure_threshold or 1))
                 if backend_failure_streak >= threshold or round_index >= supervised_config.max_rounds:
@@ -1639,6 +1722,7 @@ class SupervisedEngineer:
                         completion_summary_markdown="",
                         failure_cause="environmental",
                         backend_unavailable=True,
+                        backend_stop_kind="backend_unavailable",
                     )
                 reviewer_fatal_error = str(
                     getattr(review, "backend_fatal_error", "") or ""
@@ -1646,6 +1730,59 @@ class SupervisedEngineer:
                 reviewer_exit_code = int(
                     getattr(review, "backend_exit_code", 0) or 0
                 )
+                reviewer_stop_kind = normalize_stop_kind(
+                    getattr(review, "backend_stop_kind", None)
+                )
+                reviewer_pause_status = pause_status_for_stop_kind(
+                    reviewer_stop_kind
+                )
+                if (
+                    getattr(review, "backend_unavailable", False)
+                    and reviewer_stop_kind in NON_FAILURE_STOP_KINDS
+                    and reviewer_pause_status
+                ):
+                    if on_event:
+                        on_event(_review_event_payload(
+                            review,
+                            round_index=round_index,
+                            round_max=supervised_config.max_rounds,
+                            text=f"review: skipped ({reviewer_stop_kind})",
+                            review_skipped=True,
+                        ))
+                    rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=review,
+                        fatal_error=reviewer_fatal_error,
+                        stop_kind=reviewer_stop_kind,
+                    ))
+                    return (
+                        reviewer_pause_status,
+                        rounds,
+                        last_engineer_message,
+                        review.reason,
+                        current_thread_id,
+                    )
+                if (
+                    getattr(review, "backend_unavailable", False)
+                    and reviewer_stop_kind == "permanent_error"
+                ):
+                    rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=review,
+                        fatal_error=reviewer_fatal_error,
+                        stop_kind=reviewer_stop_kind,
+                    ))
+                    return (
+                        "error",
+                        rounds,
+                        last_engineer_message,
+                        review.reason,
+                        None,
+                    )
                 if (
                     getattr(review, "backend_unavailable", False)
                     and fatal_error_looks_like_operator_abort_request(
@@ -2025,6 +2162,7 @@ class SupervisedEngineer:
                 exit_code=-1,
                 fatal_error=msg,
                 stderr_lines=[msg],
+                stop_kind="backend_unavailable",
             ), 0
 
     @staticmethod
@@ -2042,7 +2180,19 @@ class SupervisedEngineer:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
+            if review.failure_cause == "environmental" and not review.operator_question:
+                return "infra_blocked", review.reason or "Research infrastructure blocked progress."
             return "blocked", review.reason or "Reviewer blocked progress."
+        if review.status in {
+            "research_incomplete",
+            "paused_no_breakthrough",
+            "exhausted_current_methods",
+        }:
+            return (
+                cast(LoopStatus, review.status),
+                review.reason
+                or "Reviewer ended this research cycle without certifying success.",
+            )
         if no_progress_streak >= no_progress_threshold:
             return (
                 "no_progress",
@@ -2107,6 +2257,37 @@ def backend_failure_review_decision(
     )
 
 
+def external_pause_review_decision(
+    *,
+    stop_kind: str,
+    fatal_error: str | None,
+    exit_code: int,
+) -> ReviewDecision:
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    return ReviewDecision(
+        status="blocked",
+        reason=(
+            f"Backend call paused before a trustworthy completed turn "
+            f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
+        ),
+        next_action=(
+            "Resume from the persisted checkpoint after the blocking budget or "
+            "provider condition has been cleared."
+        ),
+        round_summary_markdown=(
+            "# Review Summary\n\n"
+            f"- Reviewer skipped because `{stop_kind}` stopped the backend call.\n"
+            f"- Error: {error_text}\n"
+        ),
+        completion_summary_markdown="",
+        failure_cause="environmental",
+        backend_unavailable=True,
+        backend_fatal_error=error_text,
+        backend_exit_code=exit_code,
+        backend_stop_kind=normalize_stop_kind(stop_kind),
+    )
+
+
 def model_configuration_review_decision(
     *, fatal_error: str | None, exit_code: int,
 ) -> ReviewDecision:
@@ -2131,6 +2312,7 @@ def model_configuration_review_decision(
         completion_summary_markdown="",
         failure_cause="environmental",
         backend_unavailable=True,
+        backend_stop_kind="permanent_error",
     )
 
 
@@ -2195,10 +2377,12 @@ __all__ = [
     "SupervisedEngineer",
     "LoopOutcome",
     "backend_failure_review_decision",
+    "external_pause_review_decision",
     "model_configuration_review_decision",
     "daemon_stop_review_decision",
     "operator_abort_review_decision",
     "fatal_error_looks_like_backend_failure",
+    "runner_result_is_backend_failure",
     "fatal_error_looks_like_model_configuration",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_operator_abort_request",

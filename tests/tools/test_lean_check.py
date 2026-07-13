@@ -207,24 +207,24 @@ def test_lake_uses_persistent_mathlib_workspace_for_external_source(
     assert result["cwd"] == str(workspace.resolve())
 
 
-def test_packaged_divisibility_smoke_matches_checked_source() -> None:
+def test_divisibility_fixture_matches_checked_source() -> None:
     packaged = (
         Path(__file__).parents[2]
-        / "argus_skill"
-        / "verticals"
-        / "math"
+        / "tests"
+        / "fixtures"
+        / "lean"
         / "divisibility_smoke.lean"
     )
 
     assert packaged.read_text(encoding="utf-8") == DIVISIBILITY_SMOKE_THEOREM
 
 
-def test_packaged_erdos_straus_local_identity_is_bounded() -> None:
+def test_erdos_straus_fixture_is_bounded() -> None:
     packaged = (
         Path(__file__).parents[2]
-        / "argus_skill"
-        / "verticals"
-        / "math"
+        / "tests"
+        / "fixtures"
+        / "lean"
         / "erdos_straus_even_local.lean"
     )
     source = packaged.read_text(encoding="utf-8")

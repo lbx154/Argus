@@ -8,7 +8,10 @@
       "enum": [
         "done",
         "continue",
-        "blocked"
+        "blocked",
+        "research_incomplete",
+        "paused_no_breakthrough",
+        "exhausted_current_methods"
       ]
     },
     "reason": {
@@ -115,12 +118,12 @@
         null
       ]
     },
-    "math_result": {
+    "research_result": {
       "type": [
         "object",
         "null"
       ],
-      "description": "Math-vertical-only result classification with independent correctness, fidelity, and novelty verdicts. Non-math reviewers use null.",
+      "description": "Structured assessment for a mission with a persisted research_target_level. Ordinary missions use null.",
       "additionalProperties": false,
       "properties": {
         "result_class": {
@@ -132,10 +135,21 @@
             "partial_result",
             "new_candidate",
             "novelty_unverified",
-            "verified_new_result"
+            "verified_new_result",
+            "structured_failure_report",
+            "honest_final_report",
+            "literature_review",
+            "lean_local_verification",
+            "complete_solution",
+            "new_theorem",
+            "improved_bound",
+            "new_infinite_family",
+            "new_reduction",
+            "exact_counterexample",
+            "exhausted_current_methods"
           ]
         },
-        "correctness": {
+        "correctness_status": {
           "type": "string",
           "enum": [
             "verified",
@@ -143,7 +157,7 @@
             "uncertain"
           ]
         },
-        "novelty": {
+        "novelty_status": {
           "type": "string",
           "enum": [
             "known",
@@ -152,12 +166,23 @@
             "not_applicable"
           ]
         },
-        "statement_fidelity": {
+        "statement_fidelity_status": {
           "type": "string",
           "enum": [
             "verified",
             "failed",
-            "uncertain"
+            "uncertain",
+            "not_applicable"
+          ]
+        },
+        "significance_status": {
+          "type": "string",
+          "enum": [
+            "exploratory",
+            "publishable",
+            "doctoral",
+            "unverified",
+            "not_applicable"
           ]
         },
         "evidence": {
@@ -181,9 +206,10 @@
       },
       "required": [
         "result_class",
-        "correctness",
-        "novelty",
-        "statement_fidelity",
+        "correctness_status",
+        "novelty_status",
+        "statement_fidelity_status",
+        "significance_status",
         "evidence",
         "limitations"
       ]
@@ -656,7 +682,7 @@
     "achievement",
     "failure_cause",
     "scope",
-    "math_result",
+    "research_result",
     "planner_report",
     "checklist",
     "checkpoint",

@@ -435,14 +435,32 @@ class EventJournal(Journal):
             return JournalEntry.from_jsonable(row)
         etype = canonical_event_type(row.get("canonical_type") or row.get("type"))
         # The mid-mission budget breaker emits ``life.mission.completed`` with
-        # ``status="budget_pause"`` (success=False). Derive the documented
+        # ``status="paused_budget"`` (success=False). Derive the documented
         # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —
         # the generic completed→kind map below keys only on ``success``.
         if (
             etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") == "budget_pause"
+            and str(row.get("status") or "") in {"budget_pause", "paused_budget"}
         ):
             kind: str | None = "budget_pause"
+        elif (
+            etype == EventType.LIFE_MISSION_COMPLETED
+            and str(row.get("status") or "") in {
+                "paused_provider_cooldown",
+                "paused_provider_fence",
+            }
+        ):
+            kind = "provider_pause"
+        elif (
+            etype == EventType.LIFE_MISSION_COMPLETED
+            and str(row.get("status") or "") in {
+                "research_incomplete",
+                "paused_no_breakthrough",
+                "exhausted_current_methods",
+                "infra_blocked",
+            }
+        ):
+            kind = "research_pause"
         else:
             kind = {
                 EventType.LIFE_MISSION_STARTED: "mission_started",
@@ -535,8 +553,32 @@ class EventJournal(Journal):
 # Backlog
 # ---------------------------------------------------------------------------
 
-_BACKLOG_STATUSES = {"pending", "running", "done", "failed", "skipped"}
+_BACKLOG_STATUSES = {
+    "pending",
+    "running",
+    "paused",
+    "paused_budget",
+    "paused_provider_cooldown",
+    "paused_provider_fence",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+    "infra_blocked",
+    "done",
+    "failed",
+    "skipped",
+}
 _TERMINAL_STATUSES = {"done", "failed", "skipped"}
+_RECOVERABLE_PAUSE_STATUSES = {
+    "paused",
+    "paused_budget",
+    "paused_provider_cooldown",
+    "paused_provider_fence",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+    "infra_blocked",
+}
 
 
 class IllegalStateTransition(RuntimeError):
@@ -589,6 +631,9 @@ class BacklogItem:
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
     orphan_retries: int = 0
+    # Usage is metered per attempt while the backlog item and its checkpoint,
+    # method ledger, and skill-adaptation state keep the stable item id.
+    attempt: int = 1
     # --- dependency DAG (topological scheduling) -----------------------
     # ``deps`` is the list of *other* backlog item ids this item depends
     # on. An item is only claimable once **every** dep has reached the
@@ -665,6 +710,7 @@ class BacklogItem:
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
             orphan_retries=int(row.get("orphan_retries", 0)),
+            attempt=max(1, int(row.get("attempt", 1) or 1)),
             # Pre-DAG rows have no ``deps`` key → []. An empty dep list
             # means "always ready", so old backlogs schedule exactly as
             # they did before the DAG upgrade.
@@ -815,6 +861,14 @@ class Backlog:
                                 f"backlog item {item_id} is in terminal state "
                                 f"{it.status!r}; refusing transition to "
                                 f"{new_status!r}. Enqueue a new item instead."
+                            )
+                        if (
+                            it.status in _RECOVERABLE_PAUSE_STATUSES
+                            and new_status == "pending"
+                        ):
+                            raise IllegalStateTransition(
+                                f"backlog item {item_id} is paused; use "
+                                "resume_paused() so the usage attempt advances"
                             )
                     for k, v in fields.items():
                         if hasattr(it, k):
@@ -1001,6 +1055,43 @@ class Backlog:
         return self.update(
             item_id, status="failed", finished_ts=time.time(), last_error=error
         )
+
+    def resume_paused(self, item_id: str) -> BacklogItem | None:
+        """Start a fresh metering attempt for one recoverable paused item."""
+        with self._locked():
+            items = self._load()
+            out: BacklogItem | None = None
+            for item in items:
+                if item.id != item_id:
+                    continue
+                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                    return None
+                item.status = "pending"
+                item.attempt = max(1, int(item.attempt or 1)) + 1
+                item.started_ts = None
+                item.finished_ts = None
+                out = item
+                break
+            if out is not None:
+                self._save(items)
+            return out
+
+    def resume_all_paused(self) -> list[BacklogItem]:
+        """Atomically re-arm every recoverable pause with fresh usage attempts."""
+        with self._locked():
+            items = self._load()
+            resumed: list[BacklogItem] = []
+            for item in items:
+                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                    continue
+                item.status = "pending"
+                item.attempt = max(1, int(item.attempt or 1)) + 1
+                item.started_ts = None
+                item.finished_ts = None
+                resumed.append(item)
+            if resumed:
+                self._save(items)
+            return resumed
 
     def remove(self, item_id: str) -> bool:
         with self._locked():

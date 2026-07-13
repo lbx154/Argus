@@ -123,6 +123,7 @@ class ProviderPermit:
     provider: str
     run_label: str
     root: Path
+    stop_kind: str | None = None
     daily_calls: int = 0
     daily_cap: int = 0
     guarded: bool = True
@@ -184,7 +185,16 @@ def acquire_codex_permit(run_label: str) -> ProviderPermit:
                     "daily_cap": cap,
                 },
             )
-            return ProviderPermit(False, reason, "codex", run_label, root, used, cap)
+            return ProviderPermit(
+                False,
+                reason,
+                "codex",
+                run_label,
+                root,
+                stop_kind="budget_exhausted",
+                daily_calls=used,
+                daily_cap=cap,
+            )
 
         used += 1
         state["daily_calls"] = used
@@ -200,7 +210,15 @@ def acquire_codex_permit(run_label: str) -> ProviderPermit:
                 "daily_cap": cap,
             },
         )
-        return ProviderPermit(True, "", "codex", run_label, root, used, cap)
+        return ProviderPermit(
+            True,
+            "",
+            "codex",
+            run_label,
+            root,
+            daily_calls=used,
+            daily_cap=cap,
+        )
     finally:
         _unlock(lock)
 

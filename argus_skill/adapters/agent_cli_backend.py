@@ -56,6 +56,7 @@ from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.runner_errors import result_has_pre_provider_refusal
+from ..core.stop_kinds import StopKind, normalize_stop_kind
 
 log = logging.getLogger(__name__)
 
@@ -95,10 +96,71 @@ _COMPACT_IO_RUN_LABELS = frozenset({
     "skill.compaction_batch",
     "wiki.compaction_batch",
 })
+_PROVIDER_COOLDOWN_PATTERNS = (
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "retry after",
+    "retry-after",
+    "429",
+    "circuit open",
+    "cooldown",
+)
+_PROVIDER_FENCE_PATTERNS = (
+    "error_max_budget_usd",
+    "max budget usd",
+    "max-budget-usd",
+    "provider budget limit",
+)
+_TRANSIENT_ERROR_PATTERNS = (
+    "timed out",
+    "timeout",
+    "temporarily unavailable",
+    "connection reset",
+    "connection refused",
+    "stream disconnected",
+    "service unavailable",
+    "502",
+    "503",
+    "504",
+)
 
 
 def _compact_agent_io(run_label: str) -> bool:
     return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
+
+
+def _reservation_denial_stop_kind(reason: str) -> StopKind:
+    low = str(reason or "").casefold()
+    if "budget fence breach" in low or "unresolved provider cost" in low:
+        return "provider_fence"
+    if "cost control unavailable" in low:
+        return "backend_unavailable"
+    return "budget_exhausted"
+
+
+def _raw_backend_stop_kind(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+) -> StopKind | None:
+    fatal = str(fatal_error or "").strip()
+    if not fatal and int(exit_code or 0) == 0:
+        return None
+    low = fatal.casefold()
+    if low.startswith("external interrupt:"):
+        return None
+    if any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
+        return "provider_fence"
+    if any(pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS):
+        return "provider_cooldown"
+    if any(pattern in low for pattern in _AUTH_FAILURE_PATTERNS):
+        return "permanent_error"
+    if any(pattern in low for pattern in _TRANSIENT_ERROR_PATTERNS):
+        return "transient_error"
+    if low.startswith("refused before start:"):
+        return "permanent_error"
+    return "backend_unavailable"
 
 
 def resolve_pricing_model(
@@ -602,6 +664,7 @@ class AgentCliBackend:
             usage_record = None
             reservation_overrun_usd: float | None = None
             result.call_id = call_id
+            result.stop_kind = normalize_stop_kind(result.stop_kind)
             result.thread_id = result.thread_id or resume_thread_id
             result.started_at = started_at
             result.completed_at = completed_at
@@ -781,6 +844,24 @@ class AgentCliBackend:
             self._io_context.current = None
             return result
 
+        budget_reason = ""
+        if self._budget_reason_provider is not None:
+            try:
+                budget_reason = str(self._budget_reason_provider() or "").strip()
+            except Exception:  # noqa: BLE001 - budget probes remain fail-open
+                budget_reason = ""
+        if budget_reason:
+            return _finalize_result(
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    fatal_error=f"refused before start: {budget_reason}",
+                    stop_kind="budget_exhausted",
+                ),
+                status="denied",
+                error=budget_reason,
+            )
+
         # Reservation happens before the provider responds, so there is no
         # response model yet — attribute it to the request model, falling back to
         # the configured default (same rule as the settled usage record) so the
@@ -822,6 +903,7 @@ class AgentCliBackend:
                             exit_code=-1,
                             thread_id=resume_thread_id,
                             fatal_error=f"refused before start: {reserve_reason}",
+                            stop_kind=_reservation_denial_stop_kind(reserve_reason),
                         ),
                         status="denied",
                         error=reserve_reason,
@@ -851,6 +933,7 @@ class AgentCliBackend:
                     exit_code=-1,
                     thread_id=resume_thread_id,
                     fatal_error=f"refused before start: {reason}",
+                    stop_kind="backend_unavailable",
                 ),
                 status="denied",
                 error=reason,
@@ -876,6 +959,7 @@ class AgentCliBackend:
                     exit_code=-1,
                     thread_id=resume_thread_id,
                     fatal_error=f"refused before start: {reason}",
+                    stop_kind="permanent_error",
                 ),
                 status="denied",
                 error=reason,
@@ -930,6 +1014,7 @@ class AgentCliBackend:
                         exit_code=-1,
                         thread_id=resume_thread_id,
                         fatal_error=f"refused before start: {reason}",
+                        stop_kind=normalize_stop_kind(copilot_permit.stop_kind),
                     ),
                     status="denied",
                     error=reason,
@@ -956,6 +1041,7 @@ class AgentCliBackend:
                         exit_code=-1,
                         thread_id=resume_thread_id,
                         fatal_error=f"refused before start: {reason}",
+                        stop_kind=normalize_stop_kind(codex_permit.stop_kind),
                     ),
                     status="denied",
                     error=reason,
@@ -1053,6 +1139,7 @@ class AgentCliBackend:
                 RunnerResult(
                     exit_code=127,
                     fatal_error=f"runner binary not found: {exc}",
+                    stop_kind="permanent_error",
                 ),
                 status="denied",
                 error=str(exc),
@@ -1076,6 +1163,7 @@ class AgentCliBackend:
                 RunnerResult(
                     exit_code=-1,
                     fatal_error=f"{type(exc).__name__}: {exc}",
+                    stop_kind="backend_unavailable",
                 ),
                 status="error",
                 error=f"{type(exc).__name__}: {exc}",
@@ -1112,6 +1200,7 @@ class AgentCliBackend:
                         or resume_thread_id
                     ),
                     fatal_error=f"result translation failed: {exc}",
+                    stop_kind="backend_unavailable",
                     usage_model=(
                         copilot_usage.model if copilot_usage is not None else ""
                     ),
@@ -1384,6 +1473,13 @@ class AgentCliBackend:
             stderr_lines=list(argus_result.stderr_lines or []),
             thread_id=argus_result.thread_id or resume_thread_id,
             fatal_error=_normalize_fatal_error(argus_result.fatal_error),
+            stop_kind=(
+                normalize_stop_kind(getattr(argus_result, "stop_kind", None))
+                or _raw_backend_stop_kind(
+                    fatal_error=argus_result.fatal_error,
+                    exit_code=argus_result.exit_code,
+                )
+            ),
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             cache_write_tokens=raw_usage.cache_write_tokens,

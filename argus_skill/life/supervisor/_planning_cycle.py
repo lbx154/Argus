@@ -27,6 +27,50 @@ from ._helpers import (
 log = logging.getLogger(__name__)
 
 
+def _research_project_done_issue(
+    project_root: object,
+    journal_entries: list[Any],
+) -> str:
+    """Require a current-target reviewer certification before Planner success."""
+    from ...core.research_contract import (
+        research_completion_issue,
+        resolve_research_target_level,
+        resolve_research_target_set_at,
+    )
+
+    target_level = resolve_research_target_level(project_root)
+    if target_level is None:
+        return ""
+    target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    for entry in reversed(journal_entries):
+        if str(getattr(entry, "kind", "") or "") != "mission_complete":
+            continue
+        try:
+            entry_ts = float(getattr(entry, "ts", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if entry_ts < target_set_at:
+            break
+        extra = getattr(entry, "extra", None)
+        if (
+            isinstance(extra, dict)
+            and str(extra.get("scope") or "").strip().lower() == "bounded"
+        ):
+            continue
+        research_result = (
+            extra.get("research_result") or extra.get("math_result")
+            if isinstance(extra, dict)
+            else None
+        )
+        if not research_completion_issue(
+            research_result,
+            research_target_level=target_level,
+            scope=str(extra.get("scope") or "") if isinstance(extra, dict) else "",
+        ):
+            return ""
+    return f"missing_{target_level}_reviewer_certification"
+
+
 class PlanningCycleMixin:
     def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
         """Ask the Manager to reopen a completed final stage when work remains.
@@ -94,8 +138,8 @@ class PlanningCycleMixin:
         any gate/stage read (``resolve_vertical``) runs.
 
         Precedence:
-        * An already-persisted vertical is TRUSTED and re-persisted (sticky
-          across daemon restarts; a chosen per-task vertical stays chosen).
+        * An already-persisted vertical is TRUSTED as-is (sticky across daemon
+          restarts; a chosen per-task vertical stays chosen).
         * Otherwise, when a continuous objective is set, the MANAGER AGENT
           decides it (``Manager.divide`` — one grounded call, no keyword
           classifier) and persists it (autonomously authoring a new data domain
@@ -115,9 +159,8 @@ class PlanningCycleMixin:
         artifact_root = self._artifact_root()
         persisted = _vsel._persisted_vertical(artifact_root)
         if persisted is not None:
-            # Trust the persisted vertical and re-persist it (sticky). Does NOT
-            # touch current_stage — stage authority is the reviewer agent's.
-            _vsel.persist_vertical(artifact_root, persisted)
+            # A read is sufficient: rewriting the whole pipeline state here can
+            # race a Manager target/stage commit and restore stale fields.
             self._emit({
                 "type": "life.vertical.resolved",
                 "vertical": persisted,
@@ -215,6 +258,10 @@ class PlanningCycleMixin:
             not getattr(self.config, "open_ended", False)
             and not self._effective_full_paper_gate(artifact_root)
             and vertical_reached_own_terminal_stage(artifact_root, vertical)
+            and not _research_project_done_issue(
+                artifact_root,
+                self.memory.journal.all(),
+            )
         ):
             reason = f"bounded {vertical} vertical reached terminal stage"
             self._emit({
@@ -366,6 +413,23 @@ class PlanningCycleMixin:
                     )
                 ],
             )
+
+        if verdict.project_done:
+            research_done_issue = _research_project_done_issue(
+                self._artifact_root(),
+                self.memory.journal.all(),
+            )
+            if research_done_issue:
+                verdict = replace(
+                    verdict,
+                    project_done=False,
+                    reason=(
+                        "Research project completion gate held: "
+                        f"{research_done_issue}. A completed report or bounded cycle "
+                        "does not satisfy the persisted research target."
+                    ),
+                    new_tasks=[],
+                )
 
         if verdict.project_done and self.config.open_ended:
             self._last_open_ended_project_done_signature = (
