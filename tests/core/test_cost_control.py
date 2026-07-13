@@ -148,7 +148,7 @@ def test_unpriced_settlement_blocks_until_usage_is_reconciled(
         per_call_cap_usd=5.0,
     )
     assert control is not None and reason == ""
-    assert control.amount_usd == pytest.approx(5.0)
+    assert control.amount_usd == pytest.approx(1.0)
     control.release(reason="test")
 
     usage_path = project / "usage.jsonl"
@@ -557,12 +557,12 @@ def test_control_plane_overrun_does_not_block_mission_calls(
         per_call_cap_usd=5.0,
     )
     assert reservation is not None and reason == ""
-    assert reservation.amount_usd == pytest.approx(5.0)
+    assert reservation.amount_usd == pytest.approx(1.0)
     record = replace(
         _record(project, "manager-overrun"),
         provider="copilot",
         run_label="simple-1",
-        cost_usd=5.25,
+        cost_usd=1.25,
     )
     UsageLedger(project, migrate_legacy=False).append(record)
     reservation.settle(record)

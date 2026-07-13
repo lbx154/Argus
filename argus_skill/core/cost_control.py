@@ -40,7 +40,7 @@ _CONTROL_PLANE_RUN_LABELS = frozenset({
     "router-classify",
     "simple-1",
 })
-_CONTROL_PLANE_CALL_CAP_USD = 5.0
+_CONTROL_PLANE_CALL_CAP_USD = 1.0
 
 
 def _is_control_plane_call(run_label: str) -> bool:
@@ -360,17 +360,6 @@ def per_call_budget_cap_usd() -> float:
         return 5.0
 
 
-def _control_plane_call_cap_usd() -> float:
-    raw = resolve_knob(
-        "ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD",
-        str(_CONTROL_PLANE_CALL_CAP_USD),
-    ).value
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return _CONTROL_PLANE_CALL_CAP_USD
-
-
 @dataclass
 class CallBudgetReservation:
     root: Path
@@ -614,7 +603,7 @@ def reserve_call_budget(
                 if call_cap > 0:
                     ceiling = min(ceiling, call_cap)
             if control_plane:
-                ceiling = min(ceiling, _control_plane_call_cap_usd())
+                ceiling = min(ceiling, _CONTROL_PLANE_CALL_CAP_USD)
             amount = 0.0 if ceiling == float("inf") else max(0.0, ceiling)
             fence = provider_spend_fence(provider, amount)
             reservation_id = uuid.uuid4().hex
