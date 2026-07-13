@@ -85,8 +85,10 @@ from .state import (
     _point_active_daemon_log,
     _process_alive,
     _redirect_std_to_log,
+    clear_daemon_drain_request,
     compare_and_swap_continuous_config,
     continuous_mode_error,
+    daemon_drain_requested,
     disable_continuous_config,
     read_continuous_config,
     read_continuous_state,
@@ -254,6 +256,7 @@ class LifeWorker:
     def __init__(self, config: LifeWorkerConfig) -> None:
         self.config = config
         self._stop = threading.Event()
+        self._mission_stop = threading.Event()
         self._operator_stop_requested = False
         self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
@@ -273,6 +276,11 @@ class LifeWorker:
             log.info("daemon: received signal %s, requesting stop", signum)
             self._operator_stop_requested = True
             self._stop.set()
+            if not daemon_drain_requested(
+                self.config.life_dir,
+                pid=os.getpid(),
+            ):
+                self._mission_stop.set()
 
         signal.signal(signal.SIGTERM, _handler)
         signal.signal(signal.SIGINT, _handler)
@@ -628,7 +636,7 @@ class LifeWorker:
         # keeps daemon.life_worker free of CLI-only deps until needed.
         from ..apps._runtime import LifeStderrSink, build_life_runner
         ns = _runner_namespace(cfg)
-        ns.stop_event = self._stop
+        ns.stop_event = self._mission_stop
         runner = build_life_runner(ns)
 
         # Continuous drain: each LifeSupervisor.run() drains until the
@@ -1062,6 +1070,10 @@ class LifeWorker:
         finally:
             if self._curator is not None:
                 self._curator.stop()
+            clear_daemon_drain_request(
+                self.config.life_dir,
+                pid=os.getpid(),
+            )
 
         # Operator clock-out (别干了): a graceful stop (SIGTERM/SIGINT set
         # self._stop — including a bare ``kill`` and ``--daemon-stop``) quiesces

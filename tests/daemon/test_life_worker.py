@@ -29,6 +29,10 @@ from argus_skill.daemon.life_worker import (
     resolve_effective_budget,
     stop_daemon,
 )
+from argus_skill.daemon.state import (
+    daemon_drain_requested,
+    request_daemon_drain,
+)
 from argus_skill.life.memory import BacklogItem, LifeMemory
 
 _ENV_VARS_TO_CLEAR = (
@@ -76,6 +80,51 @@ def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> 
     assert status.alive is False
     assert status.pid is None
     assert status.life_dir == tmp_path
+
+
+def test_drain_signal_does_not_interrupt_active_mission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handlers: dict[int, Any] = {}
+    monkeypatch.setattr(
+        life_worker_mod.signal,
+        "signal",
+        lambda signum, handler: handlers.__setitem__(signum, handler),
+    )
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path))
+    request_daemon_drain(tmp_path, pid=os.getpid())
+    worker._install_signal_handlers()
+
+    handlers[life_worker_mod.signal.SIGTERM](
+        life_worker_mod.signal.SIGTERM,
+        None,
+    )
+
+    assert worker._stop.is_set()
+    assert not worker._mission_stop.is_set()
+
+
+def test_plain_stop_signal_interrupts_active_mission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handlers: dict[int, Any] = {}
+    monkeypatch.setattr(
+        life_worker_mod.signal,
+        "signal",
+        lambda signum, handler: handlers.__setitem__(signum, handler),
+    )
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path))
+    worker._install_signal_handlers()
+
+    handlers[life_worker_mod.signal.SIGTERM](
+        life_worker_mod.signal.SIGTERM,
+        None,
+    )
+
+    assert worker._stop.is_set()
+    assert worker._mission_stop.is_set()
 
 
 def test_inspect_project_bootstrap_leaves_generic_empty_repo_to_agent(
@@ -409,6 +458,7 @@ def test_stop_daemon_drain_quiesces_continuous_and_waits_for_clean_exit(
         # Drain quiesced continuous mode (no NEW mission), preserving the objective.
         assert life_worker_mod.read_continuous_config(tmp_path) == (False, "keep going")
         assert not life_worker_mod._process_alive(pid)  # really exited
+        assert not daemon_drain_requested(tmp_path, pid=pid)
     finally:
         _reap_fake_daemon(pid)
 
@@ -428,6 +478,28 @@ def test_stop_daemon_force_sigkills_a_stuck_daemon(tmp_path: Path) -> None:
         assert life_worker_mod.stop_daemon(tmp_path, timeout=1.0, force=True) == 0
         time.sleep(0.3)
         assert not life_worker_mod._process_alive(pid)  # SIGKILLed
+    finally:
+        _reap_fake_daemon(pid)
+
+
+@pytest.mark.integration
+def test_force_drain_clears_pid_bound_request(tmp_path: Path) -> None:
+    pid = _spawn_fake_daemon(
+        tmp_path,
+        pre_ready="signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+        post_ready="time.sleep(60)\n",
+    )
+    try:
+        assert (
+            life_worker_mod.stop_daemon(
+                tmp_path,
+                drain=True,
+                drain_timeout=0.1,
+                force=True,
+            )
+            == 0
+        )
+        assert not daemon_drain_requested(tmp_path, pid=pid)
     finally:
         _reap_fake_daemon(pid)
 
@@ -553,7 +625,7 @@ def test_life_worker_does_not_start_telegram_by_default(
     assert rc == 0
 
 
-def test_life_worker_wires_stop_event_to_agent_cli_runner(
+def test_life_worker_separates_boundary_stop_from_mission_interrupt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -569,6 +641,7 @@ def test_life_worker_wires_stop_event_to_agent_cli_runner(
     class FakeSupervisor:
         def __init__(self, *args: object, **kwargs: object) -> None:
             self.config: Any = kwargs["config"]
+            captured["supervisor_stop_event"] = self.config.stop_event
 
         def run(self) -> dict[str, Any]:
             self.config.stop_event.set()
@@ -585,7 +658,8 @@ def test_life_worker_wires_stop_event_to_agent_cli_runner(
 
     rc = worker.run_forever()
 
-    assert captured["stop_event"] is worker._stop
+    assert captured["stop_event"] is worker._mission_stop
+    assert captured["supervisor_stop_event"] is worker._stop
     assert rc == 0
 
 

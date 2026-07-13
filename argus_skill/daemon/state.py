@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - Windows fallback
 log = logging.getLogger(__name__)
 _GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 _TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
+_DRAIN_REQUEST_FILE = "daemon.drain-request.json"
 
 
 def _truthy_env(name: str, default: str = "1") -> bool:
@@ -60,6 +61,43 @@ def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
 
 def _continuous_config_path(life_dir: Path) -> Path:
     return life_dir / "continuous.json"
+
+
+def _daemon_drain_request_path(life_dir: Path) -> Path:
+    return life_dir / _DRAIN_REQUEST_FILE
+
+
+def request_daemon_drain(life_dir: Path, *, pid: int) -> None:
+    """Persist a PID-bound graceful-drain request before sending SIGTERM."""
+    life_dir.mkdir(parents=True, exist_ok=True)
+    path = _daemon_drain_request_path(life_dir)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps({"pid": int(pid), "requested_at": time.time()}),
+        encoding="utf-8",
+    )
+    os.replace(str(tmp), str(path))
+
+
+def daemon_drain_requested(life_dir: Path, *, pid: int) -> bool:
+    """Return whether the current drain request targets ``pid``."""
+    try:
+        payload = json.loads(
+            _daemon_drain_request_path(life_dir).read_text(encoding="utf-8")
+        )
+        return isinstance(payload, dict) and int(payload.get("pid") or 0) == int(pid)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+
+
+def clear_daemon_drain_request(life_dir: Path, *, pid: int) -> None:
+    """Remove the drain request only when it still targets ``pid``."""
+    if not daemon_drain_requested(life_dir, pid=pid):
+        return
+    try:
+        _daemon_drain_request_path(life_dir).unlink()
+    except FileNotFoundError:
+        pass
 
 
 @contextmanager
@@ -545,13 +583,10 @@ def stop_daemon(
     operator to drain or escalate rather than silently leaving the daemon up.
 
     Drain (``drain=True``): quiesce continuous mode FIRST (so no NEW mission
-    starts after the current one), then SIGTERM (which sets the supervisor stop
-    flag), and wait up to ``drain_timeout`` for the daemon to finish its CURRENT
-    mission at its natural between-mission boundary and exit cleanly. There is no
-    mid-mission SIGKILL, so a running eval or a win being banked is never
-    interrupted. This is the safe way to stop for a code-reload restart and
-    replaces hand-rolling a pgrep boundary-watcher. Progress is printed while
-    waiting.
+    starts after the current one), persist a PID-bound drain marker, then send
+    SIGTERM. The worker uses that marker to set only the supervisor boundary-stop
+    event, not the backend interrupt event, so the CURRENT mission reaches its
+    natural reviewed boundary before exit. There is no mid-mission SIGKILL.
 
     ``force``: if the daemon is still alive when the wait elapses, escalate to
     SIGKILL (which DOES interrupt a running mission) instead of returning 2.
@@ -576,6 +611,13 @@ def stop_daemon(
             )
         except Exception:  # noqa: BLE001 — quiesce is best-effort
             pass
+        try:
+            request_daemon_drain(resolved_dir, pid=pid)
+        except OSError as exc:
+            sys.stderr.write(
+                f"argus-skill: failed to persist drain request: {exc}\n"
+            )
+            return 2
         sys.stdout.write(
             f"argus-skill: draining daemon (pid {pid}) — quiesced continuous mode; "
             "waiting for the current mission to finish at its natural boundary "
@@ -586,6 +628,8 @@ def stop_daemon(
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
+        if drain:
+            clear_daemon_drain_request(resolved_dir, pid=pid)
         return 1
 
     wait_for = drain_timeout if drain else timeout
@@ -593,6 +637,8 @@ def stop_daemon(
     next_heartbeat = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if not _process_alive(pid):
+            if drain:
+                clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
             return 0
         if drain and time.monotonic() >= next_heartbeat:
@@ -609,8 +655,12 @@ def stop_daemon(
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
+            if drain:
+                clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
             return 0
+        if drain:
+            clear_daemon_drain_request(resolved_dir, pid=pid)
         sys.stderr.write(
             f"argus-skill: daemon (pid {pid}) did not exit within {wait_for:.0f}s; "
             "sent SIGKILL (--force).\n"
