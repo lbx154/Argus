@@ -330,14 +330,14 @@ def build_parser() -> argparse.ArgumentParser:
     gates_grp.add_argument(
         "--lifecycle-resume",
         action="store_true",
-        help="resume a quarantined project; clears persisted quarantine "
-             "state in <life-dir>/lifecycle.json so the supervisor will "
-             "dispatch missions again",
+        help="resume a quarantined, done, or archived project; restores a "
+             "working state in <life-dir>/lifecycle.json so the supervisor "
+             "will dispatch missions again",
     )
     gates_grp.add_argument(
         "--lifecycle-archive",
         action="store_true",
-        help="archive the project; supervisor will permanently refuse to "
+        help="archive the project; supervisor will refuse to "
              "dispatch missions until --lifecycle-resume is called",
     )
     gates_grp.add_argument(

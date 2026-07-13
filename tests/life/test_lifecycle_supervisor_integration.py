@@ -534,8 +534,7 @@ def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
 
 
 def test_gate_allows_done_when_reviewer_certified(tmp_path: Path) -> None:
-    # full_paper_gate True AND certified → the PDF→DONE transition stands,
-    # so the project is correctly terminated and dispatch is blocked.
+    # Reviewer certification, not PDF presence alone, drives DONE.
     stub = _GateStub(
         project_root=_with_preflight_pdf(tmp_path),
         memory_root=tmp_path / "mem",
@@ -548,9 +547,7 @@ def test_gate_allows_done_when_reviewer_certified(tmp_path: Path) -> None:
     assert result["lifecycle_state"] == "done"
 
 
-def test_gate_keeps_legacy_done_when_gate_disabled(tmp_path: Path) -> None:
-    # Non-EMNLP mission (full_paper_gate False): old behavior is unchanged —
-    # main.pdf still promotes to terminal DONE and blocks.
+def test_gate_does_not_treat_generic_pdf_as_project_completion(tmp_path: Path) -> None:
     stub = _GateStub(
         project_root=_with_preflight_pdf(tmp_path),
         memory_root=tmp_path / "mem",
@@ -558,8 +555,7 @@ def test_gate_keeps_legacy_done_when_gate_disabled(tmp_path: Path) -> None:
         certified=False,
     )
     result = stub.block()
-    assert result is not None
-    assert result["lifecycle_state"] == "done"
+    assert result is None
 
 
 def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> None:
@@ -571,8 +567,8 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
     stub = _GateStub(
         project_root=_with_preflight_pdf(tmp_path),
         memory_root=tmp_path / "mem",
-        full_paper_gate=False,
-        certified=False,
+        full_paper_gate=True,
+        certified=True,
     )
     results = [stub.block() for _ in range(5)]
     assert all(r is not None and r["status"] == "lifecycle_block" for r in results)
