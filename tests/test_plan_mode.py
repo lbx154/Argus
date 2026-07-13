@@ -13,6 +13,7 @@ import json
 from argus_skill.manager.plan_mode import (
     Plan,
     PlanStep,
+    build_plan_prompt,
     draft_plan,
     parse_plan_notes,
     parse_plan_text,
@@ -91,6 +92,39 @@ def test_parse_json_object_with_steps_and_notes() -> None:
     assert steps[0].detail == "find the bottleneck"
     assert steps[1].detail == "remove the stall"
     assert parse_plan_notes(text) == ["assumes B200", "no ncu access"]
+
+
+def test_parse_structured_lean_formalization_kind() -> None:
+    text = json.dumps({
+        "steps": [
+            {
+                "title": "Formalize the lemma",
+                "detail": "compile it independently",
+                "kind": "lean_formalization",
+            },
+            {
+                "title": "Write the explanation",
+                "kind": "work",
+            },
+        ]
+    })
+
+    steps = parse_plan_text(text)
+
+    assert [step.kind for step in steps] == ["lean_formalization", "work"]
+
+
+def test_non_math_plan_prompt_does_not_request_formalization_kind() -> None:
+    ordinary = build_plan_prompt("ordinary task")
+    math = build_plan_prompt(
+        "prove the theorem",
+        role_banner="MISSION TYPE: MATHEMATICS.",
+        allow_lean_formalization_subtask=True,
+    )
+
+    assert "lean_formalization" not in ordinary
+    assert '"kind"' not in ordinary
+    assert '"kind": "lean_formalization"' in math
 
 
 def test_parse_json_list_of_strings() -> None:

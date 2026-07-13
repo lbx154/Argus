@@ -323,7 +323,7 @@ class AgentCliRunner:
                 # lifetime, so an interrupt lands here. Terminate the child
                 # (terminate -> kill via the shared helper) so it is not
                 # orphaned and does not keep burning tokens, then re-raise so
-                # the REPL loop can return to its prompt.
+                # the interactive caller can return to its prompt.
                 if process.poll() is None:
                     self._terminate_process(process)
                 raise

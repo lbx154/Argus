@@ -25,6 +25,8 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
+import { BackendHandshake } from '../components/BackendHandshake';
+import { motionQueries } from '../lib/motion';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
@@ -115,6 +117,19 @@ describe('shared frontend core', () => {
     expect(html).toContain('data-icon="sun"');
     expect(html).not.toContain('>Runtime<');
     expect(html).not.toContain('>light<');
+  });
+
+  it('renders a readable backend handshake before GSAP loads', () => {
+    const html = renderToStaticMarkup(createElement(BackendHandshake));
+    expect(html).toContain('Connecting to Argus');
+    expect(html).toContain('API');
+    expect(html).toContain('Protocol');
+    expect(html).toContain('Workspace');
+    expect(html).toContain('aria-label="Connecting to Argus backend"');
+    expect(motionQueries).toEqual({
+      all: '(min-width: 0px)',
+      reduceMotion: '(prefers-reduced-motion: reduce)',
+    });
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {

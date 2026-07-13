@@ -53,7 +53,7 @@ _BACKEND_LABEL = {
 }
 
 # Which vault route + env overrides each role reads for its model. The Manager's
-# REPL triage runner reuses the engineer route/effort (see repl._ensure_manager_
+# Manager triage runner reuses the engineer route/effort (see front_door._ensure_manager_
 # runner), so we mirror that here.
 _ROLE_ROUTE = {
     "manager": "engineer",
@@ -169,7 +169,7 @@ def _resolve_effort(role: str, model: str, env: Mapping[str, str]) -> str | None
 
     role_env = _ROLE_EFFORT_ENV.get(role, "")
     if role == "manager":
-        # REPL Manager triage reuses the engineer effort; Manager._core also
+        # Manager triage reuses the engineer effort; Manager._core also
         # defaults to xhigh. Check manager's own knob (env, then a persisted
         # switch) before falling back to engineer's (same two layers), so an
         # explicit manager-specific switch on EITHER layer still wins.
@@ -764,9 +764,8 @@ def format_prompt_activity_suffix(
     one actor. Argus always has four (Manager/Planner/Engineer/Reviewer)
     cooperating on the SAME objective, so "who is actually driving this
     instant" is core status, not a nice-to-have — and today it was only
-    visible behind an undiscovered opt-in env var
-    (``ARGUS_SKILL_COCKPIT_LIVE=1``, see ``read_message_with_live_cockpit``)
-    or by manually typing ``/roles``. This makes the single highest-value bit
+    visible only in the retired Python terminal UI or by manually typing
+    ``/roles``. This makes the single highest-value bit
     of that panel (is anyone active, and which one) zero-config and always
     on, reusing the exact same ``role_activity`` source and ``●``/colour
     convention as ``/roles`` and the live cockpit panel.
@@ -801,7 +800,7 @@ def format_prompt_status_line(
     out of view after the very first reply — an operator several turns into a
     conversation has no ambient way to see which engine is live without
     separately typing ``/roles``, and a model/backend switch (see
-    ``_apply_config_intent`` in ``manager/repl.py``) only proved
+    ``_apply_config_intent`` in ``manager/config_intent.py``) only proved
     itself for that one turn. Surfacing this line in the prompt box itself
     (drawn every turn, right where the operator is about to type) keeps it
     persistently visible instead of a one-shot banner. Collapses to the

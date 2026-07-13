@@ -54,6 +54,7 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
+MATH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_math_schema.json"))
 def _load_reviewer_engineer_handoff_skill() -> str:
     return load_builtin_skill_text("reviewer-engineer-handoff.md")
 
@@ -274,6 +275,18 @@ class Reviewer:
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
+        schema_path = self.schema_path
+        math_vertical = False
+        try:
+            from ..skills.harness_overlay import resolve_project_root
+            from ..skills.vertical_select import resolve_vertical
+
+            root = resolve_project_root(config.working_dir)
+            math_vertical = resolve_vertical(root) == "math"
+            if math_vertical and schema_path == SCHEMA_PATH:
+                schema_path = MATH_SCHEMA_PATH
+        except Exception:  # noqa: BLE001 — default schema remains safe
+            pass
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
         # reviewer output-schema file is missing, codex aborts with exit 1
         # ("Failed to read output schema file ...") and the round renders NO
@@ -281,10 +294,10 @@ class Reviewer:
         # block, instead of building a prompt and handing codex a path it cannot
         # read. This catches a moved schema / a stale import-time path held by a
         # long-lived daemon whose on-disk tree moved underneath it.
-        if self.schema_path and not Path(self.schema_path).exists():
+        if schema_path and not Path(schema_path).exists():
             reason = (
                 "Reviewer output-schema file is missing at "
-                f"{self.schema_path}; the reviewer backend cannot start. This is "
+                f"{schema_path}; the reviewer backend cannot start. This is "
                 "an environment/packaging fault (e.g. the schema was moved or a "
                 "running process holds a stale import-time path), not a verdict."
             )
@@ -351,7 +364,7 @@ class Reviewer:
                     full_auto=config.full_auto,
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
-                    output_schema_path=self.schema_path,
+                    output_schema_path=schema_path,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a
                     # skill; ordinary review turns need not invoke it.
@@ -457,6 +470,59 @@ class Reviewer:
         # reviewer thread next round and detects mid-mission static drift.
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
+        # Math completion is fail-closed on the reviewer's own structured
+        # correctness/fidelity/novelty verdict. This is not prose or keyword
+        # second-guessing: the Reviewer remains the semantic authority.
+        completion_is_math = math_vertical
+        try:
+            from ..skills.harness_overlay import resolve_project_root
+            from ..skills.stage_checklists import current_stage
+            from ..skills.vertical_select import resolve_vertical
+            from ..verticals._base import load_vertical, vertical_checklist_stage_order
+            from ..verticals.math.results import math_completion_issue
+
+            _project_root = resolve_project_root(config.working_dir)
+            _vertical = resolve_vertical(_project_root)
+            completion_is_math = _vertical == "math"
+            _order = tuple(
+                vertical_checklist_stage_order(
+                    load_vertical(_vertical, project_root=_project_root)
+                )
+            )
+            _final_stage = _order[-1] if _order else ""
+            if _vertical == "math" and parsed.status == "done":
+                _project_completion = (
+                    (scope or "").strip().lower() != "bounded"
+                    and current_stage(_project_root) == _final_stage
+                )
+                issue = math_completion_issue(
+                    parsed.math_result,
+                    bounded=not _project_completion,
+                )
+                if issue:
+                    parsed.status = "continue"
+                    parsed.achievement = None
+                    parsed.reason = (
+                        f"Math completion gate held: {issue}. {parsed.reason}"
+                    )[:5000]
+                    parsed.next_action = (
+                        "Provide a structured Math result whose correctness, "
+                        "statement fidelity, evidence, and novelty status satisfy "
+                        f"the completion policy ({issue})."
+                    )[:1500]
+        except Exception:  # noqa: BLE001 — non-math behavior remains unchanged
+            log.debug("Math completion policy lookup failed", exc_info=True)
+            if completion_is_math and parsed.status == "done":
+                parsed.status = "continue"
+                parsed.achievement = None
+                parsed.reason = (
+                    "Math completion gate held: completion policy evaluation "
+                    f"failed. {parsed.reason}"
+                )[:5000]
+                parsed.next_action = (
+                    "Repair the Math completion-policy environment and obtain a "
+                    "fresh independent structured verdict before completing."
+                )
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess it with keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a
@@ -521,7 +587,8 @@ class Reviewer:
         )
 
         _proot = resolve_project_root(working_dir)
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
+        _active_vertical = resolve_vertical(_proot)
+        _vmod = load_vertical(_active_vertical, project_root=_proot)
         _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
         matched_review_skill_block = ""
         if self.skill_store is not None and not _direct_workflow:
@@ -554,6 +621,13 @@ class Reviewer:
         # only that vertical's metric instead of paper-pipeline artifacts.
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
+        math_result_instruction = (
+            "For this Math mission, `math_result` is REQUIRED on every verdict. "
+            "Judge result_class, correctness, statement_fidelity, and novelty "
+            "independently; use concrete evidence and limitations.\n\n"
+            if _active_vertical == "math"
+            else ""
+        )
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
         # floor history when judging forward_progress — i.e. distinguish "this
         # round advanced a declared structural line" from "Nth single-knob
@@ -833,6 +907,7 @@ class Reviewer:
                 workflow_mode=vertical_workflow_mode(_vmod),
             )
             + optimize_banner
+            + math_result_instruction
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             + _verification_directive()
@@ -1012,6 +1087,10 @@ class Reviewer:
             "    judgment, so never paraphrase a cited quote.\n"
             "  * retire_page — tombstone a page you found wrong/superseded: op,\n"
             "    id, why=one clause. Never a hard delete; always reversible.\n"
+            "  Prior missions are mechanically captured as immutable RunCards under\n"
+            "  `sources/runs/`. Inspect the latest relevant RunCard before deciding\n"
+            "  whether a durable technique/conflict/pattern page is warranted; it is\n"
+            "  valid evidence for a later mission's wiki_ops.\n"
             "  Most rounds need NO wiki_ops. This is a SEPARATE library from\n"
             "  skill_ops above: skills teach the ENGINEER how to act; wiki pages\n"
             "  record what the PROJECT learned (durable facts/techniques worth\n"

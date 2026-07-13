@@ -22,6 +22,7 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.engineer.runner import SupervisedConfig
 
 _FATAL_EMPTY_OUTPUT_ERROR = (
     "Codex ran out of room in the model's context window. "
@@ -38,6 +39,18 @@ SKILL_MD = (
     "## Examples\n- demo → done\n\n"
     "## Response shape\n- Reply inline.\n"
 )
+
+
+def test_default_session_roll_budget_is_token_efficient(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_THREAD_TOKEN_LIMIT", raising=False)
+
+    config = SupervisedConfig()
+
+    assert config.shift_round_limit == 3
+    assert config.thread_token_limit == 1_500_000
 
 
 def _continue_review() -> str:

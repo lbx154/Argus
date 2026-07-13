@@ -24,6 +24,7 @@ End-to-end shape:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import uuid
 from dataclasses import dataclass
@@ -45,6 +46,10 @@ log = logging.getLogger(__name__)
 # Reviewed ineffective uses are retained as evidence for later Reviewer-authored
 # update/archive decisions. External/economic aborts remain neutral.
 _INEFFECTIVE_SKILL_STATUSES: frozenset[str] = frozenset({"no_progress", "max_rounds"})
+_MATH_ADAPTATION_FAILURE_CAUSES: frozenset[str] = frozenset({
+    "method_failure",
+    "skill_gap",
+})
 
 
 @dataclass
@@ -70,6 +75,12 @@ class SkillLoopConfig:
     # enough. Ask the Scientist for a genuinely different strategy every N
     # non-terminal rounds; 0 disables.
     adaptive_skill_interval: int = 4
+    # Math-only adaptation policy. Generic verticals keep the interval behavior
+    # above. A bounded number of Scientist calls prevents rejection loops from
+    # turning into unbounded strategy generation.
+    math_adaptive_rejection_threshold: int = 2
+    math_adaptive_skill_max_triggers: int = 2
+    math_adaptive_skill_max_cost_usd: float = 5.0
     # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
     # (create/update/delete/archive) and the loop applies them via
     # SkillRouter — no Manager approval gate. Off by default; the daemon
@@ -239,7 +250,19 @@ class SkillLoop:
         Falls back to ``task`` when not supplied for back-compat.
         """
         workdir = Path(workdir) if workdir else Path.cwd()
+        run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
         direct_workflow = self.config.workflow_mode == "direct"
+        from .verticals.math.runtime import (
+            append_method_ledger,
+            load_math_adaptation_state,
+            math_adaptation_state_path,
+            math_role_banner,
+            save_math_adaptation_state,
+        )
+
+        math_engineer_banner = math_role_banner(workdir, "engineer")
+        math_scientist_banner = math_role_banner(workdir, "scientist")
+        math_mode = bool(math_engineer_banner or math_scientist_banner)
         if self.config.wiki_ops_enabled and not direct_workflow:
             from .wiki.lifecycle import ensure_project_wiki
 
@@ -297,6 +320,7 @@ class SkillLoop:
                     self.engineer_runner,
                     model=self.config.engineer_model,
                     reasoning_effort=self.config.engineer_reasoning_effort,
+                    role_banner=math_scientist_banner,
                 )
                 raw_skill = scientist.distill(skill_task)
                 distill_result = scientist.last_result
@@ -326,44 +350,277 @@ class SkillLoop:
             self.skill_store, primary_skills, reference_skills
         )
         skill_name = skill.name if skill else None
+        math_state_file: Path | None = None
+        math_adaptation_disabled = False
+        math_state: dict[str, Any] = {
+            "trigger_count": 0,
+            "spent_usd": 0.0,
+            "rejection_streak": [],
+            "method_records": [],
+        }
+        if (
+            math_mode
+            and self.config.session_id
+            and self.config.checkpoint_path is not None
+        ):
+            math_state_file = math_adaptation_state_path(
+                self.config.checkpoint_path,
+                run_id,
+            )
+            try:
+                math_state = load_math_adaptation_state(math_state_file, run_id)
+            except (OSError, ValueError):
+                math_adaptation_disabled = True
+                log.warning(
+                    "Math adaptation state is unreadable; Scientist adaptation "
+                    "disabled for mission %s",
+                    run_id,
+                    exc_info=True,
+                )
+        math_adaptation_triggers = int(math_state["trigger_count"])
+        math_adaptation_spent = float(math_state["spent_usd"])
+        math_rejection_streak: list[dict[str, Any]] = list(
+            math_state["rejection_streak"]
+        )
+        math_method_records: list[dict[str, Any]] = list(
+            math_state["method_records"]
+        )
+
+        def persist_math_state() -> None:
+            if math_state_file is None or math_adaptation_disabled:
+                return
+            save_math_adaptation_state(
+                math_state_file,
+                run_id,
+                trigger_count=math_adaptation_triggers,
+                spent_usd=math_adaptation_spent,
+                rejection_streak=math_rejection_streak,
+                method_records=math_method_records,
+            )
 
         def adapt_after_rejections(rounds: list) -> str:
-            nonlocal skill_text, skill_name, skill_distilled, distill_result
-            interval = max(0, int(self.config.adaptive_skill_interval or 0))
-            if skill is None or interval == 0 or len(rounds) % interval:
+            nonlocal skill, skill_text, skill_name, skill_distilled
+            nonlocal distill_result, math_adaptation_triggers
+            nonlocal math_adaptation_spent
+            if math_mode:
+                if not rounds or math_adaptation_disabled:
+                    return ""
+                interval = max(
+                    1,
+                    int(self.config.math_adaptive_rejection_threshold or 1),
+                )
+                latest = rounds[-1]
+                qualifies = (
+                    latest.review.status == "continue"
+                    and not latest.review.backend_unavailable
+                    and latest.review.failure_cause
+                    in _MATH_ADAPTATION_FAILURE_CAUSES
+                    and not bool(latest.fatal_error)
+                )
+                if qualifies:
+                    math_rejection_streak.append({
+                        "round_index": latest.round_index,
+                        "reason": latest.review.reason,
+                        "next_action": latest.review.next_action,
+                    })
+                    del math_rejection_streak[:-interval]
+                else:
+                    math_rejection_streak.clear()
+                persist_math_state()
+                if len(rounds) >= int(self.config.max_rounds or 0):
+                    return ""
+                if len(math_rejection_streak) < interval:
+                    return ""
+                rejected = [dict(item) for item in math_rejection_streak[-interval:]]
+                review_rounds = [int(item["round_index"]) for item in rejected]
+                failure_reasons = [str(item["reason"]) for item in rejected]
+                max_triggers = max(
+                    0,
+                    int(self.config.math_adaptive_skill_max_triggers or 0),
+                )
+                max_cost = max(
+                    0.0,
+                    float(self.config.math_adaptive_skill_max_cost_usd or 0.0),
+                )
+                if math_adaptation_triggers >= max_triggers:
+                    math_rejection_streak.clear()
+                    persist_math_state()
+                    return ""
+                remaining_cost = max_cost - math_adaptation_spent
+                if max_cost > 0 and remaining_cost <= 0:
+                    append_method_ledger(
+                        workdir,
+                        {
+                            "status": "cost_cap_reached",
+                            "trigger_index": math_adaptation_triggers,
+                            "review_rounds": review_rounds,
+                            "failure_reasons": failure_reasons,
+                        },
+                    )
+                    math_rejection_streak.clear()
+                    persist_math_state()
+                    return ""
+                evidence = "\n".join(
+                    f"- Round {item['round_index']}: {item['reason']}; next: "
+                    f"{item['next_action']}"
+                    for item in rejected
+                )
+            else:
+                interval = max(0, int(self.config.adaptive_skill_interval or 0))
+                if skill is None or interval == 0 or len(rounds) % interval:
+                    return ""
+                recent = rounds[-interval:]
+                remaining_cost = None
+                review_rounds = [rec.round_index for rec in recent]
+                failure_reasons = [rec.review.reason for rec in recent]
+                evidence = "\n".join(
+                    f"- Round {rec.round_index}: {rec.review.reason}; next: "
+                    f"{rec.review.next_action}"
+                    for rec in recent
+                )
+            if not skill_text:
                 return ""
-            evidence = "\n".join(
-                f"- Round {rec.round_index}: {rec.review.reason}; next: "
-                f"{rec.review.next_action}"
-                for rec in rounds[-interval:]
+            from .skills.scientist import (
+                SkillScientist,
+                parse_mechanism_change,
             )
-            from .skills.scientist import SkillScientist
 
+            math_spent_before_call = math_adaptation_spent
+            if math_mode:
+                math_adaptation_triggers += 1
+                math_rejection_streak.clear()
+                if max_cost > 0:
+                    # Reserve the full remaining allowance before provider spawn.
+                    # A crash may waste budget, but can never reset and overspend it.
+                    math_adaptation_spent = max_cost
+                persist_math_state()
             self._emit({
                 "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
                 "text": f"{interval} reviewer rejections; seeking a different playbook",
+                "vertical": "math" if math_mode else "",
+                "trigger_index": math_adaptation_triggers if math_mode else 0,
+                "failure_reasons": failure_reasons,
             })
             scientist = SkillScientist(
                 self.engineer_runner,
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
+                role_banner=math_scientist_banner,
+                max_budget_usd=remaining_cost,
             )
-            raw_skill = scientist.distill_alternative(skill_task, evidence)
+            raw_skill = scientist.distill_alternative(
+                skill_task,
+                evidence,
+                current_skill=skill_text,
+                method_history="\n".join(
+                    str(record) for record in math_method_records
+                ),
+            )
             distill_result = scientist.last_result
+            raw_result_cost = getattr(distill_result, "cost_usd", None)
+            try:
+                settled_cost = float(raw_result_cost)
+            except (OverflowError, TypeError, ValueError):
+                settled_cost = float("nan")
+            result_cost = (
+                settled_cost
+                if math.isfinite(settled_cost) and settled_cost >= 0
+                else None
+            )
+            if math_mode and max_cost > 0:
+                if result_cost is not None:
+                    math_adaptation_spent = math_spent_before_call + settled_cost
+                persist_math_state()
             if not raw_skill:
+                if math_mode:
+                    record = {
+                        "status": "no_alternative",
+                        "trigger_index": math_adaptation_triggers,
+                        "review_rounds": review_rounds,
+                        "failure_reasons": failure_reasons,
+                        "prior_skill": skill_name or "",
+                        "scientist_cost_usd": result_cost,
+                    }
+                    append_method_ledger(workdir, record)
+                    math_method_records.append(record)
+                    persist_math_state()
+                return ""
+            mechanism_change = (
+                parse_mechanism_change(raw_skill) if math_mode else None
+            )
+            if math_mode and mechanism_change is None:
+                record = {
+                    "status": "mechanism_change_rejected",
+                    "trigger_index": math_adaptation_triggers,
+                    "review_rounds": review_rounds,
+                    "failure_reasons": failure_reasons,
+                    "prior_skill": skill_name or "",
+                    "scientist_cost_usd": result_cost,
+                }
+                append_method_ledger(workdir, record)
+                math_method_records.append(record)
+                persist_math_state()
+                return ""
+            if math_mode and "".join(raw_skill.split()).casefold() == "".join(
+                skill_text.split()
+            ).casefold():
+                record = {
+                    "status": "duplicate_mechanism_rejected",
+                    "trigger_index": math_adaptation_triggers,
+                    "review_rounds": review_rounds,
+                    "failure_reasons": failure_reasons,
+                    "prior_skill": skill_name or "",
+                    "scientist_cost_usd": result_cost,
+                }
+                append_method_ledger(workdir, record)
+                math_method_records.append(record)
+                persist_math_state()
                 return ""
             distilled = self.skill_router.create_from_scientist(
                 raw_skill, task=skill_task, on_event=self._emit
             )
             if distilled is None:
+                if math_mode:
+                    record = {
+                        "status": "invalid_alternative",
+                        "trigger_index": math_adaptation_triggers,
+                        "failure_reasons": failure_reasons,
+                    }
+                    append_method_ledger(workdir, record)
+                    math_method_records.append(record)
+                    persist_math_state()
                 return ""
             adaptive_text = render_skill_playbook(self.skill_store, [distilled], [])
-            skill_text = skill_text + "\n\n" + adaptive_text
+            skill = distilled
+            skill_text = (
+                adaptive_text
+                if math_mode
+                else skill_text + "\n\n" + adaptive_text
+            )
             skill_name = distilled.name
             skill_distilled = True
+            if math_mode:
+                record = {
+                    "status": "created",
+                    "trigger_index": math_adaptation_triggers,
+                    "review_rounds": review_rounds,
+                    "failure_reasons": failure_reasons,
+                    "new_skill": distilled.name,
+                    "mechanism_change_required": True,
+                    "mechanism_change": mechanism_change,
+                    "scientist_cost_usd": result_cost,
+                }
+                ledger_path = append_method_ledger(workdir, record)
+                math_method_records.append(record)
+                persist_math_state()
             self._emit({
                 "type": EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
                 "text": f"Scientist created alternative skill {distilled.name}",
+                "vertical": "math" if math_mode else "",
+                "trigger_index": math_adaptation_triggers if math_mode else 0,
+                "method_ledger": (
+                    str(ledger_path.relative_to(workdir)) if math_mode else ""
+                ),
             })
             return adaptive_text
 
@@ -475,9 +732,8 @@ class SkillLoop:
                 next_action=next_action,
                 original_request=request_anchor,
                 include_static=include_static,
+                role_banner=math_engineer_banner,
             )
-
-        run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
 
         def prepare_review_context() -> None:
             if not self.config.wiki_ops_enabled:
@@ -738,6 +994,7 @@ class SkillLoop:
         next_action: str | None,
         original_request: str = "",
         include_static: bool = True,
+        role_banner: str = "",
     ) -> str:
         # STATIC = byte-stable prefix (constant within a mission: task / skill)
         # → restores gpt-5.5 prefix-cache. DELTA = the per-round changing tail
@@ -746,6 +1003,8 @@ class SkillLoop:
         # (the anti-amnesia hedge). See SupervisedEngineer.run (F5).
         sections: list[str] = []
         delta_sections: list[str] = []
+        if role_banner.strip():
+            sections.append("## Active vertical role\n" + role_banner.strip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         if original_request.strip():

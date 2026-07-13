@@ -7,6 +7,7 @@ trajectories and Reviewer-authored ops evolve or retire that version.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..core.models import RunnerOptions
@@ -24,19 +25,38 @@ class SkillScientist:
         *,
         model: str = "",
         reasoning_effort: str = "high",
+        role_banner: str = "",
+        max_budget_usd: float | None = None,
     ) -> None:
         self.runner = runner
         self.model = model
         self.reasoning_effort = reasoning_effort
+        self.role_banner = str(role_banner or "").strip()
+        self.max_budget_usd = max_budget_usd
         self.last_result: Any = None
 
     def distill(self, task: str) -> str:
         """Return skill markdown, or ``""`` on failure/no useful skill."""
-        return self._run(_build_scientist_prompt(task))
+        return self._run(_build_scientist_prompt(task, self.role_banner))
 
-    def distill_alternative(self, task: str, reviewer_evidence: str) -> str:
+    def distill_alternative(
+        self,
+        task: str,
+        reviewer_evidence: str,
+        *,
+        current_skill: str = "",
+        method_history: str = "",
+    ) -> str:
         """Author a different playbook after the current one proves ineffective."""
-        return self._run(_build_alternative_prompt(task, reviewer_evidence))
+        return self._run(
+            _build_alternative_prompt(
+                task,
+                reviewer_evidence,
+                role_banner=self.role_banner,
+                current_skill=current_skill,
+                method_history=method_history,
+            )
+        )
 
     def _run(self, prompt: str) -> str:
         if self.runner is None:
@@ -52,6 +72,7 @@ class SkillScientist:
                     skip_git_repo_check=True,
                     full_auto=True,
                     live_search=True,
+                    max_budget_usd=self.max_budget_usd,
                 ),
                 run_label="scientist.skill_distill",
                 resume_thread_id=None,
@@ -71,8 +92,8 @@ class SkillScientist:
         return text
 
 
-def _build_scientist_prompt(task: str) -> str:
-    return (
+def _build_scientist_prompt(task: str, role_banner: str = "") -> str:
+    prompt = (
         "You are the Scientist / Distiller role for argus-skill. The skill "
         "matcher found no reusable engineer playbook for the task below. Write "
         "ONE reusable skill that can help the Engineer execute this "
@@ -104,22 +125,81 @@ def _build_scientist_prompt(task: str) -> str:
         "- ...\n\n"
         f"## Task\n{task.strip()}\n"
     )
+    return _prepend_role_banner(prompt, role_banner)
 
 
-def _build_alternative_prompt(task: str, reviewer_evidence: str) -> str:
-    return (
+def _build_alternative_prompt(
+    task: str,
+    reviewer_evidence: str,
+    *,
+    role_banner: str = "",
+    current_skill: str = "",
+    method_history: str = "",
+) -> str:
+    prompt = (
         "You are the Scientist / Distiller role for argus-skill. A matched "
         "playbook has repeatedly failed independent review. Use live web search "
         "and author ONE genuinely different reusable playbook for the task family.\n\n"
         "Do not merely rephrase the existing approach. Treat the reviewer evidence "
-        "as failed mechanisms to avoid. Do not solve the task directly or claim "
-        "success; provide an operational strategy the Engineer can try next. If no "
-        "defensible alternative exists, output exactly NONE.\n\n"
+        "as failed mechanisms to avoid. Changing only constants, bounds, prompts, "
+        "search depth, or other parameters is NOT a new mechanism. Do not solve the "
+        "task directly or claim success; provide an operational strategy the Engineer "
+        "can try next. If no defensible alternative exists, output exactly NONE.\n\n"
         "Required markdown sections: Description, Category, When to use, When NOT "
-        "to use, How to solve, Pitfalls.\n\n"
+        "to use, Mechanism change, How to solve, Pitfalls. In `Mechanism change`, "
+        "use exactly these fields:\n"
+        "Previous mechanism: <failed mechanism>\n"
+        "Replacement mechanism: <different mechanism>\n"
+        "Structural difference: <why this is not a parameter change>\n\n"
         f"## Task\n{task.strip()}\n\n"
+        f"## Current playbook\n{current_skill.strip() or '(none)'}\n\n"
+        f"## Prior method ledger\n{method_history.strip() or '(none)'}\n\n"
         f"## Reviewer evidence from failed rounds\n{reviewer_evidence.strip()}\n"
     )
+    return _prepend_role_banner(prompt, role_banner)
 
 
-__all__ = ["SkillScientist"]
+def _prepend_role_banner(prompt: str, role_banner: str) -> str:
+    banner = str(role_banner or "").strip()
+    if not banner:
+        return prompt
+    return f"## Active vertical role\n{banner}\n\n{prompt}"
+
+
+def parse_mechanism_change(skill_markdown: str) -> dict[str, str] | None:
+    """Parse the Scientist's explicit structural-mechanism declaration."""
+    match = re.search(
+        r"^## Mechanism change\s*$([\s\S]*?)(?=^## |\Z)",
+        str(skill_markdown or ""),
+        flags=re.MULTILINE,
+    )
+    if match is None:
+        return None
+    block = match.group(1)
+    fields: dict[str, str] = {}
+    for label, key in (
+        ("Previous mechanism", "previous"),
+        ("Replacement mechanism", "replacement"),
+        ("Structural difference", "difference"),
+    ):
+        field = re.search(
+            rf"^{re.escape(label)}:\s*(.+)$",
+            block,
+            flags=re.MULTILINE,
+        )
+        if field is None:
+            return None
+        fields[key] = field.group(1).strip()[:1000]
+    previous = " ".join(fields["previous"].casefold().split())
+    replacement = " ".join(fields["replacement"].casefold().split())
+    if (
+        not previous
+        or not replacement
+        or previous == replacement
+        or len(fields["difference"]) < 20
+    ):
+        return None
+    return fields
+
+
+__all__ = ["SkillScientist", "parse_mechanism_change"]

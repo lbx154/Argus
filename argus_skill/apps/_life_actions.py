@@ -35,9 +35,9 @@ def parse_add_flags(
     defaults: Mapping[str, Any],
 ) -> tuple[bool, int, float, str]:
     """Strip ``--once`` / ``--cycles=N`` / ``--budget=$X`` from an /add body."""
-    iterate = bool(defaults.get("iterate", _CONFIG_DEFAULTS["iterate"]))
-    max_cycles = int(defaults.get("cycles", _CONFIG_DEFAULTS["cycles"]))
-    budget = float(defaults.get("budget", _CONFIG_DEFAULTS["budget"]))
+    iterate = bool(defaults.get("iterate", DEFAULT_LIFE_CONFIG["iterate"]))
+    max_cycles = int(defaults.get("cycles", DEFAULT_LIFE_CONFIG["cycles"]))
+    budget = float(defaults.get("budget", DEFAULT_LIFE_CONFIG["budget"]))
     tokens = text.split()
     keep: list[str] = []
     for tok in tokens:
@@ -160,82 +160,97 @@ def stop_iteration(mem: Any, item_id: str) -> str:
     return f"iteration disabled for {stopped.id}: {stopped.title}  (status={stopped.status})"
 
 
+def _format_elapsed(seconds: float) -> str:
+    if seconds < 1.0:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m{secs:02d}s"
+
+
 def render_run_command(
     mem: Any,
     opts: Sequence[str],
     chat_state: dict[str, Any],
 ) -> str:
-    """Run the shared foreground supervisor flow and render its transcript."""
-    from ..manager.repl import _format_elapsed
+    """Run the shared foreground supervisor flow for remote command clients."""
     from ._runtime import _invoke_supervisor
 
     cfg = chat_state.get("config", {})
-    p = argparse.ArgumentParser(prog="/run", add_help=False)
-    p.add_argument("--once", action="store_true")
-    p.add_argument(
+    parser = argparse.ArgumentParser(prog="/run", add_help=False)
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument(
         "--backend",
         choices=("codex",),
         default=chat_state.get("backend", "codex"),
     )
-    p.add_argument("--max-missions", type=int,
-                   default=int(cfg.get("cycles", 6)))
-    p.add_argument("--per-mission-cap-usd", type=float,
-                   default=float(cfg.get("per_mission_cap", 30.0)))
-    p.add_argument("--daily-cap-usd", type=float,
-                   default=float(cfg.get("daily_cap", 180.0)))
-    p.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--max-missions",
+        type=int,
+        default=int(cfg.get("cycles", 6)),
+    )
+    parser.add_argument(
+        "--per-mission-cap-usd",
+        type=float,
+        default=float(cfg.get("per_mission_cap", 30.0)),
+    )
+    parser.add_argument(
+        "--daily-cap-usd",
+        type=float,
+        default=float(cfg.get("daily_cap", 180.0)),
+    )
+    parser.add_argument("--quiet", action="store_true")
     try:
-        run_args = p.parse_args(list(opts))
+        args = parser.parse_args(list(opts))
     except SystemExit:
         return ""
 
     lines = [
         (
-            f"/run: backend={run_args.backend}  "
-            f"max_missions={'1 (once)' if run_args.once else run_args.max_missions}  "
-            f"per_mission_cap=${run_args.per_mission_cap_usd:.2f}  "
-            f"daily_cap=${run_args.daily_cap_usd:.2f}  "
-            f"global_daily_cap=${getattr(run_args, 'global_daily_cap_usd', 0.0):.2f}"
+            f"/run: backend={args.backend}  "
+            f"max_missions={'1 (once)' if args.once else args.max_missions}  "
+            f"per_mission_cap=${args.per_mission_cap_usd:.2f}  "
+            f"daily_cap=${args.daily_cap_usd:.2f}"
         ),
         "       (foreground; Ctrl-C requests graceful stop)",
     ]
-
-    use_seed = run_args.backend == chat_state.get("backend")
+    use_seed = args.backend == chat_state.get("backend")
     seed = chat_state.get("last_thread_id") if use_seed else None
-    theme = chat_state.get("theme")
-    if seed and not run_args.quiet:
-        note = f"resuming codex session {seed[:12]}…"
-        lines.append(theme.gray(note) if theme else note)
-    t0 = time.monotonic()
-    summary, last_tid = _invoke_supervisor(
+    started = time.monotonic()
+    summary, last_thread_id = _invoke_supervisor(
         mem=mem,
-        backend=run_args.backend,
-        once=run_args.once,
-        max_missions=run_args.max_missions,
-        per_mission_cap_usd=run_args.per_mission_cap_usd,
-        daily_cap_usd=run_args.daily_cap_usd,
-        global_daily_cap_usd=getattr(run_args, "global_daily_cap_usd", 0.0),
-        quiet=run_args.quiet,
+        backend=args.backend,
+        once=args.once,
+        max_missions=args.max_missions,
+        per_mission_cap_usd=args.per_mission_cap_usd,
+        daily_cap_usd=args.daily_cap_usd,
+        global_daily_cap_usd=0.0,
+        quiet=args.quiet,
         seed_thread_id=seed,
     )
-    elapsed = time.monotonic() - t0
+    elapsed = time.monotonic() - started
     if use_seed:
-        chat_state["last_thread_id"] = last_tid
+        chat_state["last_thread_id"] = last_thread_id
     chat_state["last_elapsed_s"] = elapsed
     chat_state["total_elapsed_s"] = chat_state.get("total_elapsed_s", 0.0) + elapsed
     if isinstance(summary, dict):
         summary.setdefault("elapsed_s", round(elapsed, 3))
-    lines.extend([
-        "",
-        "--- /run summary ---",
-        json.dumps(summary, indent=2, default=str),
-        theme.dim(f"⏱  /run elapsed {_format_elapsed(elapsed)}")
-        if theme else f"⏱  /run elapsed {_format_elapsed(elapsed)}",
-    ])
+    lines.extend(
+        [
+            "",
+            "--- /run summary ---",
+            json.dumps(summary, indent=2, default=str),
+            f"/run elapsed {_format_elapsed(elapsed)}",
+        ]
+    )
     return "\n".join(lines)
 
 
-_CONFIG_DEFAULTS: dict[str, Any] = {
+DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
     "cycles": 6,
     "budget": 30.0,
@@ -263,10 +278,10 @@ def render_config_cmd(
     *,
     life_dir: Path | None = None,
 ) -> str:
-    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg = chat_state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
     if not tokens:
         config_lines = [
-            "session config (continuous syncs to daemon, others are REPL-local):"
+            "session config (continuous syncs to daemon, others are process-local):"
         ]
         for key, value in cfg.items():
             if isinstance(value, float):
@@ -291,13 +306,17 @@ def render_config_cmd(
             continue
         key, _, val = tok.partition("=")
         key = key.strip().lower().replace("-", "_")
-        if key not in _CONFIG_DEFAULTS:
+        if key not in DEFAULT_LIFE_CONFIG:
             lines.append(
                 f"  unknown key: {key!r}  "
-                f"(valid: {', '.join(sorted(_CONFIG_DEFAULTS))})"
+                f"(valid: {', '.join(sorted(DEFAULT_LIFE_CONFIG))})"
             )
             continue
-        expected = bool if isinstance(_CONFIG_DEFAULTS[key], bool) else type(_CONFIG_DEFAULTS[key])
+        expected = (
+            bool
+            if isinstance(DEFAULT_LIFE_CONFIG[key], bool)
+            else type(DEFAULT_LIFE_CONFIG[key])
+        )
         try:
             val = val.strip().lstrip("$")
             if expected is bool:
@@ -324,7 +343,7 @@ def render_config_cmd(
             os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
             # Persist too — an env-var-only switch used to only last for
             # THIS process; the daemon (a separate process) never saw it
-            # until restarted, and even the REPL forgot it on its own next
+            # until restarted, and even the cockpit forgot it on its own next
             # launch. core.knobs.resolve_role_reasoning_effort now checks
             # this file whenever no env var is set, so "change it once via
             # /config" holds across restarts too.

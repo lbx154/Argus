@@ -12,6 +12,7 @@ import pytest
 
 from argus_skill.manager import Division, Manager
 from argus_skill.manager.domain_author import VerticalDecision, parse_vertical_decision
+from argus_skill.skills.vertical_select import VERTICALS
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
@@ -58,6 +59,21 @@ def test_triage_existing_nanochat_is_optimize():
     assert vertical == "nanochat"
     assert kind == "optimize"
     assert regular is True
+
+
+@pytest.mark.parametrize("vertical", VERTICALS)
+def test_explicit_builtin_vertical_preserves_execution_task(
+    tmp_path,
+    monkeypatch,
+    vertical: str,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", vertical)
+
+    decision = Manager(project_root=tmp_path).decide_vertical("  execute this task  ")
+
+    assert decision.choice == "existing"
+    assert decision.vertical == vertical
+    assert decision.execution_task == "execute this task"
 
 
 def test_plan_stages_research_is_the_8_stage_pipeline():

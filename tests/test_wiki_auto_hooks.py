@@ -1,7 +1,9 @@
 """Tests for argus_skill.wiki.auto_hooks — harness-driven wiki maintenance."""
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +76,105 @@ def test_run_hooks_idempotent(project: Path):
     [(_, info)] = s2.items()
     assert info["sources_written"] == 0
     assert info["scratch_written"] == 0
+
+
+def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
+    review = SimpleNamespace(
+        status="done",
+        reason="Certified the exact finite classification.",
+        verification_summary="Independent replay passed.",
+        failure_cause="",
+        next_action="Audit the general-rank extension.",
+        math_result={
+            "result_class": "theorem",
+            "correctness": "verified",
+        },
+        planner_report={
+            "forward_progress": True,
+            "headline": "Finite classification certified",
+            "blocker": "General rank remains open",
+            "recommended_next": "Audit the general-rank extension.",
+            "evidence_files": [
+                {"path": "research/RESULT.md", "why": "reviewed theorem"},
+            ],
+        },
+    )
+    rounds = [SimpleNamespace(review=review)]
+
+    summary = evolve_wikis_after_mission(
+        rounds=rounds,
+        workdir=project,
+        task="Prove the finite classification.",
+        mission_id="m-reviewed",
+        success=True,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+    )
+
+    wiki = project / ".autors" / "demo" / "wiki"
+    source = wiki / "sources" / "runs" / "m-reviewed.md"
+    assert summary["sources"] == 1
+    assert source.exists()
+    text = source.read_text(encoding="utf-8")
+    assert "outcome: success" in text
+    assert "Certified the exact finite classification." in text
+    assert "research/RESULT.md" in text
+    assert "Audit the general-rank extension." in text
+    assert "closed_at:" in text
+
+    repeated = evolve_wikis_after_mission(
+        rounds=rounds,
+        workdir=project,
+        task="Prove the finite classification.",
+        mission_id="m-reviewed",
+        success=True,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+    )
+    assert repeated["sources"] == 0
+
+
+def test_run_source_failure_is_isolated_from_other_hooks(project: Path):
+    events: list[dict] = []
+    review = SimpleNamespace(
+        status="done",
+        reason="reviewed",
+        verification_summary="",
+        failure_cause="",
+        next_action="",
+        math_result={},
+        planner_report={
+            "forward_progress": True,
+            "non_json_value": date(2026, 7, 13),
+        },
+    )
+
+    summary = evolve_wikis_after_mission(
+        rounds=[SimpleNamespace(review=review)],
+        workdir=project,
+        task="task",
+        mission_id=".invalid",
+        success=True,
+        reviewer_runner=None,
+        reviewer_model="",
+        reviewer_reasoning_effort="high",
+        apply_ops_enabled=False,
+        auto_compact_enabled=False,
+        on_event=events.append,
+    )
+
+    assert summary["sources"] == 0
+    assert any(
+        event.get("type") == "wiki.hook.warning"
+        and event.get("operation") == "write_run_source"
+        for event in events
+    )
 
 
 def test_wiki_evolution_compresses_cold_retired_history(

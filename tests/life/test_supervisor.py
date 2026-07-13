@@ -441,12 +441,11 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     tmp_path,
 ) -> None:
     """Point 11 of the 11-point CLI directive: the reviewer's operator_question
-    must be durably visible, not just live in whatever REPL/TUI process
+    must be durably visible, not just live in whatever cockpit process
     happened to be tailing events.jsonl at that instant. The supervisor is the
-    ONE place every mission outcome (daemon or REPL-attached) flows through,
+    ONE place every daemon mission outcome flows through,
     so this is where the question gets persisted onto the (now-terminal)
-    backlog item for /status to read later — see manager/repl.py's
-    ``_status_cmd`` pending-questions section."""
+    backlog item for status views to read later."""
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink()
     cfg = LifeSupervisorConfig(

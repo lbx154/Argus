@@ -998,10 +998,9 @@ def test_handoff_child_publishes_standby_then_runs(
     assert not config_path.exists()
 
 
-def test_daemon_pid_path_isolated_from_repl(tmp_path: Path) -> None:
+def test_daemon_pid_path(tmp_path: Path) -> None:
     from argus_skill.daemon.life_worker import _daemon_pid_path
     assert _daemon_pid_path(tmp_path).name == "daemon.pid"
-    assert _daemon_pid_path(tmp_path) != tmp_path / "repl.pid"
 
 
 # ---------------------------------------------------------------------------

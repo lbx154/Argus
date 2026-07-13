@@ -1,4 +1,4 @@
-"""Manager front-door routing shared by line REPL, TUI and Web."""
+"""Manager front-door routing shared by the Ink TUI and Web API."""
 
 from __future__ import annotations
 
@@ -74,12 +74,36 @@ def mission_is_running(mem: Any) -> bool:
 _MANAGER_RUNNER_UNAVAILABLE = object()
 
 
+def _operator_workspace(chat_state: dict[str, Any], session_root: Any) -> Path:
+    fallback = (
+        Path(session_root).expanduser()
+        if session_root
+        else Path.cwd()
+    )
+    sid = str(chat_state.get("session_id") or "").strip()
+    global_root = chat_state.get("global_root")
+    if not sid or global_root is None:
+        return fallback
+    try:
+        from ..core.session import read_session_meta
+
+        meta = read_session_meta(Path(global_root).expanduser(), sid)
+        raw = str(
+            (getattr(meta, "launch_cwd", "") if meta is not None else "")
+            or (getattr(meta, "cwd", "") if meta is not None else "")
+        ).strip()
+        workspace = Path(raw).expanduser().resolve(strict=True)
+        return workspace if workspace.is_dir() else fallback
+    except (OSError, RuntimeError, ValueError):
+        return fallback
+
+
 def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
     """Lazily build (and cache) a Manager-front-end runner for chat triage.
 
     The runner is used ONLY to classify free text as chat-vs-task and, when
     chat, to reply in-band BEFORE anything reaches the backlog. It is built
-    once per REPL session and cached on ``chat_state["manager_runner"]``.
+    once per Manager session and cached on ``chat_state["manager_runner"]``.
 
     Returns the runner, or ``None`` when front-end triage is not available
     (memory backend, or a build failure — in which case all free text falls
@@ -100,7 +124,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         # ``manager_session_root`` MUST match the daemon's own
         # ``ns.manager_session_root = str(cfg.life_dir)`` (see
         # ``daemon/life_worker.py:_runner_namespace``) — otherwise this
-        # front-door Manager (built once per REPL session, used for
+        # front-door Manager (built once per cockpit session, used for
         # SELF/TEAM routing + ``divide()``) reads/writes
         # ``research/PIPELINE_STATE.json`` and ``research/DOMAINS/*.json``
         # against a DIFFERENT root than the daemon that actually executes
@@ -114,6 +138,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         # differently-scoped, currently-unread-by-this-path field) is the
         # GLOBAL ``~/.argus-skill`` root — do not conflate the two.
         session_root = getattr(mem, "project_root", None)
+        operator_workspace = _operator_workspace(chat_state, session_root)
         ns = argparse.Namespace(
             backend=backend or "codex",
             engineer_model=resolve_role_model(
@@ -140,6 +165,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             # the detached daemon used cwd=/, splitting one mission across two
             # unrelated trees.
             workdir=str(session_root) if session_root else None,
+            operator_workspace=str(operator_workspace),
             manager_session_root=str(session_root) if session_root else None,
             project_state_dir=str(session_root) if session_root else None,
             life_dir=getattr(mem, "root", None),
@@ -157,26 +183,32 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
 
 
 def _derive_session_name(text: str, *, limit: int = 48) -> str:
-    """Derive a short, human-readable session label from the first real task.
+    """Create a safe deterministic fallback label from the first real task.
 
-    Codex / Claude-Code name a session after its opening message. We mirror
-    that: take the first non-empty line, collapse whitespace, and truncate.
-    Naming is domain-agnostic plumbing (a picker label), so the harness may do
-    it deterministically — no agent judgment required.
+    The normal front-door path asks Manager to distill a concise semantic title.
+    This fallback guarantees a usable label when that cosmetic model output is
+    unavailable: take the first non-empty line, normalize it, and truncate.
     """
     for raw in (text or "").splitlines():
-        line = " ".join(raw.split()).strip()
+        line = " ".join(raw.split()).strip().strip("`\"'“”‘’")
+        line = line.rstrip("。.!！?？;；:：")
         if line:
             return line if len(line) <= limit else line[: limit - 1] + "…"
     return ""
 
 
-def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
+def _maybe_name_session(
+    chat_state: dict[str, Any],
+    task_text: str,
+    *,
+    suggested_name: str = "",
+) -> None:
     """Name the current session after its first real task (once, fail-soft).
 
     A resumed session keeps its original name (``session_named`` is already
     True). Only the first task in a freshly-minted, still-unnamed session sets
-    the display_name shown in the resume picker.
+    the display_name shown in the resume picker. Prefer Manager's concise title;
+    use the deterministic first-line label only when no title was produced.
     """
     if chat_state.get("session_named"):
         return
@@ -184,12 +216,19 @@ def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
     gr = chat_state.get("global_root")
     if not sid or gr is None:
         return
-    name = _derive_session_name(task_text)
-    if not name:
-        return
     try:
-        from ..core.session import touch_session
+        from ..core.session import read_session_meta, touch_session
 
+        persisted = read_session_meta(gr, sid)
+        if persisted is not None and persisted.display_name.strip():
+            chat_state["session_named"] = True
+            return
+        name = (
+            _derive_session_name(suggested_name, limit=32)
+            or _derive_session_name(task_text)
+        )
+        if not name:
+            return
         touch_session(gr, sid, display_name=name)
         chat_state["session_named"] = True
     except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task
@@ -203,26 +242,6 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         JsonlEventSink(None, life_dir=_life_dir_for(mem)).append(event)
     except Exception:  # noqa: BLE001
         pass
-
-
-def _with_manager_spinner(theme: object | None, label: str, fn: Callable[[], Any]) -> Any:
-    """Run blocking ``fn`` while showing the cockpit's manager-tinted braille
-    spinner, so a model round-trip on the TEAM-handoff path never looks frozen.
-    No-op animation on non-TTY / piped / NO_COLOR (LiveStatus gates itself).
-
-    ``fn`` runs EXACTLY once: if the spinner cannot be built we fall back to a
-    bare call, but an exception from ``fn`` itself propagates unchanged."""
-    try:
-        from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD
-
-        cm = LiveStatus(
-            label, theme=theme, accent=ROLE_COLOR_BOLD.get("manager", "magenta")
-        )
-    except Exception:  # noqa: BLE001 — spinner setup only; never mask fn
-        return fn()
-    with cm:
-        return fn()
 
 
 def _accepts_keyword(fn: Any, name: str) -> bool:
@@ -316,7 +335,6 @@ def prepare_manager_execution_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> PreparedManagerHandoff:
@@ -341,19 +359,13 @@ def prepare_manager_execution_task(
                 runner=None,
             )
 
-        def _decide() -> Any:
-            if root_task_id is None or not _accepts_keyword(
-                manager.decide_vertical,
-                "root_task_id",
-            ):
-                return manager.decide_vertical(body)
-            return manager.decide_vertical(body, root_task_id=root_task_id)
-
-        decision = _with_manager_spinner(
-            theme,
-            "Manager choosing the vertical…",
-            _decide,
-        )
+        if root_task_id is None or not _accepts_keyword(
+            manager.decide_vertical,
+            "root_task_id",
+        ):
+            decision = manager.decide_vertical(body)
+        else:
+            decision = manager.decide_vertical(body, root_task_id=root_task_id)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,
@@ -383,7 +395,6 @@ def _manager_divide_user_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> Any:
@@ -393,16 +404,14 @@ def _manager_divide_user_task(
     already the Planner's decomposition and must not be routed back through
     Manager again.
 
-    ``Manager.divide`` makes a blocking model round-trip (``decide_vertical``), so
-    the caller passes ``theme`` to keep the cockpit's spinner animating during it
-    — otherwise the TEAM-handoff window looks frozen.
+    The caller surfaces progress through the Web/TUI event stream while this
+    blocking Manager decision runs.
     """
     try:
         prepared = prepare_manager_execution_task(
             mem,
             body,
             chat_state,
-            theme=theme,
             root_task_id=root_task_id,
             ensure_runner=ensure_runner,
         )
@@ -422,7 +431,6 @@ def manager_execution_task(
     body: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
 ) -> str:
     """Return Manager's role-clean Planner/Engineer handoff or fail closed."""
@@ -430,7 +438,6 @@ def manager_execution_task(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
     )
     return require_manager_execution_task(division)
@@ -442,7 +449,6 @@ def manager_bounded_handoff(
     chat_state: dict[str, Any],
     persist: Callable[[str, Any], Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> Any:
@@ -451,7 +457,6 @@ def manager_bounded_handoff(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
         ensure_runner=ensure_runner,
     )
@@ -475,7 +480,6 @@ def manager_continuous_handoff(
     requested_objective: str,
     chat_state: dict[str, Any],
     *,
-    theme: object | None = None,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
 ) -> str:
@@ -494,7 +498,6 @@ def manager_continuous_handoff(
         mem,
         body,
         chat_state,
-        theme=theme,
         root_task_id=root_task_id,
         ensure_runner=ensure_runner,
     )
@@ -609,8 +612,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     ``on_fragment(kind, payload)`` — optional streaming callback for a live
     front-end (the web/TUI SSE bridge). Fires ``("delta", {"text", "message_id"})``
     for each assistant reply block the instant it arrives, and ``("phase",
-    {"role", "label"})`` at each phase transition. Opt-in: default ``None``
-    leaves triage behaving exactly as the line REPL.
+    {"role", "label"})`` at each phase transition.
     """
     if route is None and mission_is_running(mem):
         route = "simple"
@@ -651,11 +653,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             return None
 
     def _emit_phase(role: str, label: str) -> None:
-        # The terminal REPL consumes ``on_phase`` directly; the web/TUI bridge
-        # consumes ``on_fragment("phase", ...)``. Relay every real runner phase
-        # to both surfaces. Previously the runner received the raw ``on_phase``
-        # argument (which is None on the web path), so SSE never saw classify /
-        # direct-reply transitions and could only display a generic spinner.
+        # Relay every real runner phase to both callback styles so SSE sees
+        # classify/direct-reply transitions instead of a generic spinner.
         if callable(on_phase):
             try:
                 on_phase(label, role=role)
@@ -778,7 +777,6 @@ __all__ = [
     "_life_dir_for",
     "_manager_divide_user_task",
     "_maybe_name_session",
-    "_with_manager_spinner",
     "looks_like_do_not_run_request",
     "manager_execution_task",
     "manager_bounded_handoff",

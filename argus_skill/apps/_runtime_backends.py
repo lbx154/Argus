@@ -71,7 +71,7 @@ class _Outcome:
     # supervisor persists this onto the backlog item (``pending_question``)
     # so it survives past this one event and /status can list it later —
     # without this, the question only ever existed for as long as whatever
-    # REPL/TUI process happened to be tailing events.jsonl at that instant.
+    # cockpit process happened to be tailing events.jsonl at that instant.
     operator_question: str = ""
 
 

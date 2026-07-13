@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ArtifactInfo } from '../api';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
@@ -6,6 +6,7 @@ import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
+import { useGsapMotion } from '../lib/motion';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
@@ -56,6 +57,7 @@ export function ResearchCanvas({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
   const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
@@ -101,6 +103,22 @@ export function ResearchCanvas({
       setDownloading(false);
     }
   };
+  useGsapMotion(previewRef, (gsap, reduceMotion) => {
+    if (!previewRef.current) return;
+    if (reduceMotion) return;
+    gsap.fromTo(
+      previewRef.current,
+      { autoAlpha: 0, y: 6, scale: 0.995 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.3,
+        ease: 'power2.out',
+        clearProps: 'transform,opacity,visibility',
+      },
+    );
+  }, [selected?.path, info?.kind]);
 
   return (
     <section className={`flex min-h-0 flex-col overflow-hidden bg-panel ${embedded ? '' : 'rounded-lg border border-line/80'} ${className}`} aria-label="Manager live research canvas">
@@ -162,7 +180,7 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
-      <div key={selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 animate-appear flex-col bg-bg">
+      <div ref={previewRef} key={selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
             Manager live view is temporarily unavailable.

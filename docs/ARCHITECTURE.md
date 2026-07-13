@@ -34,7 +34,8 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Area | File(s) | Role |
 |---|---|---|
 | Entry / CLI | `argus_skill/__main__.py`, `apps/cli/_parser.py`, `apps/cli/_core.py` | argument parsing + one-shot action dispatch (`--daemon`, `--daemon-stop [--drain]`, `--status`, …) |
-| Manager | `manager/_core.py`, `manager/repl.py` | chat-vs-task decision (model-judged, not keyword), vertical selection, REPL surface, and the **sole authority for pipeline stage transitions** (`current_stage`) — Planner/Engineer/Reviewer may only advise, never write it themselves |
+| Manager | `manager/_core.py`, `manager/front_door.py`, `manager/dispatch.py`, `webapi/manager_bridge.py` | model-judged chat-vs-task decision, vertical selection, durable dispatch, and the **sole authority for pipeline stage transitions** (`current_stage`) — Planner/Engineer/Reviewer may only advise, never write it themselves |
+| Cockpit | `frontend/tui/`, `frontend/web/`, `webapi/server.py` | Ink/Web operator surfaces; there is no Python line REPL |
 | Runtime wiring | `apps/_runtime.py` | builds the live runner / supervisor from config |
 | Mission scheduler | `life/supervisor/_core.py` | the 7×24 outer loop: claim backlog → run mission → plan next; budget, lifecycle, drain |
 | Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → review |

@@ -20,7 +20,6 @@ Current runtime layout::
             ├─ inbox.jsonl
             ├─ daemon.pid
             ├─ daemon.status.json
-            └─ repl.pid
 
 The global root holds only cross-project *identity* and shared skills. The
 per-project ``events.jsonl`` is the canonical timeline; project journal data is
@@ -33,7 +32,7 @@ Legacy compatibility helpers kept for older tests / tooling:
   / ``bus/daemon.pid`` — bus-era queue state, retained only for
   historical callers.
 * ``projects/<fingerprint>/missions/<mission_id>/`` — historical
-  mission-record helper, no longer part of the live REPL surface.
+  mission-record helper, no longer part of the live cockpit surface.
 
 Environment overrides:
 

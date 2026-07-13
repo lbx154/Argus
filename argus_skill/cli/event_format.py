@@ -47,7 +47,7 @@ _EVENT_ICONS: dict[str, str] = {
     "final.report.ready": "📄",
     "distill.start":    "🧬",
     "distill.done":     "🧬",
-    # Life-mode lifecycle (in-process REPL surfaces these).
+    # Life-mode lifecycle.
     EventType.LIFE_MISSION_STARTED:   "▶",
     EventType.LIFE_MISSION_COMPLETED: "■",
     EventType.LIFE_STATUS:            "ℹ️",

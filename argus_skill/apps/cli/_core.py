@@ -4,7 +4,7 @@ The product has exactly one positioning: a long-running supervised
 coding agent that drains a backlog forever. There is therefore exactly
 one entry point — ``argus-skill`` — which:
 
-* drops you into the unified life REPL (the cockpit), and
+* launches the Ink cockpit, and
 * by default ensures a detached daemon is alive draining the backlog
   in the background even after you log out.
 
@@ -13,8 +13,8 @@ Top-level flags control daemon lifecycle and read-only operator help
 ``--daemon-runbook``, ``--no-daemon``). The only subcommand is a small
 admin helper for explicitly bootstrapping and backfilling per-project
 idea wikis: ``argus-skill wiki init <project>`` and
-``argus-skill wiki ingest --wiki <path>``. The REPL and backlog remain
-the single runtime workflow.
+``argus-skill wiki ingest --wiki <path>``. The cockpit and backlog remain the
+single runtime workflow.
 """
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def _resolve_session_id(
 ) -> tuple[str | None, bool]:
     """Resolve the session id from flags. Returns (session_id, is_new).
 
-    With NO session flag: the REPL / daemon-start (``default_to_new=True``)
+    With NO session flag: the cockpit / daemon-start (``default_to_new=True``)
     opens a FRESH session; management commands (``default_to_new=False``) return
     (None, False) so the caller keeps the legacy cwd identity — unchanged.
     """
@@ -357,9 +357,8 @@ def main(argv: list[str] | None = None) -> int:
             lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
-    # The Python line REPL is retired. All interactive use goes through the Ink
-    # cockpit; ``argus-skill`` remains the daemon/admin CLI for explicit flags.
-    # Keeping one product surface prevents the old REPL and TUI from drifting.
+    # All interactive use goes through the Ink cockpit; ``argus-skill`` remains
+    # the daemon/admin CLI for explicit flags.
     entry_error = _lifetime_entry_error(args)
     if entry_error:
         sys.stderr.write(f"argus-skill: {entry_error}\n")
@@ -375,16 +374,9 @@ def main(argv: list[str] | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _build_worker_config(args: argparse.Namespace, *, bundle=None):
+def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig
-    # When the REPL auto-spawns a daemon it MUST target the same project the
-    # REPL is queueing into — i.e. the resolved *session* bundle — not a fresh
-    # cwd-fingerprint resolve. Passing ``bundle`` keeps the daemon's life_dir
-    # identical to ``mem.project.root`` so the queued task is actually drained.
-    # (Without this, a `s-…` session REPL would spawn a daemon on the legacy
-    # cwd project and the task would sit pending forever — the "卡住" bug.)
-    if bundle is None:
-        bundle = _resolve_project_bundle(args)
+    bundle = _resolve_project_bundle(args)
     backend = getattr(args, "backend", None) or os.environ.get(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
@@ -1337,7 +1329,7 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
 
 
 def _cmd_gc(args: argparse.Namespace) -> int:
-    """Prune stale projects (no live daemon/repl + untouched for --gc-days)."""
+    """Prune stale projects (no live daemon + untouched for --gc-days)."""
     from ...core.project_gc import gc_stale_projects, retention_days_default
 
     root = _resolve_global_root(args)
@@ -1350,7 +1342,7 @@ def _cmd_gc(args: argparse.Namespace) -> int:
     if not pruned:
         sys.stdout.write(
             f"argus-skill: no stale projects (retention={days}d; "
-            "live daemons/REPLs and recently-active projects are never touched).\n"
+            "live daemons and recently-active projects are never touched).\n"
         )
         return 0
     sys.stdout.write(f"argus-skill: {verb} {len(pruned)} stale project(s):\n")
@@ -1384,7 +1376,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         # status.backend is "codex" (real CLI backend) vs "memory" (test
         # double) — not which real CLI is configured per role (that's
         # ARGUS_SKILL_RUNNER_BACKEND, shown in /roles). See the matching
-        # comment in manager/repl.py::_status_cmd for why the raw value
+        # role status view explains why the raw value
         # isn't printed here.
         backend_label = (
             "memory (test)" if status.backend == "memory" else "live — see /roles"
@@ -1444,7 +1436,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if running and not (status.alive and status.pid is not None):
         print(
             "             ↳ orphan running items will be reaped to `failed` "
-            "when a worker (REPL or --daemon) next starts."
+            "when a daemon worker next starts."
         )
     cont = read_continuous_state(bundle.project.root)
     print(f"  continuous: {'on' if cont.enabled else 'off'}")

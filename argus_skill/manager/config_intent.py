@@ -1,64 +1,36 @@
-"""Natural-language config intent and front-door role overlay."""
+"""Natural-language configuration intent handling."""
 
 from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from typing import Any, Callable
 
 from ..apps._life_actions import append_note
-from .front_door import _accepts_keyword, _ensure_manager_runner
-from .repl_ops import _ROLE_BACKEND_ENVS, _ROLE_EFFORT_ENVS, _ROLE_MODEL_ENVS
+from .front_door import (
+    _accepts_keyword,
+    _ensure_manager_runner,
+    _maybe_name_session,
+)
 
-
-def _render_live_role_overlay(
-    life_dir: Path | str, theme: Any, *, active_role: str, label: str,
-) -> str:
-    """A truthful "roles · activity" snapshot for the SELF quick-reply spinner
-    (the ``LiveStatus`` block in ``_free_text_cmd``), marking ``active_role``
-    active directly from the SAME phase signal the spinner itself is driven
-    by — NOT from ``events.jsonl``.
-
-    The SELF quick-reply path (Manager answers a simple chat turn itself, no
-    Planner/Engineer/Reviewer hand-off) deliberately never journals its
-    progress to ``events.jsonl`` (see ``_Capture``/``_simple_quick_reply`` —
-    avoids mission-log noise for a one-line "你好"). That means
-    ``role_activity()`` — the ONLY data source the pre-turn panel
-    (``read_message_prompt_toolkit`` / ``read_message_with_live_cockpit``)
-    reads — has no way to know this turn is happening at all, so that panel
-    keeps showing every role "idle" for the entire live turn: not just stale,
-    a direct, visible self-contradiction with the correctly-labeled spinner
-    right below it (live-confirmed: "Manager idle" shown while "Manager ·
-    SELF: ... 6s" spun beneath it, prompting "你不要只做摆设" — don't just
-    make this decorative). This builds a SEPARATE, correct snapshot for that
-    narrow window by overriding just one role's entry in an otherwise-real
-    ``role_activity()`` read (so Planner/Engineer/Reviewer still show their
-    true last-known state, not a blanket fake "idle")."""
-    from ..cli.roles_status import (
-        ROLES,
-        RoleActivity,
-        format_roles_panel,
-        resolve_all_roles,
-        role_activity,
-    )
-
-    try:
-        activities = dict(role_activity(life_dir))
-    except Exception:  # noqa: BLE001
-        activities = {}
-    for r in ROLES:
-        activities.setdefault(
-            r, RoleActivity(role=r, active=False, label="idle", status="idle", age_s=None),
-        )
-    role = (active_role or "").strip().lower()
-    if role in activities:
-        activities[role] = RoleActivity(
-            role=role, active=True, label=label, status="running", age_s=0.0,
-        )
-    configs = resolve_all_roles(env=os.environ)
-    width = theme.live_width() if theme is not None and hasattr(theme, "live_width") else 80
-    return format_roles_panel(theme, configs, activities, width=width)
+_ROLE_BACKEND_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
+    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
+    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
+    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
+}
+_ROLE_EFFORT_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+    "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+}
+_ROLE_MODEL_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "planner": "ARGUS_SKILL_PLAN_MODEL",
+    "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
+    "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
+}
 
 
 def _front_door_classify(
@@ -70,7 +42,7 @@ def _front_door_classify(
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     accepts_keyword: Callable[[Any, str], bool] | None = None,
 ) -> "tuple[Any, str | None, str]":
-    """ONE merged LLM call for the cockpit front-door: returns
+    """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
     Replaces the old sequential config-intent + route classify (two copilot
@@ -78,34 +50,47 @@ def _front_door_classify(
     ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
     error → ``(None, None, "complex")`` so the message flows through the normal
     task path unchanged (never swallow real work on a classify hiccup)."""
+    suggested_names: list[str] = []
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
         if mgr is None or not hasattr(mgr, "classify_front_door"):
             return None, None, "complex"
         accepts = accepts_keyword or _accepts_keyword
-        if root_task_id is None or not accepts(
+        kwargs: dict[str, Any] = {}
+        if root_task_id is not None and accepts(
             mgr.classify_front_door,
             "root_task_id",
         ):
-            decision = mgr.classify_front_door(text)
-        else:
-            decision = mgr.classify_front_door(
-                text,
-                root_task_id=root_task_id,
-            )
-        if isinstance(decision, tuple) and len(decision) == 3:
+            kwargs["root_task_id"] = root_task_id
+        if accepts(mgr.classify_front_door, "name_sink"):
+            kwargs["name_sink"] = suggested_names.append
+        decision = mgr.classify_front_door(text, **kwargs)
+        if isinstance(decision, tuple) and len(decision) == 4:
+            intent, control, route, suggested_name = decision
+            if suggested_name:
+                suggested_names.append(str(suggested_name))
+        elif isinstance(decision, tuple) and len(decision) == 3:
             intent, control, route = decision
         else:
             intent, route = decision
             control = None
         return (
             intent,
-            control if control == "abort" else None,
+            control if control in {"abort", "no_dispatch"} else None,
             route if route in ("simple", "complex") else "complex",
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
         return None, None, "complex"
+    finally:
+        _maybe_name_session(
+            chat_state,
+            text,
+            suggested_name=next(
+                (name for name in suggested_names if str(name).strip()),
+                "",
+            ),
+        )
 
 
 def _maybe_handle_config_intent(
@@ -130,10 +115,7 @@ def _maybe_handle_config_intent(
     verdict all return False, and the text flows on to the normal chat/task path.
     Returns True iff it applied a change (and the turn is done).
 
-    ``on_confirm(line)`` — optional sink for the confirmation line(s). When given
-    (the web/TUI cockpit front-door), the confirmation is handed to it INSTEAD of
-    printed to stdout, so a non-REPL surface can show it as a chat reply. Default
-    ``None`` keeps the line-REPL's print behaviour byte-for-byte."""
+    ``on_confirm(line)`` is an optional sink for confirmation lines."""
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     mgr = getattr(runner, "manager", None) if runner is not None else None
     if mgr is None or not hasattr(mgr, "classify_config_intent"):
@@ -171,7 +153,7 @@ def _apply_config_intent(
     def _confirm(line: str) -> None:
         if callable(on_confirm):
             try:
-                on_confirm(line)  # cockpit: surface as a chat reply, not stdout
+                on_confirm(line)
             except Exception:  # noqa: BLE001 — a UI sink must never break the apply
                 pass
         else:
@@ -289,5 +271,4 @@ __all__ = [
     "_apply_config_intent",
     "_front_door_classify",
     "_maybe_handle_config_intent",
-    "_render_live_role_overlay",
 ]

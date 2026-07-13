@@ -1,7 +1,7 @@
 """Plan mode — preview a step-by-step plan BEFORE any work is queued.
 
 Codex / Claude-Code / Cursor parity: when the operator types ``/plan <objective>``
-the REPL shows an ordered, scannable outline of HOW the agent *would* approach the
+the cockpit shows an ordered, scannable outline of HOW the agent *would* approach the
 objective and asks for confirmation before anything reaches the backlog/daemon.
 This is a preview only — drafting a plan must never run tools, write code, or
 execute the work.
@@ -9,9 +9,9 @@ execute the work.
 This module is deliberately thin and self-contained:
 
 * :class:`PlanStep` / :class:`Plan` — the in-memory plan shape.
-* :func:`draft_plan` — ask the model (via the runner the REPL already holds) for
+* :func:`draft_plan` — ask the model (via the runner the cockpit already holds) for
   an ordered plan and parse it. Failures are surfaced explicitly in the
-  returned :class:`Plan`; the REPL stays alive, but it does NOT silently
+  returned :class:`Plan`; the cockpit stays alive, but it does NOT silently
   invent a fake one-step plan.
 * :func:`render_plan` — pretty, scannable multi-line text (numbered steps + notes).
 * :func:`parse_plan_text` — the pure, unit-testable parser (no live model). Accepts
@@ -59,6 +59,7 @@ class PlanStep:
 
     title: str
     detail: str = ""
+    kind: str = "work"
 
 
 @dataclass
@@ -132,7 +133,10 @@ def _step_from_obj(obj: Any) -> PlanStep | None:
                 break
         if not title and detail:
             title, detail = detail, ""
-        return PlanStep(title, detail) if title else None
+        kind = str(obj.get("kind") or "work").strip().lower()
+        if kind not in {"work", "lean_formalization"}:
+            kind = "work"
+        return PlanStep(title, detail, kind) if title else None
     return None
 
 
@@ -245,13 +249,31 @@ def parse_plan_notes(text: str) -> list[str]:
 # Prompt + model call
 # ---------------------------------------------------------------------------
 
-def build_plan_prompt(objective: str) -> str:
+def build_plan_prompt(
+    objective: str,
+    *,
+    role_banner: str = "",
+    allow_lean_formalization_subtask: bool = False,
+) -> str:
     """Render the prompt asking the model for a preview plan.
 
     The model must OUTLINE only — never do the work, run tools, or write code.
     """
     obj = (objective or "").strip()
-    return (
+    formalization_rule = (
+        "4. If you choose Lean formalization, make it ONE independent bounded "
+        'step with `"kind": "lean_formalization"`. All other steps use '
+        '`"kind": "work"`.\n'
+        if allow_lean_formalization_subtask
+        else ""
+    )
+    step_shape = (
+        '{"title": "<imperative title>", "detail": "<what/why>", '
+        '"kind": "<work|lean_formalization>"}'
+        if allow_lean_formalization_subtask
+        else '{"title": "<imperative title>", "detail": "<what/why>"}'
+    )
+    prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
         f"Produce an ordered plan ({_MIN_STEPS}-{_MAX_STEPS} steps) of how "
@@ -261,14 +283,19 @@ def build_plan_prompt(objective: str) -> str:
         "or write code. This is an outline only.\n"
         "2. Each step is one concrete action with an imperative title.\n"
         f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps, but include enough detail "
-        "for the operator to understand the approach.\n\n"
+        "for the operator to understand the approach.\n"
+        f"{formalization_rule}\n"
         "## Objective\n"
         f"{obj}\n\n"
         "## Your answer\n"
         "Reply with ONE JSON object and NOTHING else:\n"
-        '{"steps": [{"title": "<imperative title>", "detail": "<what/why>"}, ...], '
+        f'{{"steps": [{step_shape}, ...], '
         '"notes": ["<optional caveat or assumption>", ...]}\n'
     )
+    banner = str(role_banner or "").strip()
+    if not banner:
+        return prompt
+    return f"## Active vertical role\n{banner}\n\n{prompt}"
 
 
 def _resolve_run_exec(
@@ -280,7 +307,7 @@ def _resolve_run_exec(
 ):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
-    The REPL hands us its high-level runner (``_SkillLoopRunner``), which exposes
+    The cockpit hands us its high-level runner (``_SkillLoopRunner``), which exposes
     the underlying backend as ``.backend`` / ``._backend`` rather than a top-level
     ``run_exec``. Test stubs and raw backends expose ``run_exec`` directly. We try
     each candidate and return a ``(prompt) -> result`` closure, or ``None`` when no
@@ -357,16 +384,18 @@ def draft_plan(
     model: str | None = None,
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
+    role_banner: str = "",
+    allow_lean_formalization_subtask: bool = False,
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
-    Uses the same runner the REPL already holds (its underlying backend is
+    Uses the same runner the cockpit already holds (its underlying backend is
     resolved automatically). The model is asked to OUTLINE only — never to do
     the work. The reply is parsed by :func:`parse_plan_text` /
     :func:`parse_plan_notes`.
 
     A missing/raising runner, a non-zero exit, an empty reply, or an
-    unparseable plan are surfaced explicitly via ``Plan.error`` so the REPL
+    unparseable plan are surfaced explicitly via ``Plan.error`` so the cockpit
     never crashes but also never silently invents a plan. On success,
     ``Plan.error`` is empty.
     """
@@ -384,8 +413,14 @@ def draft_plan(
         return _draft_failed(objective, reason="could not draft plan: no runner backend")
 
     try:
-        result = run_exec(build_plan_prompt(objective))
-    except Exception:  # noqa: BLE001 — keep the REPL alive but surface failure
+        result = run_exec(
+            build_plan_prompt(
+                objective,
+                role_banner=role_banner,
+                allow_lean_formalization_subtask=allow_lean_formalization_subtask,
+            )
+        )
+    except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")
         return _draft_failed(objective, reason="could not draft plan: backend error")
 
@@ -464,7 +499,7 @@ def render_plan(plan: Plan, theme: Any = None) -> str:
                 lines.append("  " + _style(theme, "dim", f"- {str(note).strip()}"))
 
         return "\n".join(lines)
-    except Exception:  # noqa: BLE001 — rendering must never crash the REPL
+    except Exception:  # noqa: BLE001 — rendering must never crash the cockpit
         try:
             return f"Plan · {plan.objective}"
         except Exception:  # noqa: BLE001

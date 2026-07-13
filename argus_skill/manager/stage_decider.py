@@ -324,7 +324,7 @@ def fallback_empty_stage_decision(
     )
 
 
-def _review_certifies_completion(review: Any) -> str:
+def _review_certifies_completion(review: Any, *, vertical: str = "") -> str:
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
@@ -341,6 +341,12 @@ def _review_certifies_completion(review: Any) -> str:
             return "unsatisfied_checklist"
         if not str(item.get("evidence", "")).strip():
             return "missing_checklist_evidence"
+    if (vertical or "").strip().lower() == "math":
+        from ..verticals.math.results import math_completion_issue
+
+        issue = math_completion_issue(getattr(review, "math_result", None))
+        if issue:
+            return issue
     return ""
 
 
@@ -349,6 +355,7 @@ def final_stage_completion_decision(
     *,
     current_stage: str,
     stage_order: Sequence[str],
+    vertical: str = "",
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
 ) -> StageDecision | None:
@@ -357,7 +364,7 @@ def final_stage_completion_decision(
     order = [str(s).strip().lower() for s in stage_order]
     if not order or cur != order[-1]:
         return None
-    missing = _review_certifies_completion(review)
+    missing = _review_certifies_completion(review, vertical=vertical)
     if missing:
         return None
     reason = trigger_reason or "reviewer certified final-stage checklist"

@@ -1,6 +1,6 @@
 """Cross-process "abort the running mission" signal.
 
-The Manager runs in the operator's REPL process; the mission it may need to
+The Manager runs in the operator-facing API process; the mission it may need to
 abort is executing in the *daemon's* separate OS process. There is no shared
 memory between them, so the request is a small file dropped into the
 session's shared ``life_dir`` — the same directory both processes already

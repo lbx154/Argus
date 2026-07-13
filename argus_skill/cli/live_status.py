@@ -1,6 +1,6 @@
 """Inline, self-erasing animated status line for synchronous work.
 
-The line REPL blocks while the Manager triages a message or drafts a plan.
+The operator front-end blocks while the Manager triages a message or drafts a plan.
 Before this, the operator saw a frozen prompt with no feedback — the "卡住"
 feeling. :class:`LiveStatus` renders a Claude-Code / Codex / Gemini-style
 single-line animated indicator during that wait::
@@ -134,7 +134,7 @@ class LiveStatus:
         # ``phrases`` (see ``_current_label``'s docstring: "an explicit update
         # wins"). Without this, a caller that passes BOTH ``phrases`` (a cosmetic
         # fallback for the pre-first-event silence) AND drives real progress via
-        # ``update()`` — e.g. the REPL's manager-triage spinner — would have its
+        # ``update()`` — e.g. a manager-triage spinner — would have its
         # real phase text silently discarded forever in favour of the rotating
         # placeholder, which is exactly backwards.
         self._explicit_update = False

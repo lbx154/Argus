@@ -204,6 +204,17 @@ def test_build_simple_prompt_includes_mission_status_when_given() -> None:
     assert "Argus Manager" in out
 
 
+def test_build_simple_prompt_includes_grounding_workspace_when_given() -> None:
+    out = build_simple_prompt(
+        objective="what frontend does this project use?",
+        operator_workspace="/workspace/project",
+    )
+    assert "Operator launch workspace: /workspace/project" in out
+    assert "inspect this workspace with read-only tools" in out
+    assert "must not modify files or dispatch background work" in out
+    assert "Grounding workspace" not in build_simple_prompt(objective="17*23=?")
+
+
 def test_manager_prompts_include_runtime_context_only_when_given() -> None:
     fact = "Runtime fact: one warm ACP conversation session."
     chat = build_chat_prompt(objective="how are you?", runtime_context=fact)

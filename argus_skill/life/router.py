@@ -1,4 +1,4 @@
-"""Tiny REPL front-door prompts."""
+"""Tiny Manager front-door prompts."""
 
 from __future__ import annotations
 
@@ -173,17 +173,30 @@ def build_simple_prompt(
     objective: str,
     mission_status: str = "",
     runtime_context: str = "",
+    operator_workspace: str = "",
 ) -> str:
     from ..cli.roles_status import runner_backend_label
 
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
+    workspace = ""
+    if operator_workspace.strip():
+        workspace = (
+            "## Grounding workspace\n"
+            f"Operator launch workspace: {operator_workspace.strip()}\n"
+            "For any claim about the current project, source tree, configuration, "
+            "or artifacts, inspect this workspace with read-only tools before "
+            "answering. Do not substitute generic prior knowledge for current "
+            "workspace evidence. This SELF turn must not modify files or dispatch "
+            "background work.\n\n"
+        )
     return (
         f"{prefix}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
         "Answer as Argus Manager.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{runtime}"
+        f"{workspace}"
         f"Task:\n{objective.strip()}"
     )
 
@@ -242,7 +255,7 @@ class ConfigIntent:
     value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
 
-ControlIntent = Literal["abort"]
+ControlIntent = Literal["abort", "no_dispatch"]
 
 
 def build_config_intent_prompt(text: str) -> str:
@@ -371,10 +384,10 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
 
 
 def build_front_door_prompt(text: str) -> str:
-    """Merged cockpit front-door classifier: config, control, and routing."""
+    """Merged cockpit front-door classifier: config, control, routing, and title."""
     cleaned = (text or "").strip()
     return (
-        "Classify one operator message on THREE independent axes.\n\n"
+        "Classify one operator message on FOUR independent axes.\n\n"
         "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
         "runtime settings (its cockpit knobs), as opposed to a research task, a "
         "question, or small talk?\n"
@@ -404,27 +417,43 @@ def build_front_door_prompt(text: str) -> str:
         'model/backend/effort/budget asked for WITHIN a single task ("这轮" / '
         '"do THIS on claude with high effort") is part of the task — CONFIG is '
         "NONE. When in doubt, NONE.\n\n"
-        "AXIS 2 — CONTROL: does the operator clearly ask Argus to stop, cancel, "
-        "or abort the mission that is already running?\n"
+        "AXIS 2 — CONTROL: does the operator clearly constrain what Argus may do "
+        "with this message?\n"
         "  ABORT = immediately stop the current in-flight mission. This is an "
         "operator control action, never a new task.\n"
+        "  NO_DISPATCH = the operator explicitly says not to create, queue, or "
+        "dispatch a task/mission, not to start a daemon, or to keep the request "
+        "read-only with no persistent side effect. Handle it entirely as inline "
+        "Manager SELF work, even when answering requires inspecting the current "
+        "workspace with read-only tools. If it cannot be satisfied without a "
+        "persistent side effect, explain that and ask for authorization; never "
+        "turn it into TEAM work.\n"
         "  NONE = every other message, including questions about how stopping "
         "works, requests to implement a stop feature, and tasks that merely "
         "mention stopping something as part of their objective.\n"
-        "  When in doubt, answer NONE. If CONTROL is ABORT, ROUTE must be SELF.\n\n"
+        "  When in doubt, answer NONE. If CONTROL is ABORT or NO_DISPATCH, ROUTE "
+        "must be SELF.\n\n"
         "AXIS 3 — ROUTE: SELF or TEAM?\n"
         "  SELF = conversational or read-only Manager work: a greeting, ack, "
-        "capability/status question, explanation with no durable side effect, "
-        "or an operator control action.\n"
+        "capability/status question, source/workspace inspection with no durable "
+        "side effect, explanation, or an operator control action.\n"
         "  TEAM = any request to create or modify a persistent file/artifact, "
         "run commands, or perform research/engineering. Small one-shot artifacts "
         "still use TEAM; the `direct` workflow keeps them lean.\n"
         "  When in doubt, answer TEAM — never route work that needs review to a "
         "lone worker.\n\n"
-        "Reply with EXACTLY three lines and nothing else:\n"
+        "AXIS 4 — NAME: create a concise conversation title from the core intent "
+        "of this message. This title is required for SELF, TEAM, config, control, "
+        "and conversational messages alike. Use the message's language. Distill "
+        "the subject and requested action instead of copying polite framing such "
+        "as 'please' or 'help me'. Prefer 2-12 Chinese characters or 2-8 words; "
+        "use a short noun phrase, with no quotes, trailing punctuation, or session "
+        "ID.\n\n"
+        "Reply with EXACTLY four lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
-        "CONTROL: <ABORT | NONE>\n"
+        "CONTROL: <ABORT | NO_DISPATCH | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
+        "NAME: <concise conversation title>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
         "daily_cap | max_daemons | codex_daily_requests | "
         "copilot_daily_requests | copilot_daily_premium | safe_mode | "
@@ -441,8 +470,9 @@ def classify_front_door(
     text: str,
     *,
     run_exec: Callable[[str], Any],
+    name_sink: Callable[[str], None] | None = None,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
-    """One model call for config, current-mission control, and route."""
+    """One model call for config, control, route, and an optional session title."""
     cleaned = (text or "").strip()
     if not cleaned:
         return None, None, "complex"
@@ -456,16 +486,28 @@ def classify_front_door(
     config_line = _line_after_prefix(answer, "CONFIG:")
     control_line = _line_after_prefix(answer, "CONTROL:")
     route_line = _line_after_prefix(answer, "ROUTE:")
+    name_line = _line_after_prefix(answer, "NAME:")
     intent = _parse_config_line(config_line) if config_line is not None else None
-    control_token = _first_alpha_token(control_line) if control_line is not None else ""
-    control: ControlIntent | None = (
-        "abort" if control_token.upper() == "ABORT" else None
+    control_token = (
+        str(control_line or "").strip().upper().replace("-", "_")
     )
+    control: ControlIntent | None
+    if control_token.startswith("ABORT"):
+        control = "abort"
+    elif control_token.startswith(("NO_DISPATCH", "NO DISPATCH", "NODISPATCH")):
+        control = "no_dispatch"
+    else:
+        control = None
     route = (
         _route_from_token(_first_alpha_token(route_line)) if route_line is not None else "complex"
     )
-    if control == "abort":
+    if control in {"abort", "no_dispatch"}:
         route = "simple"
+    if callable(name_sink) and name_line:
+        try:
+            name_sink(name_line)
+        except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
+            pass
     return intent, control, route
 
 

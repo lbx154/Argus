@@ -107,9 +107,23 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="solve.lean-compiled",
             statement=(
                 "When Lean is used, the submitted source has fresh successful compilation "
-                "evidence and contains no `sorry`, `admit`, or equivalent proof hole."
+                "evidence, contains no `sorry`, `admit`, or equivalent proof hole, and "
+                "the canonical artifacts `Main.lean`, `compile.log`, `lean_check.json`, "
+                "and `statement_fidelity.md` are present."
             ),
-            evidence_hint="Lean source plus compiler command, version, exit status, and output",
+            evidence_hint=(
+                "the four canonical Lean artifacts, including exact commands, versions, "
+                "exit status, axiom audit, and a side-by-side statement audit"
+            ),
+        ),
+        ChecklistItem(
+            id="solve.result-classified",
+            statement=(
+                "Each material result is classified as known, finite verification, "
+                "counterexample, partial progress, new candidate, novelty-unverified, "
+                "or verified new result; its mathematical scope is not overstated."
+            ),
+            evidence_hint="a claim ledger with result class, correctness, novelty, and limitations",
         ),
     ),
     "review": (
@@ -147,6 +161,24 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="claim-by-claim status labels and stated remaining gaps",
         ),
+        ChecklistItem(
+            id="review.correctness-novelty-separated",
+            statement=(
+                "Mathematical correctness and research novelty have independent "
+                "verdicts with concrete evidence; a correct known result is not "
+                "presented as a new contribution."
+            ),
+            evidence_hint="separate correctness and novelty findings for the strongest claim",
+        ),
+        ChecklistItem(
+            id="review.novelty-gate",
+            statement=(
+                "A result is called verified-new only after primary-source novelty "
+                "review; finite verification, partial work, and unverified candidates "
+                "remain non-terminal."
+            ),
+            evidence_hint="novelty audit or an explicit non-terminal classification",
+        ),
     ),
 }
 
@@ -167,26 +199,53 @@ def role_banner(role: str) -> str:
             "the method menu into a fixed pipeline. Reuse reviewer-certified "
             "prior-stage evidence by precise reference; do not assign another "
             "full-tree audit, snapshot, manifest, or checksum without a concrete "
-            "new dependency that requires it."
+            "new dependency that requires it. Plan explicit novelty checks for any "
+            "new candidate. When formalization would reduce uncertainty, create a "
+            "bounded formalization subtask that runs the structured lean_check tool "
+            "with `--lake` and saves its JSON output; "
+            "if Lean is unavailable, record that result and continue with honest "
+            "non-formal evidence."
         )
     if role_norm == "engineer":
         return common + (
             "Dynamically choose the path that fits this problem; do not mechanically "
             "execute a fixed workflow. Clearly distinguish conjecture, finite or "
             "numerical evidence, natural-language proof, and formal verification. "
-            "State the limits of every result and compile Lean claims for real. "
+            "Classify every result as a finite verification, local lemma, complete "
+            "proof, known result, or new candidate; never promote one class into "
+            "another. State the limits of every result and compile Lean claims for real "
+            "after authoring `statement_fidelity.md`, using `python -m "
+            "argus_skill.tools.lean_check <file> --lake --artifact-dir . "
+            "--statement-fidelity statement_fidelity.md`. This must preserve any "
+            "descriptive Lean file while materializing `Main.lean`, `compile.log`, "
+            "`lean_check.json`, and `statement_fidelity.md`. "
             "Spend the turn on the new mathematical delta and cite certified prior "
             "evidence instead of recreating its audit trail."
+        )
+    if role_norm == "scientist":
+        return common + (
+            "Design reusable mathematical research methods, not one-off answers. "
+            "Read the failed-round evidence and name the failed mechanism before "
+            "proposing a replacement. The replacement must change the proof/search "
+            "mechanism and be structural rather than parametric, not merely change "
+            "constants, bounds, prompts, or other parameters. "
+            "Separate correctness from novelty and include the cheapest decisive "
+            "counterexample, proof, literature, or formalization test."
         )
     if role_norm == "reviewer":
         return common + (
             "Independently check mathematical correctness and fidelity to the original "
             "definitions, quantifiers, assumptions, and conclusion. Check the boundary "
             "of computational evidence. If Lean is used, verify fresh real compilation "
-            "and reject proof holes. Lean compilation does not prove that the formal "
+            "and reject proof holes; require `Main.lean`, `compile.log`, "
+            "`lean_check.json`, and `statement_fidelity.md`. Lean compilation does not "
+            "prove that the formal "
             "statement faithfully represents the original problem. Audit the current "
             "claim and its dependency edges; do not demand a new full-project evidence "
-            "inventory when prior stages are already reviewer-certified."
+            "inventory when prior stages are already reviewer-certified. Every verdict "
+            "must populate math_result with separate correctness, statement-fidelity, "
+            "and novelty judgments. A correct known result is not new; finite evidence "
+            "is not a complete proof; novelty-unverified work cannot complete the mission."
         )
     return common
 

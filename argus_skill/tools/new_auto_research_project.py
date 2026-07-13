@@ -54,7 +54,7 @@ Ownership map:
 
 | Concern | Edit here in the Argus source checkout |
 | --- | --- |
-| CLI flags, REPL, daemon start/stop, status/follow/watch | `argus_skill/apps/cli.py`, `argus_skill/manager/repl.py`, `argus_skill/apps/_runtime.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` |
+| CLI flags, Ink/Web cockpit, daemon start/stop, status/follow/watch | `argus_skill/apps/cli.py`, `argus_skill/webapi/`, `argus_skill/apps/_runtime.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` |
 | One mission's skill matcher -> distiller -> engineer -> reviewer flow | `argus_skill/loop.py` |
 | L1 engineer retries, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py` |
 | L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |

@@ -158,12 +158,17 @@ class LifecycleMixin:
 
             event = decide_next_state(status)
             if (
-                uncertified_full_paper
-                and event is not None
-                and event.to_state == ProjectState.DONE
-                and event.reason == "submission_artifact_present"
+                self._effective_full_paper_gate(artifact_root)
+                and self._journal_has_full_paper_gate_success()
+                and status.state not in (ProjectState.DONE, ProjectState.ARCHIVED)
+                and status.has_submission_artifact
             ):
-                event = None
+                event = LifecycleEvent(
+                    at=datetime.now(timezone.utc),
+                    from_state=status.state,
+                    to_state=ProjectState.DONE,
+                    reason="reviewer_certified_full_paper",
+                )
             if event is not None:
                 status = apply_event(status, event)
                 try:

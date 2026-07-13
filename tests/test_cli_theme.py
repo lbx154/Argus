@@ -41,15 +41,12 @@ def test_cursor_up_and_forward_disabled_is_a_noop() -> None:
 
 def test_cursor_up_and_forward_uses_bracketed_csi_forms() -> None:
     """Regression: must use \\x1b[<n>A / \\x1b[<n>C (bracketed CSI), NOT bare
-    DEC save/restore-cursor (ESC 7 / ESC 8) — the latter slips past
-    apps/_input_helpers._ANSI_RE (which only matches "\\x1b[...") uninvisible-
-    ized and corrupts readline's line-start bookkeeping while the operator is
-    typing (confirmed live via a pty capture this session: the prompt prefix
-    visually vanished the instant a keystroke was echoed)."""
+    DEC save/restore-cursor (ESC 7 / ESC 8) — terminal width accounting only
+    recognizes ``\\x1b[...`` sequences, so bare forms corrupt cursor placement."""
     out = Theme(enabled=True).cursor_up_and_forward(1, 3)
     assert out == "\x1b[1A\r\x1b[3C"
-    # Every escape segment must be bracketed so apps/_input_helpers._ANSI_RE
-    # (r"\x1b\[[0-9;]*[a-zA-Z~]") recognizes and zero-widths it for readline.
+    # Every escape segment must be bracketed so terminal width accounting can
+    # recognize it as zero-width.
     import re
     ansi_re = re.compile(r"\x1b\[[0-9;]*[a-zA-Z~]")
     stripped = ansi_re.sub("", out)

@@ -6,10 +6,10 @@ stream (codex's ``--output-format=stream-json`` and friends), produces
 one structured event per line — ``thread.started``, ``item.completed``
 (with an ``item`` payload), ``turn.completed``, etc.
 
-We tap that callback here to surface live progress in the chat REPL.
+We tap that callback here to surface live progress in the operator cockpit.
 The raw stream lines are also forwarded as-is to the sink so the audit
 log keeps everything; the cooked ``engineer.progress`` events are what
-the unified REPL renders in concise mode.
+the unified cockpit renders in concise mode.
 
 Design choice: mirror ArgusBot's own event ingestion (see
 ``agent_cli/agent_cli_runner.py::_consume_codex_event``) — we only

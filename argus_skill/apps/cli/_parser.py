@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--gc",
         action="store_true",
-        help="garbage-collect stale projects (no live daemon/repl + untouched for "
+        help="garbage-collect stale projects (no live daemon + untouched for "
         "--gc-days) by moving them to ~/.argus-skill/projects_trash/, then exit",
     )
     daemon_grp.add_argument(
@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--no-daemon",
         action="store_true",
-        help="skip auto-spawning the background daemon when entering the REPL",
+        help="skip auto-spawning the background daemon when entering the cockpit",
     )
     daemon_grp.add_argument(
         "--life-dir",
@@ -330,14 +330,14 @@ def build_parser() -> argparse.ArgumentParser:
     gates_grp.add_argument(
         "--lifecycle-resume",
         action="store_true",
-        help="resume a quarantined project; clears persisted quarantine "
-             "state in <life-dir>/lifecycle.json so the supervisor will "
-             "dispatch missions again",
+        help="resume a quarantined, done, or archived project; restores a "
+             "working state in <life-dir>/lifecycle.json so the supervisor "
+             "will dispatch missions again",
     )
     gates_grp.add_argument(
         "--lifecycle-archive",
         action="store_true",
-        help="archive the project; supervisor will permanently refuse to "
+        help="archive the project; supervisor will refuse to "
              "dispatch missions until --lifecycle-resume is called",
     )
     gates_grp.add_argument(

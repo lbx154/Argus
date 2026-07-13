@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="50 70 410 390">
+  <style>
+    .mark { fill: #111827; }
+    @media (prefers-color-scheme: dark) {
+      .mark { fill: #f4f4f5; }
+    }
+  </style>
+  <path class="mark" fill-rule="evenodd" d="M358 94h80v338h-80v-46q-50 54-132 54Q68 440 68 266 68 90 230 90q80 0 128 52V94Zm-216 172q45-72 98-72t104 72q-51 72-104 72t-98-72Z"/>
+  <rect class="mark" x="226" y="210" width="30" height="112" rx="15"/>
+</svg>

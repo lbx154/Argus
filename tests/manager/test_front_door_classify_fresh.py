@@ -81,6 +81,21 @@ def test_front_door_config_axis(tmp_path) -> None:
     # the exploding session was never touched (else the assertion above would fire)
 
 
+def test_front_door_no_dispatch_axis(tmp_path) -> None:
+    mgr, _backend = _manager(
+        "CONFIG: NONE\nCONTROL: NO_DISPATCH\nROUTE: TEAM",
+        tmp_path,
+    )
+
+    intent, control, route = mgr.classify_front_door(
+        "inspect the source tree read-only; do not dispatch"
+    )
+
+    assert intent is None
+    assert control == "no_dispatch"
+    assert route == "simple"
+
+
 def test_explicit_run_exec_still_honoured(tmp_path) -> None:
     mgr, backend = _manager(
         "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF",

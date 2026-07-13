@@ -11,6 +11,7 @@ import { PendingBanner } from './components/PendingBanner';
 import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { Wordmark } from './components/Wordmark';
+import { BackendHandshake } from './components/BackendHandshake';
 import { TAGLINE } from './lib/soul';
 import { rankProjects, reconcileProjectSelection, resolveProjectSelection } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
@@ -29,6 +30,7 @@ import { OperationsModal } from './components/OperationsModal';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
+import { parseRenameCommand } from './lib/projectName';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -93,16 +95,18 @@ function Landing({
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      <Wordmark size={32} tag={TAGLINE} />
-      <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
-        {error
-          ? error
-          : loading
-          ? 'Connecting to the Argus service…'
-          : hasProjects
-          ? 'Select a session from the sidebar, or create a new one.'
-          : 'No sessions yet. Create one to begin.'}
-      </p>
+      {loading ? <BackendHandshake /> : (
+        <>
+          <Wordmark size={32} tag={TAGLINE} />
+          <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
+            {error
+              ? error
+              : hasProjects
+              ? 'Select a session from the sidebar, or create a new one.'
+              : 'No sessions yet. Create one to begin.'}
+          </p>
+        </>
+      )}
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">
           {error ? (
@@ -443,8 +447,9 @@ export default function App() {
     }
   };
   const manageRenameProject = async (name: string): Promise<boolean> => {
+    if (!activeSid) return false;
     try {
-      await actions.updateProject.mutateAsync(name);
+      await actions.updateProject.mutateAsync({ sid: activeSid, name });
       notify('success', 'Session name updated.');
       return true;
     } catch (error) {
@@ -601,6 +606,23 @@ export default function App() {
   const sendMessage = async (text: string) => {
     const requestSid = activeSid;
     if (!requestSid || messageRequestRef.current) return;
+    const rename = parseRenameCommand(text);
+    if (rename.matched) {
+      if (!rename.name) {
+        notify('error', 'Usage: /rename <name>');
+        return;
+      }
+      try {
+        const result = await actions.updateProject.mutateAsync({
+          sid: requestSid,
+          name: rename.name,
+        });
+        notify('success', `Renamed conversation to ${result.name}.`);
+      } catch (error) {
+        notify('error', `Rename failed: ${errorText(error)}`);
+      }
+      return;
+    }
     const requestId = ++messageEpochRef.current;
     const controller = new AbortController();
     messageRequestRef.current = { id: requestId, sid: requestSid, controller };
@@ -851,7 +873,7 @@ export default function App() {
               )}
               {!kiosk ? (
                 <div className="shrink-0 px-4 pb-6 pt-3">
-                  <div className="mx-auto w-full max-w-[760px]">
+                  <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
                   <PendingBanner
                     questions={snap.pending_questions ?? []}
                     backlog={snap.backlog}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useGsapMotion } from '../lib/motion';
 
 /**
  * A centered modal over a plain scrim — the container for the command palette,
@@ -21,8 +22,36 @@ export function Modal({
   align?: 'center' | 'top';
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  useGsapMotion(dialogRef, (gsap, reduceMotion) => {
+    if (!open || !dialogRef.current || !backdropRef.current) return;
+    if (reduceMotion) {
+      gsap.set([backdropRef.current, dialogRef.current], { clearProps: 'all' });
+      return;
+    }
+    gsap.timeline({ defaults: { overwrite: 'auto' } })
+      .fromTo(
+        backdropRef.current,
+        { autoAlpha: 0 },
+        { autoAlpha: 1, duration: 0.18, ease: 'power1.out' },
+        0,
+      )
+      .fromTo(
+        dialogRef.current,
+        { autoAlpha: 0, y: align === 'top' ? -10 : 12, scale: 0.985 },
+        {
+          autoAlpha: 1,
+          y: 0,
+          scale: 1,
+          duration: 0.28,
+          ease: 'power3.out',
+          clearProps: 'transform,opacity,visibility',
+        },
+        0.03,
+      );
+  }, [open, align]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -72,7 +101,7 @@ export function Modal({
       className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center p-4`}
       onMouseDown={onClose}
     >
-      <div className="absolute inset-0 bg-[rgba(0,0,0,0.68)]" />
+      <div ref={backdropRef} className="absolute inset-0 bg-[rgba(0,0,0,0.68)]" />
       <div
         ref={dialogRef}
         role="dialog"

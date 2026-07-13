@@ -20,13 +20,21 @@ projects (no ``session.json``) are still listable/resumable by their id.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import paths as core_paths
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None  # type: ignore[assignment]
 
 SESSION_META_FILE = "session.json"
 _SESSION_PREFIX = "s-"
@@ -70,6 +78,45 @@ def _meta_path(global_root: Path | None, sid: str) -> Path:
     return Path(root) / "projects" / sid / SESSION_META_FILE
 
 
+def normalize_session_name(value: str, *, limit: int = 80) -> str:
+    """Normalize an operator-facing session label to one bounded line."""
+    return " ".join((value or "").split())[:limit]
+
+
+@contextmanager
+def session_meta_lock(global_root: Path | None, sid: str) -> Iterator[None]:
+    """Serialize session lifecycle changes without placing the lock in its directory."""
+    root = Path(global_root) if global_root is not None else core_paths.global_root()
+    lock_name = hashlib.sha256(sid.encode("utf-8")).hexdigest()
+    path = root / ".session-locks" / f"{lock_name}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def session_lifecycle_lock(global_root: Path | None, sid: str) -> Iterator[None]:
+    """Serialize directory-level create/delete/restore/work mutations for one SID."""
+    root = Path(global_root) if global_root is not None else core_paths.global_root()
+    lock_name = hashlib.sha256(sid.encode("utf-8")).hexdigest()
+    path = root / ".session-lifecycle-locks" / f"{lock_name}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def read_session_meta(global_root: Path | None, sid: str) -> SessionMeta | None:
     try:
         raw = _meta_path(global_root, sid).read_text(encoding="utf-8")
@@ -81,12 +128,39 @@ def read_session_meta(global_root: Path | None, sid: str) -> SessionMeta | None:
         return None
 
 
-def write_session_meta(global_root: Path | None, meta: SessionMeta) -> None:
+def _write_session_meta_unlocked(global_root: Path | None, meta: SessionMeta) -> None:
     p = _meta_path(global_root, meta.id)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(meta.to_json() + "\n", encoding="utf-8")
     tmp.replace(p)
+
+
+def write_session_meta(global_root: Path | None, meta: SessionMeta) -> None:
+    with session_meta_lock(global_root, meta.id):
+        _write_session_meta_unlocked(global_root, meta)
+
+
+def update_session_meta(
+    global_root: Path | None,
+    sid: str,
+    update: Callable[[SessionMeta], None],
+    *,
+    create: bool = False,
+) -> SessionMeta | None:
+    """Atomically read, mutate, and replace one session metadata record."""
+    with session_meta_lock(global_root, sid):
+        if not _meta_path(global_root, sid).parent.is_dir():
+            return None
+        meta = read_session_meta(global_root, sid)
+        if meta is None:
+            if not create:
+                return None
+            now = time.time()
+            meta = SessionMeta(id=sid, created=now, last_active=now)
+        update(meta)
+        _write_session_meta_unlocked(global_root, meta)
+        return meta
 
 
 def touch_session(
@@ -99,14 +173,25 @@ def touch_session(
 ) -> None:
     """Bump last_active (and optionally name/objective). Fail-soft."""
     now = time.time() if now is None else now
-    meta = read_session_meta(global_root, sid) or SessionMeta(id=sid, created=now)
-    meta.last_active = now
-    if display_name is not None and not meta.display_name:
-        meta.display_name = display_name
-    if objective is not None and not meta.objective:
-        meta.objective = objective
+
+    def _touch(meta: SessionMeta) -> None:
+        if not meta.created:
+            meta.created = now
+        meta.last_active = now
+        if display_name is not None and not meta.display_name:
+            meta.display_name = display_name
+        if objective is not None and not meta.objective:
+            meta.objective = objective
+
     try:
-        write_session_meta(global_root, meta)
+        with session_meta_lock(global_root, sid):
+            if not _meta_path(global_root, sid).parent.is_dir():
+                return
+            meta = read_session_meta(global_root, sid)
+            if meta is None:
+                meta = SessionMeta(id=sid, created=now, last_active=now)
+            _touch(meta)
+            _write_session_meta_unlocked(global_root, meta)
     except OSError:
         pass
 
@@ -215,7 +300,7 @@ def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
     try:
         from .daemon_lock import is_pid_running, read_daemon_pid
 
-        for lock in ("daemon.pid", "repl.pid"):
+        for lock in ("daemon.pid",):
             pid = read_daemon_pid(project_dir / lock)
             if pid is not None and is_pid_running(pid):
                 return True

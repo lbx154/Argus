@@ -368,7 +368,7 @@ class PlanningContextMixin:
         """Update ``self.config.continuous`` from the config provider.
 
         Called at the top of every ``run()`` iteration so that changes
-        from the REPL (written to disk) take effect within seconds even
+        from the cockpit (written to disk) take effect within seconds even
         when the supervisor is in a long continuous run.
         """
         provider = self.config.continuous_config_provider

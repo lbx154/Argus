@@ -4,6 +4,8 @@ ONE model call decides config intent, operator control, and SELF/TEAM routing.
 """
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.life.router import (
     ConfigIntent,
     classify_config_intent,
@@ -19,10 +21,27 @@ class _FakeResult:
 
 def _exec(answer: str, exit_code: int = 0):
     def run_exec(prompt: str):
-        assert all(label in prompt for label in ("CONFIG:", "CONTROL:", "ROUTE:"))
+        assert all(
+            label in prompt
+            for label in ("CONFIG:", "CONTROL:", "ROUTE:", "NAME:")
+        )
         return _FakeResult(answer, exit_code)
 
     return run_exec
+
+
+def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
+    names: list[str] = []
+    decision = classify_front_door(
+        "帮我简单证明勾股定理",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nNAME: 勾股定理简证"
+        ),
+        name_sink=names.append,
+    )
+
+    assert decision == (None, None, "simple")
+    assert names == ["勾股定理简证"]
 
 
 def test_both_axes_config_and_self() -> None:
@@ -96,6 +115,24 @@ def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
     )
     assert intent is None
     assert control == "abort"
+    assert route == "simple"
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["NO_DISPATCH", "NO-DISPATCH", "NO DISPATCH", "NODISPATCH"],
+)
+def test_no_dispatch_control_forces_self_and_never_becomes_team_work(
+    token: str,
+) -> None:
+    intent, control, route = classify_front_door(
+        "只读检查源码，不要派发任务",
+        run_exec=_exec(
+            f"CONFIG: NONE\nCONTROL: {token}\nROUTE: TEAM"
+        ),
+    )
+    assert intent is None
+    assert control == "no_dispatch"
     assert route == "simple"
 
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Static, useApp, useInput, useStdout } from 'ink';
+import { Box, useApp, useInput, useStdout } from 'ink';
 import type { WebSocket } from 'ws';
 import {
   ApiClient,
@@ -26,7 +26,7 @@ import {
 } from './input/editor.js';
 import { EMPTY_HISTORY, newer, older, remember, type History } from './input/history.js';
 import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs, parseResumeTarget, slashCompletions } from './input/slash.js';
-import { Header } from './components/Header.js';
+import { StaticHeader } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
 import { SlashMenu, slashMenuVisibleRows } from './components/SlashMenu.js';
@@ -575,6 +575,24 @@ export function App({
       case '/attach':
         void switchProject(p.rest);
         break;
+      case '/rename':
+        if (!p.rest) {
+          need('/rename <name>');
+          break;
+        }
+        void api.renameProject(p.rest).then((result) => {
+          setSnap((current) => current
+            && current.session.id === result.sid
+            ? {
+                ...current,
+                session: { ...current.session, display_name: result.name },
+              }
+            : current);
+          if (projectRef.current === result.sid) {
+            setNotice(`renamed conversation to ${result.name}`);
+          }
+        }, err);
+        break;
       case '/clear':
         setEvents([]);
         setNotice('feed cleared');
@@ -1096,9 +1114,7 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Static items={['argus-header']}>
-        {() => <Header width={terminal.columns} />}
-      </Static>
+      <StaticHeader width={terminal.columns} />
       {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />

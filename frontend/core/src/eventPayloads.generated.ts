@@ -241,6 +241,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "next_action"?: string;
   "scope"?: string;
   "checklist"?: Array<Record<string, unknown>>;
+  "math_result"?: Record<string, unknown> | null;
   "planner_report"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
   "achievement"?: Record<string, unknown> | null;

@@ -14,8 +14,7 @@ States::
                    on draft / review / submission stages.
     quarantined →  hard-stopped. Daemon won't allocate tokens until a human
                    resumes or archives.
-    done        →  submission stage cleared; project produced its final
-                   artifact (e.g. paper PDF + reviewable bundle).
+    done        →  the reviewer certified project completion.
     archived    →  done OR quarantined project the user has decided to
                    close out. Terminal.
 
@@ -142,11 +141,10 @@ def decide_next_state(
     Order of precedence:
 
     1. Terminal states (done / archived) never transition.
-    2. Submission artifact present → done.
-    3. Budget exhausted (≥ quarantine_budget_fraction) → quarantine.
-    4. State-specific timeouts (incubating / running / writing too long
+    2. Budget exhausted (≥ quarantine_budget_fraction) → quarantine.
+    3. State-specific timeouts (incubating / running / writing too long
        without expected progress signal) → quarantine.
-    5. Natural progression: incubating → running (first evidence), running →
+    4. Natural progression: incubating → running (first evidence), running →
        writing (draft started).
     """
     now = now or datetime.now(timezone.utc)
@@ -155,16 +153,7 @@ def decide_next_state(
     if status.state in (ProjectState.DONE, ProjectState.ARCHIVED):
         return None
 
-    # 2. Submission artifact reached: project is done regardless of state.
-    if status.has_submission_artifact and status.state != ProjectState.DONE:
-        return LifecycleEvent(
-            at=now,
-            from_state=status.state,
-            to_state=ProjectState.DONE,
-            reason="submission_artifact_present",
-        )
-
-    # 3. Budget exhaustion → quarantine (unless already quarantined or done).
+    # 2. Budget exhaustion → quarantine (unless already quarantined or done).
     if (
         status.state != ProjectState.QUARANTINED
         and status.budget_usd > 0
@@ -184,7 +173,7 @@ def decide_next_state(
             ),
         )
 
-    # 4. State-specific natural progressions only.
+    # 3. State-specific natural progressions only.
     #    Earlier versions of this module also auto-quarantined on time
     #    spent in a stage (incubating>7d, running>14d no new evidence,
     #    writing>21d). Those constants were research-tempo judgments
@@ -323,8 +312,12 @@ def apply_event(
 def resume(
     status: ProjectStatus, *, now: datetime | None = None, reason: str = "user_resume"
 ) -> tuple[ProjectStatus, LifecycleEvent]:
-    """User flips a quarantined project back to its working state."""
-    if status.state != ProjectState.QUARANTINED:
+    """User reopens a blocked project in its observable working state."""
+    if status.state not in (
+        ProjectState.QUARANTINED,
+        ProjectState.DONE,
+        ProjectState.ARCHIVED,
+    ):
         raise ValueError(
             f"cannot resume project in state {status.state.value!r}"
         )

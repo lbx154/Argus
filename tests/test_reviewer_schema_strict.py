@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.reviewer import SCHEMA_PATH
+from argus_skill.reviewer import MATH_SCHEMA_PATH, SCHEMA_PATH
 
 
 def _strict_violations(node, path="root"):
@@ -48,6 +48,17 @@ def test_reviewer_schema_is_strict_structured_output_compliant():
         "reviewer round will exit 1:\n  "
         + "\n  ".join(f"{p}: {msg}" for p, msg in violations)
     )
+
+
+def test_math_reviewer_schema_is_strict_and_isolated() -> None:
+    base = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
+    math = json.loads(Path(MATH_SCHEMA_PATH).read_text(encoding="utf-8"))
+
+    assert "math_result" not in base["properties"]
+    assert "math_result" not in base["required"]
+    assert "math_result" in math["properties"]
+    assert "math_result" in math["required"]
+    assert not list(_strict_violations(math))
 
 
 def test_skill_ops_items_require_all_keys():

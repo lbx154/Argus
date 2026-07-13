@@ -124,6 +124,16 @@ def test_touch_updates_last_active_and_name(tmp_path):
     assert m.display_name == "optimize 079 kernel"
 
 
+def test_touch_creates_missing_metadata_with_requested_timestamp(tmp_path):
+    (tmp_path / "projects" / "s-missing").mkdir(parents=True)
+    touch_session(tmp_path, "s-missing", display_name="Recovered", now=123)
+    meta = read_session_meta(tmp_path, "s-missing")
+    assert meta is not None
+    assert meta.created == 123
+    assert meta.last_active == 123
+    assert meta.display_name == "Recovered"
+
+
 def test_memory_bundle_keys_by_session_id_not_cwd(tmp_path):
     # Two bundles with explicit (different) fingerprints -> different roots,
     # even from the same cwd. This is what gives each session its own daemon.

@@ -179,12 +179,37 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 180
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 10
     assert callable(backend.calls[0]["options"].inactivity_callback)
+    assert backend.calls[0]["options"].sandbox_mode == "read-only"
+    assert backend.calls[0]["options"].dangerous_yolo is False
+    assert backend.calls[0]["options"].full_auto is False
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
     assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
                for e in sink.events)
     assert "算 17*23" in backend.calls[0]["prompt"]
+
+
+def test_self_grounds_in_operator_workspace_without_moving_state_root(
+    tmp_path: Path,
+) -> None:
+    state_root = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    state_root.mkdir()
+    workspace.mkdir()
+    backend = _FakeBackend(response_message="grounded")
+    runner = _make_runner(backend)
+    runner._args.workdir = str(state_root)
+    runner._args.operator_workspace = str(workspace)
+
+    runner._simple_quick_reply(
+        objective="inspect the current source tree",
+        sink=_RecordingSink(),
+    )
+
+    call = backend.calls[-1]
+    assert call["options"].working_dir == str(workspace)
+    assert f"Operator launch workspace: {workspace}" in call["prompt"]
 
 
 def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:

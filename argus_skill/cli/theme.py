@@ -167,7 +167,7 @@ class Theme:
     def live_width(self) -> int:
         """Re-query the terminal's CURRENT column count, bypassing ``self.width``.
 
-        ``Theme.auto()`` runs once at REPL startup and freezes ``width`` for
+        ``Theme.auto()`` runs once at terminal startup and freezes ``width`` for
         the theme's whole lifetime (it's a ``frozen`` dataclass). Anything
         built for a WRAPPING-SENSITIVE, cursor-row-counted redraw (the live
         cockpit panel, the bottom hint line) silently corrupts the instant
@@ -246,9 +246,8 @@ class Theme:
 
         Deliberately built from ``\\x1b[<n>A`` / ``\\x1b[<n>C`` (bracketed CSI
         forms) rather than DEC save/restore-cursor (bare ``ESC 7`` / ``ESC
-        8``): ``apps/_input_helpers._ANSI_RE`` — which wraps escape codes in
-        readline's zero-width markers so its cursor math stays correct while
-        typing — only matches ``\\x1b[...`` sequences. ``ESC 7`` slips past
+        8``): the ANSI handling used by terminal renderers only matches
+        ``\\x1b[...`` sequences. ``ESC 7`` slips past
         that regex un-marked and corrupts readline's line-start bookkeeping
         (confirmed live: the prompt prefix visually vanished the instant a
         keystroke was echoed). No-op when theme is disabled (piped/non-TTY

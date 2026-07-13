@@ -46,7 +46,7 @@ class ProjectIdentity:
             ``projects/``.
         source: ``"git-remote"`` or ``"cwd-path"`` — explains how the
             fingerprint was derived.
-        label: Human-readable label suitable for display in the REPL.
+        label: Human-readable label suitable for display in the cockpit.
             For git, this is the normalized remote URL; for cwd, this is the
             absolute path string.
         cwd: The absolute working directory the identity was computed

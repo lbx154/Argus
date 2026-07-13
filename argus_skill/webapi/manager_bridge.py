@@ -1,13 +1,9 @@
-"""Bridge the web/TUI front-door to the SAME Manager triage the Python REPL uses.
+"""Bridge the Web/Ink front-end to the Manager routing pipeline.
 
 An operator message is NOT blindly turned into a backlog task. It goes through
 ``manager_triage`` — chat-vs-task classification + an inline reply for chat/SELF
-work — exactly like the line REPL (``manager/repl.py``): a conversational
-"你好" gets a Manager reply and never touches the daemon or a vertical; only
-TEAM/complex work is enqueued as a mission (where the daemon resolves a vertical).
-
-This reuses the REPL's triage, persistence decision, and enqueue path verbatim —
-no reimplementation, no second front-door, no drift from terminal behaviour.
+work. A conversational "你好" gets a Manager reply and never touches the daemon
+or a vertical; only TEAM/complex work is enqueued as a mission.
 """
 
 from __future__ import annotations
@@ -25,6 +21,11 @@ from typing import Any
 _STATES: dict[str, dict[str, Any]] = {}
 _LOCKS: dict[str, threading.RLock] = {}
 _REGISTRY_LOCK = threading.Lock()
+_NO_DISPATCH_FALLBACK = (
+    "[not dispatched] The Manager kept this request inline as instructed, but "
+    "could not complete the read-only reply. No task was queued and no daemon "
+    "was started."
+)
 
 
 def manager_execution_handoff(
@@ -59,6 +60,7 @@ def manager_continuous_handoff(
     requested_objective: str,
     *,
     global_root: Path | str | None = None,
+    name_session: bool = False,
 ) -> str:
     """Atomically enable a Manager-authored continuous handoff."""
     from ..life.memory import MemoryBundle
@@ -72,6 +74,10 @@ def manager_continuous_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
+        if name_session:
+            from ..manager.config_intent import _front_door_classify
+
+            _front_door_classify(mem, requested_objective, chat_state)
         execution_objective = commit_handoff(mem, requested_objective, chat_state)
         chat_state.setdefault("config", {})["continuous"] = True
         chat_state["continuous_objective"] = execution_objective
@@ -106,6 +112,7 @@ def manager_bounded_handoff(
     *,
     global_root: Path | str | None = None,
     root_task_id: str | None = None,
+    name_session: bool = False,
 ) -> Any:
     """Commit Manager state and caller persistence under one pipeline lock."""
     from ..life.memory import MemoryBundle
@@ -119,6 +126,19 @@ def manager_bounded_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
+        if name_session:
+            from ..core.session import read_session_meta
+
+            meta = read_session_meta(mem.global_root, sid)
+            if meta is None or not meta.display_name.strip():
+                from ..manager.config_intent import _front_door_classify
+
+                _front_door_classify(
+                    mem,
+                    text,
+                    chat_state,
+                    root_task_id=root_task_id,
+                )
         return commit_handoff(
             mem,
             text,
@@ -161,7 +181,7 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         return st
     from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knobs import resolve_role_backend
-    from ..manager.repl import _CONFIG_DEFAULTS
+    from ..manager.dispatch import DEFAULT_MANAGER_CONFIG
 
     try:
         backend = normalize_runner_backend(resolve_role_backend("manager"))
@@ -169,7 +189,6 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         backend = "codex"
     st = {
         "backend": backend,
-        "theme": None,
         "last_thread_id": None,
         # The first message handled by this web process may belong to an older
         # persisted conversation. Seed the newly-warm ACP chat session from its
@@ -178,7 +197,7 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         "needs_startup_handoff": True,
         "session_started_s": time.monotonic(),
         "mission_count": 0,
-        "config": dict(_CONFIG_DEFAULTS),
+        "config": dict(DEFAULT_MANAGER_CONFIG),
         "continuous_objective": "",
     }
     _STATES[sid] = st
@@ -269,14 +288,9 @@ def manager_message(
     """
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
-    from ..manager.repl import (
-        _accepts_keyword,
-        _apply_config_intent,
-        _front_door_classify,
-        _maybe_auto_promote_to_continuous,
-        enqueue_mission,
-        manager_triage,
-    )
+    from ..manager.config_intent import _apply_config_intent, _front_door_classify
+    from ..manager.dispatch import enqueue_mission, maybe_promote_to_continuous
+    from ..manager.front_door import _accepts_keyword, manager_triage
 
     body = (text or "").strip()
     if not body:
@@ -323,7 +337,7 @@ def manager_message(
                 pass
 
         # Journal the operator turn (transcript.jsonl role=operator) for
-        # resume/replay, mirroring the REPL. Best-effort — never block the reply.
+        # resume/replay. Best-effort — never block the reply.
         try:
             append_turn(life_dir, "operator", body)
         except Exception:  # noqa: BLE001
@@ -398,6 +412,9 @@ def manager_message(
             _phase("Manager · responding while the current mission continues")
             route = "simple"
 
+        if control == "no_dispatch":
+            route = "simple"
+
         if control == "abort":
             from ..tools.mission_control import request_current_mission_abort
 
@@ -460,7 +477,7 @@ def manager_message(
                 route=route,
                 root_task_id=root_task_id,
             )
-        except Exception:  # noqa: BLE001 — triage failure → task path (same as REPL)
+        except Exception:  # noqa: BLE001 — triage failure biases to task
             reply = None
 
         if reply is not None:
@@ -469,6 +486,20 @@ def manager_message(
             except Exception:  # noqa: BLE001
                 pass
             _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
+            return {"kind": "chat", "reply": reply}
+        if control == "no_dispatch":
+            reply = _NO_DISPATCH_FALLBACK
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
             return {"kind": "chat", "reply": reply}
         if mission_is_running(mem):
             reply = (
@@ -494,13 +525,11 @@ def manager_message(
         try:
             if not chat_state.get("config", {}).get("continuous", False):
                 _phase("Manager · deciding task lifetime")
-                _maybe_auto_promote_to_continuous(
+                maybe_promote_to_continuous(
                     mem,
                     body,
                     chat_state,
-                    None,
                     root_task_id=root_task_id,
-                    announce=False,
                 )
             item, daemon_alive, daemon_pid = enqueue_mission(
                 mem,
@@ -539,8 +568,8 @@ def manager_plan(
 ) -> dict[str, Any]:
     """Draft one bounded execution plan through the configured Planner role."""
     from ..life.memory import MemoryBundle
+    from ..manager.front_door import _ensure_manager_runner
     from ..manager.plan_mode import draft_plan
-    from ..manager.repl import _ensure_manager_runner
 
     body = (text or "").strip()
     if not body:

@@ -1,10 +1,10 @@
 """Persisted operator knob overrides (backend / model / reasoning-effort).
 
 Every hyperparameter switch the operator makes today (``/backend``,
-``/config``, or the natural-language recognizers in ``manager.repl`` —
+``/config``, or the natural-language recognizers in ``manager.config_intent`` —
 "把模型换成 sonnet 5", "engineer 用 claude") only sets ``os.environ`` for the
 CURRENT process. The running daemon is a separate process with its own
-environment snapshot, and even the REPL itself forgets the switch the moment
+environment snapshot, and even the cockpit process forgets the switch the moment
 it restarts — "一次改动以后都能读取" (change it once, have it read
 consistently from then on) was not actually true.
 

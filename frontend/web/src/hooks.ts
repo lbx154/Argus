@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { api, openStream, type EventMsg } from './api';
 import { eventKey } from './lib/eventRender';
+import { cacheProjectName } from './lib/projectName';
 
 /* ------------------------------------------------------------------ REST */
 
@@ -79,12 +80,13 @@ export const useBacklogItem = (sid: string | null, itemId: string | null) =>
 
 export function useProjectActions(sid: string | null, commandRevision?: number) {
   const qc = useQueryClient();
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['snapshot', sid] });
-    qc.invalidateQueries({ queryKey: ['status', sid] });
+  const invalidateProject = (targetSid: string | null) => {
+    qc.invalidateQueries({ queryKey: ['snapshot', targetSid] });
+    qc.invalidateQueries({ queryKey: ['status', targetSid] });
     qc.invalidateQueries({ queryKey: ['projects'] });
-    qc.invalidateQueries({ queryKey: ['backlog-item', sid] });
+    qc.invalidateQueries({ queryKey: ['backlog-item', targetSid] });
   };
+  const invalidate = () => invalidateProject(sid);
   return {
     addTask: useMutation({ mutationFn: (text: string) => api.addTask(sid!, text), onSuccess: invalidate }),
     nudge: useMutation({ mutationFn: (text: string) => api.nudge(sid!, text) }),
@@ -92,8 +94,12 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
     startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
     stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
     updateProject: useMutation({
-      mutationFn: (name: string) => api.updateProject(sid!, name),
-      onSuccess: invalidate,
+      mutationFn: (input: { sid: string; name: string }) =>
+        api.updateProject(input.sid, input.name),
+      onSuccess: (result) => {
+        cacheProjectName(qc, result.sid, result.name);
+        invalidateProject(result.sid);
+      },
     }),
     deleteProject: useMutation({
       mutationFn: () => api.deleteProject(sid!),

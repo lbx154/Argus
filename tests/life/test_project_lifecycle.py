@@ -62,12 +62,12 @@ def test_archived_state_never_transitions() -> None:
     [ProjectState.WRITING, ProjectState.RUNNING],
     ids=["from-writing", "from-running"],
 )
-def test_submission_artifact_promotes_to_done(state: ProjectState) -> None:
+def test_submission_artifact_does_not_replace_reviewer_completion(
+    state: ProjectState,
+) -> None:
     status = _fresh(state=state, has_submission_artifact=True)
     event = decide_next_state(status, now=_utc("2026-05-15T00:00:00"))
-    assert event is not None
-    assert event.to_state == ProjectState.DONE
-    assert event.reason == "submission_artifact_present"
+    assert event is None
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +218,14 @@ def test_resume_from_quarantine_to_incubating_when_no_evidence_or_draft() -> Non
     assert new.state == ProjectState.INCUBATING
 
 
-def test_resume_refuses_non_quarantined_state() -> None:
+@pytest.mark.parametrize("state", [ProjectState.DONE, ProjectState.ARCHIVED])
+def test_resume_reopens_terminal_state(state: ProjectState) -> None:
+    new, event = resume(_fresh(state=state, has_draft=True))
+    assert new.state == ProjectState.WRITING
+    assert event.from_state == state
+
+
+def test_resume_refuses_active_state() -> None:
     status = _fresh(state=ProjectState.RUNNING)
     with pytest.raises(ValueError):
         resume(status)

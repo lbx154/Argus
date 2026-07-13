@@ -280,7 +280,7 @@ def run_handoff_child_process(
     )
     worker = worker_factory(config)
     # Housekeeping: prune stale projects on daemon boot too (covers a daemon
-    # started directly via --daemon, not just via the REPL). Best-effort.
+    # started directly via --daemon, not just via the cockpit). Best-effort.
     try:
         from ..core.project_gc import maybe_gc_stale_projects
         # Exclude THIS daemon's own project: the sweep runs before daemon.pid is

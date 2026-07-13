@@ -145,7 +145,7 @@ class ReviewDecision:
     next_action: str
     # ONE plain-language question, in the operator's own language, asked when a
     # ``blocked`` verdict needs an OPERATOR decision (route/budget/which-task)
-    # the agent cannot make alone. The REPL surfaces this verbatim and the
+    # the agent cannot make alone. The cockpit surfaces this verbatim and the
     # operator's free-text reply continues the same objective — so a block is a
     # human question, not a JSON gate packet. Empty on done/continue or when the
     # block is purely engineer-repairable. Distinct from ``next_action`` (the
@@ -169,6 +169,11 @@ class ReviewDecision:
     # ordinary bounded missions.
     scope: str = ""
     checklist: list[dict[str, Any]] = field(default_factory=list)
+    # Math-only structured result classification. Non-math reviewers leave this
+    # ``None``. Completion of a Math mission is fail-closed on this payload.
+    # Shape: ``{"result_class", "correctness", "novelty",
+    # "statement_fidelity", "evidence", "limitations"}``.
+    math_result: dict[str, Any] | None = None
     # Planner-facing structured briefing authored by the reviewer. The L4
     # planner routes the next mission from this clean, structured report
     # rather than from raw engineer output or noisy verdict prose. Shape:
@@ -343,6 +348,8 @@ class ReviewDecision:
             "backend_unavailable": bool(self.backend_unavailable),
             "usage_scope": "delta",
         }
+        if isinstance(self.math_result, dict):
+            payload["math_result"] = dict(self.math_result)
         payload.update(extras)
         return payload
 

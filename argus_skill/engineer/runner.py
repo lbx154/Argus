@@ -104,7 +104,7 @@ _COMPACTION_THRASH_MARKER = "compaction thrash"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 # Distinct from the daemon-stop interrupt above: this fires when the Manager
-# (running in the operator's REPL, a separate process) decided mid-mission
+# (running in the operator-facing API process) decided mid-mission
 # that *this one* backlog item should stop right now — the daemon process
 # itself keeps running and will move on to the next ready item. See
 # ``argus_skill.tools.mission_control`` for the writer side of this signal.
@@ -124,13 +124,14 @@ _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
-# Coarse upper bound on the input-token size a single resumed Codex thread may
-# reach before it is rolled. A healthy fresh round is ~0.7M and a couple of
-# legitimate work rounds reach ~2M; the amnesia/re-read loop lived at 5-7M
-# where codex's lossy auto-compaction kicks in. 4M sits between normal
-# operation and the bloat zone. Tunable via ARGUS_SKILL_THREAD_TOKEN_LIMIT
-# (0 disables the token roll).
-_DEFAULT_THREAD_TOKEN_LIMIT = 4_000_000
+# Coarse upper bound on the input-token size a single resumed thread may reach
+# before it is rolled. Live Erdős #5 accounting showed that an eight-round
+# thread consumed 14M input tokens in one mission, with resumed rounds reaching
+# 2.2–3.6M each despite useful work being captured in the reviewer checkpoint.
+# Fresh/post-roll rounds were ~0.65–0.92M; 1.5M leaves headroom for heavier static
+# prompts while cutting off the measured bloat zone. Tunable via
+# ARGUS_SKILL_THREAD_TOKEN_LIMIT (0 disables the token roll).
+_DEFAULT_THREAD_TOKEN_LIMIT = 1_500_000
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
 # A single engineer round should essentially never reach Codex auto-compaction:
 # the runner proactively rolls the session every ``shift_round_limit`` rounds
@@ -487,7 +488,7 @@ class SupervisedConfig:
     # the proactive roll (e.g. tests / interactive chat). Env override:
     # ARGUS_SKILL_SHIFT_ROUND_LIMIT.
     shift_round_limit: int = field(
-        default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 8)
+        default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 3)
     )
     # Cross-mission context bound. The Codex thread is resumed across (often
     # short) missions, so the per-mission ``shift_round_limit`` counter resets

@@ -6,7 +6,7 @@ output). Lets ``/resume`` label a session by its first message and replay the
 conversation when you come back to it.
 
 Every function is fail-soft: logging or reading a transcript must never break
-the REPL.
+the operator cockpit.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def append_turn(life_dir: Any, role: str, text: str) -> None:
         rec = {"ts": time.time(), "role": str(role or ""), "text": body}
         with p.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception:  # noqa: BLE001 — never break the REPL over transcript I/O
+    except Exception:  # noqa: BLE001 — never break the cockpit over transcript I/O
         pass
 
 
