@@ -76,6 +76,10 @@ _PIPELINE_CHECK = ("Pipeline state present", "test -f research/PIPELINE_STATE.js
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "intake": [
         _PIPELINE_CHECK,
+        ("Task envelope recorded", "test -s fiction/task_envelope.json"),
+        ("Task envelope valid and fiction-consumable",
+         "{python} -m argus_skill.verticals.fiction_writing.intake_check "
+         "validate fiction/task_envelope.json"),
         ("Creative brief produced",
          "test -s fiction/creative_brief.json"),
         ("Style profile produced",
@@ -145,9 +149,12 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Verify the brief captures language, form, mode (from_scratch vs "
         "continuation), genre/market style, length, viewpoint and tense, and that "
         "the style profile is ABSTRACT features (rhythm/distance/dialogue "
-        "ratio/imagery/exposition/ending), never 'imitate author X'. For a "
+        "ratio/imagery/exposition/ending), never 'imitate author X'. Confirm the "
+        "creative_brief was derived from fiction/task_envelope.json (form/mode/"
+        "language agree), not invented. For a "
         "continuation, confirm an existing story_state was loaded, not invented.",
-        ["fiction/creative_brief.json", "fiction/style_profile.json"],
+        ["fiction/task_envelope.json", "fiction/creative_brief.json",
+         "fiction/style_profile.json"],
     ),
     "plan": (
         _REVIEW_SKILL,
@@ -328,7 +335,8 @@ def role_banner(role: str) -> str:
         )
     if role == "engineer":
         return common + (
-            "(1) Normalize the request into a creative_brief + an ABSTRACT style "
+            "(1) Record fiction/task_envelope.json (the normalized shared Task "
+            "Envelope) and derive from it a creative_brief + an ABSTRACT style "
             "profile (never 'imitate author X'). (2) For a continuation, LOAD the "
             "existing story_state as ground truth; do not re-invent it. (3) Plan "
             "the chapter's goal so it advances the arc. (4) Draft in the brief's "
