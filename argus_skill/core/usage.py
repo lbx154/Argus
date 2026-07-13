@@ -33,6 +33,7 @@ USAGE_MIGRATION_FILE = "usage.migration-v1.json"
 USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
 EVENT_MIGRATION_FILE = "events.migration-v2.json"
 EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
+_COPILOT_RECONCILE_VERSION = 2
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
 
@@ -484,7 +485,11 @@ class UsageLedger:
         if signature is None:
             _write_json_atomic(
                 self.copilot_reconcile_path,
-                {"version": 1, "usage_signature": None, "updated": 0},
+                {
+                    "version": _COPILOT_RECONCILE_VERSION,
+                    "usage_signature": None,
+                    "updated": 0,
+                },
             )
             return 0
         call_threads = _legacy_call_threads(self.project_root)
@@ -597,7 +602,7 @@ class UsageLedger:
         _write_json_atomic(
             self.copilot_reconcile_path,
             {
-                "version": 1,
+                "version": _COPILOT_RECONCILE_VERSION,
                 "usage_signature": list(_path_signature(self.path) or ()),
                 "updated": updated,
                 "completed_at": time.time(),
@@ -1335,7 +1340,12 @@ def _reconcile_marker_signature(path: Path) -> tuple[int, int, int] | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
-    raw = payload.get("usage_signature") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != _COPILOT_RECONCILE_VERSION
+    ):
+        return None
+    raw = payload.get("usage_signature")
     if not isinstance(raw, list) or len(raw) != 3:
         return None
     try:

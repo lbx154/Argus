@@ -481,6 +481,17 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
         "".join(json.dumps(row) + "\n" for row in rows),
         encoding="utf-8",
     )
+    stat = ledger.path.stat()
+    ledger.copilot_reconcile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "usage_signature": [stat.st_ino, stat.st_size, stat.st_mtime_ns],
+                "updated": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     records = UsageLedger(project).records()
     completed, denied = records
@@ -489,6 +500,8 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
     assert denied.cost_usd == 0.0
     assert denied.input_tokens is None
     assert denied.model_usage == ()
+    marker = json.loads(ledger.copilot_reconcile_path.read_text(encoding="utf-8"))
+    assert marker["version"] == 2
 
     third = replace(first, call_id="second-completed")
     ledger.append(third)
