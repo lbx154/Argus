@@ -15,6 +15,25 @@ def emit(root: Path, event_type: str, ts: float, **payload) -> dict:
     return update_mission_view_event(root, {"type": event_type, "ts": ts, **payload})
 
 
+def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
+    view = emit(tmp_path, "life.planner.start", 1)
+    assert view["active_role"] == "planner"
+
+    view = emit(
+        tmp_path,
+        "life.planner.verdict",
+        2,
+        project_done=True,
+        reason="reviewed project is complete",
+    )
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["active_role"] == ""
+    assert roles["planner"]["status"] == "done"
+    assert roles["planner"]["label"] == "Project reviewed"
+    assert view["timeline"][-1]["type"] == "life.planner.verdict"
+
+
 def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) -> None:
     emit(
         tmp_path,

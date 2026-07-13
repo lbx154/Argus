@@ -167,6 +167,10 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.LIFE_MANAGER_STAGE_DECISION,
     EventType.LIFE_PLANNER_START,
     EventType.LIFE_PLANNER_TASK_ADDED,
+    EventType.LIFE_PLANNER_VERDICT,
+    EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_TERMINAL_IDLE,
+    EventType.LIFE_PLANNER_ERROR,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MISSION_FAILED,
@@ -285,6 +289,8 @@ def _set_role(view: dict[str, Any], role: str, status: str, label: str, ts: floa
     _upsert(roles, "role", role, patch)
     if status == "active":
         view["active_role"] = role
+    elif view.get("active_role") == role:
+        view["active_role"] = ""
 
 
 def _timeline(
@@ -372,6 +378,50 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         })
         _set_role(view, "planner", "done", "Research branch added", ts)
         _timeline(view, event, role="planner", title="Research branch added", detail=_text(event, "title"), tone="info")
+
+    elif event_type == EventType.LIFE_PLANNER_VERDICT:
+        project_done = bool(event.get("project_done"))
+        label = "Project reviewed" if project_done else "Planning complete"
+        _set_role(view, "planner", "done", label, ts)
+        _timeline(
+            view,
+            event,
+            role="planner",
+            title=label,
+            detail=_text(event, "reason"),
+            tone="success" if project_done else "neutral",
+        )
+
+    elif event_type == EventType.LIFE_PLANNER_WAITING:
+        _set_role(view, "planner", "waiting", "Waiting on external work", ts)
+        _timeline(
+            view,
+            event,
+            role="planner",
+            title="Planner waiting",
+            detail=_text(event, "reason") or _text(event, "waiting_reason"),
+        )
+
+    elif event_type == EventType.LIFE_PLANNER_TERMINAL_IDLE:
+        _set_role(view, "planner", "waiting", "Idle", ts)
+        _timeline(
+            view,
+            event,
+            role="planner",
+            title="Planner idle",
+            detail=_text(event, "reason"),
+        )
+
+    elif event_type == EventType.LIFE_PLANNER_ERROR:
+        _set_role(view, "planner", "error", "Planning failed", ts)
+        _timeline(
+            view,
+            event,
+            role="planner",
+            title="Planner failed",
+            detail=_text(event, "error") or _text(event, "reason"),
+            tone="error",
+        )
 
     elif event_type == EventType.LIFE_MISSION_STARTED:
         mission.update({
