@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 VERTICALS: tuple[str, ...] = (
     "direct", "research", "math", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
-    "learning", "ale_last_exam", "fiction_writing",
+    "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -101,6 +101,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "timeline consistent via a structured story_state; intake→plan→draft→state_update"
     "→review→revise. NOT a research paper and NOT a 'literature review' — this "
     "produces original narrative prose, not a survey of prior work",
+    "classical_poetry": "classical CHINESE poetry (近体诗/古体/词) — compose or "
+    "prosody-check 律诗/绝句/五言/七言; gates the poem on a reproducible machine "
+    "prosody check (押韵/平仄/粘对/孤平/三平尾 via 平水韵) plus live-reviewer 立意/炼字/"
+    "反AI. zh only; NOT modern free verse (route that to modern_poetry) and NOT prose",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
