@@ -61,6 +61,13 @@ def test_research_reviewer_schema_is_strict_and_isolated() -> None:
     assert not list(_strict_violations(research))
 
 
+def test_legacy_math_schema_alias_matches_research_schema() -> None:
+    research_path = Path(RESEARCH_SCHEMA_PATH)
+    legacy_path = research_path.with_name("reviewer_math_schema.json")
+
+    assert legacy_path.read_bytes() == research_path.read_bytes()
+
+
 def test_skill_ops_items_require_all_keys():
     # Pin the exact spot that broke on 2026-06-26 so a revert is caught by name.
     schema = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
