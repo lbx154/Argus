@@ -10,6 +10,7 @@ import { faCheck, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import {
   compactConfigSource,
   conciseConfigKnobs,
+  connectionTopology,
   type DisplayConfigKnob,
 } from '../lib/configSurface';
 
@@ -123,11 +124,23 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     },
     {},
   );
+  const connection = connectionTopology(window.location.origin, sid);
   return (
     <Modal open={open} onClose={onClose} label="Settings" width="max-w-4xl">
       <ModalHeader title="Settings" sub="effective roles, budgets, and essential controls" />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
+        <section className="mb-4 rounded-lg border border-line bg-surface p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Connection</div>
+          <div className="mt-2 grid gap-2 text-[10px] sm:grid-cols-[100px_minmax(0,1fr)]">
+            <span className="text-ink-faint">Web + REST API</span>
+            <code className="min-w-0 break-all text-ink-dim">{connection.webApi}</code>
+            <span className="text-ink-faint">Event stream</span>
+            <code className="min-w-0 break-all text-ink-dim">{connection.eventStream}</code>
+            <span className="text-ink-faint">Task daemon</span>
+            <span className="text-ink-dim">{connection.daemon}</span>
+          </div>
+        </section>
         <section className="mb-4 rounded-lg border border-gold/40 bg-gold/5 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ConfigKnob } from '../api';
-import { compactConfigSource, conciseConfigKnobs } from '../lib/configSurface';
+import {
+  compactConfigSource,
+  conciseConfigKnobs,
+  connectionTopology,
+} from '../lib/configSurface';
 
 const knob = (name: string, group = 'internal'): ConfigKnob => ({
   name,
@@ -51,5 +55,18 @@ describe('compactConfigSource', () => {
     expect(compactConfigSource('ARGUS_SKILL_MANAGER_MODEL')).toBe('manager model · env');
     expect(compactConfigSource('default: xhigh')).toBe('default');
     expect(compactConfigSource('capability vault / default: gpt-5.5')).toBe('vault / default');
+  });
+});
+
+describe('connectionTopology', () => {
+  it('shows the browser-facing API and project stream ports', () => {
+    expect(connectionTopology('http://127.0.0.1:8799', 's-a/b')).toEqual({
+      webApi: 'http://127.0.0.1:8799/api',
+      eventStream: 'ws://127.0.0.1:8799/api/projects/s-a%2Fb/stream',
+      daemon: 'local process · events.jsonl · no TCP port',
+    });
+    expect(connectionTopology('https://argus.example', 's-1').eventStream).toBe(
+      'wss://argus.example/api/projects/s-1/stream',
+    );
   });
 });

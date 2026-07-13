@@ -9,6 +9,12 @@ interface EssentialKnob {
 
 export type DisplayConfigKnob = ConfigKnob & { label: string };
 
+export interface ConnectionTopology {
+  webApi: string;
+  eventStream: string;
+  daemon: string;
+}
+
 const ESSENTIAL_KNOBS: EssentialKnob[] = [
   {
     name: 'ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD',
@@ -80,4 +86,15 @@ export function compactConfigSource(source: string): string {
     return `${label}${persisted ? ' · persisted' : ' · env'}`;
   }
   return value;
+}
+
+export function connectionTopology(origin: string, sid: string): ConnectionTopology {
+  const url = new URL(origin);
+  const streamProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const project = encodeURIComponent(sid);
+  return {
+    webApi: `${url.origin}/api`,
+    eventStream: `${streamProtocol}//${url.host}/api/projects/${project}/stream`,
+    daemon: 'local process · events.jsonl · no TCP port',
+  };
 }
