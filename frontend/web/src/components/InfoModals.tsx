@@ -1,5 +1,4 @@
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
-import type { ConfigKnob } from '../api';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint } from './primitives';
 import { effortColor } from '../lib/theme';
@@ -8,6 +7,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
+import {
+  compactConfigSource,
+  conciseConfigKnobs,
+  type DisplayConfigKnob,
+} from '../lib/configSurface';
 
 const BUDGET_FIELDS = [
   { alias: 'per_mission_cap', env: 'ARGUS_SKILL_PER_MISSION_CAP_USD', label: 'Per mission', unit: 'USD' },
@@ -112,7 +116,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
       setBusy(false);
     }
   };
-  const knobGroups = (data?.operator_knobs ?? []).reduce<Record<string, ConfigKnob[]>>(
+  const knobGroups = conciseConfigKnobs(data?.operator_knobs ?? []).reduce<Record<string, DisplayConfigKnob[]>>(
     (groups, knob) => {
       (groups[knob.group] ??= []).push(knob);
       return groups;
@@ -121,7 +125,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   );
   return (
     <Modal open={open} onClose={onClose} label="Settings" width="max-w-4xl">
-      <ModalHeader title="Settings" sub={data ? `resolved ${data.generated_at_utc}` : 'budget, roles, and operator settings'} />
+      <ModalHeader title="Settings" sub="effective roles, budgets, and essential controls" />
       <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         <section className="mb-4 rounded-lg border border-gold/40 bg-gold/5 p-3">
@@ -163,7 +167,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
               </div>
               <div className="mt-2 truncate font-mono text-[11px] text-ink-dim" title={r.model}>{r.model}</div>
               <div className="mt-1 flex items-center gap-2 text-[10px] text-ink-faint">
-                <span className="truncate" title={r.model_source}>{r.model_source}</span>
+                <span className="truncate" title={r.model_source}>{compactConfigSource(r.model_source)}</span>
                 {r.reasoning_effort && (
                   <span className="ml-auto shrink-0" style={{ color: effortColor(r.reasoning_effort) }}>
                     {r.reasoning_effort}
@@ -181,18 +185,22 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
               {knobs.map((knob, index) => (
                 <div key={knob.name} className={`grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${index ? 'border-t border-line/60' : ''}`}>
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-[11px] text-ink-dim" title={knob.name}>{knob.name}</div>
+                    <div className="truncate text-xs font-medium text-ink-dim" title={knob.name}>{knob.label}</div>
                     <div className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">{knob.doc}</div>
                   </div>
                   <div className="text-left sm:text-right">
                     <div className="font-mono text-[11px] text-ink">{knob.value}</div>
-                    <div className="mt-0.5 text-[9px] text-ink-faint">{knob.source}</div>
+                    <div className="mt-0.5 text-[9px] text-ink-faint">{compactConfigSource(knob.source)}</div>
                   </div>
                 </div>
               ))}
             </div>
           </section>
         ))}
+        <p className="mt-4 text-[10px] text-ink-faint">
+          Role overrides are summarized above. Use Advanced setting for a specific
+          override; the full registry remains available via <code>argus-skill --config-help</code>.
+        </p>
       </div>
     </Modal>
   );
