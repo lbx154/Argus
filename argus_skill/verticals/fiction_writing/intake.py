@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...literary.task_envelope import normalize_envelope
+from .profiles import FictionProfileError, resolve_profile
 
 #: The narrative-prose forms fiction_writing handles. A ``form`` outside this set
 #: (e.g. a poetry/essay form) is rejected at intake.
@@ -43,8 +44,13 @@ def brief_from_envelope(env: dict[str, Any]) -> dict[str, Any]:
             f"(expected one of {sorted(FICTION_FORMS)})"
         )
     out_req = env.get("output_requirements") or {}
+    try:
+        profile = resolve_profile(out_req.get("profile"))
+    except FictionProfileError as exc:
+        raise FictionIntakeError(str(exc)) from exc
     return {
         "task_id": env["task_id"],
+        "profile": profile,
         "language": env["language"],
         "form": env["form"],
         "mode": env["mode"],

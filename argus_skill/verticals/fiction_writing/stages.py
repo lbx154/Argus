@@ -197,8 +197,13 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "over-summarization, mechanical/telegraphed twist, pacing/pressure, "
         "ending closes the core question, obvious AI-tells (slogan endings, "
         "abstract-word piling, homogeneous imagery). Do NOT fake a numeric "
-        "quality score.",
-        ["fiction/draft.md", "fiction/story_state.json"],
+        "quality score. Apply the genre PROFILE recorded in "
+        "fiction/creative_brief.json: judge pacing / chapter hooks / exposition "
+        "tolerance / character complexity / ending by the profile's emphases — a "
+        "web_fiction chapter needs hooks + fast pacing; a literary_fiction one "
+        "needs character complexity + restraint.",
+        ["fiction/creative_brief.json", "fiction/draft.md",
+         "fiction/story_state.json"],
     ),
     "revise": (
         _REVIEW_SKILL,
