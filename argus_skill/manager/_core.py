@@ -552,7 +552,11 @@ class Manager:
         """
         explicit_builtin = vertical_select.explicit_builtin_vertical()
         if explicit_builtin is not None:
-            return VerticalDecision(choice="existing", vertical=explicit_builtin)
+            return VerticalDecision(
+                choice="existing",
+                vertical=explicit_builtin,
+                execution_task=task.strip(),
+            )
 
         backend = self._session or self.runner
         if backend is None:

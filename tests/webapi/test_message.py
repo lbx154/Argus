@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager import config_intent, dispatch, front_door
+from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
@@ -287,6 +287,58 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
     assert result["kind"] == "task"
     assert result["item"] is None
     assert result["continuous"] is True
+
+
+def test_explicit_math_vertical_web_enqueue_enters_backlog(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-explicit-math"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    objective = "prove the bounded integer lemma"
+    manager = Manager(project_root=life)
+
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=manager),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "maybe_promote_to_continuous",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda *args, **kwargs: {"alive": True},
+    )
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    response = client.post(
+        f"/api/projects/{sid}/message",
+        json={"text": objective},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kind"] == "task"
+    assert payload["item"]["status"] == "pending"
+    backlog = LifeMemory.open(life).backlog.all()
+    assert len(backlog) == 1
+    assert backlog[0].objective == objective
+    state = json.loads(
+        (life / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["vertical"] == "math"
 
 
 def test_standing_web_task_persists_only_manager_authored_objective(
