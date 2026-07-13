@@ -467,6 +467,30 @@ def test_priced_fence_overrun_temporarily_blocks_only_that_provider(
     assert blocked is None
     assert "cooling down after budget fence breach" in reason
 
+    other_project = tmp_path / "projects" / "p2"
+    other_project.mkdir()
+    isolated, reason = _reserve(
+        tmp_path,
+        other_project,
+        "codex-other-project",
+        per_call_cap_usd=1.0,
+    )
+    assert isolated is not None and reason == ""
+    isolated.release(reason="test")
+
+    state_path = tmp_path / COST_CONTROL_STATE_FILE
+    state = json.loads(state_path.read_text())
+    state["breaches"][0].pop("project_id")
+    state_path.write_text(json.dumps(state))
+    legacy_blocked, reason = _reserve(
+        tmp_path,
+        other_project,
+        "codex-legacy-breach",
+        per_call_cap_usd=1.0,
+    )
+    assert legacy_blocked is None
+    assert "cooling down after budget fence breach" in reason
+
     copilot, reason = reserve_call_budget(
         call_id="copilot-still-allowed",
         project_root=project,

@@ -47,6 +47,18 @@ def _is_control_plane_call(run_label: str) -> bool:
     return str(run_label or "").strip().lower() in _CONTROL_PLANE_RUN_LABELS
 
 
+def _breach_blocks_call(
+    breach: dict[str, Any],
+    *,
+    provider: str,
+    project_id: str,
+) -> bool:
+    if str(breach.get("provider") or "") != str(provider or ""):
+        return False
+    breach_project_id = str(breach.get("project_id") or "")
+    return not breach_project_id or breach_project_id == project_id
+
+
 class CostControlStateError(RuntimeError):
     pass
 
@@ -460,7 +472,11 @@ def reserve_call_budget(
                 (
                     row
                     for row in breaches
-                    if str(row.get("provider") or "") == str(provider or "")
+                    if _breach_blocks_call(
+                        row,
+                        provider=provider,
+                        project_id=project.name if project is not None else "",
+                    )
                 ),
                 None,
             )
