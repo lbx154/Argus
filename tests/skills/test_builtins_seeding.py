@@ -62,6 +62,12 @@ def test_all_builtins_valid_including_stubs() -> None:
             _validate_builtin(name, text)
 
 
+def test_reference_corpora_are_not_enumerated_as_skills() -> None:
+    names = {name for name, _text in iter_builtin_skill_texts()}
+
+    assert not any("/references/" in f"/{name}" for name in names)
+
+
 def test_seed_for_vertical_overwrites_stub_with_real_body(tmp_path) -> None:
     seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
     for rel in QUANT_SKILLS:

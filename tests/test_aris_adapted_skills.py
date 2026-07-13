@@ -2,8 +2,8 @@
 
 Lock in two invariants:
 
-1. Every ``argus_skill/builtin_skills/**/*.md`` file has a YAML
-   frontmatter block with at minimum ``name`` and ``description``.
+1. Every matchable built-in skill markdown (excluding packaged ``references/``
+   corpora) has YAML frontmatter with at minimum ``name`` and ``description``.
 2. The three skills copied from ARIS (``citation-audit``,
    ``paper-claim-audit``, ``figure-spec``) are present and well-formed,
    and the figure-spec renderer script is importable + runs.
@@ -25,7 +25,11 @@ BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus_skill" / "builtin_sk
 
 
 def _iter_skill_md_files() -> list[Path]:
-    return [p for p in BUILTIN_ROOT.rglob("*.md")]
+    return [
+        path
+        for path in BUILTIN_ROOT.rglob("*.md")
+        if "references" not in path.relative_to(BUILTIN_ROOT).parts
+    ]
 
 
 def _parse_frontmatter(text: str) -> dict[str, str] | None:

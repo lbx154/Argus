@@ -79,6 +79,10 @@ def _iter_builtin_skill_resources(
             continue
         relative_name = f"{prefix}{entry.name}"
         if entry.is_dir():
+            # Reference corpora are package assets consumed by their owning
+            # skill, not independently matchable skills.
+            if entry.name == "references":
+                continue
             yield from _iter_builtin_skill_resources(entry, f"{relative_name}/")
         elif entry.name.endswith(".md"):
             yield relative_name, entry.read_text(encoding="utf-8")
