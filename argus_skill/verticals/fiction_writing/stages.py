@@ -100,11 +100,19 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "review": [
         _PIPELINE_CHECK,
         ("Structured review produced", "test -s fiction/review.json"),
+        ("Review conforms to the literary review contract",
+         "{python} -m argus_skill.verticals.fiction_writing.review_check "
+         "validate fiction/review.json"),
     ],
     "revise": [
         _PIPELINE_CHECK,
         ("Final prose and updated state produced",
          "test -s fiction/final.md && test -s fiction/updated_story_state.json"),
+        ("Revision plan derived from the review",
+         "test -s fiction/revision_plan.json"),
+        ("Revision plan covers every blocking finding with its must_not_break",
+         "{python} -m argus_skill.verticals.fiction_writing.review_check "
+         "check-plan fiction/review.json fiction/revision_plan.json"),
     ],
 }
 
@@ -171,10 +179,12 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Verify the revision addressed every BLOCKING continuity finding with a "
         "concrete fix (cite the changed span), that no NEW contradiction was "
         "introduced, and that updated_story_state.json is consistent with "
-        "final.md. Craft findings may remain as accepted trade-offs with a "
-        "rationale.",
+        "final.md. Confirm fiction/revision_plan.json was derived from "
+        "review.json via the literary review contract and that every blocking "
+        "finding's must_not_break invariant is preserved. Craft findings may "
+        "remain as accepted trade-offs with a rationale.",
         ["fiction/final.md", "fiction/updated_story_state.json",
-         "fiction/review.json"],
+         "fiction/review.json", "fiction/revision_plan.json"],
     ),
 }
 
@@ -302,7 +312,10 @@ def role_banner(role: str) -> str:
             "language, holding one viewpoint and tense. (5) NEVER hand-rewrite the "
             "whole story_state — extract what changed into a structured state_patch "
             "and apply it through the patch engine. (6) Keep prose concrete; avoid "
-            "slogan endings, abstract-word piling, and telegraphed twists."
+            "slogan endings, abstract-word piling, and telegraphed twists. (7) In "
+            "revise, derive fiction/revision_plan.json from fiction/review.json "
+            "via the literary review contract — address every BLOCKING finding "
+            "first and never break a finding's must_not_break invariants."
         )
     if role == "reviewer":
         return common + (
@@ -313,6 +326,10 @@ def role_banner(role: str) -> str:
             "finding typed + severity-tagged + evidence-located. Craft and "
             "AI-flavor are NON-BLOCKING heuristics + observable proxies — never a "
             "faked numeric score. Follow the 'Continuity, Style and Plot Review' "
-            "skill."
+            "skill. Emit fiction/review.json as {verdict, findings[]} per the "
+            "shared literary review contract — each finding "
+            "{id, type, severity(critical|major|minor|note), blocking(bool), "
+            "location, evidence, suggested_action, must_not_break[]}; a blocking "
+            "finding forces verdict='revise'."
         )
     return common
