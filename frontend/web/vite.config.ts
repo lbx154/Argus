@@ -21,6 +21,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes('/node_modules/gsap/')) return 'motion';
           if (id.includes('react-markdown') || id.includes('remark-') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) return 'markdown';
           if (id.includes('@fortawesome')) return 'icons';
           if (id.includes('@tanstack/react-query')) return 'query';
