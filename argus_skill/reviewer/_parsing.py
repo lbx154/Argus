@@ -10,6 +10,12 @@ import json
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
+from ..verticals.math.results import (
+    CORRECTNESS_VERDICTS,
+    FIDELITY_VERDICTS,
+    NOVELTY_VERDICTS,
+    RESULT_CLASSES,
+)
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -76,6 +82,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         achievement=_parse_achievement(parsed, status=status),
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
+        math_result=_parse_math_result(parsed),
         planner_report=_parse_planner_report(parsed, status=status, reason=reason),
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
@@ -84,6 +91,41 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
     )
+
+
+def _parse_math_result(parsed: dict[str, Any]) -> dict[str, Any] | None:
+    raw = parsed.get("math_result")
+    if not isinstance(raw, dict):
+        return None
+    result_class = str(raw.get("result_class") or "").strip()
+    correctness = str(raw.get("correctness") or "").strip()
+    novelty = str(raw.get("novelty") or "").strip()
+    fidelity = str(raw.get("statement_fidelity") or "").strip()
+    if (
+        result_class not in RESULT_CLASSES
+        or correctness not in CORRECTNESS_VERDICTS
+        or novelty not in NOVELTY_VERDICTS
+        or fidelity not in FIDELITY_VERDICTS
+    ):
+        return None
+    evidence = [
+        str(item or "").strip()[:500]
+        for item in (raw.get("evidence") or [])[:12]
+        if str(item or "").strip()
+    ] if isinstance(raw.get("evidence"), list) else []
+    limitations = [
+        str(item or "").strip()[:500]
+        for item in (raw.get("limitations") or [])[:12]
+        if str(item or "").strip()
+    ] if isinstance(raw.get("limitations"), list) else []
+    return {
+        "result_class": result_class,
+        "correctness": correctness,
+        "novelty": novelty,
+        "statement_fidelity": fidelity,
+        "evidence": evidence,
+        "limitations": limitations,
+    }
 
 
 def _parse_achievement(

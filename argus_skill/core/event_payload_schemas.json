@@ -261,6 +261,7 @@
         "next_action": {"type": "string"},
         "scope": {"type": "string"},
         "checklist": {"type": "array", "items": {"type": "object"}},
+        "math_result": {"type": ["object", "null"]},
         "planner_report": {"type": "object"},
         "checkpoint": {"type": "object"},
         "achievement": {"type": ["object", "null"]}

@@ -57,6 +57,16 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     assert "ARGUS_SKILL_PLANNER_RUNNER_BIN" in names
 
 
+def test_vertical_help_lists_math_without_changing_default() -> None:
+    vertical = next(k for k in KNOBS if k.name == "ARGUS_SKILL_VERTICAL")
+
+    assert vertical.default == "(unset → research; see LANES #1)"
+    assert "math" in vertical.doc.split(": ", 1)[1].split("|")
+    rendered = format_config_help(env={})
+    assert "ARGUS_SKILL_VERTICAL" in rendered
+    assert "default: (unset → research; see LANES #1)" in rendered
+
+
 def test_registry_covers_the_team_teammate_knobs() -> None:
     """The teammate forced-grounding + leaderboard-direction control surface is
     documented — an operator running a non-GPU team needs these to be discoverable."""

@@ -245,13 +245,13 @@ def parse_plan_notes(text: str) -> list[str]:
 # Prompt + model call
 # ---------------------------------------------------------------------------
 
-def build_plan_prompt(objective: str) -> str:
+def build_plan_prompt(objective: str, *, role_banner: str = "") -> str:
     """Render the prompt asking the model for a preview plan.
 
     The model must OUTLINE only — never do the work, run tools, or write code.
     """
     obj = (objective or "").strip()
-    return (
+    prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
         f"Produce an ordered plan ({_MIN_STEPS}-{_MAX_STEPS} steps) of how "
@@ -269,6 +269,10 @@ def build_plan_prompt(objective: str) -> str:
         '{"steps": [{"title": "<imperative title>", "detail": "<what/why>"}, ...], '
         '"notes": ["<optional caveat or assumption>", ...]}\n'
     )
+    banner = str(role_banner or "").strip()
+    if not banner:
+        return prompt
+    return f"## Active vertical role\n{banner}\n\n{prompt}"
 
 
 def _resolve_run_exec(
@@ -357,6 +361,7 @@ def draft_plan(
     model: str | None = None,
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
+    role_banner: str = "",
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
@@ -384,7 +389,9 @@ def draft_plan(
         return _draft_failed(objective, reason="could not draft plan: no runner backend")
 
     try:
-        result = run_exec(build_plan_prompt(objective))
+        result = run_exec(
+            build_plan_prompt(objective, role_banner=role_banner)
+        )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")
         return _draft_failed(objective, reason="could not draft plan: backend error")

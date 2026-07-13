@@ -1,0 +1,668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "done",
+        "continue",
+        "blocked"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000
+    },
+    "next_action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500
+    },
+    "operator_question": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 500
+    },
+    "round_summary_markdown": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 6000
+    },
+    "completion_summary_markdown": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "achievement": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "OPTIONAL reviewer certification of a project-level research achievement. Use null for ordinary task completion, partial work, wiring, or any result without independently verified evidence.",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "metric_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 240
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "required": [
+        "title",
+        "goal",
+        "metric_id",
+        "summary",
+        "evidence"
+      ]
+    },
+    "failure_cause": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "skill_gap",
+        "execution_mistake",
+        "ambiguous_objective",
+        "environmental",
+        "method_failure",
+        "unknown",
+        "",
+        null
+      ]
+    },
+    "scope": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "bounded",
+        "final_submission",
+        null
+      ]
+    },
+    "math_result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Math-vertical-only result classification with independent correctness, fidelity, and novelty verdicts. Non-math reviewers use null.",
+      "additionalProperties": false,
+      "properties": {
+        "result_class": {
+          "type": "string",
+          "enum": [
+            "known_result",
+            "finite_verification",
+            "counterexample",
+            "partial_result",
+            "new_candidate",
+            "novelty_unverified",
+            "verified_new_result"
+          ]
+        },
+        "correctness": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "incorrect",
+            "uncertain"
+          ]
+        },
+        "novelty": {
+          "type": "string",
+          "enum": [
+            "known",
+            "unverified",
+            "verified_new",
+            "not_applicable"
+          ]
+        },
+        "statement_fidelity": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "failed",
+            "uncertain"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "required": [
+        "result_class",
+        "correctness",
+        "novelty",
+        "statement_fidelity",
+        "evidence",
+        "limitations"
+      ]
+    },
+    "planner_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward_progress": {
+          "type": "boolean"
+        },
+        "headline": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "blocker": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "recommended_next": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "evidence_files": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 400
+              },
+              "why": {
+                "type": "string",
+                "maxLength": 600
+              }
+            },
+            "required": [
+              "path",
+              "why"
+            ]
+          }
+        }
+      },
+      "required": [
+        "forward_progress",
+        "headline",
+        "blocker",
+        "recommended_next",
+        "evidence_files"
+      ]
+    },
+    "checklist": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "satisfied": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "item",
+          "satisfied",
+          "evidence"
+        ]
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goal": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "done": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "tried_and_failed": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "maturing": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "open_blocker": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "next_step": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "active_line": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "description": "OPTIONAL — the ONE bold direction you are maturing ABOVE the floor across rounds (desc / where its code is saved / how long / next refinement). Emit null if you are not carrying a line; the harness drops it on a regime jump.",
+          "properties": {
+            "desc": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "branch_or_path": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "rounds_active": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 400
+            }
+          },
+          "required": [
+            "desc",
+            "branch_or_path",
+            "rounds_active",
+            "note"
+          ]
+        },
+        "env_facts": {
+          "type": "array",
+          "maxItems": 12,
+          "description": "OPTIONAL — durable environment facts a successor needs to not rediscover (ports, hosts, dataset paths, env names).",
+          "items": {
+            "type": "string",
+            "maxLength": 280
+          }
+        }
+      },
+      "required": [
+        "goal",
+        "done",
+        "tried_and_failed",
+        "maturing",
+        "open_blocker",
+        "next_step",
+        "active_line",
+        "env_facts"
+      ]
+    },
+    "skill_ops": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 8,
+      "description": "OPTIONAL — skill-memory operations warranted by THIS round (success OR failure). You are the SOLE authority — there is no Manager approval gate. create/update persist an immediately active, versioned project-layer capability playbook; delete/archive retire a matched skill you found wrong or harmful. Omit or use [] when this round warrants no skill change.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "delete",
+              "archive"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 12000
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "op",
+          "name",
+          "content",
+          "why"
+        ]
+      }
+    },
+    "wiki_ops": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 6,
+      "description": "OPTIONAL — project wiki operations warranted by THIS round (success OR failure). You are the SOLE authority — there is no Manager approval gate. create_page/update_page PROPOSE a page (`body` markdown); every `evidence` span is mechanically verified to quote an immutable wiki source verbatim, so a fabricated citation is rejected regardless of your judgment. retire_page tombstones a page (never a hard delete). Omit or use [] when this round warrants no wiki change, or the project has no initialized wiki.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "create_page",
+              "update_page",
+              "retire_page"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "card_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "technique",
+              "conflict",
+              "pattern",
+              null
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "scratch",
+              "candidate",
+              "stable",
+              null
+            ]
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 8000
+          },
+          "evidence": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "quote": {
+                  "type": "string",
+                  "maxLength": 600
+                },
+                "locator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "source_id",
+                "quote",
+                "locator"
+              ]
+            }
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "op",
+          "id",
+          "card_type",
+          "title",
+          "status",
+          "body",
+          "evidence",
+          "why"
+        ]
+      }
+    },
+    "checklist_feedback": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "OPTIONAL — ADVISORY feedback to the Planner when the per-stage checklist ITSELF is wrong/incomplete/over-strict for this task. You are FEEDBACK-ONLY: you never edit or delete the checklist; the Planner owns add/modify/remove and acts on this next cycle. Omit/null when the checklist is fine.",
+      "properties": {
+        "stage": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "items": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "problem": {
+                "type": "string",
+                "maxLength": 600
+              },
+              "suggested_fix": {
+                "type": "string",
+                "maxLength": 600
+              }
+            },
+            "required": [
+              "id",
+              "problem",
+              "suggested_fix"
+            ]
+          }
+        }
+      },
+      "required": [
+        "stage",
+        "summary",
+        "items"
+      ]
+    },
+    "step_back": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "MANDATORY whenever THIS round produced a MEASURED result (a metric / score / eval output / benchmark number), success OR failure — a fresh-skeptic reflection on the RESULTS that is INDEPENDENT of your status verdict and is emitted EVEN ON A CLEAN SUCCESS. Set null ONLY when this round produced no measured result at all (pure wiring / setup / run-wait). Mirrors ARIS result-to-claim; it exists to stop the project getting locked into its initial plan.",
+      "properties": {
+        "supported_by_results": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "partial",
+            "no"
+          ]
+        },
+        "surprises": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "new_questions": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "maxLength": 400
+          }
+        },
+        "alt_directions": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direction": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "why": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "cheap_to_test": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "direction",
+              "why",
+              "cheap_to_test"
+            ]
+          }
+        }
+      },
+      "required": [
+        "supported_by_results",
+        "surprises",
+        "new_questions",
+        "alt_directions"
+      ]
+    }
+  },
+  "required": [
+    "status",
+    "reason",
+    "next_action",
+    "operator_question",
+    "round_summary_markdown",
+    "completion_summary_markdown",
+    "achievement",
+    "failure_cause",
+    "scope",
+    "math_result",
+    "planner_report",
+    "checklist",
+    "checkpoint",
+    "skill_ops",
+    "wiki_ops",
+    "checklist_feedback",
+    "step_back"
+  ]
+}

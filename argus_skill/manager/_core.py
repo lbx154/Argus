@@ -1322,6 +1322,7 @@ class Manager:
                     review,
                     current_stage=cur,
                     stage_order=order,
+                    vertical=resolve_vertical(root),
                     trigger_diagnostic=decision.diagnostic,
                     trigger_reason=decision.reason,
                 )

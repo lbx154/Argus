@@ -805,6 +805,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             ):
                 try:
                     from ..manager.plan_mode import draft_plan
+                    from ..verticals.math.runtime import math_role_banner
 
                     plan = draft_plan(
                         getattr(self, "planner_backend", None) or self._backend,
@@ -815,6 +816,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                             "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
                         ),
                         run_label="planner-bounded-plan",
+                        role_banner=math_role_banner(workdir, "planner"),
                     )
                     if plan.steps:
                         lines = ["## Planner execution plan (advisory)"]
