@@ -37,6 +37,7 @@ import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 import { Button } from '../components/primitives';
+import { ArgusMark, Wordmark } from '../components/Wordmark';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -50,6 +51,17 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('uses Rounded 02 geometry with one continuous brand gradient', () => {
+    const lockup = renderToStaticMarkup(createElement(Wordmark, { size: 24 }));
+    const mark = renderToStaticMarkup(createElement(ArgusMark, { size: 32 }));
+    expect(lockup).toContain('data-logo="rounded-horizontal"');
+    expect(mark).toContain('data-logo="rounded-mark"');
+    expect(lockup).toContain('gradientUnits="userSpaceOnUse"');
+    expect(lockup).toContain('x1="180"');
+    expect(lockup).toContain('x2="1280"');
+    expect(lockup).not.toContain('NightPupil');
+  });
+
   it('defines the public-brand workbench surface contract', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     for (const token of [
