@@ -92,6 +92,27 @@ def test_project_index_bounds_large_text_without_truncating_snapshot(
     assert len(json.dumps({"projects": [project]})) < 5_000
 
 
+def test_project_index_bounds_fallback_label_without_changing_id(tmp_path: Path) -> None:
+    sid = "s-" + ("x" * 200)
+    life_dir = tmp_path / "projects" / sid
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, created=1, last_active=1, cwd=str(life_dir)),
+    )
+
+    project = next(
+        item
+        for item in project_state.list_projects(
+            global_root=tmp_path,
+            include_empty=True,
+        )
+        if item["id"] == sid
+    )
+
+    assert project["id"] == sid
+    assert len(project["label"]) <= 180
+
+
 def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
     life = root / "projects" / sid
     life.mkdir(parents=True)

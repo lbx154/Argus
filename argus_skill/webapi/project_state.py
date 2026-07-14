@@ -507,7 +507,7 @@ def list_projects(
                 _PROJECT_INDEX_LABEL_CHARS,
                 single_line=True,
             )
-            or meta.id
+            or _project_index_text(meta.id, _PROJECT_INDEX_LABEL_CHARS)
         )
         out.append(item)
         if limit and len(out) >= limit:
