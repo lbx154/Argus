@@ -254,6 +254,76 @@ test('SIGTERMs the just-spawned child when ownership write fails', async () => {
   assert.match(result.message, /ownership write failed/);
 });
 
+// ── Normal-autostart ownership tests ───────────────────────────────────────
+
+const unreachableProbe: ApiProbeResult = { state: 'unreachable', message: 'connection refused' };
+
+test('normal autostart writes ownership record immediately after spawn', async () => {
+  const ownerWrites: Array<[string, ApiOwnershipRecord]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-normal-owner.json',
+    dependencies: {
+      probeApi: probeSequence(unreachableProbe, currentProbe),
+      spawnApi: async () => ({ pid: 7777 }),
+      writeOwnershipRecord: async (path, record) => { ownerWrites.push([path, record]); },
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(result.spawned, true);
+  assert.equal(ownerWrites.length, 1);
+  assert.equal(ownerWrites[0][0], '/tmp/argus-normal-owner.json');
+  const rec = ownerWrites[0][1];
+  assert.equal(rec.schema, 1);
+  assert.equal(rec.pid, 7777);
+  assert.equal(rec.host, '127.0.0.1');
+  assert.equal(rec.port, 8899);
+  assert.equal(rec.backendBin, 'argus-skill');
+  assert.equal(typeof rec.startedAt, 'string');
+});
+
+test('normal autostart SIGTERMs spawn and returns failure when ownership write fails', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-normal-owner.json',
+    dependencies: {
+      probeApi: async () => unreachableProbe,
+      spawnApi: async () => ({ pid: 7777 }),
+      signal: (pid, sig) => signals.push([pid, sig]),
+      writeOwnershipRecord: async () => { throw new Error('disk full'); },
+      sleep: async () => undefined,
+    },
+  });
+  assert.deepEqual(signals, [[7777, 'SIGTERM']]);
+  assert.equal(result.reachable, false);
+  assert.equal(result.spawned, false);
+  assert.match(result.message, /ownership record/);
+  assert.match(result.message, /SIGTERM/);
+});
+
+test('normal autostart with no ownerFile skips ownership write and polls normally', async () => {
+  const ownerWrites: Array<unknown[]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    // no ownerFile
+    dependencies: {
+      probeApi: probeSequence(unreachableProbe, currentProbe),
+      spawnApi: async () => ({ pid: 7777 }),
+      writeOwnershipRecord: async (...args) => { ownerWrites.push(args); },
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(result.spawned, true);
+  // ownership write must NOT be called when no ownerFile is provided
+  assert.equal(ownerWrites.length, 0);
+});
+
 test('ApiClient validates snapshot schema after the one-time handshake', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

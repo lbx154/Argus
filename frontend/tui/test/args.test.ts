@@ -14,6 +14,17 @@ test('legacy resume flags map onto the Ink project selection model', () => {
   assert.equal(fresh.resume, false);
 });
 
+test('ownerFile is read from ARGUS_TUI_API_OWNER_FILE and forwarded to ensureApi', () => {
+  const saved = process.env.ARGUS_TUI_API_OWNER_FILE;
+  try {
+    process.env.ARGUS_TUI_API_OWNER_FILE = '/run/argus/owner.json';
+    assert.equal(parseArgs([]).ownerFile, '/run/argus/owner.json');
+  } finally {
+    if (saved === undefined) delete process.env.ARGUS_TUI_API_OWNER_FILE;
+    else process.env.ARGUS_TUI_API_OWNER_FILE = saved;
+  }
+});
+
 test('value flags reject missing and invalid values early', () => {
   assert.throws(() => parseArgs(['--host']), /--host requires a value/);
   assert.throws(() => parseArgs(['--port', '0']), /between 1 and 65535/);

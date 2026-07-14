@@ -241,12 +241,26 @@ export async function ensureApi(opts: {
 
   onStatus?.('starting backend api…');
   const bin = resolveBin();
-  try {
+
+  const doNormalSpawn = deps?.spawnApi ?? (async () => {
     const child = spawn(bin, ['--web', '--web-host', host, '--web-port', String(port)], {
       detached: true,
       stdio: 'ignore',
     });
     child.unref();
+    return { pid: child.pid! };
+  });
+
+  const doNormalSignal = deps?.signal ?? ((pid: number, sig: NodeJS.Signals) => {
+    process.kill(pid, sig);
+  });
+  const doNormalWriteOwnership = deps?.writeOwnershipRecord ??
+    ((p: string, r: ApiOwnershipRecord) => writeOwnershipRecordImpl(p, r));
+
+  let spawnedPid: number;
+  try {
+    const spawned = await doNormalSpawn();
+    spawnedPid = spawned.pid;
   } catch (err) {
     return {
       reachable: false,
@@ -255,6 +269,30 @@ export async function ensureApi(opts: {
         `could not launch '${bin} --web' (${(err as Error).message}). ` +
         `Set ARGUS_SKILL_BIN or start it yourself: argus-skill --web --web-port ${port}`,
     };
+  }
+
+  // Atomically write ownership immediately after spawn so future stale
+  // recovery can prove we own this process.
+  if (ownerFile) {
+    try {
+      await doNormalWriteOwnership(ownerFile, {
+        schema: 1,
+        pid: spawnedPid,
+        host,
+        port,
+        backendBin: bin,
+        startedAt: new Date().toISOString(),
+      });
+    } catch (writeErr) {
+      try { doNormalSignal(spawnedPid, 'SIGTERM'); } catch { /* ignore */ }
+      return {
+        reachable: false,
+        spawned: false,
+        message:
+          `could not write ownership record (${(writeErr as Error).message}); ` +
+          `sent SIGTERM to pid ${spawnedPid}`,
+      };
+    }
   }
 
   for (let i = 0; i < 20; i++) {
