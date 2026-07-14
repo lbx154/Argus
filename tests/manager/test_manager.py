@@ -178,6 +178,60 @@ def test_math_divide_persists_manager_owned_research_target(
     assert state["research_target_set_at"] > 0
 
 
+def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "physics",
+            "execution_task": "derive the requested result",
+            "research_target_level": "doctoral",
+        }),
+        known_verticals=("physics",),
+        research_target_verticals=("physics",),
+    )
+
+    assert decision is not None
+    assert decision.vertical == "physics"
+    assert decision.research_target_level == "doctoral"
+
+
+def test_vertical_commit_persists_generic_research_target_contract(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from argus_skill.verticals import _base
+
+    monkeypatch.setattr(
+        _base,
+        "load_vertical",
+        lambda name, project_root=None: SimpleNamespace(
+            STAGE_ORDER=("scope", "review"),
+            RESEARCH_TARGET_LEVELS=("exploratory", "publishable", "doctoral"),
+        ),
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="physics",
+        execution_task="derive the requested result",
+        research_target_level="doctoral",
+    )
+
+    division = manager.commit_vertical_decision(
+        "derive the requested result",
+        decision,
+    )
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
+    )
+    assert division.vertical == "physics"
+    assert state["research_target_level"] == "doctoral"
+    assert state["research_target_set_at"] > 0
+
+
 def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_path):
     mgr = Manager(project_root=tmp_path, runner=_existing("research"))
 

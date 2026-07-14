@@ -330,6 +330,7 @@ def _review_certifies_completion(
     vertical: str = "",
     mission_scope: str = "",
     research_target_level: str | None = None,
+    checklist_contract: Any | None = None,
 ) -> str:
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
@@ -344,6 +345,23 @@ def _review_certifies_completion(
         scope == "final_submission"
         or review_scope.replace("-", "_") == "final_submission"
     )
+    required_item_ids: set[str] = set()
+    if checklist_contract is not None:
+        checklist_optional = bool(
+            getattr(checklist_contract, "checklist_optional", False)
+        )
+        contract_state = str(
+            getattr(getattr(checklist_contract, "state", ""), "value", "")
+            or getattr(checklist_contract, "state", "")
+        )
+        if not checklist_optional and contract_state != "loaded":
+            return f"required_checklist_{contract_state or 'not_loaded'}"
+        checklist_required = checklist_required or not checklist_optional
+        required_item_ids = {
+            str(getattr(item, "id", "") or "").strip()
+            for item in getattr(checklist_contract, "items", ())
+            if str(getattr(item, "id", "") or "").strip()
+        }
     if not isinstance(items, list):
         if checklist_required:
             return "missing_checklist"
@@ -357,6 +375,15 @@ def _review_certifies_completion(
             return "unsatisfied_checklist"
         if not str(item.get("evidence", "")).strip():
             return "missing_checklist_evidence"
+    if required_item_ids:
+        reviewed_item_ids = {
+            str(item.get("item") or item.get("id") or "").strip()
+            for item in items
+            if isinstance(item, dict)
+        }
+        missing_item_ids = required_item_ids - reviewed_item_ids
+        if missing_item_ids:
+            return "missing_required_checklist_items"
     if research_target_level is not None:
         from ..core.research_contract import research_completion_issue
 
@@ -378,6 +405,7 @@ def final_stage_completion_decision(
     vertical: str = "",
     mission_scope: str = "",
     research_target_level: str | None = None,
+    checklist_contract: Any | None = None,
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
 ) -> StageDecision | None:
@@ -391,6 +419,7 @@ def final_stage_completion_decision(
         vertical=vertical,
         mission_scope=mission_scope,
         research_target_level=research_target_level,
+        checklist_contract=checklist_contract,
     )
     if missing:
         return None

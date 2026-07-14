@@ -574,6 +574,15 @@ class EventJournal(Journal):
         if row.get("journal_kind") or row.get("type") == EventJournal.LEGACY_EVENT_TYPE:
             return JournalEntry.from_jsonable(row)
         etype = canonical_event_type(row.get("canonical_type") or row.get("type"))
+        if etype == EventType.LIFE_PLANNER_VERDICT:
+            from ..core.planner_verdict import (
+                PlannerVerdictStatus,
+                adapt_legacy_planner_verdict_event,
+            )
+
+            known_statuses = {status.value for status in PlannerVerdictStatus}
+            if str(row.get("status") or "") not in known_statuses:
+                row = adapt_legacy_planner_verdict_event(row)
         # The mid-mission budget breaker emits ``life.mission.completed`` with
         # ``status="paused_budget"`` (success=False). Derive the documented
         # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —

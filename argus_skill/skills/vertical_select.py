@@ -344,7 +344,7 @@ def persist_vertical(
     domains; an unknown name RAISES ``UnknownVerticalError`` (no silent coercion
     to ``research``). A corrupt existing state file RAISES. IO errors PROPAGATE —
     persisting the Manager's decision is load-bearing, not best-effort.
-    For Math, the Manager may provide ``research_target_level``; vertical, target,
+    A target-capable vertical may carry ``research_target_level``; vertical, target,
     and target revision timestamp are then committed by the same atomic replace.
 
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the

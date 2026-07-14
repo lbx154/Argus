@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
@@ -41,6 +42,21 @@ class ChecklistItem:
     id: str
     statement: str
     evidence_hint: str
+
+
+class ChecklistLoadState(str, Enum):
+    NOT_APPLICABLE = "not_applicable"
+    NOT_LOADED = "not_loaded"
+    EMPTY = "empty"
+    LOADED = "loaded"
+
+
+@dataclass(frozen=True)
+class StageChecklistContract:
+    stage: str
+    state: ChecklistLoadState
+    checklist_optional: bool
+    items: tuple[ChecklistItem, ...]
 
 
 def _checklist(*items: ChecklistItem) -> tuple[ChecklistItem, ...]:
@@ -1403,6 +1419,24 @@ def _active_vertical_checklist_defs(project_root):
         return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
 
 
+def _active_vertical_optional_stages(project_root) -> frozenset[str]:
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import (
+            load_vertical,
+            vertical_checklist_optional_stages,
+        )
+        from .vertical_select import resolve_vertical
+
+        mod = load_vertical(resolve_vertical(project_root), project_root=project_root)
+        return vertical_checklist_optional_stages(mod)
+    except Exception:  # noqa: BLE001
+        return frozenset()
+
+
 def _resolve_project_root_for_store(project_root):
     """Resolve a concrete project root for the checklist-store read (never None)."""
     import os
@@ -1436,6 +1470,53 @@ def _store_or_seed_items(project_root, vert_items, stage):
     return tuple(vert_items.get(stage, ()))
 
 
+def resolve_stage_checklist_contract(
+    stage: str,
+    *,
+    role: str = "reviewer",
+    project_root=None,
+) -> StageChecklistContract:
+    """Resolve checklist provenance without treating an empty list as success."""
+    stage_norm = _normalize_stage(stage)
+    _stage_order, vertical_items = _active_vertical_checklist_defs(project_root)
+    optional = stage_norm in _active_vertical_optional_stages(project_root)
+    override = None
+    try:
+        from .checklist_store import store_items_for_stage
+
+        override = store_items_for_stage(
+            _resolve_project_root_for_store(project_root),
+            stage_norm,
+        )
+    except Exception:  # noqa: BLE001
+        override = None
+    if override is not None:
+        items = tuple(override)
+        state = ChecklistLoadState.LOADED if items else ChecklistLoadState.EMPTY
+    elif stage_norm in vertical_items:
+        items = tuple(vertical_items.get(stage_norm, ()))
+        state = ChecklistLoadState.LOADED if items else ChecklistLoadState.EMPTY
+    else:
+        items = ()
+        state = ChecklistLoadState.NOT_LOADED
+    extra, _annotations = _overlay_for(
+        stage_norm,
+        (role or "reviewer").strip().lower(),
+        project_root,
+    )
+    if extra:
+        items = items + tuple(extra)
+        state = ChecklistLoadState.LOADED
+    if optional and not items:
+        state = ChecklistLoadState.NOT_APPLICABLE
+    return StageChecklistContract(
+        stage=stage_norm,
+        state=state,
+        checklist_optional=optional,
+        items=items,
+    )
+
+
 def format_stage_checklist(
     stage: str,
     *,
@@ -1465,16 +1546,26 @@ def format_stage_checklist(
     # ``STAGE_CHECKLISTS``, so the lookup — and the whole rendering below — stays
     # byte-identical to the paper pipeline. A speedrun mission instead renders
     # its own 4-stage (setup/optimize/measure/report) items.
-    _stage_order, vert_items = _active_vertical_checklist_defs(project_root)
-    items = _store_or_seed_items(project_root, vert_items, stage_norm)
     role_norm = (role or "engineer").strip().lower()
-    extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
-    items = tuple(items) + extra
+    contract = resolve_stage_checklist_contract(
+        stage_norm,
+        role=role_norm,
+        project_root=project_root,
+    )
+    items = contract.items
+    _extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
     if not items:
+        if contract.checklist_optional:
+            return (
+                f"## Stage checklist ({stage_norm or 'unknown'})\n"
+                "Checklist not applicable: this stage explicitly declares "
+                "`checklist_optional`."
+            )
+        state = contract.state.value.replace("_", " ")
         return (
             f"## Stage checklist ({stage_norm or 'unknown'})\n"
-            "No checklist is defined for this stage. Treat the stage's normal "
-            "artifacts (research/, experiments/, paper/) as the source of truth."
+            f"Configuration error: this required checklist is {state}. "
+            "Do not mark the stage complete until required checklist items load."
         )
 
     if role_norm == "reviewer":
@@ -1515,7 +1606,12 @@ def format_stage_checklist(
                 role=role_norm,
                 error=exc,
             )
-    return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
+    return _augment(
+        body,
+        role_norm,
+        project_root,
+        overlay_present=bool(_extra or annotations),
+    )
 
 
 def _full_pipeline_title(project_root) -> str:

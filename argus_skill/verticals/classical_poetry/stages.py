@@ -25,6 +25,7 @@ from __future__ import annotations
 from ...skills.stage_checklists import ChecklistItem
 
 STAGE_ORDER = ["intake", "form_plan", "compose", "prosody_check", "review", "revise"]
+CHECKLIST_OPTIONAL_STAGES = ("intake", "form_plan", "compose", "revise")
 
 completion_gate = "none"
 

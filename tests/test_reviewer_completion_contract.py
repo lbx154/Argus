@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.core.mission_view import load_mission_view
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import BacklogItem, LifeMemory
@@ -28,6 +29,7 @@ from argus_skill.life.supervisor import (
 from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus_skill.reviewer import _find_decision_in_messages
+from argus_skill.skills.vertical_select import persist_vertical
 
 # ---------------------------------------------------------------------------
 # ReviewDecision.final_submission_certified
@@ -439,9 +441,195 @@ def test_open_ended_project_done_idles_when_state_unchanged(
         and event.get("project_done") is True
         and event.get("open_ended_objective") is True
     ) == 1
+    verdict = next(
+        event for event in events if event.get("type") == "life.planner.verdict"
+    )
+    assert verdict["status"] == "completed"
+    assert "event_validation" not in verdict
     assert sum(
         1 for event in events if event.get("type") == "life.planner.terminal_idle"
     ) == 1
+
+
+def test_production_topology_emits_one_terminal_verdict_and_calls_planner_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        project,
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    (project / "REVIEW.md").write_text("stable completion\n", encoding="utf-8")
+    sup._vertical_resolved = True
+    sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+    sup.planner_runner = object()
+
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(project_done=True, reason="verified terminal")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() == "planner_retry"
+    assert sup._plan_next_work() == "planner_terminal_idle"
+    assert calls == 1
+
+    verdicts = [
+        event
+        for event in _events(sup)
+        if event.get("type") == "life.planner.verdict"
+    ]
+    assert len(verdicts) == 1
+    assert verdicts[0]["status"] == "completed"
+    assert "event_validation" not in verdicts[0]
+    mission_view = load_mission_view(project / "life")
+    assert sum(
+        item.get("title") == "Project reviewed"
+        for item in mission_view["timeline"]
+    ) == 1
+
+
+def test_terminal_fingerprint_ignores_nonsemantic_timestamps(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        project,
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    state_path = project / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["updated_at"] = 1.0
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    (project / "REVIEW.md").write_text("stable completion\n", encoding="utf-8")
+    first = sup._open_ended_terminal_idle_signature()
+
+    state["updated_at"] = 2.0
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    (project / "mission-view.json").write_text(
+        json.dumps({"updated_at": 99.0, "event_sequence": 42}),
+        encoding="utf-8",
+    )
+
+    assert sup._open_ended_terminal_idle_signature() == first
+
+
+def test_terminal_fingerprint_changes_when_review_changes(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        project,
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    review = project / "REVIEW.md"
+    review.write_text("first completion\n", encoding="utf-8")
+    first = sup._open_ended_terminal_idle_signature()
+
+    review.write_text("completion invalidated by new evidence\n", encoding="utf-8")
+
+    assert sup._open_ended_terminal_idle_signature() != first
+
+
+def test_failed_terminal_verdict_delivery_retries_after_supervisor_restart(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    memory = LifeMemory.open(project / "life")
+    config = LifeSupervisorConfig(
+        budget=LifeBudget(),
+        poll_interval_seconds=0.01,
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+
+    class _Runner:
+        pass
+
+    class _FlakySink(JsonlEventSink):
+        def __init__(self) -> None:
+            super().__init__(None, life_dir=memory.root, verbosity="full")
+            self.failed = False
+
+        def handle_event(self, event: dict) -> bool:
+            if event.get("type") == "life.planner.verdict" and not self.failed:
+                self.failed = True
+                return False
+            return super().handle_event(event)
+
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(project_done=True, reason="verified terminal")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    persist_vertical(project, "research")
+    first = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=_FlakySink(),
+        config=config,
+        planner_runner=object(),
+    )
+    first._vertical_resolved = True
+    first._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+
+    assert first._plan_next_work() == "planner_retry"
+    assert calls == 1
+    assert not [
+        event
+        for event in _events(first)
+        if event.get("type") == "life.planner.verdict"
+    ]
+
+    restarted = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=config,
+        planner_runner=object(),
+    )
+    restarted._vertical_resolved = True
+    restarted._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+
+    assert restarted._plan_next_work() == "planner_retry"
+    assert restarted._plan_next_work() == "planner_terminal_idle"
+    assert calls == 1
+    verdicts = [
+        event
+        for event in _events(restarted)
+        if event.get("type") == "life.planner.verdict"
+    ]
+    assert len(verdicts) == 1
+    assert verdicts[0]["status"] == "completed"
 
 
 def test_non_open_ended_project_done_stops_normally(
@@ -512,6 +700,8 @@ def test_bounded_non_paper_terminal_stage_stops_without_planner(
         if event.get("type") == "life.planner.verdict"
     )
     assert verdict["project_done"] is True
+    assert verdict["status"] == "completed"
+    assert "event_validation" not in verdict
     assert verdict["enqueued_tasks"] == 0
     assert verdict["input_tokens"] == 0
     assert verdict["cached_input_tokens"] == 0

@@ -32,10 +32,23 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.planner_verdict import (
+    PlannerVerdictStatus,
+    build_planner_verdict_event,
+)
 from ...core.ports import EventSink
 from ...core.pricing import price_for
 from ...core.usage import project_usage_summary
 from ..memory import BacklogItem
+from ..planner_verdict_outbox import (
+    OUTBOX_FILE,
+    clear_planner_verdict_outbox,
+    load_planner_verdict_outbox,
+    mark_planner_verdict_delivered,
+    planner_verdict_delivery_id,
+    planner_verdict_was_persisted,
+    write_planner_verdict_outbox,
+)
 from ._config import (
     LifeSupervisorConfig,
     _MemoryView,
@@ -839,11 +852,193 @@ class LifeSupervisor(
         ``can_start`` check and the mid-mission breaker use one number (F3)."""
         return self.config.budget.effective_per_mission_cap(item)
 
-    def _emit(self, event: dict[str, Any]) -> None:
+    def _planner_verdict_metadata(self) -> dict[str, Any]:
+        project = getattr(self.memory, "project", None)
+        project_id = str(
+            getattr(project, "fingerprint", "")
+            or getattr(self.memory, "fingerprint", "")
+            or Path(getattr(self.memory, "root", self._artifact_root())).name
+        )
+        mission_id = ""
+        research_result = None
         try:
-            self.sink.handle_event(event)
+            entries = self.memory.journal.all()
+        except Exception:  # noqa: BLE001
+            entries = []
+        for entry in reversed(entries):
+            extra = getattr(entry, "extra", None)
+            if not isinstance(extra, dict):
+                continue
+            if not mission_id:
+                mission_id = str(
+                    extra.get("mission_id")
+                    or extra.get("attempt_id")
+                    or extra.get("item_id")
+                    or ""
+                )
+            if research_result is None:
+                from ...core.research_contract import (
+                    adapt_legacy_research_result_payload,
+                )
+
+                research_result = adapt_legacy_research_result_payload(extra)
+            if mission_id and research_result is not None:
+                break
+        from ...core.research_contract import resolve_research_target_level
+
+        return {
+            "project_id": project_id,
+            "mission_id": mission_id,
+            "research_target_level": resolve_research_target_level(
+                self._artifact_root()
+            ),
+            "correctness_status": (
+                research_result["correctness_status"] if research_result else None
+            ),
+            "novelty_status": (
+                research_result["novelty_status"] if research_result else None
+            ),
+            "significance_status": (
+                research_result["significance_status"] if research_result else None
+            ),
+        }
+
+    def _emit_planner_verdict(
+        self,
+        *,
+        status: PlannerVerdictStatus,
+        reason: str,
+        completion_kind: str,
+        resume_outcome: bool | str,
+        terminal_signature: str = "",
+        **details: Any,
+    ) -> bool:
+        event = build_planner_verdict_event(
+            status=status,
+            reason=reason,
+            completion_kind=completion_kind,
+            **self._planner_verdict_metadata(),
+            **details,
+        )
+        event["delivery_id"] = planner_verdict_delivery_id(event)
+        try:
+            record = write_planner_verdict_outbox(
+                self.memory.root,
+                event=event,
+                outcome=resume_outcome,
+                terminal_signature=terminal_signature,
+            )
+        except OSError as exc:
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": details.get("cycle", self._planning_cycles),
+                "error": f"planner verdict outbox write failed: {type(exc).__name__}: {exc}",
+                "reason": reason,
+            })
+            return False
+        if not self._emit(event):
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": details.get("cycle", self._planning_cycles),
+                "error": "planner verdict delivery failed; queued for idempotent retry",
+                "reason": reason,
+                "delivery_id": event["delivery_id"],
+            })
+            return False
+        try:
+            record = mark_planner_verdict_delivered(self.memory.root, record)
+        except OSError as exc:
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": details.get("cycle", self._planning_cycles),
+                "error": f"planner verdict outbox acknowledgement failed: {type(exc).__name__}: {exc}",
+                "reason": reason,
+                "delivery_id": event["delivery_id"],
+            })
+            return False
+        if terminal_signature:
+            self._last_open_ended_project_done_signature = terminal_signature
+        if status is not PlannerVerdictStatus.COMPLETED:
+            clear_planner_verdict_outbox(self.memory.root)
+        return bool(record.get("delivered"))
+
+    def _retry_pending_planner_verdict(self) -> tuple[bool, bool | str | None]:
+        record = load_planner_verdict_outbox(self.memory.root)
+        if record is None:
+            if (Path(self.memory.root) / OUTBOX_FILE).exists():
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "cycle": self._planning_cycles,
+                    "error": "planner verdict outbox is corrupt or unreadable",
+                })
+                clear_planner_verdict_outbox(self.memory.root)
+                return True, _PLAN_RETRY
+            return False, None
+        event = record["event"]
+        terminal_signature = str(record.get("terminal_signature") or "")
+        outcome = record.get("outcome")
+        if not isinstance(outcome, (bool, str)):
+            return False, None
+        if (
+            terminal_signature
+            and self._open_ended_terminal_idle_signature() != terminal_signature
+        ):
+            clear_planner_verdict_outbox(self.memory.root)
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": event.get("cycle", self._planning_cycles),
+                "error": "discarded stale planner verdict outbox after semantic state change",
+                "reason": event.get("reason", ""),
+                "delivery_id": record.get("delivery_id", ""),
+            })
+            return False, None
+        if record.get("delivered"):
+            if terminal_signature and self.config.open_ended:
+                self._last_open_ended_project_done_signature = terminal_signature
+                return False, None
+            clear_planner_verdict_outbox(self.memory.root)
+            return True, outcome
+
+        delivery_id = str(record["delivery_id"])
+        persisted = planner_verdict_was_persisted(self.memory.root, delivery_id)
+        if not persisted and not self._emit(event):
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": event.get("cycle", self._planning_cycles),
+                "error": "planner verdict retry failed; outbox remains pending",
+                "reason": event.get("reason", ""),
+                "delivery_id": delivery_id,
+            })
+            return True, _PLAN_RETRY
+        try:
+            mark_planner_verdict_delivered(self.memory.root, record)
+        except OSError as exc:
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": event.get("cycle", self._planning_cycles),
+                "error": f"planner verdict retry acknowledgement failed: {type(exc).__name__}: {exc}",
+                "reason": event.get("reason", ""),
+                "delivery_id": delivery_id,
+            })
+            return True, _PLAN_RETRY
+        if terminal_signature:
+            self._last_open_ended_project_done_signature = terminal_signature
+        else:
+            clear_planner_verdict_outbox(self.memory.root)
+        if event.get("restart_daemon"):
+            restart_reason = str(event.get("restart_reason") or event.get("reason") or "")
+            if self._handle_planner_restart(restart_reason):
+                return True, _PLAN_HANDOFF
+            return True, _PLAN_ERROR
+        return True, outcome
+
+    def _emit(self, event: dict[str, Any]) -> bool:
+        try:
+            accepted = self.sink.handle_event(event)
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: event sink raised")
+            return False
+        return accepted is not False
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})

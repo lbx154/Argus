@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,16 @@ _EXPLORATORY_TERMINAL_CLASSES = frozenset({
 _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
 
 
+@dataclass(frozen=True)
+class ResearchTargetContract:
+    supported_levels: tuple[str, ...]
+    selected_level: str | None
+
+    @property
+    def required(self) -> bool:
+        return bool(self.supported_levels)
+
+
 def normalize_research_target_level(value: Any) -> str | None:
     level = str(value or "").strip().lower()
     return level if level in RESEARCH_TARGET_LEVELS else None
@@ -78,6 +90,45 @@ def resolve_research_target_level(project_root: object) -> str | None:
     if not isinstance(payload, dict):
         return None
     return normalize_research_target_level(payload.get("research_target_level"))
+
+
+def resolve_research_target_contract(
+    project_root: object,
+) -> ResearchTargetContract:
+    selected = resolve_research_target_level(project_root)
+    try:
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_research_target_levels,
+        )
+
+        module = load_vertical(
+            resolve_vertical(project_root),
+            project_root=project_root,
+        )
+        supported = tuple(vertical_research_target_levels(module))
+    except Exception:  # noqa: BLE001
+        supported = RESEARCH_TARGET_LEVELS if selected is not None else ()
+    return ResearchTargetContract(
+        supported_levels=supported,
+        selected_level=selected,
+    )
+
+
+def research_target_env_override() -> str | None:
+    """Read the generic target override, with one legacy env-name adapter."""
+    raw = os.environ.get("ARGUS_SKILL_RESEARCH_TARGET_LEVEL")
+    if raw is None:
+        raw = os.environ.get("ARGUS_SKILL_MATH_RESEARCH_TARGET_LEVEL")
+    if raw is None:
+        return None
+    level = normalize_research_target_level(raw)
+    if level is None:
+        raise ValueError(
+            "research target override must be exploratory, publishable, or doctoral"
+        )
+    return level
 
 
 def resolve_research_target_set_at(project_root: object) -> float | None:
@@ -158,6 +209,18 @@ def normalize_research_result(value: Any) -> dict[str, Any] | None:
     }
 
 
+def adapt_legacy_research_result_payload(
+    payload: Any,
+) -> dict[str, Any] | None:
+    """Read the canonical result or a historical field through one adapter."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("research_result")
+    if not isinstance(raw, dict):
+        raw = payload.get("math_result")
+    return normalize_research_result(raw)
+
+
 def research_completion_issue(
     value: Any,
     *,
@@ -226,10 +289,14 @@ __all__ = [
     "RESULT_CLASSES",
     "SIGNIFICANCE_STATUSES",
     "STATEMENT_FIDELITY_STATUSES",
+    "ResearchTargetContract",
+    "adapt_legacy_research_result_payload",
     "normalize_research_result",
     "normalize_research_target_level",
     "research_completion_issue",
     "research_pause_status",
+    "research_target_env_override",
+    "resolve_research_target_contract",
     "resolve_research_target_level",
     "resolve_research_target_set_at",
 ]

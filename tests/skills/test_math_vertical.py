@@ -12,6 +12,10 @@ from argus_skill.core.research_contract import (
     resolve_research_target_level,
 )
 from argus_skill.manager.stage_decider import final_stage_completion_decision
+from argus_skill.skills.stage_checklists import (
+    ChecklistLoadState,
+    resolve_stage_checklist_contract,
+)
 from argus_skill.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
@@ -136,6 +140,52 @@ def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
         load_vertical("math"),
         "engineer",
     )
+
+
+def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+
+    contract = resolve_stage_checklist_contract("review", project_root=tmp_path)
+
+    assert contract.state is ChecklistLoadState.LOADED
+    assert contract.checklist_optional is False
+    assert {
+        "review.statement-fidelity",
+        "review.no-goal-drift",
+        "review.correctness-novelty-separated",
+    }.issubset({item.id for item in contract.items})
+
+
+def test_empty_math_review_override_is_not_treated_as_passed(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "math")
+    checklist_path = tmp_path / "research" / "CHECKLISTS.json"
+    checklist_path.write_text(
+        json.dumps({"revision": 1, "stages": {"review": []}}),
+        encoding="utf-8",
+    )
+
+    contract = resolve_stage_checklist_contract("review", project_root=tmp_path)
+
+    assert contract.state is ChecklistLoadState.EMPTY
+    assert contract.checklist_optional is False
+
+
+def test_math_has_no_target_schema_or_legacy_lifecycle_branches() -> None:
+    root = Path(__file__).parents[2] / "argus_skill"
+    manager = (root / "manager" / "_core.py").read_text(encoding="utf-8")
+    domain_author = (root / "manager" / "domain_author.py").read_text(
+        encoding="utf-8"
+    )
+    reviewer = (root / "reviewer" / "_core.py").read_text(encoding="utf-8")
+    parsing = (root / "reviewer" / "_parsing.py").read_text(encoding="utf-8")
+
+    assert 'explicit_builtin == "math"' not in manager
+    assert 'vertical == "math"' not in manager
+    assert 'name == "math" and target_level' not in domain_author
+    assert 'resolve_vertical(root) == "math"' not in reviewer
+    assert "math_result" not in parsing
+    assert not (root / "reviewer" / "reviewer_math_schema.json").exists()
+    assert (root / "reviewer" / "reviewer_legacy_research_schema.json").exists()
 
 
 @pytest.mark.parametrize(

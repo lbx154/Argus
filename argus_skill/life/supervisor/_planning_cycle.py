@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.pricing import price_for, usd_for_tokens
 from ..memory import BacklogItem
 from ._constants import (
@@ -33,12 +34,16 @@ def _research_project_done_issue(
 ) -> str:
     """Require a current-target reviewer certification before Planner success."""
     from ...core.research_contract import (
+        adapt_legacy_research_result_payload,
         research_completion_issue,
-        resolve_research_target_level,
+        resolve_research_target_contract,
         resolve_research_target_set_at,
     )
 
-    target_level = resolve_research_target_level(project_root)
+    target_contract = resolve_research_target_contract(project_root)
+    target_level = target_contract.selected_level
+    if target_contract.required and target_level is None:
+        return "missing_research_target_level"
     if target_level is None:
         return ""
     target_set_at = resolve_research_target_set_at(project_root) or 0.0
@@ -57,11 +62,7 @@ def _research_project_done_issue(
             and str(extra.get("scope") or "").strip().lower() == "bounded"
         ):
             continue
-        research_result = (
-            extra.get("research_result") or extra.get("math_result")
-            if isinstance(extra, dict)
-            else None
-        )
+        research_result = adapt_legacy_research_result_payload(extra)
         if not research_completion_issue(
             research_result,
             research_target_level=target_level,
@@ -72,6 +73,21 @@ def _research_project_done_issue(
 
 
 class PlanningCycleMixin:
+    def _emit_planner_verdict(
+        self,
+        *,
+        status: PlannerVerdictStatus,
+        reason: str,
+        completion_kind: str,
+        resume_outcome: bool | str,
+        terminal_signature: str = "",
+        **details: Any,
+    ) -> bool:
+        raise NotImplementedError
+
+    def _retry_pending_planner_verdict(self) -> tuple[bool, bool | str | None]:
+        raise NotImplementedError
+
     def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
         """Ask the Manager to reopen a completed final stage when work remains.
 
@@ -195,6 +211,9 @@ class PlanningCycleMixin:
         ``"daemon_handoff"`` if the planner asked the host to restart,
         and ``None`` when the planner fails and should be retried later.
         """
+        retried, retry_outcome = self._retry_pending_planner_verdict()
+        if retried:
+            return retry_outcome
         terminal_idle = self._maybe_idle_after_unchanged_open_ended_done()
         if terminal_idle is not None:
             return terminal_idle
@@ -264,23 +283,28 @@ class PlanningCycleMixin:
             )
         ):
             reason = f"bounded {vertical} vertical reached terminal stage"
-            self._emit({
-                "type": EventType.LIFE_PLANNER_VERDICT,
-                "cycle": self._planning_cycles,
-                "project_done": True,
-                "reason": reason,
-                "task_count": 0,
-                "enqueued_tasks": 0,
-                "skipped_duplicate_tasks": 0,
-                "enqueued_titles": [],
-                "skipped_duplicate_titles": [],
-                "input_tokens": 0,
-                "cached_input_tokens": 0,
-                "output_tokens": 0,
-                "cost_usd": 0.0,
-                "restart_daemon": False,
-                "restart_reason": "",
-            })
+            delivered = self._emit_planner_verdict(
+                status=PlannerVerdictStatus.COMPLETED,
+                completion_kind="project_completed",
+                resume_outcome=False,
+                terminal_signature=self._open_ended_terminal_idle_signature(),
+                cycle=self._planning_cycles,
+                project_done=True,
+                reason=reason,
+                task_count=0,
+                enqueued_tasks=0,
+                skipped_duplicate_tasks=0,
+                enqueued_titles=[],
+                skipped_duplicate_titles=[],
+                input_tokens=0,
+                cached_input_tokens=0,
+                output_tokens=0,
+                cost_usd=0.0,
+                restart_daemon=False,
+                restart_reason="",
+            )
+            if not delivered:
+                return PLAN_RETRY
             self._emit_status(f"planner: project done — {reason}")
             return False
 
@@ -437,51 +461,59 @@ class PlanningCycleMixin:
                 )
 
         if verdict.project_done and self.config.open_ended:
-            self._last_open_ended_project_done_signature = (
-                self._open_ended_terminal_idle_signature()
-            )
             self._enter_idle_backoff()
-            self._emit({
-                "type": EventType.LIFE_PLANNER_VERDICT,
-                "cycle": self._planning_cycles,
-                "project_done": verdict.project_done,
-                "reason": verdict.reason,
-                "task_count": len(verdict.new_tasks),
-                "enqueued_tasks": 0,
-                "skipped_duplicate_tasks": 0,
-                "enqueued_titles": [],
-                "skipped_duplicate_titles": [],
-                "input_tokens": verdict.input_tokens,
-                "cached_input_tokens": verdict.cached_input_tokens,
-                "output_tokens": verdict.output_tokens,
-                "cost_usd": planner_cost_usd,
-                "restart_daemon": verdict.restart_daemon,
-                "restart_reason": verdict.restart_reason,
-                "open_ended_objective": True,
-            })
+            terminal_signature = self._open_ended_terminal_idle_signature()
+            delivered = self._emit_planner_verdict(
+                status=PlannerVerdictStatus.COMPLETED,
+                completion_kind="project_completed",
+                resume_outcome=PLAN_RETRY,
+                terminal_signature=terminal_signature,
+                cycle=self._planning_cycles,
+                project_done=verdict.project_done,
+                reason=verdict.reason,
+                task_count=len(verdict.new_tasks),
+                enqueued_tasks=0,
+                skipped_duplicate_tasks=0,
+                enqueued_titles=[],
+                skipped_duplicate_titles=[],
+                input_tokens=verdict.input_tokens,
+                cached_input_tokens=verdict.cached_input_tokens,
+                output_tokens=verdict.output_tokens,
+                cost_usd=planner_cost_usd,
+                restart_daemon=verdict.restart_daemon,
+                restart_reason=verdict.restart_reason,
+                open_ended_objective=True,
+            )
+            if not delivered:
+                return PLAN_RETRY
             self._emit_status(
                 "planner: project done — continuing later for open-ended objective"
             )
             return PLAN_RETRY
 
         if verdict.project_done:
-            self._emit({
-                "type": EventType.LIFE_PLANNER_VERDICT,
-                "cycle": self._planning_cycles,
-                "project_done": verdict.project_done,
-                "reason": verdict.reason,
-                "task_count": len(verdict.new_tasks),
-                "enqueued_tasks": 0,
-                "skipped_duplicate_tasks": 0,
-                "enqueued_titles": [],
-                "skipped_duplicate_titles": [],
-                "input_tokens": verdict.input_tokens,
-                "cached_input_tokens": verdict.cached_input_tokens,
-                "output_tokens": verdict.output_tokens,
-                "cost_usd": planner_cost_usd,
-                "restart_daemon": verdict.restart_daemon,
-                "restart_reason": verdict.restart_reason,
-            })
+            delivered = self._emit_planner_verdict(
+                status=PlannerVerdictStatus.COMPLETED,
+                completion_kind="project_completed",
+                resume_outcome=False,
+                terminal_signature=self._open_ended_terminal_idle_signature(),
+                cycle=self._planning_cycles,
+                project_done=verdict.project_done,
+                reason=verdict.reason,
+                task_count=len(verdict.new_tasks),
+                enqueued_tasks=0,
+                skipped_duplicate_tasks=0,
+                enqueued_titles=[],
+                skipped_duplicate_titles=[],
+                input_tokens=verdict.input_tokens,
+                cached_input_tokens=verdict.cached_input_tokens,
+                output_tokens=verdict.output_tokens,
+                cost_usd=planner_cost_usd,
+                restart_daemon=verdict.restart_daemon,
+                restart_reason=verdict.restart_reason,
+            )
+            if not delivered:
+                return PLAN_RETRY
             self._emit_status(
                 f"planner: project done — {verdict.reason}"
             )
@@ -494,23 +526,27 @@ class PlanningCycleMixin:
 
         if verdict.restart_daemon and not verdict.new_tasks:
             restart_reason = verdict.restart_reason or verdict.reason
-            self._emit({
-                "type": EventType.LIFE_PLANNER_VERDICT,
-                "cycle": self._planning_cycles,
-                "project_done": verdict.project_done,
-                "reason": verdict.reason,
-                "task_count": 0,
-                "enqueued_tasks": 0,
-                "skipped_duplicate_tasks": 0,
-                "enqueued_titles": [],
-                "skipped_duplicate_titles": [],
-                "input_tokens": verdict.input_tokens,
-                "cached_input_tokens": verdict.cached_input_tokens,
-                "output_tokens": verdict.output_tokens,
-                "cost_usd": planner_cost_usd,
-                "restart_daemon": True,
-                "restart_reason": restart_reason,
-            })
+            delivered = self._emit_planner_verdict(
+                status=PlannerVerdictStatus.INFRA_BLOCKED,
+                completion_kind="daemon_handoff",
+                resume_outcome=PLAN_HANDOFF,
+                cycle=self._planning_cycles,
+                project_done=verdict.project_done,
+                reason=verdict.reason,
+                task_count=0,
+                enqueued_tasks=0,
+                skipped_duplicate_tasks=0,
+                enqueued_titles=[],
+                skipped_duplicate_titles=[],
+                input_tokens=verdict.input_tokens,
+                cached_input_tokens=verdict.cached_input_tokens,
+                output_tokens=verdict.output_tokens,
+                cost_usd=planner_cost_usd,
+                restart_daemon=True,
+                restart_reason=restart_reason,
+            )
+            if not delivered:
+                return PLAN_RETRY
             if self._handle_planner_restart(restart_reason):
                 self._emit_status("daemon_handoff")
                 return PLAN_HANDOFF
@@ -716,33 +752,37 @@ class PlanningCycleMixin:
                 "manager_intent": manager_intent,
             })
 
-        self._emit({
-            "type": EventType.LIFE_PLANNER_VERDICT,
-            "cycle": self._planning_cycles,
-            "project_done": verdict.project_done,
-            "reason": verdict.reason,
-            "task_count": len(verdict.new_tasks),
-            "enqueued_tasks": len(added_titles),
-            "skipped_duplicate_tasks": len(skipped_duplicate_titles),
-            "skipped_recent_failure_tasks": len(skipped_recent_failure_titles),
-            "skipped_subagent_family_failure_tasks": len(skipped_subagent_family_failure_titles),
-            "enqueued_titles": added_titles,
-            "enqueued_impact_scores": added_impact_scores,
-            "skipped_duplicate_titles": skipped_duplicate_titles,
-            "skipped_recent_failure_titles": skipped_recent_failure_titles,
-            "skipped_subagent_family_failure_titles": skipped_subagent_family_failure_titles,
-            "stuck_subagent_families": {
+        delivered = self._emit_planner_verdict(
+            status=PlannerVerdictStatus.PLANNED,
+            completion_kind="tasks_scheduled",
+            resume_outcome=True if added_titles else PLAN_RETRY,
+            cycle=self._planning_cycles,
+            project_done=verdict.project_done,
+            reason=verdict.reason,
+            task_count=len(verdict.new_tasks),
+            enqueued_tasks=len(added_titles),
+            skipped_duplicate_tasks=len(skipped_duplicate_titles),
+            skipped_recent_failure_tasks=len(skipped_recent_failure_titles),
+            skipped_subagent_family_failure_tasks=len(skipped_subagent_family_failure_titles),
+            enqueued_titles=added_titles,
+            enqueued_impact_scores=added_impact_scores,
+            skipped_duplicate_titles=skipped_duplicate_titles,
+            skipped_recent_failure_titles=skipped_recent_failure_titles,
+            skipped_subagent_family_failure_titles=skipped_subagent_family_failure_titles,
+            stuck_subagent_families={
                 family: failure.streak
                 for family, failure in subagent_family_failures.items()
             },
-            "input_tokens": verdict.input_tokens,
-            "cached_input_tokens": verdict.cached_input_tokens,
-            "output_tokens": verdict.output_tokens,
-            "cost_usd": planner_cost_usd,
-            "restart_daemon": verdict.restart_daemon,
-            "restart_reason": verdict.restart_reason,
-            "manager_intent": manager_intent,
-        })
+            input_tokens=verdict.input_tokens,
+            cached_input_tokens=verdict.cached_input_tokens,
+            output_tokens=verdict.output_tokens,
+            cost_usd=planner_cost_usd,
+            restart_daemon=verdict.restart_daemon,
+            restart_reason=verdict.restart_reason,
+            manager_intent=manager_intent,
+        )
+        if not delivered:
+            return PLAN_RETRY
         if verdict.restart_daemon and self._handle_planner_restart(
             verdict.restart_reason
         ):

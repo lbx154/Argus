@@ -83,9 +83,10 @@ def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None
 
 def test_format_stage_checklist_unknown_stage_returns_safe_block() -> None:
     text = format_stage_checklist("nonexistent_stage", role="engineer")
-    # Should not crash and should communicate that there's no checklist.
+    # Should not crash and must fail closed for an undeclared required checklist.
     assert "Stage checklist (nonexistent_stage)" in text
-    assert "No checklist is defined" in text
+    assert "Configuration error" in text
+    assert "required checklist is not loaded" in text
 
 
 def test_format_full_pipeline_checklist_concatenates_every_stage() -> None:

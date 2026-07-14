@@ -28,8 +28,14 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import current_stage, format_full_pipeline_checklist
+from argus_skill.skills.stage_checklists import (
+    ChecklistLoadState,
+    current_stage,
+    format_full_pipeline_checklist,
+    resolve_stage_checklist_contract,
+)
 from argus_skill.skills.vertical_select import (
+    VERTICALS,
     UnknownVerticalError,
     VerticalResolutionError,
     persist_vertical,
@@ -37,6 +43,12 @@ from argus_skill.skills.vertical_select import (
     reset_stage_for_new_intent,
     resolve_vertical,
     vertical_reached_own_terminal_stage,
+)
+from argus_skill.verticals._base import (
+    load_vertical,
+    vertical_checklist_items,
+    vertical_checklist_optional_stages,
+    vertical_checklist_stage_order,
 )
 from argus_skill.verticals._data_domain import write_data_domain
 from argus_skill.verticals.speedrun.stages import role_banner as speedrun_role_banner
@@ -62,6 +74,32 @@ def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> P
         json.dumps(payload), encoding="utf-8"
     )
     return tmp_path
+
+
+def test_empty_builtin_checklists_are_explicitly_optional() -> None:
+    implicit_empty: list[tuple[str, str]] = []
+    for vertical in VERTICALS:
+        module = load_vertical(vertical)
+        items = vertical_checklist_items(module)
+        optional = vertical_checklist_optional_stages(module)
+        for stage in vertical_checklist_stage_order(module):
+            if not items.get(stage) and stage not in optional:
+                implicit_empty.append((vertical, stage))
+
+    assert implicit_empty == []
+
+
+def test_research_vertical_review_checklist_is_loaded_and_required(
+    tmp_path: Path,
+) -> None:
+    """Req 15: non-Math regression — research vertical review checklist."""
+    persist_vertical(tmp_path, "research")
+
+    contract = resolve_stage_checklist_contract("review", project_root=tmp_path)
+
+    assert contract.state is ChecklistLoadState.LOADED
+    assert contract.checklist_optional is False
+    assert len(contract.items) > 0
 
 
 # --- resolve_vertical precedence: env > state > research --------------------
