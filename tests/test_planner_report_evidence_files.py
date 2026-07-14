@@ -66,6 +66,53 @@ def test_parse_planner_report_caps_evidence_files_at_eight() -> None:
     assert len(out["evidence_files"]) == 8
 
 
+def test_parse_planner_report_extracts_reconsider_signal() -> None:
+    out = _parse_planner_report(
+        {
+            "planner_report": {
+                "forward_progress": False,
+                "headline": "the current route is falsified",
+                "plan_signal": "reconsider",
+                "plan_signal_reason": "new verifier evidence invalidates the remaining plan",
+                "evidence_files": [
+                    {"path": "experiments/no_go.json", "why": "contains the falsifier"},
+                ],
+            }
+        },
+        status="continue",
+        reason="",
+    )
+
+    assert out["plan_signal"] == "reconsider"
+    assert out["plan_signal_reason"] == (
+        "new verifier evidence invalidates the remaining plan"
+    )
+
+
+def test_parse_planner_report_plan_signal_fails_soft() -> None:
+    missing = _parse_planner_report(
+        {"planner_report": {"headline": "h"}},
+        status="continue",
+        reason="",
+    )
+    invalid = _parse_planner_report(
+        {
+            "planner_report": {
+                "headline": "h",
+                "plan_signal": "replace-everything",
+                "plan_signal_reason": "x" * 2000,
+            }
+        },
+        status="continue",
+        reason="",
+    )
+
+    assert missing["plan_signal"] == "continue"
+    assert missing["plan_signal_reason"] == ""
+    assert invalid["plan_signal"] == "continue"
+    assert invalid["plan_signal_reason"] == ""
+
+
 def test_render_planner_report_lists_evidence_files() -> None:
     report = {
         "forward_progress": False,

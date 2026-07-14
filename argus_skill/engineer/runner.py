@@ -328,6 +328,23 @@ def _review_event_payload(
     )
 
 
+def _plan_signal_event(review: ReviewDecision) -> dict[str, object] | None:
+    report = getattr(review, "planner_report", None)
+    if not isinstance(report, dict) or report.get("plan_signal") != "reconsider":
+        return None
+    reason = str(report.get("plan_signal_reason") or "").strip()
+    if not reason:
+        return None
+    evidence_files = report.get("evidence_files")
+    return {
+        "type": EventType.LIFE_PLAN_SIGNAL,
+        "mode": "shadow",
+        "signal": "reconsider",
+        "reason": reason,
+        "evidence_files": evidence_files if isinstance(evidence_files, list) else [],
+    }
+
+
 def _apply_round_secret_guard(
     *,
     workdir: Path,
@@ -2182,6 +2199,10 @@ class SupervisedEngineer:
                     round_max=supervised_config.max_rounds,
                     text=f"review: {review.status} — {review.reason}",
                 ))
+                plan_signal_event = _plan_signal_event(review)
+                if plan_signal_event is not None:
+                    plan_signal_event["round_index"] = round_index
+                    on_event(plan_signal_event)
             record = RoundRecord(
                 round_index=round_index,
                 engineer_message=engineer_message,

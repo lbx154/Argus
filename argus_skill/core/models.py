@@ -210,7 +210,8 @@ class ReviewDecision:
     # planner routes the next mission from this clean, structured report
     # rather than from raw engineer output or noisy verdict prose. Shape:
     # ``{"forward_progress": bool, "headline": str, "blocker": str,
-    # "recommended_next": str, "evidence_files": [{"path", "why"}]}``. The
+    # "recommended_next": str, "plan_signal": "continue"|"reconsider",
+    # "plan_signal_reason": str, "evidence_files": [{"path", "why"}]}``. The
     # ``evidence_files`` point the planner at the concrete artifacts (source
     # script, data provenance, metric series, NO_GO docs) to OPEN and read
     # before routing the next mission. Fail-soft: empty dict when the reviewer

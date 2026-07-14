@@ -144,6 +144,17 @@
           "type": "string",
           "maxLength": 1200
         },
+        "plan_signal": {
+          "type": "string",
+          "enum": [
+            "continue",
+            "reconsider"
+          ]
+        },
+        "plan_signal_reason": {
+          "type": "string",
+          "maxLength": 1200
+        },
         "evidence_files": {
           "type": [
             "array",
@@ -175,6 +186,8 @@
         "headline",
         "blocker",
         "recommended_next",
+        "plan_signal",
+        "plan_signal_reason",
         "evidence_files"
       ]
     },

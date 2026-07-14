@@ -308,11 +308,18 @@ def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str
             })
             if len(evidence_files) >= 8:
                 break
+    plan_signal = str(raw.get("plan_signal", "") or "").strip().lower()
+    plan_signal_reason = str(raw.get("plan_signal_reason", "") or "").strip()
+    if plan_signal != "reconsider" or not plan_signal_reason:
+        plan_signal = "continue"
+        plan_signal_reason = ""
     return {
         "forward_progress": forward_progress,
         "headline": headline,
         "blocker": blocker,
         "recommended_next": recommended_next,
+        "plan_signal": plan_signal,
+        "plan_signal_reason": plan_signal_reason[:1200],
         "evidence_files": evidence_files,
     }
 

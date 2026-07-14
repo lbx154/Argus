@@ -88,6 +88,7 @@ class EventType(StrEnum):
     LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
     LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
     LIFE_PLANNER_ERROR = "life.planner.error"
+    LIFE_PLAN_SIGNAL = "life.plan.signal"
     LIFE_BUDGET_PAUSE = "life.budget.pause"
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
@@ -218,6 +219,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
     EventType.LIFE_PLANNER_STALL_ESCALATION,
+    EventType.LIFE_PLAN_SIGNAL,
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,
