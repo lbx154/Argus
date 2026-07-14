@@ -48,6 +48,7 @@ SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
     "introduction",
     "contribution_framing",
+    "idea_centrality_and_insight",
     "evidence_alignment",
     "related_work_positioning",
     "method_system_clarity",
@@ -56,6 +57,7 @@ SECTION_SCORE_KEYS: tuple[str, ...] = (
 
 REQUIRED_CHECK_KEYS: tuple[str, ...] = (
     "clear_problem_gap_contribution",
+    "central_thesis_and_stated_insight",
     "evidence_aligned_claims",
     "five_sentence_abstract_or_equivalent",
     "related_work_methodological",
@@ -77,6 +79,8 @@ ALLOWED_DIRECTIVE_ACTIONS = {
     "rewrite_caption_takeaway",
     "add_limitation_scope",
     "rename_code_like_label",
+    "scope_claim_to_regime",
+    "add_boundary_analysis",
 }
 
 GENERIC_OPENING_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -872,7 +876,20 @@ def _review_prompt(
         "unsupported hype, vague claims, weak contribution framing, experiment dumps "
         "without a What/Why/So-What story, ungrouped related work, repeated "
         "not-X-but-Y/benchmark-scoped caveats, or claims not tied "
-        "to evidence. Evidence spans are reviewer-internal audit artifacts: do not ask "
+        "to evidence. "
+        "Require ONE central thesis: a single sentence naming the idea the whole "
+        "paper serves. The Method must read as the mechanism that implements that "
+        "thesis, and every experiment must be framed as a test that supports, "
+        "bounds, or refines it — not an undirected battery of numbers. The paper "
+        "must state at least one non-trivial insight (a mechanism, regime, "
+        "trade-off, or boundary the reader did not already know) explicitly in the "
+        "abstract and introduction and pay it off in the analysis. Reject papers "
+        "whose sections read as parallel unconnected experiments, whose "
+        "contribution is only 'we ran X on Y', or where no single sentence could "
+        "name what the paper is about; record such failures under the "
+        "central_thesis_and_stated_insight check and the "
+        "idea_centrality_and_insight score. "
+        "Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
         "papers that leave basic evaluated-system facts implicit: the Method/Experimental "
@@ -933,7 +950,30 @@ def _review_prompt(
         "explicitly scopes itself as an end-to-end policy or comparator result; in that "
         "case, evaluate whether the comparator, task slice, sample size, and quantified "
         "outcome are stated plainly and whether unresolved submechanisms are moved to "
-        "analysis or limitations. Make revision guidance stable: emit at most one "
+        "analysis or limitations. "
+        "When the method does not beat a baseline on a headline metric, do not "
+        "reward a flat 'we are worse' concession and do not reward hiding the "
+        "comparison. Reward a multi-angle honest analysis: name the regime or "
+        "sub-population where the method wins or ties, state the mechanism or "
+        "insight the result reveals, identify any confound or budget the baseline "
+        "relies on, state the trade-off the method buys, scope the headline claim "
+        "to the supported setting, and add an explicit boundary analysis of where "
+        "it holds and where it fails; place this scoping and boundary analysis in "
+        "the results, analysis, or limitations and keep the abstract and "
+        "introduction focused on the supported contribution, not padded with "
+        "caveats. Integrity floor (hard, never relax): every "
+        "planned, claim-relevant comparison that was run must stay visible in the "
+        "tables and results — no cherry-picking the best metric while hiding "
+        "others; genuine nulls belong in limitations or scope as honest findings; "
+        "only technically broken or inconclusive runs may be omitted, and only "
+        "with a stated reason; peripheral exploratory runs that were never part of "
+        "the core claim need not be reported. A scoped reframing is valid only when "
+        "the scenario, mechanism, and contribution are supported by the paper's own "
+        "evidence or cited literature — never imply untested superiority. On an "
+        "unsupported concession or an over-broad claim, emit `scope_claim_to_regime` "
+        "and/or `add_boundary_analysis` directives rather than telling the author to "
+        "delete the losing comparison. "
+        "Make revision guidance stable: emit at most one "
         "revision directive per section/action pair. If the Introduction fails for "
         "problem/gap/contribution, quantified preview, contribution framing, or claim "
         "calibration, provide one coherent `rewrite_introduction` directive targeted "
@@ -951,7 +991,9 @@ def _review_prompt(
         f"{list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at least one entry for "
         "each section score (source_path, line, quote, why, section), blocking_issues "
         "list, major_issues list, revision_directives list with action/target/rationale/"
-        "expected_effect, and pass_or_revise as pass or revise. A score below "
+        "expected_effect (for underperformance versus a baseline prefer the "
+        "`scope_claim_to_regime` and `add_boundary_analysis` actions over deleting "
+        "the comparison), and pass_or_revise as pass or revise. A score below "
         f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
         "means revise. Quote source text verbatim in evidence_spans, but choose "
         "reader-facing prose or caption sentences rather than LaTeX boilerplate, "
