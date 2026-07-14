@@ -239,7 +239,8 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "1. Are all required sections present (abstract, intro, method, experiments, results, conclusion)?\n"
         "2. Do claims have at least placeholder evidence from actual experiments?\n"
         "3. Is the overall story coherent and the narrative structure sound?\n"
-        "4. Are there fatal structural problems that would block progress?\n"
+        "4. Idea spine — is the draft organized around ONE central thesis, with the method and experiments visibly serving it (not scattered, unconnected results)? Flag an experiment dump with no stated insight even at this lenient stage.\n"
+        "5. Are there fatal structural problems that would block progress?\n"
         "Do NOT block on: language polish, minor formatting, incomplete related work.\n"
         "Pass threshold: structure complete enough to proceed to review stage.",
         ["paper/main.tex"],
@@ -252,6 +253,7 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
         "4. Citation quality — all citations author-year natbib, no dumping, no placeholders?\n"
         "5. Page budget — body ≤8 pages, conclusion on page 8, references start page 9+?\n"
+        "6. Idea-centricity and honest framing — does the paper revolve around one central thesis with a stated non-trivial insight, and where a comparison underperforms, is it scoped to a supported regime with an explicit boundary analysis rather than a flat concession or a hidden/cherry-picked table? Integrity floor: all planned claim-relevant comparisons remain reported; no cherry-picking; genuine nulls go to limitations/scope; only broken or inconclusive runs may be excluded, and only with a stated reason.\n"
         "If any review artifact has unresolved major issues, block until fixed.",
         ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
          "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
@@ -260,8 +262,8 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "reviewer/academic-paper-peer-review-benchmark.md",
         "FINAL submission gate — be STRICT, evaluate as an actual EMNLP reviewer.\n"
         "Review dimensions (all must pass):\n"
-        "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
-        "2. Evidence strength — do experiments convincingly support claims?\n"
+        "1. Central idea and insight — one thesis the whole paper serves, with a stated non-trivial insight; method and experiments visibly serve that thesis (not an experiment dump), and the contribution is a meaningful advance — a new mechanism, insight, or a surprising negative/boundary result — not an incremental tweak.\n"
+        "2. Evidence strength and honest framing — experiments convincingly support the SCOPED claim; where the method underperforms a baseline, the paper scopes the claim to the supported regime and adds a boundary analysis WITHOUT hiding any planned claim-relevant comparison (no cherry-picking; genuine nulls in limitations/scope; only broken or inconclusive runs excluded with a stated reason).\n"
         "3. Baseline quality — are comparisons against strong, relevant baselines?\n"
         "4. Writing quality — is the paper well-written and clear?\n"
         "5. Reproducibility — enough detail to reproduce results?\n"
@@ -298,6 +300,7 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
         "4. Citation quality — all citations author-year natbib, no dumping, no placeholders?\n"
         "5. Page budget — body ≤7 pages, conclusion by page 7, references start page 8+, Reproducibility Checklist after References?\n"
+        "6. Idea-centricity and honest framing — does the paper revolve around one central thesis with a stated non-trivial insight, and where a comparison underperforms, is it scoped to a supported regime with an explicit boundary analysis rather than a flat concession or a hidden/cherry-picked table? Integrity floor: all planned claim-relevant comparisons remain reported; no cherry-picking; genuine nulls go to limitations/scope; only broken or inconclusive runs may be excluded, and only with a stated reason.\n"
         "If any review artifact has unresolved major issues, block until fixed.",
         ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
          "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
@@ -306,8 +309,8 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "reviewer/academic-paper-peer-review-benchmark.md",
         "FINAL submission gate — be STRICT, evaluate as an actual AAAI reviewer.\n"
         "Review dimensions (all must pass):\n"
-        "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
-        "2. Evidence strength — do experiments convincingly support claims?\n"
+        "1. Central idea and insight — one thesis the whole paper serves, with a stated non-trivial insight; method and experiments visibly serve that thesis (not an experiment dump), and the contribution is a meaningful advance — a new mechanism, insight, or a surprising negative/boundary result — not an incremental tweak.\n"
+        "2. Evidence strength and honest framing — experiments convincingly support the SCOPED claim; where the method underperforms a baseline, the paper scopes the claim to the supported regime and adds a boundary analysis WITHOUT hiding any planned claim-relevant comparison (no cherry-picking; genuine nulls in limitations/scope; only broken or inconclusive runs excluded with a stated reason).\n"
         "3. Baseline quality — are comparisons against strong, relevant baselines?\n"
         "4. Writing quality — is the paper well-written and clear?\n"
         "5. Reproducibility — enough detail to reproduce results?\n"
@@ -351,6 +354,7 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "4. AI disclosure — public, journal-compliant disclosure of technology name/version/model/source; no internal routes, daemons, or orchestration details.\n"
         "5. Figures — every figure is authentic, reviewed, and has distinct alt text; the core overview is recorded in IMAGE2_FIGURES.json.\n"
         "6. Evidence — every numerical or headline claim traces to current canonical evidence; executed and planned evidence remain distinct.\n"
+        "7. Idea-centricity and honest framing — does the article revolve around one central testable thesis with a stated conceptual insight, treat null or uncertain evidence honestly without spin, scope every claim to the supported evidence, and keep planned and executed evidence distinct? Do not hide evidence that was produced; genuine nulls are reported as findings.\n"
         "Block if any review artifact is stale, unavailable, or has unresolved major issues.",
         [
             "paper/main.tex",
@@ -363,7 +367,7 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
     "submission": (
         "reviewer/academic-paper-peer-review-benchmark.md",
         "FINAL submission gate — be STRICT, evaluate as an actual Frontiers in Sleep reviewer.\n"
-        "All must pass: article-type fit; testable theoretical contribution; honest claim-evidence alignment; international-standard English; Frontiers Harvard source/PDF; main text ≤12,000 words with no fixed page quota; single spacing; page and line numbers; real single-anonymized author metadata; ethics/funding/conflict/CRediT/data/AI declarations; reviewed figures with alt text; reproducibility of any original analysis; and explicit operator approval for submission/APC exposure.\n"
+        "All must pass: article-type fit; one central testable thesis with a stated conceptual insight that the article is organized around; testable theoretical contribution; honest claim-evidence alignment (scope claims to the supported evidence, report null or uncertain findings without spin, keep planned and executed evidence distinct, and hide no evidence that was produced); international-standard English; Frontiers Harvard source/PDF; main text ≤12,000 words with no fixed page quota; single spacing; page and line numbers; real single-anonymized author metadata; ethics/funding/conflict/CRediT/data/AI declarations; reviewed figures with alt text; reproducibility of any original analysis; and explicit operator approval for submission/APC exposure.\n"
         "An explicitly proposed study may remain unimplemented for a Hypothesis and Theory article, but its implementation status and every planning value must remain explicit. Do not pass until SUBMISSION_ASSURANCE.json and every upstream checklist are current and passing.",
         [
             "paper/main.tex",
@@ -440,6 +444,7 @@ def build_reviewer_checklists(
             "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
             "4. Citation quality — all citations author-year, no dumping, no placeholders?\n"
             f"5. Page budget — {budget}?\n"
+            "6. Idea-centricity and honest framing — does the paper revolve around one central thesis with a stated non-trivial insight, and where a comparison underperforms, is it scoped to a supported regime with an explicit boundary analysis rather than a flat concession or a hidden/cherry-picked table? Integrity floor: all planned claim-relevant comparisons remain reported; no cherry-picking; genuine nulls go to limitations/scope; only broken or inconclusive runs may be excluded, and only with a stated reason.\n"
             "If any review artifact has unresolved major issues, block until fixed.",
             ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
              "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
@@ -448,8 +453,8 @@ def build_reviewer_checklists(
             "reviewer/academic-paper-peer-review-benchmark.md",
             f"FINAL submission gate — be STRICT, evaluate as an actual {persona} reviewer.\n"
             "Review dimensions (all must pass):\n"
-            "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
-            "2. Evidence strength — do experiments convincingly support claims?\n"
+            "1. Central idea and insight — one thesis the whole paper serves, with a stated non-trivial insight; method and experiments visibly serve that thesis (not an experiment dump), and the contribution is a meaningful advance — a new mechanism, insight, or a surprising negative/boundary result — not an incremental tweak.\n"
+            "2. Evidence strength and honest framing — experiments convincingly support the SCOPED claim; where the method underperforms a baseline, the paper scopes the claim to the supported regime and adds a boundary analysis WITHOUT hiding any planned claim-relevant comparison (no cherry-picking; genuine nulls in limitations/scope; only broken or inconclusive runs excluded with a stated reason).\n"
             "3. Baseline quality — are comparisons against strong, relevant baselines?\n"
             "4. Writing quality — is the paper well-written and clear?\n"
             "5. Reproducibility — enough detail to reproduce results?\n"
