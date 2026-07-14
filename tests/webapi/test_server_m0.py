@@ -54,6 +54,44 @@ def test_project_label_does_not_use_raw_operator_transcript(tmp_path: Path) -> N
     assert project["label"] == sid
 
 
+def test_project_index_bounds_large_text_without_truncating_snapshot(
+    tmp_path: Path,
+) -> None:
+    sid = "s-large-index"
+    life_dir = tmp_path / "projects" / sid
+    objective = "first objective line\n" + ("x" * (2 * 1024 * 1024))
+    display_name = "large project\n" + ("n" * 1024)
+    write_session_meta(
+        tmp_path,
+        SessionMeta(
+            id=sid,
+            display_name=display_name,
+            objective=objective,
+            created=1,
+            last_active=1,
+            cwd=str(life_dir),
+        ),
+    )
+
+    project = next(
+        item
+        for item in project_state.list_projects(
+            global_root=tmp_path,
+            include_empty=True,
+        )
+        if item["id"] == sid
+    )
+    snapshot = project_state.build_snapshot(sid, global_root=tmp_path)
+
+    assert snapshot is not None
+    assert snapshot["session"]["objective"] == objective
+    assert len(project["display_name"]) <= 180
+    assert len(project["label"]) <= 180
+    assert "\n" not in project["label"]
+    assert len(project["objective"]) <= 1_000
+    assert len(json.dumps({"projects": [project]})) < 5_000
+
+
 def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
     life = root / "projects" / sid
     life.mkdir(parents=True)
