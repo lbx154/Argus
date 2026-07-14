@@ -9,6 +9,7 @@
     "restart_reason",
     "waiting",
     "waiting_reason",
+    "waiting_contract",
     "new_tasks",
     "meta_decision",
     "checklist_ops"
@@ -32,6 +33,48 @@
     },
     "waiting_reason": {
       "type": "string"
+    },
+    "waiting_contract": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Required when waiting=true. Planner-authored durable identity and recheck policy for the external blocker. Use null when waiting=false. Keep blocker_fingerprint and recheck_token byte-identical while the observed condition is unchanged; change recheck_token only after concrete current evidence changes.",
+      "required": [
+        "blocker_fingerprint",
+        "recheck_condition",
+        "recheck_token",
+        "allow_verification_probe",
+        "recheck_after_seconds"
+      ],
+      "properties": {
+        "blocker_fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Stable Planner-authored identifier for this blocker, independent of prose wording."
+        },
+        "recheck_condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600,
+          "description": "Concrete external observation that would justify rechecking."
+        },
+        "recheck_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Stable token for the currently observed blocker state. Reuse it until concrete evidence changes."
+        },
+        "allow_verification_probe": {
+          "type": "boolean",
+          "description": "Whether one verification probe is justified for this exact fingerprint/token pair."
+        },
+        "recheck_after_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 604800,
+          "description": "Minimum time after first observing this fingerprint/token before its one allowed probe."
+        }
+      }
     },
     "new_tasks": {
       "type": "array",

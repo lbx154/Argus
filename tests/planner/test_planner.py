@@ -17,6 +17,7 @@ from argus_skill.planner import (
     Planner,
     PlannerConfig,
     TaskSpec,
+    WaitingContract,
     parse_planner_text,
 )
 from argus_skill.skills.role_context import load_builtin_skill_text
@@ -153,6 +154,13 @@ def test_parse_planner_text_waiting_is_not_error(
         "new_tasks": [],
         "waiting": True,
         "waiting_reason": waiting_reason,
+        "waiting_contract": {
+            "blocker_fingerprint": "test:external-dependency",
+            "recheck_condition": "the external dependency changes state",
+            "recheck_token": "unchanged-v1",
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
     })
     v = parse_planner_text(txt)
     assert v.waiting is True
@@ -160,6 +168,34 @@ def test_parse_planner_text_waiting_is_not_error(
     assert v.new_tasks == []
     assert not v.error
     assert expected_fragment in v.waiting_reason
+
+
+def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "source remains unavailable",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "operator must provide the licensed source",
+        "waiting_contract": {
+            "blocker_fingerprint": "source:chen-2003",
+            "recheck_condition": "a licensed full-text path appears",
+            "recheck_token": "no-source-v1",
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+    })
+
+    verdict = parse_planner_text(txt)
+
+    assert verdict.waiting is True
+    assert verdict.waiting_contract == WaitingContract(
+        blocker_fingerprint="source:chen-2003",
+        recheck_condition="a licensed full-text path appears",
+        recheck_token="no-source-v1",
+        allow_verification_probe=False,
+        recheck_after_seconds=0,
+    )
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -173,6 +209,20 @@ def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
     v = parse_planner_text(txt)
     assert v.waiting is False
     assert v.error
+
+
+def test_parse_planner_text_rejects_waiting_without_contract() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "external dependency",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "still blocked",
+        "waiting_contract": None,
+    }))
+
+    assert verdict.waiting is False
+    assert verdict.error == "waiting verdict requires waiting_contract"
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +559,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
         "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
+        "waiting_contract": None,
         "meta_decision": None,
         "checklist_ops": None,
     }
@@ -538,6 +589,33 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     # Flat batch (no key/deps) still validates.
     flat = dict(base, new_tasks=[_task()])
     jsonschema.validate(flat, schema)
+
+    waiting = dict(
+        base,
+        waiting=True,
+        waiting_reason="operator must provide the licensed source",
+        waiting_contract={
+            "blocker_fingerprint": "source:chen-2003",
+            "recheck_condition": "a licensed full-text path appears",
+            "recheck_token": "source-missing-v1",
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+        new_tasks=[],
+    )
+    jsonschema.validate(waiting, schema)
+    malformed_waiting = dict(
+        waiting,
+        waiting_contract={
+            "blocker_fingerprint": "source:chen-2003",
+            "recheck_condition": "a licensed full-text path appears",
+        },
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(malformed_waiting, schema)
+    # Codex Structured Outputs does not support conditional schema keywords.
+    # The parser below enforces waiting=true => object contract fail-closed.
+    jsonschema.validate(dict(waiting, waiting_contract=None), schema)
 
     # Six tasks validate (maxItems raised to 6); seven must fail.
     six = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(6)])

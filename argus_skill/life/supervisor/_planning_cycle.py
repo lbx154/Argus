@@ -370,6 +370,11 @@ class PlanningCycleMixin:
                 return True
             return record
 
+        # The Planner has explicitly moved on from waiting. Preserve the
+        # historical probed-token set for deduplication, but stop injecting the
+        # old blocker into subsequent planning context.
+        self._deactivate_planner_waiting_contract()
+
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).
 

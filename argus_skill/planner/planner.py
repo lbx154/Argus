@@ -71,6 +71,17 @@ class TaskSpec:
 
 
 @dataclass(frozen=True)
+class WaitingContract:
+    """Planner-authored durable identity and recheck policy for one blocker."""
+
+    blocker_fingerprint: str
+    recheck_condition: str
+    recheck_token: str
+    allow_verification_probe: bool = False
+    recheck_after_seconds: int = 0
+
+
+@dataclass(frozen=True)
 class PlannerVerdict:
     """Result of a planner evaluation — new work or project done."""
 
@@ -98,6 +109,7 @@ class PlannerVerdict:
     # them to the per-project checklist store after the verdict is parsed. Empty
     # for a cycle that did not touch the checklist (back-compat default).
     checklist_ops: list[dict] = field(default_factory=list)
+    waiting_contract: WaitingContract | None = None
 
 
 def _planner_timeout_seconds(env_name: str) -> int:
@@ -848,6 +860,31 @@ def _parse_task_scope(value: object) -> str:
     return scope
 
 
+def _parse_waiting_contract(data: dict) -> WaitingContract | None:
+    raw = data.get("waiting_contract")
+    if not isinstance(raw, dict):
+        return None
+    blocker_fingerprint = str(raw.get("blocker_fingerprint") or "").strip()
+    recheck_condition = str(raw.get("recheck_condition") or "").strip()
+    recheck_token = str(raw.get("recheck_token") or "").strip()
+    if not blocker_fingerprint or not recheck_condition or not recheck_token:
+        return None
+    try:
+        recheck_after_seconds = int(raw.get("recheck_after_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    recheck_after_seconds = max(0, min(604800, recheck_after_seconds))
+    return WaitingContract(
+        blocker_fingerprint=blocker_fingerprint[:200],
+        recheck_condition=recheck_condition[:1600],
+        recheck_token=recheck_token[:200],
+        allow_verification_probe=_parse_json_bool(
+            raw.get("allow_verification_probe", False),
+            False,
+        ),
+        recheck_after_seconds=recheck_after_seconds,
+    )
+
 
 _VALID_CHECKLIST_OPS = frozenset({"seed", "add", "modify", "remove"})
 
@@ -911,6 +948,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         restart_reason = reason or "planner requested daemon restart"
     waiting = _parse_json_bool(data.get("waiting", False), False)
     waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
+    waiting_contract = _parse_waiting_contract(data)
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
@@ -968,6 +1006,15 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     if waiting and not project_done and not restart_daemon and not new_tasks:
         if not waiting_reason:
             waiting_reason = "awaiting a live external job; no new high-impact work"
+        if waiting_contract is None:
+            return PlannerVerdict(
+                project_done=False,
+                reason="planner waiting verdict omitted a valid waiting contract",
+                new_tasks=[],
+                raw_text=blob,
+                error="waiting verdict requires waiting_contract",
+                checklist_ops=checklist_ops,
+            )
         return PlannerVerdict(
             project_done=False,
             reason=waiting_reason,
@@ -975,6 +1022,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=blob,
             waiting=True,
             waiting_reason=waiting_reason,
+            waiting_contract=waiting_contract,
             checklist_ops=checklist_ops,
         )
     if not project_done and not new_tasks and not restart_daemon:

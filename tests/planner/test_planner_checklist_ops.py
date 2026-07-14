@@ -45,6 +45,13 @@ def test_checklist_ops_survive_waiting_and_no_task_paths():
     # waiting verdict
     v = parse_planner_text(_planner_json(
         waiting=True, new_tasks=[],
+        waiting_contract={
+            "blocker_fingerprint": "job:test",
+            "recheck_condition": "the job reaches a terminal state",
+            "recheck_token": "running-v1",
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
         checklist_ops=[{"op": "seed", "stage": "scope", "id": ""}],
     ))
     assert v.waiting is True

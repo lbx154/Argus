@@ -615,6 +615,13 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
                     "the image generation unknown_model external capability "
                     "blocker; all local high-impact work is exhausted"
                 ),
+                "waiting_contract": {
+                    "blocker_fingerprint": "capability:image-generation",
+                    "recheck_condition": "the configured image route becomes available",
+                    "recheck_token": "unknown-model-v1",
+                    "allow_verification_probe": False,
+                    "recheck_after_seconds": 0,
+                },
                 "new_tasks": [],
             }
             return RunnerResult(

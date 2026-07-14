@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -387,6 +388,12 @@ class PlanningContextMixin:
     # ------------------------------------------------------------------
 
     def _record_planner_waiting(self, verdict: Any, *, planner_cost_usd: float) -> str:
+        contract = getattr(verdict, "waiting_contract", None)
+        contract_state = (
+            self._persist_planner_waiting_contract(contract)
+            if contract is not None
+            else None
+        )
         sleep_s = self._enter_idle_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         self._emit({
@@ -399,9 +406,315 @@ class PlanningContextMixin:
             "cached_input_tokens": getattr(verdict, "cached_input_tokens", 0),
             "output_tokens": getattr(verdict, "output_tokens", 0),
             "cost_usd": planner_cost_usd,
+            "waiting_contract": self._waiting_contract_event_payload(
+                contract_state,
+                contract,
+            ),
+            "waiting_contract_persisted": (
+                contract is None or contract_state is not None
+            ),
         })
         self._emit_status(f"awaiting external dependency: {reason}")
         return PLAN_AWAITING
+
+    def _planner_waiting_contract_path(self) -> Path:
+        root = Path(
+            getattr(self.config, "telemetry_dir", None)
+            or getattr(self.memory, "root", None)
+            or "."
+        )
+        objective_fingerprint = self._planner_waiting_objective_fingerprint()
+        return root / f"planner-waiting-contract-{objective_fingerprint[:16]}.json"
+
+    def _planner_waiting_objective_fingerprint(self) -> str:
+        objective = str(getattr(self.config, "continuous_objective", "") or "")
+        return hashlib.sha256(objective.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _waiting_contract_key(contract: Any) -> tuple[str, str]:
+        return (
+            str(getattr(contract, "blocker_fingerprint", "") or "").strip(),
+            str(getattr(contract, "recheck_token", "") or "").strip(),
+        )
+
+    def _load_planner_waiting_contract_state(self) -> dict[str, Any] | None:
+        path = self._planner_waiting_contract_path()
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            log.warning("planner waiting contract is unreadable: %s", path, exc_info=True)
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("version") != 1:
+            return None
+        if (
+            str(payload.get("objective_fingerprint") or "")
+            != self._planner_waiting_objective_fingerprint()
+        ):
+            return None
+        if not str(payload.get("blocker_fingerprint") or "").strip():
+            return None
+        if not str(payload.get("recheck_token") or "").strip():
+            return None
+        return payload
+
+    def _write_planner_waiting_contract_state(
+        self,
+        payload: dict[str, Any],
+    ) -> bool:
+        path = self._planner_waiting_contract_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+        try:
+            tmp.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            log.exception("failed to persist planner waiting contract: %s", path)
+            return False
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _persist_planner_waiting_contract(
+        self,
+        contract: Any,
+    ) -> dict[str, Any] | None:
+        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
+        recheck_condition = str(
+            getattr(contract, "recheck_condition", "") or ""
+        ).strip()
+        if not blocker_fingerprint or not recheck_token or not recheck_condition:
+            return None
+        previous = self._load_planner_waiting_contract_state() or {}
+        same_condition = (
+            previous.get("blocker_fingerprint") == blocker_fingerprint
+            and previous.get("recheck_token") == recheck_token
+        )
+        now = time.time()
+        payload = {
+            "version": 1,
+            "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+            "blocker_fingerprint": blocker_fingerprint,
+            "recheck_condition": recheck_condition,
+            "recheck_token": recheck_token,
+            "allow_verification_probe": bool(
+                getattr(contract, "allow_verification_probe", False)
+            ),
+            "recheck_after_seconds": max(
+                0,
+                min(
+                    604800,
+                    int(getattr(contract, "recheck_after_seconds", 0) or 0),
+                ),
+            ),
+            "first_observed_at": (
+                float(previous.get("first_observed_at") or now)
+                if same_condition
+                else now
+            ),
+            "updated_at": now,
+            "last_probe_fingerprint": str(
+                previous.get("last_probe_fingerprint") or ""
+            ),
+            "last_probe_token": str(previous.get("last_probe_token") or ""),
+            "last_probe_at": float(previous.get("last_probe_at") or 0.0),
+            "probed_conditions": [
+                entry
+                for entry in (previous.get("probed_conditions") or [])
+                if isinstance(entry, dict)
+            ],
+            "pending_probe": (
+                previous.get("pending_probe")
+                if isinstance(previous.get("pending_probe"), dict)
+                else None
+            ),
+            "active": True,
+        }
+        if not self._write_planner_waiting_contract_state(payload):
+            return None
+        return payload
+
+    def _reserve_planner_waiting_contract_probe(
+        self,
+        contract: Any,
+        *,
+        item_id: str,
+    ) -> bool:
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return False
+        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
+        if (
+            state.get("blocker_fingerprint") != blocker_fingerprint
+            or state.get("recheck_token") != recheck_token
+        ):
+            return False
+        state["pending_probe"] = {
+            "item_id": item_id,
+            "blocker_fingerprint": blocker_fingerprint,
+            "recheck_token": recheck_token,
+            "reserved_at": time.time(),
+        }
+        state["updated_at"] = state["pending_probe"]["reserved_at"]
+        return self._write_planner_waiting_contract_state(state)
+
+    @staticmethod
+    def _append_probed_condition(
+        state: dict[str, Any],
+        *,
+        blocker_fingerprint: str,
+        recheck_token: str,
+        probed_at: float,
+    ) -> None:
+        state["last_probe_fingerprint"] = blocker_fingerprint
+        state["last_probe_token"] = recheck_token
+        state["last_probe_at"] = probed_at
+        state["updated_at"] = state["last_probe_at"]
+        probed_conditions = [
+            entry
+            for entry in (state.get("probed_conditions") or [])
+            if isinstance(entry, dict)
+        ]
+        if not any(
+            entry.get("blocker_fingerprint") == blocker_fingerprint
+            and entry.get("recheck_token") == recheck_token
+            for entry in probed_conditions
+        ):
+            probed_conditions.append({
+                "blocker_fingerprint": blocker_fingerprint,
+                "recheck_token": recheck_token,
+                "probed_at": probed_at,
+            })
+        state["probed_conditions"] = probed_conditions
+
+    def _finalize_planner_waiting_contract_probe(
+        self,
+        contract: Any,
+        *,
+        item_id: str,
+    ) -> bool:
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return False
+        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
+        pending = state.get("pending_probe")
+        if not isinstance(pending, dict) or pending.get("item_id") != item_id:
+            return False
+        if (
+            pending.get("blocker_fingerprint") != blocker_fingerprint
+            or pending.get("recheck_token") != recheck_token
+        ):
+            return False
+        self._append_probed_condition(
+            state,
+            blocker_fingerprint=blocker_fingerprint,
+            recheck_token=recheck_token,
+            probed_at=time.time(),
+        )
+        state["pending_probe"] = None
+        return self._write_planner_waiting_contract_state(state)
+
+    def _reconcile_planner_waiting_contract_probe(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        pending = state.get("pending_probe")
+        if not isinstance(pending, dict):
+            return state
+        item_id = str(pending.get("item_id") or "")
+        blocker_fingerprint = str(pending.get("blocker_fingerprint") or "")
+        recheck_token = str(pending.get("recheck_token") or "")
+        try:
+            item_exists = any(
+                getattr(item, "id", "") == item_id
+                for item in self.memory.backlog.all()
+            )
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "failed to reconcile pending planner verification probe"
+            )
+            return None
+        if item_exists:
+            self._append_probed_condition(
+                state,
+                blocker_fingerprint=blocker_fingerprint,
+                recheck_token=recheck_token,
+                probed_at=float(pending.get("reserved_at") or time.time()),
+            )
+        state["pending_probe"] = None
+        state["updated_at"] = time.time()
+        if not self._write_planner_waiting_contract_state(state):
+            return None
+        return state
+
+    def _deactivate_planner_waiting_contract(self) -> None:
+        state = self._load_planner_waiting_contract_state()
+        if state is None or not bool(state.get("active")):
+            return
+        state["active"] = False
+        state["updated_at"] = time.time()
+        self._write_planner_waiting_contract_state(state)
+
+    @staticmethod
+    def _waiting_contract_event_payload(
+        state: dict[str, Any] | None,
+        contract: Any,
+    ) -> dict[str, Any] | None:
+        if contract is None:
+            return None
+        source = state or {
+            "blocker_fingerprint": getattr(contract, "blocker_fingerprint", ""),
+            "recheck_condition": getattr(contract, "recheck_condition", ""),
+            "recheck_token": getattr(contract, "recheck_token", ""),
+            "allow_verification_probe": getattr(
+                contract,
+                "allow_verification_probe",
+                False,
+            ),
+            "recheck_after_seconds": getattr(
+                contract,
+                "recheck_after_seconds",
+                0,
+            ),
+        }
+        return {
+            key: source.get(key)
+            for key in (
+                "blocker_fingerprint",
+                "recheck_condition",
+                "recheck_token",
+                "allow_verification_probe",
+                "recheck_after_seconds",
+                "first_observed_at",
+                "last_probe_at",
+            )
+            if key in source
+        }
+
+    def _planner_waiting_contract_runtime_note(self) -> str:
+        state = self._load_planner_waiting_contract_state()
+        if state is None or not bool(state.get("active")):
+            return ""
+        return (
+            "PERSISTED PLANNER WAITING CONTRACT (authored by your prior verdict):\n"
+            f"- blocker_fingerprint: {state['blocker_fingerprint']}\n"
+            f"- recheck_token: {state['recheck_token']}\n"
+            f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
+            f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
+            "If current evidence does not satisfy the declared recheck condition, "
+            "reuse the exact fingerprint and token with waiting=true and do not "
+            "queue an equivalent polling task. Change the token only when concrete "
+            "current evidence changes; the harness does not infer that change."
+        )
 
     def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
         """Stall-breaker: after K consecutive idle cycles on the same external
@@ -416,6 +729,37 @@ class PlanningContextMixin:
         n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
         if n < VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
             return False
+        contract = getattr(verdict, "waiting_contract", None)
+        contract_state = None
+        if contract is not None:
+            contract_state = self._load_planner_waiting_contract_state()
+            if contract_state is None:
+                return False
+            contract_state = self._reconcile_planner_waiting_contract_probe(
+                contract_state
+            )
+            if contract_state is None:
+                return False
+            blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
+            if (
+                contract_state.get("blocker_fingerprint") != blocker_fingerprint
+                or contract_state.get("recheck_token") != recheck_token
+                or not bool(contract_state.get("allow_verification_probe"))
+            ):
+                return False
+            if (
+                time.time()
+                < float(contract_state.get("first_observed_at") or 0.0)
+                + float(contract_state.get("recheck_after_seconds") or 0.0)
+            ):
+                return False
+            if any(
+                isinstance(entry, dict)
+                and entry.get("blocker_fingerprint") == blocker_fingerprint
+                and entry.get("recheck_token") == recheck_token
+                for entry in (contract_state.get("probed_conditions") or [])
+            ):
+                return False
         now = time.monotonic()
         if (now - getattr(self, "_last_verification_probe_at", 0.0)) < (
             VERIFICATION_PROBE_COOLDOWN_SECONDS
@@ -436,34 +780,62 @@ class PlanningContextMixin:
             or getattr(verdict, "reason", "")
             or "an external dependency"
         )
+        item_budget = self._item_iteration_budget()
+        item = BacklogItem.new(
+            title="verification probe: re-test the recorded external blocker",
+            objective=(
+                "Verification-probe mission, dispatched by the harness after the "
+                f"planner idled {n} consecutive cycles concluding it was blocked. "
+                "Do NOT trust the journal's record of the blocker as still current. "
+                f'The recorded blocker was: "{reason}". RIGHT NOW, actually attempt '
+                "the blocked action — or run the single cheapest decisive probe of "
+                "it — and report the REAL present outcome with concrete first-hand "
+                "evidence (command output, file existence, an actual score/metric). "
+                "State plainly whether it is STILL blocked or has CLEARED. If it has "
+                "cleared, perform or unblock the smallest concrete next step. This is "
+                "a perception check, not make-work: completion is judged solely by "
+                "whether you produced fresh first-hand evidence of the blocker's "
+                "current state."
+            ),
+            priority=50,
+            max_cost_usd=item_budget,
+            tags=["planner", "scope:bounded", "life", "verification_probe"],
+            iterate=True,
+            iteration_max_cycles=1,
+            iteration_budget_usd=min(item_budget, 5.0),
+        )
         try:
-            item = BacklogItem.new(
-                title="verification probe: re-test the recorded external blocker",
-                objective=(
-                    "Verification-probe mission, dispatched by the harness after the "
-                    f"planner idled {n} consecutive cycles concluding it was blocked. "
-                    "Do NOT trust the journal's record of the blocker as still current. "
-                    f'The recorded blocker was: "{reason}". RIGHT NOW, actually attempt '
-                    "the blocked action — or run the single cheapest decisive probe of "
-                    "it — and report the REAL present outcome with concrete first-hand "
-                    "evidence (command output, file existence, an actual score/metric). "
-                    "State plainly whether it is STILL blocked or has CLEARED. If it has "
-                    "cleared, perform or unblock the smallest concrete next step. This is "
-                    "a perception check, not make-work: completion is judged solely by "
-                    "whether you produced fresh first-hand evidence of the blocker's "
-                    "current state."
-                ),
-                priority=50,
-                tags=["planner", "scope:bounded", "life", "verification_probe"],
-                iterate=True,
-                iteration_max_cycles=1,
-                iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
-            )
+            contract_state_before_probe = None
+            if contract is not None:
+                contract_state_before_probe = json.loads(json.dumps(contract_state))
+                if not self._reserve_planner_waiting_contract_probe(
+                    contract,
+                    item_id=item.id,
+                ):
+                    log.error(
+                        "verification probe was not enqueued because its waiting "
+                        "contract could not be reserved"
+                    )
+                    return False
             self.memory.backlog.add(item)
         except Exception:  # noqa: BLE001
+            if contract_state_before_probe is not None:
+                self._write_planner_waiting_contract_state(
+                    contract_state_before_probe
+                )
             log.exception("failed to enqueue verification probe; continuing")
             return False
         self._last_verification_probe_at = now
+        if contract is not None:
+            if not self._finalize_planner_waiting_contract_probe(
+                contract,
+                item_id=item.id,
+            ):
+                log.warning(
+                    "verification probe is durable but its contract reservation "
+                    "will require restart reconciliation"
+                )
+            contract_state = self._load_planner_waiting_contract_state()
         # Reset the idle counter so we don't immediately re-escalate before the
         # probe's real result lands in the event timeline (a real mission run
         # also resets it via _reset_idle_backoff()).
@@ -474,6 +846,10 @@ class PlanningContextMixin:
             "cycle": self._planning_cycles,
             "reason": reason,
             "idle_cycles": n,
+            "waiting_contract": self._waiting_contract_event_payload(
+                contract_state,
+                contract,
+            ),
         })
         return True
 

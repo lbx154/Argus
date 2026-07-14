@@ -11,6 +11,7 @@ from .planner import (
     PlannerConfig,
     PlannerVerdict,
     TaskSpec,
+    WaitingContract,
     parse_planner_text,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "PlannerConfig",
     "PlannerVerdict",
     "TaskSpec",
+    "WaitingContract",
     "parse_planner_text",
 ]

@@ -26,7 +26,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisorConfig,
 )
 from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import PlannerVerdict, TaskSpec
+from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus_skill.reviewer import _find_decision_in_messages
 
 # ---------------------------------------------------------------------------
@@ -851,6 +851,243 @@ def test_verification_probe_not_restacked_while_pending(tmp_path: Path, monkeypa
         it for it in sup.memory.backlog.all() if "verification_probe" in (it.tags or [])
     ]
     assert len(probes) == 1
+
+
+def test_waiting_contract_allows_only_one_probe_per_token_across_restart(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.life.supervisor._core import (
+        _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K,
+    )
+
+    state = {"token": "source-missing-v1"}
+
+    def _waiting(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False,
+            reason="licensed source unavailable",
+            waiting=True,
+            waiting_reason="operator must provide the licensed source",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="source:chen-2003",
+                recheck_condition="a licensed full-text path appears",
+                recheck_token=state["token"],
+                allow_verification_probe=True,
+                recheck_after_seconds=0,
+            ),
+        )
+
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _waiting)
+    for _ in range(K):
+        sup._plan_next_work()
+    probes = [
+        item
+        for item in sup.memory.backlog.all()
+        if "verification_probe" in (item.tags or [])
+    ]
+    assert len(probes) == 1
+    sup.memory.backlog.update(probes[0].id, status="done")
+
+    restarted = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="keep optimizing",
+        open_ended=False,
+        full_paper_gate=False,
+        project_worktree=tmp_path / "project",
+    )
+    restarted._vertical_resolved = True
+    restarted.planner_runner = object()
+    for _ in range(2 * K):
+        assert restarted._plan_next_work() == "awaiting_external"
+    assert len([
+        item
+        for item in restarted.memory.backlog.all()
+        if "verification_probe" in (item.tags or [])
+    ]) == 1
+
+    state["token"] = "source-path-observed-v2"
+    for _ in range(K):
+        restarted._plan_next_work()
+    probes = [
+        item
+        for item in restarted.memory.backlog.all()
+        if "verification_probe" in (item.tags or [])
+    ]
+    assert len(probes) == 2
+    restarted.memory.backlog.update(probes[-1].id, status="done")
+
+    state["token"] = "source-missing-v1"
+    restarted._last_verification_probe_at = 0.0
+    for _ in range(K):
+        assert restarted._plan_next_work() == "awaiting_external"
+    assert len([
+        item
+        for item in restarted.memory.backlog.all()
+        if "verification_probe" in (item.tags or [])
+    ]) == 2
+
+
+def test_waiting_contract_can_disable_verification_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.life.supervisor._core import (
+        _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K,
+    )
+
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+
+    def _waiting(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False,
+            reason="operator-only source blocker",
+            waiting=True,
+            waiting_reason="operator must provide the licensed source",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="source:chen-2003",
+                recheck_condition="a licensed full-text path appears",
+                recheck_token="source-missing-v1",
+                allow_verification_probe=False,
+                recheck_after_seconds=0,
+            ),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _waiting)
+    for _ in range(2 * K):
+        assert sup._plan_next_work() == "awaiting_external"
+
+    assert not [
+        item
+        for item in sup.memory.backlog.all()
+        if "verification_probe" in (item.tags or [])
+    ]
+
+
+def test_waiting_contract_honors_recheck_delay(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.life.supervisor._core import (
+        _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K,
+    )
+
+    now = {"value": 1000.0}
+    monkeypatch.setattr(
+        "argus_skill.life.supervisor._planning_context.time.time",
+        lambda: now["value"],
+    )
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+
+    def _waiting(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False,
+            reason="external job has not reached its checkpoint",
+            waiting=True,
+            waiting_reason="wait for checkpoint 10",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="job:training-42",
+                recheck_condition="checkpoint 10 is published",
+                recheck_token="checkpoint-9",
+                allow_verification_probe=True,
+                recheck_after_seconds=600,
+            ),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _waiting)
+    for _ in range(2 * K):
+        assert sup._plan_next_work() == "awaiting_external"
+
+    now["value"] += 600
+    assert sup._plan_next_work() is True
+
+
+def test_inactive_waiting_contract_is_not_injected_into_planner_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+    contract = WaitingContract(
+        blocker_fingerprint="source:chen-2003",
+        recheck_condition="a licensed full-text path appears",
+        recheck_token="source-missing-v1",
+        allow_verification_probe=False,
+        recheck_after_seconds=0,
+    )
+    assert sup._persist_planner_waiting_contract(contract) is not None
+    assert "source:chen-2003" in sup._planner_waiting_contract_runtime_note()
+
+    sup._deactivate_planner_waiting_contract()
+
+    assert sup._planner_waiting_contract_runtime_note() == ""
+
+
+def test_waiting_contract_state_is_scoped_by_continuous_objective(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+    first_path = sup._planner_waiting_contract_path()
+    contract = WaitingContract(
+        blocker_fingerprint="source:chen-2003",
+        recheck_condition="a licensed full-text path appears",
+        recheck_token="source-missing-v1",
+        allow_verification_probe=False,
+        recheck_after_seconds=0,
+    )
+    assert sup._persist_planner_waiting_contract(contract) is not None
+
+    sup.config.continuous_objective = "a different operator objective"
+    second_path = sup._planner_waiting_contract_path()
+
+    assert second_path != first_path
+    assert sup._load_planner_waiting_contract_state() is None
+    assert first_path.exists()
+
+
+def test_pending_probe_reservation_reconciles_against_durable_backlog(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
+    contract = WaitingContract(
+        blocker_fingerprint="job:training-42",
+        recheck_condition="checkpoint 10 is published",
+        recheck_token="checkpoint-9",
+        allow_verification_probe=True,
+        recheck_after_seconds=0,
+    )
+    assert sup._persist_planner_waiting_contract(contract) is not None
+
+    missing = BacklogItem.new(title="probe", objective="probe current state")
+    assert sup._reserve_planner_waiting_contract_probe(
+        contract,
+        item_id=missing.id,
+    )
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    reconciled = sup._reconcile_planner_waiting_contract_probe(state)
+    assert reconciled is not None
+    assert reconciled["pending_probe"] is None
+    assert reconciled["probed_conditions"] == []
+
+    durable = BacklogItem.new(title="probe", objective="probe current state")
+    assert sup._reserve_planner_waiting_contract_probe(
+        contract,
+        item_id=durable.id,
+    )
+    sup.memory.backlog.add(durable)
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    reconciled = sup._reconcile_planner_waiting_contract_probe(state)
+    assert reconciled is not None
+    assert reconciled["pending_probe"] is None
+    assert {
+        "blocker_fingerprint": "job:training-42",
+        "recheck_token": "checkpoint-9",
+    }.items() <= reconciled["probed_conditions"][0].items()
 
 
 def test_planner_runtime_carries_idle_stall_note(tmp_path: Path) -> None:
