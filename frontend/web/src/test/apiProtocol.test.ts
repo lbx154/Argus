@@ -82,6 +82,32 @@ describe('web API protocol handshake', () => {
     );
   });
 
+  it('posts mission aborts to the mission abort endpoint with the reason body', async () => {
+    const reason = 'operator asked to stop';
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      expect(path).toBe('/api/projects/s-test/mission/abort');
+      expect(init).toMatchObject({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({ reason });
+      return Response.json({
+        requested: true,
+        item_id: 'item-1',
+        message: 'Stop requested for running task item-1.',
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    await expect(api.abortMission('s-test', reason)).resolves.toEqual({
+      requested: true,
+      item_id: 'item-1',
+      message: 'Stop requested for running task item-1.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === '/api/metrics') return Response.json({ slo: { status: 'healthy' } });

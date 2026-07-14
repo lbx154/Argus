@@ -344,7 +344,7 @@ export const api = {
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
   abortMission: (sid: string, reason: string) =>
     postJson<{ requested: boolean; item_id: string | null; message: string }>(
-      P(sid, '/abort'),
+      P(sid, '/mission/abort'),
       { reason },
     ),
   answerPending: (sid: string, itemId: string, text: string) =>
