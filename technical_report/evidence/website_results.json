@@ -1,0 +1,107 @@
+{
+  "schema": "argus-website-results/v1",
+  "description": "Public snapshot of every current result card on argusbot.cn/results.html, with human-comparison columns preserved verbatim and, where available, public-safe local corroboration.",
+  "retrieval": {
+    "timestamp_utc": "2026-07-14T12:29:51Z",
+    "source_url": "https://argusbot.cn/results.html",
+    "final_url": "https://argusbot.cn/results.html",
+    "http_status": 200,
+    "raw_html_sha256": "5143a58774c513ec7917a508837d2992fb950f34923d34f2a5c85449900f38bf"
+  },
+  "comparison_rule": "Primary comparison column is human SOTA / human-authored public record / paper-reported best as shown on the website. Recursive appears only for the SOL-ExecBench head-to-head fact already published on the site.",
+  "results_count": 6,
+  "results": [
+    {
+      "arena": "NVIDIA SOL-ExecBench",
+      "protocol": "B200 · 101 kernels",
+      "result": "Global #6 · 2× #1 · 7 top-3",
+      "human_comparison": "Two head-to-head wins over Recursive",
+      "website_quote": "NVIDIA SOL-ExecBench — B200 · 101 kernels — Global #6 · 2× #1 · 7 top-3 — Two head-to-head wins over Recursive",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "website_snapshot"
+    },
+    {
+      "arena": "nanochat · B200",
+      "protocol": "5 min · 1×B200 · 426 attempts",
+      "result": "0.9636 BPB",
+      "human_comparison": "Human SOTA: 0.9646",
+      "website_quote": "nanochat · B200 — 5 min · 1×B200 · 426 attempts — 0.9636 BPB — Human SOTA: 0.9646",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "local_artifact"
+    },
+    {
+      "arena": "nanochat · H100",
+      "protocol": "5 min · 1×H100 · 37 mechanisms",
+      "result": "0.9855 BPB",
+      "human_comparison": "Human SOTA: 0.9879",
+      "website_quote": "nanochat · H100 — 5 min · 1×H100 · 37 mechanisms — 0.9855 BPB — Human SOTA: 0.9879",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "website_snapshot"
+    },
+    {
+      "arena": "nanoGPT speedrun",
+      "protocol": "8×H100 · N=10",
+      "result": "79.77 seconds",
+      "human_comparison": "Same-device human #83: 80.18s",
+      "website_quote": "nanoGPT speedrun — 8×H100 · N=10 — 79.77 seconds — Same-device human #83: 80.18s",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "local_artifact"
+    },
+    {
+      "arena": "AARRI-Bench",
+      "protocol": "82 research-intern tasks",
+      "result": "63/82 · 76.8%",
+      "human_comparison": "Paper-reported best: 68.3%",
+      "website_quote": "AARRI-Bench — 82 research-intern tasks — 63/82 · 76.8% — Paper-reported best: 68.3%",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "website_snapshot"
+    },
+    {
+      "arena": "Arbor · RUC NLPIR",
+      "protocol": "Math-Reasoning Data",
+      "result": "28.0 gap",
+      "human_comparison": "Arbor 20.83 · Claude Code 8.33 · Codex 6.25",
+      "website_quote": "Arbor · RUC NLPIR — Math-Reasoning Data — 28.0 gap — Arbor 20.83 · Claude Code 8.33 · Codex 6.25",
+      "source_url": "https://argusbot.cn/results.html",
+      "evidence_tier": "website_snapshot",
+      "corroboration": "website_snapshot"
+    }
+  ],
+  "local_corroboration": {
+    "nanoGPT speedrun": {
+      "logical_project": "nanogpt-speedrun-h100",
+      "artifact_id": "candidate_mlp_post_only_hybrid_n10_20260617T152904Z",
+      "source_file_basename": "SCORE.raw",
+      "source_file_sha256": "54ef845717b9646714f164c484437763ab9135c4b958b99abacb22d8130f4cf6",
+      "result_file_basename": "RESULT.md",
+      "result_file_sha256": "f40703b8082bd4bf1070991e99a48f96ae62c57a10f952560acfaa9280050bdb",
+      "verifier_line": "SCORE valid=true n=10 val_loss=3.2776 p(mean<3.28)=0.004007 train_time=79.77s run_id=20260617T152927Z-15095 seal=ok",
+      "analyzer_line": "runs                     n=10  val_loss=3.2776±0.0022  t=-3.389 p(mean<3.28)=0.004007  time=79.77±0.06s",
+      "valid": true,
+      "N": 10,
+      "val_loss": "3.2776±0.0022",
+      "p_mean_lt_3.28": 0.004007,
+      "train_time_seconds": "79.77±0.06"
+    },
+    "nanochat · B200": {
+      "logical_project": "nanochat-mission-b200",
+      "artifact_id": "a374_tailweighted_boundary_mixed_readout_data_bundle",
+      "source_file_basename": "summary.json",
+      "source_file_sha256": "2650f0f12de6bd1734d0823e4d9ab6232fb2d6db4bf9055778a2aa6333af2412",
+      "acceptance_file_basename": "final_acceptance_check.txt",
+      "acceptance_file_sha256": "2ce1069d79f7f0121074a78a08ceb48e648cc0189736fe8b637ae49653036b3b",
+      "frozen_scorer_exit_code": 0,
+      "real_flash_attn_4_sm100": true,
+      "time_budget_seconds": 300,
+      "completed_seeds": 1,
+      "MEAN_VAL_BPB": 0.963634,
+      "score_valid": true,
+      "decision": "promote_a374_new_global_best"
+    }
+  }
+}
