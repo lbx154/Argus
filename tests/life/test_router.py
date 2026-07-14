@@ -177,7 +177,7 @@ def test_build_simple_prompt_is_minimal() -> None:
     from argus_skill.cli.roles_status import runner_backend_label
 
     assert f"{runner_backend_label()} worker" in out
-    assert "Answer as Argus Manager" in out
+    assert "Answer and act as Argus Manager" in out
 
 
 def test_build_simple_prompt_never_points_operator_at_the_backend_cli() -> None:
@@ -210,8 +210,8 @@ def test_build_simple_prompt_includes_grounding_workspace_when_given() -> None:
         operator_workspace="/workspace/project",
     )
     assert "Operator launch workspace: /workspace/project" in out
-    assert "inspect this workspace with read-only tools" in out
-    assert "must not modify files or dispatch background work" in out
+    assert "inspect this workspace with tools" in out
+    assert "may modify state or use tools" in out
     assert "Grounding workspace" not in build_simple_prompt(objective="17*23=?")
 
 

@@ -174,6 +174,19 @@ def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
     assert route == "simple"
 
 
+def test_steer_control_routes_running_mission_direction_inline() -> None:
+    intent, control, route = classify_front_door(
+        "别再做形式检查，马上发明新的数学工具",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: STEER\nROUTE: TEAM\n"
+            "LIFETIME: NONE\nFAST_REPLY: NONE\nNAME: 调整数学方向"
+        ),
+    )
+    assert intent is None
+    assert control == "steer"
+    assert route == "simple"
+
+
 @pytest.mark.parametrize(
     "token",
     ["NO_DISPATCH", "NO-DISPATCH", "NO DISPATCH", "NODISPATCH"],

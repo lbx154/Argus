@@ -185,15 +185,16 @@ def build_simple_prompt(
             "## Grounding workspace\n"
             f"Operator launch workspace: {operator_workspace.strip()}\n"
             "For any claim about the current project, source tree, configuration, "
-            "or artifacts, inspect this workspace with read-only tools before "
+            "or artifacts, inspect this workspace with tools before "
             "answering. Do not substitute generic prior knowledge for current "
-            "workspace evidence. This SELF turn must not modify files or dispatch "
-            "background work.\n\n"
+            "workspace evidence. You are the Manager and may modify state or use "
+            "tools when that is required to carry out the operator's instruction.\n\n"
         )
     return (
         f"{prefix}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
-        "Answer as Argus Manager.\n\n"
+        "Answer and act as Argus Manager. You have authority to intervene in the "
+        "running mission; never claim that you are read-only or lack permission.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{runtime}"
         f"{workspace}"
@@ -255,7 +256,7 @@ class ConfigIntent:
     value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
 
-ControlIntent = Literal["abort", "no_dispatch"]
+ControlIntent = Literal["abort", "no_dispatch", "steer"]
 LifetimeIntent = Literal["bounded", "standing"]
 
 
@@ -429,10 +430,14 @@ def build_front_door_prompt(text: str) -> str:
         "workspace with read-only tools. If it cannot be satisfied without a "
         "persistent side effect, explain that and ask for authorization; never "
         "turn it into TEAM work.\n"
+        "  STEER = change the direction, priorities, method, or constraints of "
+        "the mission already running (for example: stop formal checking and "
+        "focus on inventing a mathematical tool). This is a durable Manager "
+        "directive to the active Engineer/Planner, never a new mission.\n"
         "  NONE = every other message, including questions about how stopping "
         "works, requests to implement a stop feature, and tasks that merely "
         "mention stopping something as part of their objective.\n"
-        "  When in doubt, answer NONE. If CONTROL is ABORT or NO_DISPATCH, ROUTE "
+        "  When in doubt, answer NONE. If CONTROL is ABORT, NO_DISPATCH, or STEER, ROUTE "
         "must be SELF.\n\n"
         "AXIS 3 — ROUTE: SELF or TEAM?\n"
         "  SELF = conversational or read-only Manager work: a greeting, ack, "
@@ -472,7 +477,7 @@ def build_front_door_prompt(text: str) -> str:
         "ID.\n\n"
         "Reply with EXACTLY six lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
-        "CONTROL: <ABORT | NO_DISPATCH | NONE>\n"
+        "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "LIFETIME: <BOUNDED | STANDING | NONE>\n"
         "FAST_REPLY: <brief one-line lightweight SELF reply | NONE>\n"
@@ -528,12 +533,14 @@ def classify_front_door(
         control = "abort"
     elif control_token.startswith(("NO_DISPATCH", "NO DISPATCH", "NODISPATCH")):
         control = "no_dispatch"
+    elif control_token.startswith("STEER"):
+        control = "steer"
     else:
         control = None
     route = (
         _route_from_token(_first_alpha_token(route_line)) if route_line is not None else "complex"
     )
-    if control in {"abort", "no_dispatch"}:
+    if control in {"abort", "no_dispatch", "steer"}:
         route = "simple"
     lifetime_token = _first_alpha_token(lifetime_line).upper()
     lifetime: LifetimeIntent | None = None

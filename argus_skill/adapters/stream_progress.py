@@ -239,6 +239,7 @@ def make_stream_progress_callback(
     # but instance-scoped.
     delta_buffers: dict[tuple[str, str], str] = {}
     delta_emits: dict[tuple[str, str], tuple[float, int]] = {}
+    delta_rendered: dict[tuple[str, str], str] = {}
     delta_interval_s = (
         _nonnegative_float_env(
             "ARGUS_SKILL_STREAM_PROGRESS_INTERVAL_S",
@@ -290,6 +291,7 @@ def make_stream_progress_callback(
         for key in [k for k in delta_buffers if k[0] == actor]:
             delta_buffers.pop(key, None)
             delta_emits.pop(key, None)
+            delta_rendered.pop(key, None)
 
     def cb(stream: str, line: str) -> None:
         try:
@@ -391,9 +393,13 @@ def make_stream_progress_callback(
                 ):
                     return
             delta_emits[key] = (now, len(current))
+            rendered = _truncate(current.strip())
+            if delta_rendered.get(key) == rendered:
+                return
+            delta_rendered[key] = rendered
             _emit_progress(
                 kind="agent_message",
-                text=current.strip(),
+                text=rendered,
                 actor=actor,
                 replace=True,
                 message_id=mid.strip(),
@@ -411,6 +417,7 @@ def make_stream_progress_callback(
                 # for this messageId so we don't double-emit on resume.
                 delta_buffers.pop((actor, mid.strip()), None)
                 delta_emits.pop((actor, mid.strip()), None)
+                delta_rendered.pop((actor, mid.strip()), None)
             if not isinstance(content, str):
                 return
             text = content.strip()

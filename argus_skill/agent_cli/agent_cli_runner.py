@@ -47,6 +47,8 @@ _DEFAULT_CAPTURE_STDOUT_LINES = 512
 _DEFAULT_CAPTURE_STDERR_LINES = 256
 _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
+_ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
+_DEFAULT_ENGINEER_TURN_MAX_SECONDS = 300
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -93,6 +95,26 @@ def _positive_env_int(name: str, default: int) -> int:
         return max(1, int(raw))
     except ValueError:
         return default
+
+
+def _nonnegative_env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default
+
+
+def _turn_wall_clock_seconds(run_label: str | None) -> int:
+    label = str(run_label or "").strip().lower()
+    if not (label.startswith("engineer") or label == "main"):
+        return 0
+    return _nonnegative_env_int(
+        _ENGINEER_TURN_MAX_SECONDS_ENV,
+        _DEFAULT_ENGINEER_TURN_MAX_SECONDS,
+    )
 
 
 def _read_only_extra_args(args: list[str], *, backend: RunnerBackend) -> list[str]:
@@ -304,6 +326,8 @@ class AgentCliRunner:
         soft_idle = options.watchdog_soft_idle_seconds or 0
         hard_idle = options.watchdog_hard_idle_seconds or 0
         last_activity_at = time.monotonic()
+        turn_started_at = last_activity_at
+        turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
         last_soft_check_at = last_activity_at
         stdout_closed = False
         stderr_closed = False
@@ -347,10 +371,32 @@ class AgentCliRunner:
             watchdog_terminated = True
             return True
 
+        def check_wall_clock_limit() -> bool:
+            nonlocal watchdog_reason, watchdog_terminated
+            if (
+                watchdog_terminated
+                or process.poll() is not None
+                or turn_wall_clock_seconds <= 0
+                or time.monotonic() - turn_started_at < turn_wall_clock_seconds
+            ):
+                return False
+            watchdog_reason = (
+                "External interrupt: engineer turn time budget reached after "
+                f"{turn_wall_clock_seconds}s; yield for review/steering"
+            )
+            self._emit(
+                self._stream_name("stderr", run_label),
+                f"[watchdog] {watchdog_reason}",
+            )
+            self._terminate_process(process)
+            watchdog_terminated = True
+            return True
+
         while True:
             if process.poll() is not None and stdout_closed and stderr_closed:
                 break
             check_external_interrupt()
+            check_wall_clock_limit()
             try:
                 stream_name, text = line_queue.get(timeout=0.25)
             except KeyboardInterrupt:
@@ -368,6 +414,7 @@ class AgentCliRunner:
                 idle_seconds = now - last_activity_at
 
                 check_external_interrupt()
+                check_wall_clock_limit()
 
                 if (
                     soft_idle > 0

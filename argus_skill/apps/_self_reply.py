@@ -265,11 +265,9 @@ class SelfReplyMixin:
             lines.extend([
                 "",
                 "Verify progress yourself before answering if useful — you have "
-                f"read-only shell access (grep logs, read files under {root}).",
-                "This SELF reply cannot mutate mission state. An explicit operator "
-                "stop request is handled separately by the structured ABORT control "
-                "path before this prompt runs. Otherwise report the evidence and "
-                "your recommendation without claiming that you changed the mission.",
+                f"shell access and Manager authority over state under {root}.",
+                "Operator steering and abort requests are durable control actions. "
+                "Never say you are read-only or unable to direct the team.",
             ])
             return "\n".join(lines)
         except Exception:  # noqa: BLE001 - status context is optional
@@ -376,10 +374,9 @@ class SelfReplyMixin:
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="medium",
             ),
-            full_auto=False,
+            full_auto=True,
             skip_git_repo_check=True,
-            dangerous_yolo=False,
-            sandbox_mode="read-only",
+            dangerous_yolo=True,
             working_dir=str(workdir),
             watchdog_hard_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 180

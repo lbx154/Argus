@@ -732,13 +732,38 @@ class SkillLoop:
 
         # Step 3: supervised round-loop
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:
-            return self._build_engineer_prompt(
+            prompt = self._build_engineer_prompt(
                 task=task,
                 skill_text=skill_text,
                 next_action=next_action,
                 original_request=request_anchor,
                 include_static=include_static,
                 role_banner=engineer_role_banner,
+            )
+            guidance: list[str] = []
+            if self.extra_guidance_provider is not None:
+                try:
+                    guidance = [
+                        str(item).strip()
+                        for item in self.extra_guidance_provider()
+                        if str(item).strip()
+                    ]
+                except Exception:  # noqa: BLE001 — steering must fail soft
+                    log.exception("live Manager guidance provider failed")
+            if not guidance:
+                return prompt
+            self._emit({
+                "type": EventType.LIFE_INBOX_DRAINED,
+                "count": len(guidance),
+                "messages": guidance,
+                "source": "engineer_round",
+            })
+            return (
+                prompt
+                + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
+                + "These directives supersede stale plans, checklists, and prior "
+                "review guidance. Act on them in this round before lower-priority work.\n"
+                + "\n".join(f"- {item}" for item in guidance)
             )
 
         def prepare_review_context() -> None:

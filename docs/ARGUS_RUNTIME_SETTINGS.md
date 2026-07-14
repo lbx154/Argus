@@ -58,6 +58,7 @@
 | budget | `ARGUS_SKILL_DAILY_CAP_USD` | `180.0` | default | `180.0` |
 | mission | `ARGUS_SKILL_VERTICAL` | `(unset → research; see LANES #1)` | default | `(unset → research; see LANES #1)` |
 | mission | `ARGUS_SKILL_MAX_ROUNDS` | `500` | default | `500` |
+| mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `300` | default | `300` |
 | mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `3` | default | `3` |
 | mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `1500000` | default | `1500000` |
 | mission | `ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S` | `120` | default | `120` |

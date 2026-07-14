@@ -123,6 +123,7 @@ KNOBS: tuple[Knob, ...] = (
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_VERTICAL", "(unset → research; see LANES #1)", "force a vertical: nanochat|nanogpt_speedrun|kernelbench|speedrun|research|math", "mission"),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "300", "wall-clock cap for one Engineer turn before yielding to review/steering; 0 disables", "mission"),
     Knob("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "3", "rounds before a session-roll re-seeds from checkpoint (0=off)", "mission"),
     Knob("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "1500000", "prior-round input tokens that trigger a fresh session re-seeded from checkpoint (0=off)", "mission"),
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "1800", "safe round-boundary seconds without reviewer-classified decision/evidence progress (0=off)", "mission"),
