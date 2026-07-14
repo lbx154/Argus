@@ -64,6 +64,16 @@ def test_legacy_verdict_derives_progress_class_from_forward_progress(
     assert decision.progress_class == expected
 
 
+@pytest.mark.parametrize("progress_class", ["", "bogus"])
+def test_explicit_invalid_progress_class_is_none(progress_class: str) -> None:
+    decision = parse_decision_text(
+        _payload(progress_class=progress_class, forward_progress=True)
+    )
+
+    assert decision is not None
+    assert decision.progress_class == "none"
+
+
 def test_reviewer_schemas_require_only_the_compact_progress_enum() -> None:
     for path in (Path(SCHEMA_PATH), Path(RESEARCH_SCHEMA_PATH)):
         schema = json.loads(path.read_text(encoding="utf-8"))

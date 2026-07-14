@@ -132,9 +132,9 @@ def _parse_progress_class(
     parsed: dict[str, Any],
     planner_report: dict[str, Any],
 ) -> str:
-    value = str(parsed.get("progress_class") or "").strip().lower()
-    if value in _PROGRESS_CLASSES:
-        return value
+    if "progress_class" in parsed:
+        value = str(parsed.get("progress_class") or "").strip().lower()
+        return value if value in _PROGRESS_CLASSES else "none"
     return "none" if planner_report.get("forward_progress") is False else "evidence"
 
 

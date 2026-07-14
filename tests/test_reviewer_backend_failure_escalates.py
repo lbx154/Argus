@@ -105,6 +105,21 @@ def test_empty_clean_output_stays_continue() -> None:
     decision = _evaluate(Reviewer(runner=_EmptyRunner()))
     assert decision.status == "continue"
     assert decision.backend_unavailable is False
+    assert decision.progress_class == "none"
+
+
+def test_invalid_json_output_is_not_credited_as_evidence() -> None:
+    class _InvalidRunner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=["not a reviewer verdict"],
+            )
+
+    decision = _evaluate(Reviewer(runner=_InvalidRunner()))
+
+    assert decision.status == "continue"
+    assert decision.progress_class == "none"
 
 
 def test_unavailable_engineer_model_blocks_once_with_actionable_error(
