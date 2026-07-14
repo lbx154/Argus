@@ -794,54 +794,59 @@ export default function App() {
       snapQ.refetch?.();
     };
 
-    let gotDelta = false;
-    let streamErr: Error | null = null;
-    try {
+    // Dispatch the streaming work fire-and-forget so the draft clears immediately.
+    // Errors that surface during the stream are surfaced via notify().
+    void (async () => {
+      let gotDelta = false;
+      let streamErr: Error | null = null;
       try {
-        await api.messageStream(requestSid, text, {
-          onPhase: (label) => {
-            if (isCurrent()) setManagerPhase(label);
-          },
-          onDelta: () => {
-            if (!isCurrent()) return;
-            gotDelta = true;
-          },
-          onDone: (result) => {
+        try {
+          await api.messageStream(requestSid, text, {
+            onPhase: (label) => {
+              if (isCurrent()) setManagerPhase(label);
+            },
+            onDelta: () => {
+              if (!isCurrent()) return;
+              gotDelta = true;
+            },
+            onDone: (result) => {
+              if (!isCurrent()) return;
+              if (result.kind === 'task') dispatchTask(result);
+              void transcriptQ.refetch();
+            },
+            onError: (err) => {
+              if (isCurrent()) streamErr = err;
+            },
+          }, controller.signal);
+        } catch (error) {
+          if (isCurrent()) streamErr = error as Error;
+        }
+
+        if (!isCurrent()) return;
+
+        // Fallback to the blocking endpoint only if streaming produced nothing.
+        if (streamErr && !gotDelta) {
+          try {
+            const result = await api.message(requestSid, text, controller.signal);
             if (!isCurrent()) return;
             if (result.kind === 'task') dispatchTask(result);
             void transcriptQ.refetch();
-          },
-          onError: (err) => {
-            if (isCurrent()) streamErr = err;
-          },
-        }, controller.signal);
-      } catch (error) {
-        if (isCurrent()) streamErr = error as Error;
-      }
-
-      if (!isCurrent()) return true;
-
-      // Fallback to the blocking endpoint only if streaming produced nothing.
-      if (streamErr && !gotDelta) {
-        try {
-          const result = await api.message(requestSid, text, controller.signal);
-          if (!isCurrent()) return true;
-          if (result.kind === 'task') dispatchTask(result);
-          void transcriptQ.refetch();
-        } catch (error) {
-          if (!isCurrent()) return true;
-          notify('error', `Message failed: ${errorText(error)}`);
+          } catch (error) {
+            if (!isCurrent()) return;
+            notify('error', `Message failed: ${errorText(error)}`);
+          }
+        }
+      } finally {
+        if (messageRequestRef.current?.id === requestId) {
+          messageRequestRef.current = null;
+          setChatPending(false);
+          setManagerPhase('');
+          setManagerStartedAt(0);
         }
       }
-    } finally {
-      if (messageRequestRef.current?.id === requestId) {
-        messageRequestRef.current = null;
-        setChatPending(false);
-        setManagerPhase('');
-        setManagerStartedAt(0);
-      }
-    }
-    return true;
+    })();
+
+    return true; // draft clears immediately on dispatch, not when stream finishes
   };
 
   const answerPendingReply = async (text: string) => {
