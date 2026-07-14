@@ -328,7 +328,11 @@ class PlanningCycleMixin:
             retried, retry_outcome = self._retry_pending_planner_verdict()
             if retried:
                 return retry_outcome
-        terminal_idle = self._maybe_idle_after_unchanged_open_ended_done()
+        terminal_idle = (
+            None
+            if revision_request is not None
+            else self._maybe_idle_after_unchanged_open_ended_done()
+        )
         if terminal_idle is not None:
             return terminal_idle
 
@@ -373,7 +377,10 @@ class PlanningCycleMixin:
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
         short_circuit = None
-        if self._effective_full_paper_gate(self._artifact_root()):
+        if (
+            revision_request is None
+            and self._effective_full_paper_gate(self._artifact_root())
+        ):
             short_circuit = self._operator_external_blocker_short_circuit_decision(
                 project_root=self._project_workdir(),
             )

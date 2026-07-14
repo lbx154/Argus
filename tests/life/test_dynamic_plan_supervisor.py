@@ -532,3 +532,51 @@ def test_revision_restart_without_tasks_resolves_proposal_as_rejected(
         if event["type"] == "life.plan.revision.rejected"
     ]
     assert rejected[-1]["reason"] == "replacement planner requested daemon restart"
+
+
+def test_revision_bypasses_stale_terminal_idle_short_circuit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_replacement_verdict(),
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    monkeypatch.setattr(
+        supervisor,
+        "_maybe_idle_after_unchanged_open_ended_done",
+        lambda: "planner_terminal_idle",
+    )
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is True
+
+
+def test_revision_bypasses_external_blocker_short_circuit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_replacement_verdict(),
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    monkeypatch.setattr(
+        supervisor,
+        "_effective_full_paper_gate",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_operator_external_blocker_short_circuit_decision",
+        lambda **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_record_planner_waiting",
+        lambda *_args, **_kwargs: "awaiting_external",
+    )
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is True
