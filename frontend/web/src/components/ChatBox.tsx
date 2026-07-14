@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { THINKING_LINES, rotateByTick, spinnerFrame } from '../lib/soul';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
-import { SlashCompletionMenu } from './SlashCompletionMenu';
+import {
+  clampSlashCompletionSelection,
+  slashCompletionOptionId,
+  SlashCompletionMenu,
+  SLASH_COMPLETION_LISTBOX_ID,
+  SLASH_COMPLETION_VISIBLE_ROWS,
+} from './SlashCompletionMenu';
 
 /**
  * The Manager front-door as a single conversational box. The operator just
@@ -63,11 +69,13 @@ export function ChatBox({
   }, [focusSignal, disabled]);
 
   const completions = slashCompletions(value);
-  const completionOpen = completions.length > 0 && !menuDismissed;
-  const bounded = completionOpen ? Math.max(0, Math.min(slashSelection, completions.length - 1)) : 0;
+  const visibleCompletions = completions.slice(0, SLASH_COMPLETION_VISIBLE_ROWS);
+  const completionOpen = visibleCompletions.length > 0 && !menuDismissed;
+  const bounded = completionOpen ? clampSlashCompletionSelection(slashSelection, visibleCompletions.length) : 0;
+  const activeCompletion = completionOpen ? visibleCompletions[bounded] : undefined;
 
   const applySelected = (index: number) => {
-    const command = completions[index];
+    const command = visibleCompletions[index];
     if (!command) return;
     const completed = applyCompletion(command);
     onChange(completed);
@@ -94,10 +102,10 @@ export function ChatBox({
     if (completionOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        onSlashSelectionChange(Math.min(bounded + 1, completions.length - 1));
+        onSlashSelectionChange(clampSlashCompletionSelection(bounded + 1, visibleCompletions.length));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        onSlashSelectionChange(Math.max(bounded - 1, 0));
+        onSlashSelectionChange(clampSlashCompletionSelection(bounded - 1, visibleCompletions.length));
       } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
         applySelected(bounded);
@@ -135,13 +143,7 @@ export function ChatBox({
         <SlashCompletionMenu
           query={value}
           selected={bounded}
-          onSelect={(command) => {
-            const completed = applyCompletion(command);
-            onChange(completed);
-            if (command.argument === 'none') setMenuDismissed(true);
-            onSlashSelectionChange(0);
-            taRef.current?.focus();
-          }}
+          onSelect={applySelected}
         />
       ) : null}
       <div className="flex items-end gap-2 px-3 py-2">
@@ -157,6 +159,9 @@ export function ChatBox({
           onKeyDown={onKey}
           rows={1}
           disabled={disabled}
+          aria-controls={completionOpen ? SLASH_COMPLETION_LISTBOX_ID : undefined}
+          aria-expanded={completionOpen}
+          aria-activedescendant={activeCompletion ? slashCompletionOptionId(activeCompletion.id) : undefined}
           placeholder={disabled ? 'Select a session…' : 'Ask a question or assign work'}
           className="max-h-48 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 font-sans text-[15px] text-ink outline-none placeholder:text-ink-faint"
           style={{ fieldSizing: 'content' } as React.CSSProperties}
