@@ -99,6 +99,119 @@ body {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 36%);
 }
 
+.brand-button {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  min-height: 32px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+}
+
+.brand-button::before,
+.brand-button::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.brand-button::before {
+  inset: -80%;
+  z-index: -2;
+  background:
+    radial-gradient(circle at 18% 24%, rgb(var(--spectral-blue)) 0 8%, transparent 20%),
+    radial-gradient(circle at 78% 20%, rgb(var(--spectral-violet)) 0 9%, transparent 22%),
+    radial-gradient(circle at 82% 78%, rgb(var(--spectral-rose)) 0 8%, transparent 21%),
+    radial-gradient(circle at 24% 78%, rgb(var(--spectral-gold)) 0 9%, transparent 22%),
+    rgb(var(--spectral-violet));
+  filter: blur(4px) saturate(1.35);
+}
+
+.brand-button::after {
+  inset: 1px;
+  z-index: -1;
+  border-radius: 6px;
+  background: rgb(var(--glass-raised) / 94%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 52%);
+}
+
+.brand-button-primary {
+  color: rgb(23 19 31);
+  box-shadow:
+    0 8px 24px -16px rgb(var(--spectral-violet) / 72%),
+    0 0 14px -9px rgb(var(--spectral-gold) / 75%);
+}
+
+.brand-button-primary::after {
+  background: rgb(255 255 255 / 94%);
+}
+
+.brand-button-ghost {
+  color: rgb(var(--ink-dim));
+}
+
+.brand-button-ghost::before {
+  opacity: 0.48;
+}
+
+.brand-button-danger {
+  color: theme('colors.err');
+}
+
+.brand-button-danger::before {
+  background: rgb(var(--spectral-rose) / 68%);
+  opacity: 0.7;
+}
+
+.brand-button-danger::after {
+  background: rgb(var(--glass-raised) / 96%);
+}
+
+.brand-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.45);
+  opacity: 0.42;
+}
+
+.panel-header {
+  border-color: rgb(var(--glass-edge) / 48%);
+  background: linear-gradient(90deg, rgb(var(--glass) / 44%), transparent);
+}
+
+.brand-modal {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 42%),
+    0 30px 90px -34px rgb(2 10 34 / 78%),
+    0 0 0 1px rgb(var(--spectral-violet) / 10%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .brand-button:hover {
+    color: rgb(var(--ink));
+    box-shadow:
+      0 12px 30px -16px rgb(var(--spectral-violet) / 78%),
+      0 0 18px -9px rgb(var(--spectral-gold) / 78%);
+  }
+
+  .brand-button-primary:hover {
+    color: rgb(23 19 31);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .brand-button:active {
+    filter: brightness(0.92);
+  }
+}
+
 @keyframes argus-web-splash-exit {
   0%, 68% { opacity: 1; }
   100% { opacity: 0; }

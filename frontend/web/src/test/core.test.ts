@@ -32,6 +32,7 @@ import { motionQueries } from '../lib/motion';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
+import { Button } from '../components/primitives';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -61,6 +62,16 @@ describe('shared frontend core', () => {
     expect(css).toContain('.workbench-shell');
     expect(css).toContain('.glass-panel');
     expect(css).toContain('.glass-card');
+  });
+
+  it('renders branded shared button variants without changing semantics', () => {
+    const primary = renderToStaticMarkup(createElement(Button, { variant: 'primary', children: 'Run' }));
+    const ghost = renderToStaticMarkup(createElement(Button, { variant: 'ghost', children: 'Cancel' }));
+    const danger = renderToStaticMarkup(createElement(Button, { variant: 'danger', children: 'Delete' }));
+    expect(primary).toContain('brand-button-primary');
+    expect(ghost).toContain('brand-button-ghost');
+    expect(danger).toContain('brand-button-danger');
+    expect(primary).toContain('type="button"');
   });
 
   it('renders generated HTML only inside an opaque script sandbox', () => {

@@ -48,9 +48,9 @@ export function Button({
   className?: string;
 }) {
   const styles: Record<string, string> = {
-    ghost: 'border-line bg-transparent text-ink-dim hover:border-ink-faint hover:bg-surface hover:text-ink',
-    primary: 'border-blue-deep bg-blue-deep text-white hover:border-blue hover:bg-blue-deep/80',
-    danger: 'border-line text-err hover:border-err/60 hover:bg-err/10',
+    ghost: 'brand-button-ghost',
+    primary: 'brand-button-primary',
+    danger: 'brand-button-danger',
   };
   return (
     <button
@@ -58,7 +58,7 @@ export function Button({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${styles[variant]} ${className}`}
+      className={`brand-button ${styles[variant]} ${className}`}
     >
       {children}
     </button>
@@ -68,7 +68,7 @@ export function Button({
 /** A section header used across the right-rail panels. */
 export function PanelHeader({ title, right }: { title: string; right?: ReactNode }) {
   return (
-    <div className="flex min-h-11 items-center justify-between border-b border-line/50 px-4">
+    <div className="panel-header flex min-h-11 items-center justify-between border-b px-4">
       <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-faint">{title}</span>
       {right}
     </div>
