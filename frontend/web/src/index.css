@@ -12,9 +12,9 @@
   --ink: 17 24 39;
   --ink-dim: 107 114 128;
   --ink-faint: 156 163 175;
-  --blue: 79 70 229;
-  --blue-deep: 67 56 202;
-  --blue-sky: 67 56 202;
+  --blue: 7 95 228;
+  --blue-deep: 11 46 104;
+  --blue-sky: 7 95 228;
   --role-manager: 37 99 235;
   --role-planner: 126 34 206;
   --role-engineer: 21 128 61;
@@ -22,8 +22,8 @@
   --conversation-user: 243 244 246;
   --conversation-argus: 238 242 255;
   --spectral-blue: 7 95 228;
-  --spectral-violet: 105 73 205;
-  --spectral-rose: 190 67 119;
+  --spectral-violet: 48 104 184;
+  --spectral-rose: 191 135 41;
   --spectral-gold: 207 153 49;
   --glass: 255 255 255;
   --glass-raised: 255 255 255;
@@ -40,9 +40,9 @@
   --ink: 249 250 251;
   --ink-dim: 156 163 175;
   --ink-faint: 107 114 128;
-  --blue: 129 140 248;
-  --blue-deep: 79 70 229;
-  --blue-sky: 165 180 252;
+  --blue: 110 168 255;
+  --blue-deep: 47 94 168;
+  --blue-sky: 155 192 255;
   --role-manager: 147 197 253;
   --role-planner: 216 180 254;
   --role-engineer: 134 239 172;
@@ -50,8 +50,8 @@
   --conversation-user: 31 41 55;
   --conversation-argus: 30 27 75;
   --spectral-blue: 110 168 255;
-  --spectral-violet: 170 132 255;
-  --spectral-rose: 255 126 177;
+  --spectral-violet: 118 176 242;
+  --spectral-rose: 237 201 111;
   --spectral-gold: 237 201 111;
   --glass: 15 27 45;
   --glass-raised: 20 35 57;
@@ -82,9 +82,49 @@ body {
 .workbench-shell {
   isolation: isolate;
   background:
-    radial-gradient(circle at 12% 0%, rgb(var(--spectral-blue) / 10%), transparent 32rem),
-    radial-gradient(circle at 88% 100%, rgb(var(--spectral-gold) / 8%), transparent 30rem),
+    radial-gradient(circle at 8% 0%, rgb(var(--spectral-blue) / 18%), transparent 36rem),
+    radial-gradient(circle at 52% 48%, rgb(var(--spectral-violet) / 12%), transparent 42rem),
+    radial-gradient(circle at 92% 100%, rgb(var(--spectral-gold) / 16%), transparent 34rem),
     rgb(var(--bg));
+}
+
+:root[data-theme='dark'] .workbench-shell {
+  background:
+    radial-gradient(circle at 8% 0%, rgb(var(--spectral-blue) / 22%), transparent 38rem),
+    radial-gradient(circle at 52% 48%, rgb(var(--spectral-violet) / 16%), transparent 44rem),
+    radial-gradient(circle at 92% 100%, rgb(var(--spectral-gold) / 20%), transparent 36rem),
+    rgb(var(--bg));
+}
+
+.ambient-canvas {
+  position: relative;
+}
+
+.ambient-canvas::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 18% 24%, rgb(var(--spectral-blue) / 22%), transparent 26%),
+    radial-gradient(circle at 82% 72%, rgb(var(--spectral-gold) / 18%), transparent 24%);
+  filter: blur(32px);
+  transform: translate3d(-2%, -1%, 0) scale(1.03);
+  animation: ambient-drift 60s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+@keyframes ambient-drift {
+  to {
+    opacity: 0.8;
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+  }
+}
+
+[data-page-visible="false"] .ambient-canvas::before {
+  animation-play-state: paused;
 }
 
 .glass-panel {
@@ -95,6 +135,41 @@ body {
     inset 0 1px 0 rgb(var(--spectral-blue) / 12%),
     inset -1px 0 0 rgb(var(--spectral-gold) / 6%);
   backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.glass-panel--side,
+.glass-panel--main,
+.glass-panel--raised {
+  border-color: transparent;
+  background:
+    linear-gradient(145deg, rgb(var(--glass) / 76%), rgb(var(--glass-raised) / 68%)) padding-box,
+    linear-gradient(125deg, rgb(var(--spectral-blue) / 48%), rgb(var(--spectral-violet) / 24%) 48%, rgb(var(--spectral-gold) / 42%)) border-box;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 46%),
+    0 24px 70px -48px rgb(var(--spectral-blue) / 42%);
+  backdrop-filter: blur(22px) saturate(1.28);
+}
+
+.glass-panel--side {
+  background:
+    linear-gradient(145deg, rgb(var(--glass) / 72%), rgb(var(--glass-raised) / 64%)) padding-box,
+    linear-gradient(125deg, rgb(var(--spectral-blue) / 45%), rgb(var(--spectral-violet) / 20%) 48%, rgb(var(--spectral-gold) / 38%)) border-box;
+}
+
+.glass-panel--main {
+  background:
+    linear-gradient(145deg, rgb(var(--glass) / 92%), rgb(var(--glass-raised) / 88%)) padding-box,
+    linear-gradient(125deg, rgb(var(--spectral-blue) / 38%), rgb(var(--spectral-violet) / 18%) 48%, rgb(var(--spectral-gold) / 34%)) border-box;
+}
+
+.glass-panel--raised {
+  background:
+    linear-gradient(145deg, rgb(var(--glass-raised) / 97%), rgb(var(--glass) / 92%)) padding-box,
+    linear-gradient(125deg, rgb(var(--spectral-blue) / 62%), rgb(var(--spectral-violet) / 34%) 48%, rgb(var(--spectral-gold) / 58%)) border-box;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 58%),
+    0 30px 90px -42px rgb(var(--spectral-violet) / 55%),
+    0 14px 42px -34px rgb(var(--spectral-gold) / 45%);
 }
 
 .glass-card {
@@ -394,6 +469,9 @@ button {
   }
   .scroll-smooth {
     scroll-behavior: auto !important;
+  }
+  .ambient-canvas::before {
+    animation: none !important;
   }
 }
 

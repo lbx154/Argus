@@ -210,6 +210,15 @@ export default function App() {
     document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
 
+  useEffect(() => {
+    const sync = () => {
+      document.documentElement.dataset.pageVisible = String(!document.hidden);
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => document.removeEventListener('visibilitychange', sync);
+  }, []);
+
   const cancelActiveMessage = useCallback(() => {
     const cancelled = Boolean(messageRequestRef.current);
     messageEpochRef.current += 1;
@@ -791,7 +800,7 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting]);
 
   return (
-    <div ref={shellRef} className="workbench-shell flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden text-ink">
+    <div ref={shellRef} className="workbench-shell ambient-canvas flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden text-ink">
       {!kiosk && sidebarOpen ? (
         <button
           type="button"
@@ -840,7 +849,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
-            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} glass-panel h-full min-w-0 flex-1 flex-col lg:flex`}>
+            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               <TopBar
                 snap={snap}
                 streamOk={connected}

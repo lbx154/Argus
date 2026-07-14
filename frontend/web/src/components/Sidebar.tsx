@@ -107,7 +107,7 @@ export function Sidebar({
     <aside
       data-state={slim ? 'collapsed' : 'expanded'}
       style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
-      className={`glass-panel fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
+      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
         slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
       } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
     >

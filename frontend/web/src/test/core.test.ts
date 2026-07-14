@@ -59,6 +59,7 @@ describe('shared frontend core', () => {
     expect(lockup).toContain('gradientUnits="userSpaceOnUse"');
     expect(lockup).toContain('x1="180"');
     expect(lockup).toContain('x2="1280"');
+    expect(lockup).not.toContain('var(--spectral-violet)');
     expect(lockup).not.toContain('NightPupil');
   });
 
@@ -82,6 +83,18 @@ describe('shared frontend core', () => {
     expect(css).toContain('.compact-control');
     expect(css).toContain('.send-control');
     expect(css).toContain('.session-card');
+    for (const selector of [
+      '.ambient-canvas',
+      '.glass-panel--side',
+      '.glass-panel--main',
+      '.glass-panel--raised',
+    ]) {
+      expect(css).toContain(selector);
+    }
+    expect(css).toContain('@keyframes ambient-drift');
+    expect(css).toContain('[data-page-visible=\"false\"]');
+    expect(css).not.toContain('--spectral-violet: 105 73 205');
+    expect(css).not.toContain('--spectral-rose: 190 67 119');
   });
 
   it('keeps light-theme spectral info text at WCAG AA contrast', () => {

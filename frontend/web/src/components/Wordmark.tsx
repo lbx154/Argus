@@ -11,7 +11,6 @@ export function ArgusMark({ size, className = 'text-ink' }: { size: number; clas
       <defs>
         <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="66" y1="0" x2="440" y2="0">
           <stop offset="0%" stopColor="rgb(var(--spectral-blue))" />
-          <stop offset="52%" stopColor="rgb(var(--spectral-violet))" />
           <stop offset="100%" stopColor="rgb(var(--spectral-gold))" />
         </linearGradient>
       </defs>
@@ -28,7 +27,6 @@ function RoundedLockup({ size }: { size: number }) {
       <defs>
         <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="180" y1="0" x2="1280" y2="0">
           <stop offset="0%" stopColor="rgb(var(--spectral-blue))" />
-          <stop offset="52%" stopColor="rgb(var(--spectral-violet))" />
           <stop offset="100%" stopColor="rgb(var(--spectral-gold))" />
         </linearGradient>
       </defs>
