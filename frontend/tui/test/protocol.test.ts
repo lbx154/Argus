@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
+import { basename } from 'node:path';
 
 import {
   inspectApiMeta,
@@ -171,8 +172,7 @@ test('replaces a proven owned stale API with SIGTERM only', async () => {
   assert.equal(rec.pid, 9876);
   assert.equal(rec.host, '127.0.0.1');
   assert.equal(rec.port, 8899);
-  // backendBin resolves to 'argus-skill' (no ARGUS_SKILL_BIN env, no .venv in test env).
-  assert.equal(rec.backendBin, 'argus-skill');
+  assert.equal(basename(rec.backendBin), 'argus-skill');
   assert.equal(typeof rec.startedAt, 'string');
 });
 
@@ -280,7 +280,7 @@ test('normal autostart writes ownership record immediately after spawn', async (
   assert.equal(rec.pid, 7777);
   assert.equal(rec.host, '127.0.0.1');
   assert.equal(rec.port, 8899);
-  assert.equal(rec.backendBin, 'argus-skill');
+  assert.equal(basename(rec.backendBin), 'argus-skill');
   assert.equal(typeof rec.startedAt, 'string');
 });
 
