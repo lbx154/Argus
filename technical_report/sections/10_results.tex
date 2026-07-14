@@ -1,0 +1,94 @@
+\section{Public Results Across Six Arenas}
+\label{sec:results}
+
+\begin{designbox}
+Report each public result as a scoped claim under the exact protocol it was
+measured under, compared human-first, with its evidence tier attached. Units
+differ across arenas and are never cross-normalized; a website snapshot is never
+presented as a reproduced artifact.
+\end{designbox}
+
+Argus publishes a live public record~\cite{argus_results}. This section reproduces
+its six current arena results. Figure~\ref{fig:results} presents them as small
+multiples --- one panel per arena, each with its own unit --- because the arenas
+measure different quantities (kernel rank, bits-per-byte, wall-clock seconds,
+solve rate, a gap score) and any shared axis would be misleading.
+Table~\ref{tab:results} gives the exact protocol, result, human-first comparison,
+and evidence tier for each row.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\textwidth]{figures/public_results.pdf}
+\caption{Public results across six arenas, drawn deterministically from
+\code{technical\_report/evidence/website\_results.json}. Panels are not
+cross-normalized; each carries its own unit, its ``lower/higher is better''
+direction, and its evidence tier. Argus bars are indigo; human/system baselines
+are lighter.}
+\label{fig:results}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.5cm} p{2.7cm} p{2.15cm} X p{1.55cm}@{}}
+\toprule
+\textbf{Arena} & \textbf{Protocol} & \textbf{Argus result} & \textbf{Human-first comparison} & \textbf{Tier} \\
+\midrule
+NVIDIA SOL-ExecBench & B200; 101 kernels & Global \#6; 2$\times$\#1; 7 top-3 & Global rank vs.\ all entrants (headline) & snapshot \\
+nanochat (B200) & 5\,min; 1$\times$B200; 426 attempts & 0.9636 BPB & Human SOTA 0.9646 & \textbf{artifact} \\
+nanochat (H100) & 5\,min; 1$\times$H100; 37 mechanisms & 0.9855 BPB & Human SOTA 0.9879 & snapshot \\
+nanoGPT speedrun & 8$\times$H100; $N{=}10$ & 79.77\,s & Same-device human \#83: 80.18\,s & \textbf{artifact} \\
+AARRI-Bench & 82 research-intern tasks & 63/82 (76.8\%) & Paper-reported best 68.3\% & snapshot \\
+Arbor (RUC NLPIR) & Math-reasoning data & 28.0 gap & Arbor 20.83; Claude Code 8.33; Codex 6.25 & snapshot \\
+\bottomrule
+\end{tabularx}
+\caption{The six public results~\cite{argus_results}, verbatim from the evidence
+bundle. Comparisons are human-first; the SOL-ExecBench headline is its global
+rank. Site note: SOL-ExecBench includes two head-to-head wins over
+Recursive~\cite{recursive2026firststeps}. ``artifact'' = locally corroborated;
+``snapshot'' = public website snapshot.}
+\label{tab:results}
+\end{table}
+
+\subsection{Reading the arenas}
+
+Each number means exactly what its protocol row says and nothing more. On
+\textbf{SOL-ExecBench}~\cite{ouyang2025kernelbench} the headline is a \emph{global rank} (\#6) against all
+entrants on 101 B200 kernels, with two \#1 finishes and seven top-3 placements;
+the two head-to-head wins over Recursive~\cite{recursive2026firststeps} are the
+site's note, not the framing. \textbf{nanochat}~\cite{karpathy_nanochat} is reported on both B200 (0.9636
+BPB against a 0.9646 human SOTA) and H100 (0.9855 against 0.9879), each under a
+5-minute training budget --- lower bits-per-byte is better. The \textbf{nanoGPT
+speedrun} reproduces a fast GPT-training loop~\cite{karpathy_nanogpt} on
+8$\times$H100 and reports 79.77\,s over $N{=}10$ against the same-device human
+record of 80.18\,s. \textbf{AARRI-Bench} reports 63 of 82 research-intern tasks
+(76.8\%) against a paper-reported best of 68.3\%. \textbf{Arbor} reports a gap
+score of 28.0, above the compared systems (Arbor 20.83, Claude Code 8.33, Codex
+6.25). The comparison column is human-authored or paper-reported throughout; no
+result is compared to another agent except the already-published SOL-ExecBench
+head-to-head.
+
+\subsection{Local corroboration versus website snapshot}
+
+Two of the six rows carry a stronger evidence tier than the others, and the
+difference is stated rather than smoothed over. The \textbf{nanoGPT} 79.77\,s row
+is locally corroborated by an $N{=}10$ verifier-certified artifact in the
+\code{nanogpt-speedrun-h100} project --- the verifier line records
+\code{valid=true, n=10}, a validation loss of $3.2776$, a one-sided
+$p(\text{mean}<3.28)=0.0040$, a train time of $79.77\pm0.06$\,s, and a
+\code{seal=ok}. The \textbf{nanochat B200} 0.9636 row has local frozen-scorer,
+single-seed evidence of \code{MEAN\_VAL\_BPB} $=0.963634$ with a frozen-scorer exit
+code of 0 and a genuine SM100 flash-attention kernel, in the
+\code{nanochat-mission-b200} project. The other four rows --- SOL-ExecBench,
+nanochat H100, AARRI-Bench, and Arbor --- are \code{website\_snapshot} with no
+in-repository reproduction artifact yet, linked to the machine-readable bundle
+\code{technical\_report/evidence/website\_results.json}. No corroboration file was
+fabricated where a clean local artifact was not available.
+
+\begin{callout}[What these results do and do not claim]
+Each row is a real, scoped claim under its stated protocol and evidence tier. The
+table does \emph{not} claim universal state of the art, correctness outside these
+protocols, or that a snapshot is a reproduced artifact. Converting the four
+snapshot rows into locally corroborated artifacts tied to a named commit is an
+explicit roadmap item (Section~\ref{sec:roadmap}).
+\end{callout}

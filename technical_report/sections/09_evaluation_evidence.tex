@@ -1,0 +1,118 @@
+\section{Evaluation and Evidence Architecture}
+\label{sec:evidence}
+
+\begin{designbox}
+Make every reported number reconstructable and every completion auditable. The
+evidence architecture records the run on an append-only tape, audits how each
+result was produced, redacts credentials before persistence, hashes published
+artifacts for provenance, and labels every quantity by the strength of its
+evidence. A verdict may be wrong, but it can never be unfalsifiable.
+\end{designbox}
+
+\subsection{The immutable event tape}
+
+The canonical record of a project is an append-only event tape,
+\code{events.jsonl}, written through typed events from a catalog of 107 event
+types across 11 categories, of which 75 carry a validated payload schema
+(\srcpath{core/event\_catalog.py}; Appendix~\ref{app:events}). Within it exactly
+one event, \code{research.achievement.certified}, is the authoritative record of a
+verified achievement, emitted only on a \code{done} verdict carrying the structured
+achievement payload (Section~\ref{sec:roles}). A campaign's decisions, spend, and
+outcomes can be replayed from the tape after the fact, which is what makes an audit
+possible at all.
+
+\subsection{Execution-log audit for the Reviewer}
+
+Trusting a self-report would defeat the completion contract, so the Reviewer can
+check the Engineer's work directly. The two roles share a work-tree, and the
+Reviewer's prompt includes an audit section pointing at the mission's own
+\code{events.jsonl} with grep recipes (\srcpath{engineer/runner.py}), so the
+Reviewer can inspect \emph{how} a result was produced --- detecting a hardcoded
+answer, a skipped step, a cheat method, or a faked metric --- rather than accepting
+the summary. Each provider call is correlated to the tape by \code{call\_id}, and
+usage-presence booleans keep a real zero distinct from a missing measurement
+(Section~\ref{sec:roles}). This verifies the number is honest, not that the science
+is good.
+
+\subsection{Anti-cheat by construction}
+
+For benchmarks whose metric could be gamed by memorizing a fixed evaluation input
+distribution, the evaluation input is randomized per run so a solution cannot
+hardcode the statistics of a known distribution --- a fast-because-faked kernel is
+designed to be impossible to pass off as genuinely fast. Combined with real public
+benchmark data and the per-round audit trail, this closes the metric-exploitation
+failure mode (objective O5, Section~\ref{sec:problem}) by construction rather than
+by after-the-fact inspection.
+
+\subsection{Credential redaction before persistence}
+
+A task-agnostic secret guard (\srcpath{core/secret\_guard.py}) scrubs credentials
+from newly written artifacts before they reach the event log or the Reviewer's
+prompt, and redacts persisted event and usage copies, matching authorization and
+API-key patterns, provider tokens, and generic key/value secrets. Redaction never
+judges scientific quality; when it rewrites an artifact it emits
+\code{round.secret\_redacted} so the Reviewer can rebuild the affected provenance
+hashes, and a scan error or an oversized artifact explicitly \emph{blocks}
+unconditional certification rather than silently passing --- the same fail-closed
+stance as the completion gate.
+
+\subsection{Provenance and artifact corroboration}
+
+Published evidence carries provenance. For website-sourced results, the retrieval
+records an HTTP status and a raw-HTML SHA-256 for each source page; for
+reproduced results, an on-disk artifact is identified by a logical project name,
+an artifact id, and a SHA-256 --- with no local absolute paths, usernames, or
+session ids (\srcpath{technical\_report/evidence/README.md}). The report figures
+carry their own provenance sidecars and reproducible hashes
+(Appendix~\ref{app:evidencemap}). Result \emph{signing} is deliberately not
+claimed: no cryptographic result-signing component exists in the current tree, and
+the report does not imply one.
+
+\subsection{Evidence tiers}
+
+Every quantitative statement is labeled by the strength of its evidence, and the
+label travels with the number wherever it appears. The evidence bundle defines two
+concrete tiers; the report additionally distinguishes external baselines and
+ongoing programs as reporting categories (Table~\ref{tab:tiers}).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{3.2cm} X p{3.0cm}@{}}
+\toprule
+\textbf{Tier / category} & \textbf{What it means} & \textbf{What it may claim} \\
+\midrule
+\code{local\_artifact} &
+A website result additionally corroborated by an in-repository reproduction
+artifact (logical project + artifact id + SHA-256). &
+An Argus result for that run, on stated hardware. \\
+\code{website\_snapshot} &
+A result card quoted verbatim from the live public record, with no in-repository
+reproduction artifact yet. &
+A scoped public claim under its stated protocol. \\
+External baseline &
+A published third-party or human target used for comparison. &
+A reference target; explicitly \emph{not} an Argus result. \\
+Ongoing / no claim &
+A program running without certified, reproducible completion. &
+Status ``ongoing''; no numeric Argus claim. \\
+\bottomrule
+\end{tabularx}
+\caption{Evidence tiers. The bundle
+(\code{technical\_report/evidence/website\_results.json}) marks each result
+\code{website\_snapshot} or \code{local\_artifact}; two of six carry the stronger
+tier (Section~\ref{sec:results}).}
+\label{tab:tiers}
+\end{table}
+
+\subsection{Completion is a single certified verdict}
+
+The measurement-integrity architecture converges on one rule: a program is
+complete only when the Reviewer certifies it against the full-pipeline stage
+checklist, with the \code{final\_submission\_certified} property fail-closed. There
+is no hardcoded completion gate and no independent validator behind the Reviewer;
+an earlier family of roughly twenty machine ``validate-*'' quality gates was removed
+once completion authority moved to the Reviewer's checklist, so that completion has
+exactly one owner and one auditable record. This concentrates authority in a single
+decision point --- examined honestly in Section~\ref{sec:limitations} --- but it
+also means completion is never the product of two components silently disagreeing.

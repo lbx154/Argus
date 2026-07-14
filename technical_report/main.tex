@@ -1,26 +1,30 @@
 \documentclass[11pt]{article}
 
 % ---------------------------------------------------------------------------
-% Argus: A Reliable Harness for Long-Horizon Autonomous Research
-% Technical Report 0.1
-% Single-column professional technical-report layout.
+% Argus: Autonomous Research Generation and Understanding System
+% Technical Report 0.2 -- Architecture, Research Infrastructure, and
+% Empirical Programs.
+% Single-column professional systems/research-engineering report.
 % Standard, widely available TeX Live packages only.
 % ---------------------------------------------------------------------------
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
-\usepackage[a4paper,margin=1in,headheight=14pt]{geometry}
+\usepackage{amsmath}
+\usepackage[a4paper,margin=0.9in,headheight=15pt]{geometry}
 \usepackage[protrusion=true,expansion=false]{microtype}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{array}
+\usepackage{longtable}
 \usepackage{enumitem}
 \usepackage{tcolorbox}
 \usepackage{graphicx}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
+\usepackage{caption}
 \usepackage[hidelinks]{hyperref}
 \usepackage[htt]{hyphenat}
 
@@ -35,6 +39,8 @@
 \definecolor{panelfill}{HTML}{F2F1EC}
 \definecolor{panelline}{HTML}{D8D6CE}
 \definecolor{calloutfill}{HTML}{EEF0F6}
+\definecolor{evidencefill}{HTML}{EAEEE8}
+\definecolor{evidenceline}{HTML}{9AAE93}
 
 \pagecolor{bonewhite}
 \color{graphite}
@@ -44,8 +50,9 @@
   linkcolor=argusindigo,
   urlcolor=argusindigo,
   citecolor=argusindigo,
-  pdftitle={Argus: A Reliable Harness for Long-Horizon Autonomous Research},
-  pdfauthor={Argus Team}
+  pdftitle={Argus: Autonomous Research Generation and Understanding System},
+  pdfauthor={Argus Team},
+  pdfsubject={Technical Report 0.2 -- Architecture, Research Infrastructure, and Empirical Programs}
 }
 
 % ---- Section styling: graphite headings with a restrained indigo rule -------
@@ -58,8 +65,9 @@
 \titleformat{\subsubsection}
   {\normalfont\normalsize\bfseries\color{graphitesoft}}
   {\thesubsubsection}{0.5em}{}
-\titlespacing*{\section}{0pt}{1.2em}{0.55em}
-\titlespacing*{\subsection}{0pt}{0.9em}{0.35em}
+\titlespacing*{\section}{0pt}{0.85em}{0.45em}
+\titlespacing*{\subsection}{0pt}{0.65em}{0.3em}
+\titlespacing*{\subsubsection}{0pt}{0.55em}{0.2em}
 
 % ---- Header / footer --------------------------------------------------------
 \pagestyle{fancy}
@@ -67,29 +75,52 @@
 \renewcommand{\headrulewidth}{0.4pt}
 \renewcommand{\footrulewidth}{0pt}
 \fancyhead[L]{\footnotesize\color{graphitesoft}Argus}
-\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.1}
+\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.2}
 \fancyfoot[C]{\footnotesize\color{graphitesoft}\thepage}
+
+% ---- Caption styling --------------------------------------------------------
+\captionsetup{font={small,color=graphitesoft},labelfont={bf,color=argusindigo},
+  labelsep=period,skip=5pt}
 
 % ---- Callout box style ------------------------------------------------------
 \newtcolorbox{callout}[1][Note]{
   enhanced, breakable,
   colback=calloutfill, colframe=argusindigo,
-  boxrule=0.4pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  boxrule=0.4pt, left=8pt, right=8pt, top=5pt, bottom=5pt,
+  before skip=5pt, after skip=5pt,
   arc=1.5pt,
   fonttitle=\bfseries\small\color{argusindigo},
   coltitle=argusindigo,
   title={#1}
 }
 
+% ---- Design-objective lead-in box (opens each major section) ----------------
+\newtcolorbox{designbox}[1][Design objective]{
+  enhanced, breakable,
+  colback=panelfill, colframe=panelline,
+  boxrule=0.5pt, left=8pt, right=8pt, top=4pt, bottom=4pt,
+  before skip=4pt, after skip=6pt,
+  arc=1.0pt,
+  fonttitle=\bfseries\small\color{graphitesoft},
+  coltitle=graphitesoft,
+  title={#1}
+}
+
 % Line spacing / paragraphs: short paragraphs, generous white space.
-\setlength{\parskip}{0.42em}
+\setlength{\parskip}{0.22em}
 \setlength{\parindent}{0pt}
-\renewcommand{\arraystretch}{1.25}
+% Compact but consistent spacing around the report's many tables/figures.
+\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{4pt}
+\renewcommand{\arraystretch}{1.12}
 \setlist{itemsep=1.5pt,topsep=2pt,parsep=0pt}
 
 \newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\srcpath}[1]{{\small\color{graphitesoft}\texttt{#1}}}
 \setlength{\emergencystretch}{3em}
-\tolerance=800
+\tolerance=900
 \hyphenpenalty=400
 
 % ---------------------------------------------------------------------------
@@ -98,54 +129,74 @@
 \thispagestyle{empty}
 
 \begin{center}
-  \vspace*{0.6cm}
-  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}\\[0.9cm]
-  {\Huge\bfseries\color{argusindigo} Argus}\\[0.35cm]
-  {\LARGE\bfseries\color{graphite} A Reliable Harness for\\[0.15cm] Long-Horizon Autonomous Research}\\[0.9cm]
-  {\large\color{graphitesoft} Argus Team}\\[0.25cm]
-  {\normalsize\color{graphitesoft} July 2026 \quad\textbullet\quad Technical Report 0.1}\\[0.7cm]
+  \vspace*{0.1cm}
+  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}\\[0.55cm]
+  {\Huge\bfseries\color{argusindigo} Argus}\\[0.3cm]
+  {\LARGE\bfseries\color{graphite} Autonomous Research Generation\\[0.12cm]
+    and Understanding System}\\[0.5cm]
+  {\large\color{graphitesoft} Technical Report 0.2}\\[0.15cm]
+  {\normalsize\color{graphitesoft} Architecture, Research Infrastructure, and
+    Empirical Programs}\\[0.5cm]
+  {\large\color{graphitesoft} Argus Team}\\[0.2cm]
+  {\normalsize\color{graphitesoft} July 2026}\\[0.45cm]
   {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}
 \end{center}
 
-\vspace{0.6cm}
+\vspace{0.3cm}
 
 \begin{quote}
 \small\color{graphitesoft}
-This report describes an engineering system for reliable, auditable, long-horizon
-autonomous research. It documents design intent, architecture, and reliability
-mechanisms, and it states the current evidence status honestly. It is not a
-results paper and does not claim state-of-the-art performance, a finished
-research program, or an accepted autonomous publication.
+Argus is a research infrastructure that operates a capable coding-and-reasoning
+model as an autonomous research system over long horizons --- hours to days ---
+against real, public benchmarks and open research problems. This report documents
+the system as engineered: a three-plane architecture, the research runtime and
+mission lifecycle, the state and knowledge systems, the agent decision interfaces,
+the experiment and resource infrastructure, the reliability and recovery model, and
+the evidence architecture that keeps every measurement auditable. It reports the
+current public results across six arenas and a 41-paper research portfolio, each a
+scoped claim under its stated protocol and evidence tier. It is an engineering
+report, not a results paper: it does not claim universal state of the art, an
+accepted autonomous publication, or correctness outside the stated protocols.
 \end{quote}
 
-\vspace{0.4cm}
-{\small\color{argusindigo}\hrulefill}\\[0.2cm]
+\vspace{0.25cm}
+{\small\color{argusindigo}\hrulefill}\\[0.15cm]
 {\footnotesize\color{graphitesoft}\textbf{Contents}}
-\vspace{-0.4cm}
+\vspace{-0.35cm}
 \begingroup
 \hypersetup{linkcolor=graphite}
 \renewcommand{\contentsname}{}
 \setcounter{tocdepth}{1}
-\tableofcontents
+{\small\tableofcontents}
 \endgroup
 {\small\color{argusindigo}\hrulefill}
 
 \clearpage
 
-\input{sections/01_abstract}
-\input{sections/02_introduction}
-\input{sections/03_design}
-\input{sections/04_architecture}
-\input{sections/05_reliability}
-\input{sections/06_evaluation}
-\input{sections/07_programs}
-\input{sections/08_limitations}
-\input{sections/09_conclusion}
+\input{sections/01_executive_summary}
+\input{sections/02_problem}
+\input{sections/03_architecture}
+\input{sections/04_runtime_lifecycle}
+\input{sections/05_state_memory}
+\input{sections/06_roles}
+\input{sections/07_execution_resources}
+\input{sections/08_reliability}
+\input{sections/09_evaluation_evidence}
+\input{sections/10_results}
+\input{sections/11_portfolio}
+\input{sections/12_workbench}
+\input{sections/13_deployment_security}
+\input{sections/14_limitations}
+\input{sections/15_roadmap}
 
+\appendix
+\input{sections/90_appendix}
+
+\vspace{-0.5\baselineskip}
 \bibliographystyle{plain}
 \let\OLDthebibliography\thebibliography
 \renewcommand\thebibliography[1]{%
-  \small
+  \footnotesize
   \OLDthebibliography{#1}%
   \setlength{\itemsep}{0pt}%
   \setlength{\parsep}{0pt}%

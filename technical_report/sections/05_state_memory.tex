@@ -1,0 +1,121 @@
+\section{State, Memory, and Knowledge Systems}
+\label{sec:state}
+
+\begin{designbox}
+Persist every mission-relevant fact on disk so that the runtime is stateless
+between rounds and restartable at any boundary. Working memory is a small, shared,
+rewritable note; long-term knowledge is a set of reusable skills and an immutable,
+evidence-cited wiki. Nothing important lives only inside a provider session.
+\end{designbox}
+
+Long-horizon autonomy fails when state is trapped in a growing model context. The
+Argus answer is to keep the durable truth on disk and to treat each provider
+session as disposable. This section describes the on-disk layout, the working-memory
+model, the session model, and the two long-term knowledge systems.
+
+\subsection{On-disk layout}
+
+A single module is the source of truth for all paths
+(\srcpath{core/paths.py}). A global root, \code{\textasciitilde/.argus-skill/}
+(overridable via \code{ARGUS\_SKILL\_HOME}), holds cross-project identity, shared
+skills, and an operator knob store; each project lives under
+\code{projects/<fingerprint>/}, where the fingerprint is derived from the project
+working directory (empty, \code{.}, and \code{/} fingerprints are rejected).
+Table~\ref{tab:persist} lists the principal state files, their owner, and their
+mutability. The canonical timeline is the append-only \code{events.jsonl}; other
+files (backlog, continuous configuration, inbox, daemon status) are derived views
+or working state that can be rebuilt or safely reset.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{3.5cm} p{2.2cm} X p{1.9cm}@{}}
+\toprule
+\textbf{Path (per project)} & \textbf{Owner} & \textbf{Content} & \textbf{Mutability} \\
+\midrule
+\code{events.jsonl}        & evidence plane & canonical typed-event timeline & append-only \\
+\code{backlog.jsonl}       & scheduler      & pending / running / done work items & atomic claim \\
+\code{continuous.json}     & scheduler      & STANDING lifetime + campaign config & rewrite \\
+\code{inbox.jsonl}         & operator       & queued operator messages / answers & append + drain \\
+\code{skills/}             & skill system   & project-layer distilled skills & versioned \\
+\code{CHECKPOINT.md}       & Eng./Rev. & shared working-memory note & rewrite in place \\
+\code{daemon.pid}          & daemon         & concurrency lock & exclusive \\
+\code{daemon.status.json}  & daemon         & liveness / status snapshot & rewrite \\
+\addlinespace
+\code{identity.md}$^\dagger$ & global & author / machine identity & operator \\
+\code{skills/}$^\dagger$     & global & shared skill library & versioned \\
+\code{config.json}$^\dagger$ & global & operator knob overrides & operator \\
+\bottomrule
+\end{tabularx}
+\caption{Principal persisted state (abridged; full map in
+Appendix~\ref{app:state}). The event tape is the only append-only source of
+truth; everything else is derivable or resettable working state.
+$^\dagger$ under the global root \code{\textasciitilde/.argus-skill/}.}
+\label{tab:persist}
+\end{table}
+
+\subsection{Working memory: fresh sessions over a shared note}
+
+Argus does \emph{not} carry a mission forward by resuming one ever-growing
+provider session. Each Engineer round and each Reviewer round runs in a
+\textbf{fresh provider session}; cross-round state is carried by an ordinary
+Markdown note in the project root, \code{CHECKPOINT.md}
+(\srcpath{engineer/checkpoint.py}). The note has fixed sections --- Goal, Current
+State, Verified Done, Failed / Dead Ends, Open Questions / Blockers, Next Action,
+Relevant Files and Evidence --- and a strict edit protocol: the Engineer reads the
+version the previous Reviewer left, does its work, and updates the note; the
+Reviewer then reads the Engineer's edit against the real artifacts and is the
+\emph{final} editor of the round. The next round's fresh Engineer starts from the
+Reviewer's version.
+
+This design directly addresses the context-degradation failure mode
+(Section~\ref{sec:problem}). Because no session is resumed, there is no
+unbounded context to compact lossily; because the note is a \emph{current-state}
+scratchpad rather than an append-only log, stale detail is deleted rather than
+accumulated; and because the ground truth always remains in the on-disk
+artifacts, the note can be small without losing information. It replaces an
+earlier structured-JSON checkpoint field, which is retained only for backward
+compatibility.
+
+\subsection{Session model and recency memory}
+
+A run keys its per-project state by a session id: \code{--new} starts a fresh
+session, \code{--resume [<id>]} offers a picker, and \code{--continue} attaches to
+the most recent (\srcpath{core/session.py}). Combined with the identity-checked
+daemon resume (Section~\ref{sec:runtime}), this controls whether a restart
+continues an existing campaign or begins a new one. Before each mission the
+scheduler also renders a short memory preamble from the most recent project journal
+entries, marked \emph{non-authoritative advisory} (\srcpath{life/memory.py}). The
+preamble is pure recency --- it does not score ``relevance'' by keyword overlap;
+which past work matters is left to the agent to judge after reading (O1). The raw
+objective is never mixed into it, so skill-matching stays clean.
+
+\subsection{Skills: reusable capability with a lifecycle}
+
+Skills are Markdown files with lightweight frontmatter, managed by a skill
+subsystem of roughly 33 modules (\srcpath{argus\_skill/skills/}). On a matcher
+miss a Scientist distills a new, immediately usable project-layer skill and saves
+it versioned; there is no separate quality gate or provisional/confirmed promotion
+state. A skill's authority comes instead from evidence: real usage records, the
+Reviewer's feedback, version history, and a reversible archive/compaction path
+feed later update, split, merge, and retire decisions
+(\srcpath{skills/store.py}, \srcpath{skills/scientist.py},
+\srcpath{skills/lifecycle.py}). The Reviewer is the \emph{sole} author of skill
+operations for a mission --- there is no Manager gate on a skill update. The core
+loop contract (distill on miss, then converge; short-circuit on \code{blocked};
+stay bounded by \code{max\_rounds}) is documented by
+\srcpath{tests/test\_loop\_smoke.py}.
+
+\subsection{Project wiki: immutable, evidence-cited knowledge}
+
+The second knowledge system is a per-project wiki (\srcpath{argus\_skill/wiki/},
+roughly 14 modules). After each real Reviewer verdict a \emph{source} RoundCard is
+written mechanically from the verdict, planner report, and research result; these
+sources are immutable and citable. The Reviewer may later synthesize
+technique/conflict/pattern pages from them, but every page must cite evidence
+spans that are \emph{mechanically verified verbatim} against a wiki source
+(\srcpath{skills/provenance.py}, \code{verify\_evidence}). A fabricated citation is
+rejected regardless of the Reviewer's judgment --- the same fail-closed provenance
+rule that governs completion certification (Section~\ref{sec:evidence}). The
+Planner reads only the few most recent sources, so the wiki informs planning
+without becoming an unbounded prompt.

@@ -1,0 +1,84 @@
+\section{Deployment, Security, and Cost Control}
+\label{sec:deploy}
+
+\begin{designbox}
+Deploy as a standard, inspectable service that survives crashes and reboots and
+drains cleanly on stop; contain each builder role to its own project working
+directory; keep credentials out of both artifacts and manuscripts; and bound spend
+with reservations rather than trust. Prefer boring, auditable mechanisms over
+bespoke supervision.
+\end{designbox}
+
+\subsection{Deployment topology}
+
+The intended deployment is a per-project daemon supervised by \code{systemd
+--user}. The repository ships a unit template (\srcpath{deploy/argus-skill.service})
+whose semantics are summarized in Table~\ref{tab:systemd}: it starts the daemon in
+the foreground so the service manager owns the process lifecycle, drains to the
+mission boundary on stop, restarts on failure with a bounded restart budget, and is
+cwd-bound so the working directory maps to a project fingerprint. Running
+\code{loginctl enable-linger} carries the daemon across logout and reboot. Crash
+and reboot restart is thus owned by a standard, inspectable unit file rather than by
+custom logic; the identity-checked resume (Section~\ref{sec:runtime}) ensures a
+restart continues the right campaign.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{4.6cm} X@{}}
+\toprule
+\textbf{Unit directive} & \textbf{Value / effect} \\
+\midrule
+\code{ExecStart}          & \code{argus-skill --daemon-fg} (foreground; systemd owns lifecycle) \\
+\code{ExecStop}           & \code{argus-skill --daemon-stop --drain} (quiesce to mission boundary) \\
+\code{TimeoutStopSec}     & \code{1800} --- let a draining mission finish before escalating \\
+\code{KillSignal}         & \code{SIGTERM} (no mid-mission \code{SIGKILL}) \\
+\code{Restart} / \code{RestartSec} & \code{on-failure} / \code{10}\,s \\
+\code{StartLimitIntervalSec} / \code{Burst} & \code{300} / \code{5} --- bound restart storms on a bad config \\
+\code{WorkingDirectory}   & the project worktree (cwd $\rightarrow$ fingerprint) \\
+\bottomrule
+\end{tabularx}
+\caption{The \code{systemd --user} unit template
+(\code{deploy/argus-skill.service}). The unit owns crash/reboot restart; stop
+drains rather than kills.}
+\label{tab:systemd}
+\end{table}
+
+\subsection{Containment: sandbox and safe mode}
+
+Each builder role (Engineer, Reviewer, Planner, subagent) can be run under a
+provider sandbox. The sandbox policy (\srcpath{core/sandbox.py}) resolves a
+workspace-write sandbox confined to the project working directory, or an
+\emph{honest} bypass of \code{None} when no real sandbox is available --- and it
+\emph{refuses} a fake sandbox that would present as confined while remaining
+writable. The containment invariant is explicit: a sandboxed builder may write only
+its project working directory, never the global state root
+(\code{\textasciitilde/.argus-skill}) or the provider's own configuration, because
+writes there would let a role edit the very controls that supervise it. A separate
+\code{ARGUS\_SKILL\_SAFE\_MODE} gate is honored by the Manager and the supervisor.
+The sandbox is opt-in per box because network, cache, and cluster access must first
+be verified under it.
+
+\subsection{Secret handling}
+
+Security of credentials is handled in two places. Before persistence, the secret
+guard (Section~\ref{sec:evidence}) scrubs credentials from artifacts, events, and
+usage copies, and blocks unconditional certification on a scan error or an
+oversized artifact. Before a run, a vault preflight (\srcpath{core/vault\_preflight.py})
+checks secret availability. For the research pipeline specifically, a dedicated
+review pass looks for infrastructure leakage --- local paths, device or cache
+details, or provider route/config --- so that runtime detail never reaches a
+manuscript. None of these is a proof of zero leakage; each is a task-agnostic
+scanner, and the operator remains responsible for how secrets enter the
+environment.
+
+\subsection{Cost control}
+
+Spend is bounded by the reservation-based budget system of
+Section~\ref{sec:execution}: a per-mission preflight cap (\$30 by default), a daily
+cap (\$180), an optional global daily cap (off by default), and provider-side spend
+fences injected from an atomic reservation rather than from role configuration.
+Because the fences come from the reservation, a role cannot raise its own ceiling,
+and because every reservation is event-backed, spend is fully attributable after
+the fact. These are defaults, not guarantees: a poorly bounded campaign can still be
+expensive, and 7$\times$24 operation is not free (Section~\ref{sec:limitations}).

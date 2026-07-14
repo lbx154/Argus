@@ -1,0 +1,147 @@
+\section{Key Interfaces and Status Taxonomy}
+\label{app:interfaces}\label{app:status}
+
+The role decision interfaces are summarized in Section~\ref{sec:roles}
+(Tables~\ref{tab:manager}--\ref{tab:reviewer}). This appendix records the status
+taxonomy they resolve into. Three enumerations govern outcomes: \code{ReviewStatus}
+(the verdict), \code{LoopStatus} (a mission's terminal or paused outcome), and
+\code{PlannerVerdictStatus} (the planner's event contract), the last carrying an
+explicit (success, recoverable) policy that determines how the scheduler reacts.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{4.2cm} c c X@{}}
+\toprule
+\textbf{PlannerVerdictStatus} & \textbf{success} & \textbf{recoverable} & \textbf{Meaning} \\
+\midrule
+\code{planned}                   & yes & no  & a new task batch was produced \\
+\code{completed}                 & yes & no  & the project is certified complete \\
+\code{research\_incomplete}      & no  & yes & more research is required \\
+\code{paused\_budget}            & no  & yes & budget exhausted; recheck later \\
+\code{paused\_no\_breakthrough}  & no  & yes & no breakthrough this cycle \\
+\code{exhausted\_current\_methods} & no & yes & current methods exhausted \\
+\code{provider\_cooldown}        & no  & yes & provider cooldown in effect \\
+\code{provider\_fence}           & no  & yes & provider spend fence hit \\
+\code{infra\_blocked}            & no  & yes & infrastructure blocker \\
+\code{error}                     & no  & no  & unrecoverable error \\
+\bottomrule
+\end{tabularx}
+\caption{\code{PlannerVerdictStatus} and its (success, recoverable) policy
+(\code{core/planner\_verdict.py}). Legacy aliases (\code{done},
+\code{paused\_provider\_cooldown}, \code{paused\_provider\_fence}) map onto these.}
+\end{table}
+
+\noindent\textbf{ReviewStatus} (\code{core/models.py}):
+\code{done}, \code{continue}, \code{blocked}, plus the research-pause states
+\code{research\_incomplete}, \code{paused\_no\_breakthrough}, and
+\code{exhausted\_current\_methods}.
+
+\noindent\textbf{LoopStatus} (\code{core/models.py}): the terminal set
+\code{done}, \code{max\_rounds}, \code{blocked}, \code{no\_progress},
+\code{error}, \code{budget\_exhausted}; and the paused set \code{paused\_budget},
+\code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
+\code{infra\_blocked}, \code{research\_incomplete}, \code{paused\_no\_breakthrough},
+\code{exhausted\_current\_methods}. Every mission ends in exactly one of these ---
+never an unbounded spin (Section~\ref{sec:runtime}).
+
+\section{Persisted State Map}
+\label{app:state}
+
+Table~\ref{tab:persist} (Section~\ref{sec:state}) lists the principal state files;
+the full layout is defined in \srcpath{core/paths.py}. The global root
+\code{\textasciitilde/.argus-skill/} (overridable via \code{ARGUS\_SKILL\_HOME}; a
+legacy \code{ARGUS\_SKILL\_LIFE\_DIR} shim is retained for migration) holds
+cross-project identity, the shared skill library, and an operator knob store; each
+\code{projects/<fingerprint>/} subtree holds the append-only \code{events.jsonl},
+\code{backlog.jsonl}, \code{continuous.json}, \code{inbox.jsonl}, a \code{skills/}
+directory, \code{daemon.pid}, \code{daemon.status.json}, and \code{CHECKPOINT.md}.
+A runtime path resolver rejects unresolved shell placeholders, and the project-root
+helper rejects empty, \code{.}, and \code{/} fingerprints, so a mis-resolved path
+fails loudly rather than writing to the wrong place.
+
+\section{Event Taxonomy}
+\label{app:events}
+
+Cross-component state is exchanged through a canonical catalog of \textbf{107
+typed event types} across \textbf{11 categories}
+(\srcpath{core/event\_catalog.py}); \textbf{75} carry a validated payload schema.
+Table~\ref{tab:events} gives the per-category counts and representative events.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.2cm} c X@{}}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{Representative events} \\
+\midrule
+\code{lifecycle} & 35 & \code{loop.start}, \code{round.main.completed}, \code{round.review.completed}, \code{budget.reservation.*}, \code{life.mission.started} \\
+\code{skill}     & 20 & \code{skill.match.*}, \code{scientist.start}, \code{skill.outcome} \\
+\code{wiki}      & 17 & wiki source/page ingest, promotion, validation \\
+\code{planner}   &  9 & \code{life.planner.start}, \code{life.planner.verdict} \\
+\code{research}  &  7 & \code{research.achievement.certified} (sole authoritative achievement) \\
+\code{agent\_io} &  5 & \code{agent.io.start}, \code{agent.io.stream}, \code{agent.io.complete} \\
+\code{daemon}    &  5 & daemon start / stop / handoff / status \\
+\code{idea}      &  3 & idea lifecycle \\
+\code{provider}  &  3 & \code{provider.request.started/completed/denied} \\
+\code{usage}     &  2 & \code{usage.recorded}, cost \\
+\code{operator}  &  1 & operator inbox event \\
+\bottomrule
+\end{tabularx}
+\caption{Event taxonomy: 107 types across 11 categories
+(\code{core/event\_catalog.py}). Budget, loop, and round events are grouped under
+\code{lifecycle}.}
+\label{tab:events}
+\end{table}
+
+\section{Evidence Map}
+\label{app:evidencemap}
+
+Every engineering claim in this report is grounded in the current
+\code{argus-skill} repository~\cite{argus_repo} rather than in transient run
+directories. Table~\ref{tab:evmap} maps each subsystem to its primary live source.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{4.0cm} X@{}}
+\toprule
+\textbf{Subsystem (section)} & \textbf{Primary source path(s)} \\
+\midrule
+Three planes (\S\ref{sec:architecture})       & \code{docs/ARCHITECTURE.md}; \code{core/}, \code{manager/}, \code{engineer/}, \code{reviewer/} \\
+Mission lifecycle / daemon (\S\ref{sec:runtime}) & \code{life/supervisor/\_core.py}, \code{daemon/life\_worker.py}, \code{daemon/handoff.py} \\
+State \& memory (\S\ref{sec:state})           & \code{core/paths.py}, \code{engineer/checkpoint.py}, \code{life/memory.py}, \code{skills/}, \code{wiki/} \\
+Role interfaces (\S\ref{sec:roles})           & \code{core/models.py}, \code{planner/planner.py}, \code{manager/\_core.py}, \code{reviewer/reviewer\_schema.json} \\
+Execution / budgets (\S\ref{sec:execution})   & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
+Reliability guards (\S\ref{sec:reliability})  & \code{engineer/runner.py}, \code{regime\_jump/} \\
+Evidence \& integrity (\S\ref{sec:evidence})  & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
+Cockpit / API (\S\ref{sec:workbench})         & \code{webapi/server.py} \\
+Deployment / security (\S\ref{sec:deploy})    & \code{deploy/argus-skill.service}, \code{core/sandbox.py}, \code{core/vault\_preflight.py} \\
+Public results \& portfolio (\S\ref{sec:results}--\ref{sec:portfolio}) & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
+\bottomrule
+\end{tabularx}
+\caption{Evidence map: subsystem to live source. This report cites repository
+paths on \code{main}, not any transient local filesystem location.}
+\label{tab:evmap}
+\end{table}
+
+\paragraph{Figure provenance.} The four data figures (\code{system\_planes},
+\code{mission\_lifecycle}, \code{public\_results}, \code{paper\_portfolio}) are
+generated deterministically by
+\srcpath{technical\_report/figures/build\_report\_figures.py} from the committed
+evidence bundles, with no image-model call; their reproducible SHA-256 digests are
+in \srcpath{figures/REPORT\_FIGURES.json}. The two schematic figures were produced
+through the image-2 pipeline and carry prompt, inspect, review, and provenance
+sidecars in \srcpath{figures/IMAGE2\_FIGURES.json}.
+
+\section{Paper-Inventory Summary}
+\label{app:papers}
+
+The 41-paper portfolio (Section~\ref{sec:portfolio}) is enumerated in the bundle
+\srcpath{technical\_report/evidence/paper\_inventory.json}, retrieved from the
+public research page~\cite{argus_research} with an HTTP-200 raw-HTML SHA-256 for
+provenance. It totals 41 papers --- 35 manuscripts and 6 drafts, duplicates removed
+--- across Multimodal \& Vision-Language Models (16), Cognitive Bias in LLMs (9),
+Efficiency, Compression \& Decoding (7), LLM Agent Methods (5), World Models (2),
+and State Trace \& Auditability (2), compared only to human-authored
+literature/baselines; no external acceptance is claimed.

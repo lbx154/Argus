@@ -1,0 +1,101 @@
+\section{Problem Definition and Design Objectives}
+\label{sec:problem}
+
+\begin{designbox}
+Make long-horizon autonomous research \emph{reliable and auditable} without
+substituting infrastructure heuristics for the agent's scientific judgment. The
+system must keep a multi-hour, unattended run bounded in cost, resistant to
+silent degradation, honest about the provenance of every number, and complete
+only under an explicit, evidence-grounded verdict.
+\end{designbox}
+
+\subsection{The problem: reasoning is not the bottleneck}
+
+Language-model agents can now read code, run experiments, and write prose with
+little supervision. Structured reasoning-and-acting loops~\cite{yao2023react},
+self-reflection over past attempts~\cite{shinn2023reflexion}, open-ended skill
+acquisition~\cite{wang2023voyager}, and purpose-built agent--computer interfaces
+for software engineering~\cite{yang2024sweagent} have each raised what a single
+agent can do; systems have attempted the full arc of scientific
+work~\cite{lu2024aiscientist} and external efforts have reported progress toward
+automating AI research itself~\cite{recursive2026firststeps}. The open question
+is no longer whether an agent \emph{can} take a useful action, but whether it can
+be trusted to take thousands of them, unattended, without the run quietly falling
+apart.
+
+Give a capable model one hard objective and enough wall-clock time and the
+failure mode is rarely a failure of reasoning. It is a failure of the
+\emph{execution substrate}. Argus is designed around four degradation modes that
+we have repeatedly observed in long-horizon runs, and a fifth, integrity risk
+that is specific to autonomous benchmarking.
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[High activity, low decision.] The agent stays busy --- re-reading the
+    same files, rewriting the same status note, re-polling a healthy job --- while
+    making no decision that advances the research. Round count and token spend
+    climb; the frontier does not. Measuring progress by activity is precisely the
+    trap.
+  \item[Context degradation.] A single mission is resumed many times, and the
+    underlying model compacts its context lossily on each overflow, discarding
+    working memory so the agent re-treads dead ends. This is a structural
+    property of unbounded session growth, not a prompt-quality problem.
+  \item[Background-job babysitting.] The agent launches a long experiment that
+    already has its own health monitor, then blocks the main line of work polling
+    it every round instead of advancing independent tasks.
+  \item[Premature acceptance.] The agent declares victory. Without an independent
+    authority checking the claim against evidence, ``done'' is a self-report, and
+    a self-report is not a result.
+  \item[Metric exploitation.] An agent optimizing a metric will, if permitted,
+    exploit the measurement rather than solve the task --- hardcoding an answer,
+    memorizing a fixed evaluation input distribution, or editing a validator to
+    report success. A system that cannot resist this is not merely unreliable; it
+    is actively misleading.
+\end{description}
+
+None of these five is solved by a larger model or a longer prompt. They live in
+the substrate, so they must be addressed in the substrate --- but without
+pretending to know better than the agent about the science.
+
+\subsection{Design objectives}
+
+The following objectives follow directly from those failure modes and recur as
+the acceptance criteria for each subsystem in the rest of the report.
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[O1 --- Judgment stays with the agent.] Every content-dependent decision
+    (novelty, fairness, sufficiency, completion) is returned to a model-driven
+    role. The infrastructure does not classify objectives, rewrite verdicts, or
+    score ``relevance'' by keyword. Where a prior version encoded such a
+    heuristic, it was removed (Section~\ref{sec:roles}).
+  \item[O2 --- Progress is measured, not inferred.] Forward motion is counted
+    from the Reviewer's structured progress classification, never inferred from
+    tool activity, filenames, or token emission (Section~\ref{sec:reliability}).
+  \item[O3 --- Bounded and recoverable.] A mission runs under explicit budget and
+    round bounds, and every degradation --- provider outage, context pressure,
+    stall, background wait, budget exhaustion --- maps to a first-class terminal
+    or paused status rather than an unbounded spin (Sections~\ref{sec:runtime},
+    \ref{sec:reliability}).
+  \item[O4 --- Completion has exactly one owner.] A mission is complete only when
+    the Reviewer certifies it against a structured checklist. There is no separate
+    hardcoded completion gate and no independent validator behind the Reviewer
+    (Sections~\ref{sec:roles}, \ref{sec:evidence}).
+  \item[O5 --- Measurement integrity by construction.] Evaluation uses real
+    public data; where a metric is gameable, the evaluation input is randomized so
+    a solution cannot hardcode the statistics of a known distribution; every
+    round's evidence is persisted for audit; and credentials are redacted before
+    anything is recorded (Section~\ref{sec:evidence}).
+  \item[O6 --- Everything is auditable.] State, decisions, spend, and artifacts
+    are persisted per project on an append-only event tape with provenance
+    digests, so a run survives restarts and can be reconstructed and inspected
+    after the fact (Sections~\ref{sec:state}, \ref{sec:evidence}).
+\end{description}
+
+\subsection{The one asymmetry}
+
+There is exactly one place where the infrastructure may constrain the agent with
+hard rules, and it is not about research quality but integrity (O5): real public
+data, randomized evaluation inputs, an exact per-round audit trail, and credential
+scrubbing. These invariants never judge whether the science is good --- only that
+the numbers are honest. Maximal deference on judgment, zero tolerance on integrity:
+that asymmetry is the design's core, and the sections that follow show where it is
+enforced in code.

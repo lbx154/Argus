@@ -1,0 +1,77 @@
+\section{Operator Workbench and Observability}
+\label{sec:workbench}
+
+\begin{designbox}
+Give the operator a live, read-then-command surface over the same event tape the
+system runs on: follow any mission round by round, inspect exactly what was
+produced, answer the one question a mission needs, and steer the daemon --- all
+behind an authentication boundary on every state-changing action.
+\end{designbox}
+
+Argus is not only a daemon; it is a live workbench. An operator configures the
+machine's policy once --- author identity, per-role backend and model access, GPU
+allocation --- and then works through a cockpit backed by the same event stream and
+persisted state described in Sections~\ref{sec:state} and~\ref{sec:evidence}. The
+cockpit has a terminal surface (an Ink TUI), a web surface, and an HTTP/WebSocket
+API (\srcpath{webapi/server.py}, roughly 2{,}500 lines); there is no embedded
+Python REPL.
+
+\subsection{The four surfaces}
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[Cockpit.] The front door routes free text through the Manager, so an
+    operator can say ``switch to the Copilot backend'' in plain language and it
+    takes effect without editing a config file.
+  \item[Mission view.] The four roles are shown as peers, and a mission is followed
+    round by round via \code{--status}, \code{--watch}, and \code{--follow}, backed
+    by the structured event stream (\code{round.main.completed},
+    \code{round.review.completed}, and others).
+  \item[Inspectable artifacts.] Because the Engineer and Reviewer share a work-tree
+    and every round is persisted, the operator can open exactly what was produced
+    and read the Reviewer's reasoning rather than a summary.
+  \item[Intervention.] The operator can nudge or abort a mission, drain the daemon
+    at a clean boundary, and rely on identity-checked resume so an upgrade does not
+    silently re-plan (Section~\ref{sec:runtime}).
+\end{description}
+
+\subsection{The API surface}
+
+Table~\ref{tab:api} summarizes the API. The read surface is unauthenticated
+inspection; the command surface mutates state and, when an auth token is
+configured, requires an \code{Authorization} header on every request and on the
+WebSocket handshake (\srcpath{webapi/server.py}). The design is read-open,
+command-closed: observing a run is friction-free, but changing one is gated.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.0cm} X p{1.6cm}@{}}
+\toprule
+\textbf{Method} & \textbf{Representative endpoints} & \textbf{Auth} \\
+\midrule
+GET   & \code{/api/projects}, \code{.../snapshot}, \code{.../events}, \code{.../status}, \code{.../journal}, \code{.../transcript}, \code{.../doctor}, \code{/api/meta}, \code{/api/metrics}, \code{/metrics}, \code{/api/trash} & open (read) \\
+POST  & \code{.../tasks}, \code{.../message}, \code{.../nudge}, \code{.../plan}, \code{.../mission/abort}, \code{.../reset}, \code{.../skills}, \code{.../config/set}, \code{.../continuous} & token \\
+POST  & \code{.../daemon/start}, \code{.../daemon/stop}, \code{.../daemon/replace}, \code{.../daemon/upgrade}, \code{/api/daemons} & token \\
+POST  & \code{.../backlog/\{item\}/stop}, \code{.../backlog/\{item\}/dispose}, \code{.../identity}, \code{.../launch-cwd}, \code{.../note} & token \\
+PATCH / DELETE & \code{/api/projects/\{sid\}} (rename / trash-restore lifecycle) & token \\
+WS    & \code{/api/projects/\{sid\}/stream} (live event stream) & token \\
+\bottomrule
+\end{tabularx}
+\caption{Cockpit API surface (representative; \code{webapi/server.py}). Read
+endpoints are open inspection; every command endpoint is authentication-gated when
+a token is configured.}
+\label{tab:api}
+\end{table}
+
+\subsection{Event streaming and the operator inbox}
+
+A plain command POST discards the live agent-message blocks a mission emits, so a
+dedicated \code{/message/stream} endpoint surfaces them as they arrive, driven by
+the \code{on\_agent\_message} streaming callback (Section~\ref{sec:roles}); the
+WebSocket stream carries the same typed events the tape records, so live viewing
+and later audit see the same data. The decision interface to a human is
+deliberately narrow: a mission surfaces at most one blocking question --- the
+Reviewer's \code{operator\_question} --- queued to and drained from an operator
+inbox (\code{life.inbox.queued/drained}), answered through the command surface.
+This keeps unattended operation genuinely unattended: the system asks for input
+only when a mission is truly blocked on a decision only a human can make.

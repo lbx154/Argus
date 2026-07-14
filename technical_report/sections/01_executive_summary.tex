@@ -1,0 +1,90 @@
+\section{Executive Summary}
+\label{sec:summary}
+
+Argus is a research infrastructure for autonomous scientific work. It operates a
+capable coding-and-reasoning model as a persistent research system that reads
+code, runs experiments on real hardware, analyzes results, and writes
+manuscripts against real public benchmarks and open research problems --- over
+horizons of hours to days, with an operator supervising rather than driving. The
+system is implemented in the \code{argus-skill} repository~\cite{argus_repo} and
+runs continuously as a detached daemon.
+
+\subsection{What was built}
+
+The deliverable is not a prompt or a single agent loop; it is an engineered
+runtime with a clear separation between two kinds of concern. \emph{Scientific
+judgment} --- what to try next, whether a baseline is strong enough, why an
+experiment is slow, whether the work is finished --- is carried by four
+persistent model-driven roles: a Manager (front door and pipeline-stage
+authority), a Planner (forward scheduling), an Engineer (execution), and a
+Reviewer (completion authority). \emph{Task-agnostic infrastructure} --- budget
+and rate limiting, persistence and working memory, scheduling and daemon
+lifecycle, structured input/output, provider routing, and measurement-integrity
+controls --- is carried by a runtime that records and paces the work but never
+decides the science. This separation is the organizing principle of the report,
+formalized in Section~\ref{sec:architecture} as three planes: a
+\textbf{control plane}, an \textbf{execution plane}, and an \textbf{evidence
+plane}.
+
+\subsection{Scale and architecture}
+
+The live system is substantial. The mission scheduler, daemon worker, engineer
+round loop, reviewer, planner, and web service together span thousands of lines
+of production Python; the daemon worker alone is roughly 1{,}800 lines and the
+web service roughly 2{,}500. Cross-component state is exchanged through a
+canonical event catalog of \textbf{107 typed event types} across
+\textbf{11 categories}, with \textbf{75} of them carrying validated payload
+schemas (Appendix~\ref{app:events}). Role contracts are explicit Python
+dataclasses (Section~\ref{sec:roles}, Appendix~\ref{app:interfaces}). Persistent
+state is organized as a per-project subtree under a global root, with an
+append-only event tape as the canonical timeline
+(Section~\ref{sec:state}, Appendix~\ref{app:state}). The daemon supports a
+drain-to-boundary stop, a blue/green self-handoff on source change, and an
+identity-checked resume so an upgrade never silently re-plans a campaign
+(Section~\ref{sec:runtime}).
+
+\subsection{Public results and research portfolio}
+
+Argus publishes a live public record~\cite{argus_results}. This report
+reproduces its six current arena results
+(Section~\ref{sec:results}, Figure~\ref{fig:results}), each with the exact
+protocol it was measured under and a human-first comparison: NVIDIA
+SOL-ExecBench (B200, global rank \#6 with two head-to-head wins over
+Recursive~\cite{recursive2026firststeps}), nanochat on B200 (0.9636 BPB vs.\
+human SOTA 0.9646) and H100 (0.9855 vs.\ 0.9879 BPB), the nanoGPT speedrun
+(79.77\,s vs.\ the same-device human record 80.18\,s), AARRI-Bench (76.8\% vs.\
+the paper-reported best 68.3\%), and Arbor. Two of the six are additionally
+corroborated by an in-repository reproduction artifact; the distinction between a
+public website snapshot and a locally corroborated artifact is kept visible
+throughout (Section~\ref{sec:evidence}). Separately, the public research
+page~\cite{argus_research} lists a portfolio of \textbf{41 papers} ---
+35 manuscripts and 6 drafts across six research programs
+(Section~\ref{sec:portfolio}, Figure~\ref{fig:portfolio}) --- compared only to
+human-authored literature and baselines, and reported as a de-duplicated
+inventory rather than a count of accepted papers.
+
+\subsection{Reliability posture}
+
+The central engineering claim is not that autonomy \emph{succeeds}, but that it
+can be made \emph{reliable and auditable}. A mission either makes
+reviewer-classified forward progress under a bounded budget, is surfaced as
+explicitly blocked or paused, or is certified complete by the Reviewer against a
+structured checklist --- it is never left to spin indefinitely and never silently
+``finished'' without evidence. Sections~\ref{sec:reliability}
+and~\ref{sec:evidence} document the recovery model and the measurement-integrity
+architecture that support this posture: fresh-per-round sessions with a shared
+working-memory note, structured decision-progress accounting, first-class paused
+and blocked statuses, an append-only event tape, credential redaction before
+persistence, and provenance hashing of published artifacts.
+
+\begin{callout}[Scope and honesty]
+This is an engineering report at version 0.2, grounded in the current source
+tree. Its results are scoped claims under stated protocols and evidence tiers,
+not universal-capability guarantees. The limitations are material and are stated
+in full in Section~\ref{sec:limitations}: the quality ceiling of any run is the
+underlying model's; the Reviewer is a single, fallible completion authority;
+measurement integrity is an ongoing per-benchmark obligation; four of six public
+results are website snapshots not yet backed by an in-repository artifact; and
+7$\times$24 operation has a real, if bounded, cost. Argus is meant to be
+operated and audited, not fired and forgotten.
+\end{callout}
