@@ -61,6 +61,8 @@
 | mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `300` | default | `300` |
 | mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `3` | default | `3` |
 | mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `1500000` | default | `1500000` |
+| mission | `ARGUS_SKILL_DYNAMIC_PLAN_MODE` | `off` | default | `off` |
+| mission | `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` | `2` | default | `2` |
 | mission | `ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S` | `120` | default | `120` |
 | mission | `ARGUS_SKILL_CHECKPOINT_PERSIST` | `true` | default | `true` |
 | lifecycle | `ARGUS_SKILL_DAEMON_AUTO_RESTART` | `0` | default | `0` |
@@ -76,6 +78,13 @@
 | telemetry | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_SHOW_REASONING` | `0` | default | `0` |
 | telemetry | `ARGUS_SKILL_AGENT_IO_MODE` | `full` | default | `full` |
+
+`ARGUS_SKILL_DYNAMIC_PLAN_MODE=shadow` records Reviewer-authored
+`reconsider` signals without changing control flow. `active` ends the current
+mission only after `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` consecutive
+reviewed signals, then routes the replacement through the existing Planner
+budget/rate gate and atomically replaces the remaining plan. `off` preserves
+the legacy scheduler behavior.
 
 ## Change From Argus
 

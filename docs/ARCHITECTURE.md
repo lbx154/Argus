@@ -70,8 +70,19 @@ current project state alongside the shared global journal.
 3. **Classify.** Reviewer says `done` (and checks pass) → done; `blocked` →
    surface; otherwise iterate up to `max_rounds`. The reviewer's verdict is the
    only completion authority.
-4. **Plan next.** Between missions the planner proposes the next task(s); the
-   meta layer may convene a regime-jump when the promoted floor is frozen.
+4. **Plan next.** Between missions the planner proposes a persisted backlog DAG.
+   Every batch receives an opaque `plan_id`, `plan_version`, and stable node
+   keys. By default Dynamic Plan is off. In `shadow` mode the Reviewer can emit
+   a structured `reconsider` signal without changing execution. In `active`
+   mode, consecutive signals end the current mission as `replan_requested`;
+   the existing planner gate runs L4, and one locked backlog rewrite preserves
+   completed nodes, marks the old active nodes `superseded`, and installs the
+   replacement DAG. Any planner, validation, conflict, or write failure keeps
+   the old plan runnable.
+5. **Disclose context progressively.** Replacement nodes carry only bounded
+   `context_refs` (artifact path, reason, optional content hash). The Engineer
+   decides which referenced artifacts to open; the harness never injects their
+   full contents or guesses scientific relevance.
 
 ## Tests as living docs
 

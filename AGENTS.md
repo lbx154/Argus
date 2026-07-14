@@ -147,6 +147,26 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
 - `done` 仍只能由 Reviewer 裁决。harness 不从 prose 猜是否该跳过，只响应这个显式请求。
 - 相关实现：`engineer/runner.py`、`loop.py`；事件：`round.review.deferred`。
 
+### Backlog-native Dynamic Plan（默认关闭）
+
+- Reviewer 的 `planner_report.plan_signal` 只有 `continue|reconsider`；
+  Reviewer 只报告“当前剩余计划是否已被新证据推翻”，L4 仍是唯一计划作者。
+- `ARGUS_SKILL_DYNAMIC_PLAN_MODE=off|shadow|active`，默认 `off`。
+  `shadow` 只写 `life.plan.signal`；`active` 需要连续
+  `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` 次 reviewed `reconsider`
+  （默认 2）才在 round 边界返回 `replan_requested`。
+- `replan_requested` 不是 done/failed/blocked，不触发 Manager stage
+  transition。当前 item 先回到 pending；随后仍经过现有 Planner
+  rate/budget gate。
+- Backlog row 持久化 `plan_id` / `plan_version` / `node_key` /
+  `context_refs`。替换在一个 backlog 文件锁内 compare-and-swap：
+  done 永不改写，旧 active nodes 进入不可复活的 `superseded`，新 DAG
+  一次落盘；Planner/校验/冲突/写盘失败都保留旧计划。
+- `context_refs` 只注入路径、用途与可选 hash，正文由 Engineer 按需读取。
+  不新增关键词 relevance scorer，也不复制 Claude 的 JS workflow runtime。
+- 实现：`engineer/runner.py`、`life/memory.py`、
+  `life/supervisor/{_core,_mission_execution,_planning_context,_planning_cycle}.py`。
+
 ### Live credential guard
 
 - `core/secret_guard.py` 在所有 `JsonlEventSink` / Agent CLI 持久化与下游事件前做
