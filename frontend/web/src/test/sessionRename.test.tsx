@@ -6,7 +6,7 @@ import type { ProjectRow, Snapshot } from '../../../core/src/types';
 import { DaemonManageModal } from '../components/DaemonManageModal';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
-import { cacheProjectName, parseRenameCommand } from '../lib/projectName';
+import { cacheProjectName } from '../lib/projectName';
 
 const sid = 's-research1';
 
@@ -57,19 +57,6 @@ function projectIndex(): ProjectIndex {
 }
 
 describe('session rename', () => {
-  it('parses /rename without sending the command to Manager', () => {
-    expect(parseRenameCommand('/rename 勾股定理简证')).toEqual({
-      matched: true,
-      name: '勾股定理简证',
-    });
-    expect(parseRenameCommand('/RENAME   concise   title ')).toEqual({
-      matched: true,
-      name: 'concise title',
-    });
-    expect(parseRenameCommand('/rename')).toEqual({ matched: true, name: '' });
-    expect(parseRenameCommand('/renamed no')).toEqual({ matched: false, name: '' });
-  });
-
   it('exposes an editable display-name control for an existing session', () => {
     const markup = renderToStaticMarkup(
       <DaemonManageModal

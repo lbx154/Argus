@@ -173,7 +173,7 @@ export interface StreamHandle {
 
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
-export function useEventStream(sid: string | null): StreamHandle {
+export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
   const [state, dispatch] = useReducer(streamReducer, {
     sid: null,
     events: [],
@@ -225,7 +225,8 @@ export function useEventStream(sid: string | null): StreamHandle {
       controller.abort();
       close();
     };
-  }, [sid]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sid, reconnectKey]);
 
   return {
     events: state.sid === sid ? state.events : [],

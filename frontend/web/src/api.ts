@@ -342,6 +342,11 @@ export const api = {
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
+  abortMission: (sid: string, reason: string) =>
+    postJson<{ requested: boolean; item_id: string | null; message: string }>(
+      P(sid, '/abort'),
+      { reason },
+    ),
   answerPending: (sid: string, itemId: string, text: string) =>
     postJson<{
       answered_item_id: string;

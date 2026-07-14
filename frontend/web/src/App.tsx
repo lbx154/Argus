@@ -31,7 +31,8 @@ import { Button } from './components/primitives';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
-import { parseRenameCommand } from './lib/projectName';
+import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
+import { parseEventViewArgs } from '../../core/src/commands';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -182,6 +183,7 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
+  const [reconnectKey, setReconnectKey] = useState(0);
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
@@ -360,7 +362,7 @@ export default function App() {
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
-  const { events, connected } = useEventStream(loadedSid);
+  const { events, connected } = useEventStream(loadedSid, reconnectKey);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
@@ -518,6 +520,105 @@ export default function App() {
     setManualTheme(next);
     localStorage.setItem('argus.theme', next);
   };
+
+  const commandHandlers = useMemo<WebCommandHandlers>(() => ({
+    status: async () => setOverlay('inspector'),
+    roles: async () => setOverlay('operations'),
+    journal: async () => setOverlay('inspector'),
+    backlog: async () => setWorkspaceView('mission'),
+    item: async (rest) => { if (rest) setTaskItemId(rest); },
+    artifacts: async () => setRightPanelOpen(true),
+    artifact: async (rest) => { if (rest) setArtifactPath(rest); },
+    events: async (rest) => {
+      setWorkspaceView('activity');
+      if (rest) {
+        const { filter, query } = parseEventViewArgs(rest);
+        notify('info', `Event filter: ${filter}${query ? ` · "${query}"` : ''}`);
+      }
+    },
+    find: async (rest) => {
+      setWorkspaceView('activity');
+      if (rest) notify('info', `Searching activity for: ${rest}`);
+    },
+    run: async () => setWorkspaceView('activity'),
+    clear: async () => setWorkspaceView('activity'),
+    cancel: async () => stopWaiting(),
+    task: async (rest) => {
+      if (!activeSid) return;
+      await api.addTask(activeSid, rest);
+      void snapQ.refetch();
+      notify('success', 'Task queued.');
+    },
+    plan: async (rest) => {
+      if (!activeSid) return;
+      const result = await api.previewPlan(activeSid, rest);
+      if (result.error) notify('error', result.error);
+      else notify('info', result.steps.map((s) => s.title).join('\n') || 'Plan preview ready.');
+    },
+    nudge: async (rest) => {
+      if (!activeSid) return;
+      await api.nudge(activeSid, rest);
+      notify('success', 'Guidance injected.');
+    },
+    abort: async (rest) => {
+      if (!activeSid) return;
+      await api.abortMission(activeSid, rest || 'operator abort');
+      notify('info', 'Abort requested.');
+    },
+    note: async (rest) => {
+      if (!activeSid) return;
+      await api.note(activeSid, rest);
+      notify('success', 'Note appended to timeline.');
+    },
+    done: async (rest) => { if (rest) requestDispose(rest, 'done'); },
+    skip: async (rest) => { if (rest) requestDispose(rest, 'rm'); },
+    stop: async (rest) => { if (rest) requestStopIteration(rest); },
+    new: async () => setNewDaemonOpen(true),
+    daemons: async () => setSidebarOpen(true),
+    resume: async (rest) => {
+      if (rest && rest !== 'list') selectProject(rest);
+      else setSidebarOpen(true);
+    },
+    attach: async (rest) => { if (rest) selectProject(rest); },
+    rename: async (rest) => {
+      if (!activeSid || !rest) return;
+      const result = await actions.updateProject.mutateAsync({ sid: activeSid, name: rest });
+      notify('success', `Renamed to "${result.name}".`);
+    },
+    doctor: async () => setOverlay('doctor'),
+    backend: async (rest) => {
+      if (!activeSid || !rest) { setOverlay('config'); return; }
+      await api.setConfig(activeSid, 'runner_backend', rest);
+      notify('success', `Backend set to ${rest}.`);
+    },
+    config: async (rest) => {
+      if (!activeSid || !rest) { setOverlay('config'); return; }
+      const eqIdx = rest.indexOf('=');
+      if (eqIdx > 0) {
+        await api.setConfig(activeSid, rest.slice(0, eqIdx).trim(), rest.slice(eqIdx + 1).trim());
+        notify('success', 'Config updated.');
+      } else {
+        setOverlay('config');
+      }
+    },
+    identity: async () => setOverlay('identity'),
+    reset: async () => {
+      if (!activeSid) return;
+      await api.resetManager(activeSid);
+      notify('success', 'Manager context reset.');
+    },
+    skills: async (rest) => {
+      if (!activeSid) return;
+      const text = await api.skills(activeSid, rest || 'ls');
+      notify('info', text.slice(0, 400));
+    },
+    reconnect: async () => setReconnectKey((k) => k + 1),
+    help: async () => setOverlay('help'),
+    quit: async () => notify('info', 'Background work continues; close this browser tab when ready.'),
+  }), [
+    activeSid, actions, api, notify, parseEventViewArgs, requestDispose,
+    requestStopIteration, selectProject, snapQ, stopWaiting,
+  ]);
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
     event: ReactPointerEvent<HTMLDivElement>,
@@ -617,23 +718,14 @@ export default function App() {
   const sendMessage = async (text: string) => {
     const requestSid = activeSid;
     if (!requestSid || messageRequestRef.current) return;
-    const rename = parseRenameCommand(text);
-    if (rename.matched) {
-      if (!rename.name) {
-        notify('error', 'Usage: /rename <name>');
-        return;
-      }
-      try {
-        const result = await actions.updateProject.mutateAsync({
-          sid: requestSid,
-          name: rename.name,
-        });
-        notify('success', `Renamed conversation to ${result.name}.`);
-      } catch (error) {
-        notify('error', `Rename failed: ${errorText(error)}`);
-      }
+
+    const command = await dispatchWebCommand(text, commandHandlers);
+    if (command.kind === 'handled') return;
+    if (command.kind === 'error') {
+      notify('error', command.message);
       return;
     }
+
     const requestId = ++messageEpochRef.current;
     const controller = new AbortController();
     messageRequestRef.current = { id: requestId, sid: requestSid, controller };
