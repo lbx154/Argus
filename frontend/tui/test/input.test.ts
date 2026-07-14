@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { COMMANDS, commandById } from '../../core/src/commands.js';
 import * as ed from '../src/input/editor.js';
 import * as h from '../src/input/history.js';
 import * as sl from '../src/input/slash.js';
@@ -118,6 +119,15 @@ test('history dedupes consecutive + ignores empty', () => {
 });
 
 // ── slash ─────────────────────────────────────────────────────────────────
+
+test('shared slash registry is complete and collision-free', () => {
+  assert.equal(COMMANDS.length, 34);
+  assert.equal(new Set(COMMANDS.map((row) => row.id)).size, 34);
+  const names = COMMANDS.flatMap((row) => [row.name, ...(row.aliases ?? [])]);
+  assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
+  assert.equal(commandById('status').name, '/status');
+  assert.equal(commandById('quit').name, '/quit');
+});
 
 test('slash completions match names + aliases, only before a space', () => {
   assert.deepEqual(sl.slashCompletions('/dae').map((c) => c.name), ['/daemons']);
