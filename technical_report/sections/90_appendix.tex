@@ -63,7 +63,7 @@ fails loudly rather than writing to the wrong place.
 \section{Event Taxonomy}
 \label{app:events}
 
-Cross-component state is exchanged through a canonical catalog of \textbf{107
+Cross-component state is exchanged through a canonical catalog of \textbf{112
 typed event types} across \textbf{11 categories}
 (\srcpath{core/event\_catalog.py}); \textbf{75} carry a validated payload schema.
 Table~\ref{tab:events} gives the per-category counts and representative events.
@@ -75,7 +75,7 @@ Table~\ref{tab:events} gives the per-category counts and representative events.
 \toprule
 \textbf{Category} & \textbf{Count} & \textbf{Representative events} \\
 \midrule
-\code{lifecycle} & 35 & \code{loop.start}, \code{round.main.completed}, \code{round.review.completed}, \code{budget.reservation.*}, \code{life.mission.started} \\
+\code{lifecycle} & 40 & \code{loop.start}, \code{round.main.completed}, \code{round.review.completed}, \code{budget.reservation.*}, \code{life.mission.started} \\
 \code{skill}     & 20 & \code{skill.match.*}, \code{scientist.start}, \code{skill.outcome} \\
 \code{wiki}      & 17 & wiki source/page ingest, promotion, validation \\
 \code{planner}   &  9 & \code{life.planner.start}, \code{life.planner.verdict} \\
@@ -88,7 +88,7 @@ Table~\ref{tab:events} gives the per-category counts and representative events.
 \code{operator}  &  1 & operator inbox event \\
 \bottomrule
 \end{tabularx}
-\caption{Event taxonomy: 107 types across 11 categories
+\caption{Event taxonomy: 112 types across 11 categories
 (\code{core/event\_catalog.py}). Budget, loop, and round events are grouped under
 \code{lifecycle}.}
 \label{tab:events}

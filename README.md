@@ -149,7 +149,7 @@ inputs may be randomized when a fixed known input distribution would permit
 hard-coded optimization. Negative results and formal NO-GO decisions are valid
 research outcomes when their evidence is reproducible.
 
-The event catalog currently spans 107 event types in 11 categories with 75
+The event catalog currently spans 112 event types in 11 categories with 75
 payload schemas. The same typed stream powers live cockpit updates and later
 audit, so the operator can move from a published number to its mission, round,
 review verdict, command record, and artifact set without relying on a prose

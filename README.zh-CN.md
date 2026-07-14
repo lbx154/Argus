@@ -115,7 +115,7 @@ Argus 把长期运行中的执行漂移作为系统问题处理：
 输入会允许针对已知分布硬编码，评测应引入随机化。可复现的负结果和正式 NO-GO 同样
 是有效研究产出。
 
-当前事件目录包含 11 个类别、107 种事件和 75 个 payload schema。实时 cockpit 与后续
+当前事件目录包含 11 个类别、112 种事件和 75 个 payload schema。实时 cockpit 与后续
 审计使用同一条类型化事件流，因此 operator 可以从公开数字追溯到 mission、round、
 Reviewer verdict、命令记录和 artifact，而不是只依赖总结性文字。
 

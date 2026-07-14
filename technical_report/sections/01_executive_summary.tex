@@ -32,7 +32,7 @@ The live system is substantial. The mission scheduler, daemon worker, engineer
 round loop, reviewer, planner, and web service together span thousands of lines
 of production Python; the daemon worker alone is roughly 1{,}800 lines and the
 web service roughly 2{,}500. Cross-component state is exchanged through a
-canonical event catalog of \textbf{107 typed event types} across
+canonical event catalog of \textbf{112 typed event types} across
 \textbf{11 categories}, with \textbf{75} of them carrying validated payload
 schemas (Appendix~\ref{app:events}). Role contracts are explicit Python
 dataclasses (Section~\ref{sec:roles}, Appendix~\ref{app:interfaces}). Persistent
