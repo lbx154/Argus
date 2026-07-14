@@ -198,17 +198,23 @@ def test_agent_io_persistence_and_stream_callback_are_redacted(
         "type": "agent.io.complete",
         "stdout_lines": ["api_key=live-secret-value-123"],
     })
-    backend._io_context.current = {
+    context = {
         "log_path": str(path),
         "call_id": "call",
         "run_label": "engineer-r1",
         "model": "test",
-        "compact_io": False,
+        "mode": "full",
+        "buffer": [],
+        "buffer_bytes": 0,
+        "last_flush": 0.0,
     }
+    with backend._io_context_lock:
+        backend._io_context = context
     backend._stream_event_callback(
         "copilot.stdout",
         "Authorization: Bearer live-secret-value-123",
     )
+    backend._close_io_context("call")
 
     rendered = path.read_text(encoding="utf-8")
     assert "live-secret-value-123" not in rendered

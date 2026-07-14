@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -594,7 +595,12 @@ def test_run_exec_writes_full_agent_io_log(
         run_label: str,
     ) -> AgentRunResult:
         assert self.event_callback is not None
-        self.event_callback("manager.stdout", '{"type":"agent_message","message":"thinking"}')
+        thread = threading.Thread(
+            target=self.event_callback,
+            args=("manager.stdout", '{"type":"agent_message","message":"thinking"}'),
+        )
+        thread.start()
+        thread.join()
         self.event_callback("stderr", "tool stderr line")
         return _make_argus_result(
             command=["copilot", "-p", "<prompt>"],
@@ -643,9 +649,15 @@ def test_run_exec_writes_full_agent_io_log(
     assert rows[1]["line"].startswith('{"type"')
     assert rows[2]["stream"] == "stderr"
     assert rows[2]["model"] == "gpt-5.5"
-    assert rows[-2]["agent_messages"] == ["final answer"]
-    assert rows[-2]["stdout_lines"]
-    assert rows[-2]["stderr_lines"] == ["tool stderr line"]
+    assert "agent_messages" not in rows[-2]
+    assert "stdout_lines" not in rows[-2]
+    assert "stderr_lines" not in rows[-2]
+    assert "json_events" not in rows[-2]
+    assert rows[-2]["agent_message_count"] == 1
+    assert rows[-2]["stdout_line_count"] == 1
+    assert rows[-2]["stderr_line_count"] == 1
+    assert rows[-2]["json_event_count"] == 1
+    assert rows[-2]["command"] == ["copilot", "-p", "<prompt>"]
     assert rows[-2]["thread_id"] == "thread-1"
     assert rows[-1]["schema_version"] == 2
     assert rows[-1]["thread_id"] == "thread-1"
@@ -660,6 +672,62 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == rows[-2]["call_id"]
+
+
+def test_full_agent_io_batches_raw_stream_writes(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import argus_skill.adapters.agent_cli_backend as backend_module
+
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_BATCH_BYTES", "65536")
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S", "60")
+    batch_sizes: list[int] = []
+    original_append = backend_module._jsonl_append_lines
+
+    def recording_append(path, lines, lock):  # noqa: ANN001
+        batch_sizes.append(len(lines))
+        original_append(path, lines, lock)
+
+    monkeypatch.setattr(backend_module, "_jsonl_append_lines", recording_append)
+    backend = AgentCliBackend(backend="copilot")
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        assert self.event_callback is not None
+        for index in range(1_000):
+            self.event_callback(
+                "stdout",
+                json.dumps({
+                    "type": "assistant.tool_call_delta",
+                    "data": {"index": index, "delta": "x" * 32},
+                }),
+            )
+        return _make_argus_result(
+            agent_messages=["done"],
+            stdout_lines=["tail"],
+            thread_id="batch-thread",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+    backend.run_exec(
+        prompt="batch",
+        options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
+        run_label="engineer-r1",
+    )
+
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert sum(batch_sizes) == 1_000
+    assert len(batch_sizes) < 10
+    assert sum(row["type"] == "agent.io.stream" for row in rows) == 1_000
+    assert "json_events" not in next(
+        row for row in rows if row["type"] == "agent.io.complete"
+    )
 
 
 def test_copilot_run_exec_uses_exact_session_store_tokens(
@@ -758,15 +826,24 @@ def test_usage_context_prefers_canonical_project_event_log(
     assert (project / "events.migration-v2.json").exists()
 
 
-def test_compaction_agent_io_is_bounded_and_drops_token_stream(
+def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
-    backend = AgentCliBackend(backend="copilot")
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "compact")
+    live: list[tuple[str, str]] = []
+    backend = AgentCliBackend(
+        backend="copilot",
+        event_callback=lambda stream, line: live.append((stream, line)),
+    )
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         assert self.event_callback is not None
+        self.event_callback(
+            "stdout",
+            '{"type":"assistant.tool_call_delta","data":{"delta":"noise"}}',
+        )
         self.event_callback("stdout", '{"type":"assistant.message_delta","data":{"deltaContent":"huge"}}')
         return _make_argus_result(
             command=["copilot", "-p", "HUGE PROMPT"],
@@ -783,7 +860,7 @@ def test_compaction_agent_io_is_bounded_and_drops_token_stream(
     backend.run_exec(
         prompt="private compaction prompt" * 100,
         options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
-        run_label="skill.compaction_batch",
+        run_label="engineer-r1",
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
@@ -793,10 +870,19 @@ def test_compaction_agent_io_is_bounded_and_drops_token_stream(
         "usage.recorded",
     ]
     assert "prompt" not in rows[0] and rows[0]["prompt_chars"] > 100
-    assert "command" not in rows[1]
+    assert len(rows[0]["prompt_sha256"]) == 64
+    assert rows[1]["command"] == ["copilot", "-p", "<prompt>"]
+    assert "agent_messages" not in rows[1]
     assert "stdout_lines" not in rows[1]
+    assert "stderr_lines" not in rows[1]
     assert "json_events" not in rows[1]
     assert rows[1]["stdout_line_count"] == 1
+    assert rows[1]["json_event_count"] == 1
+    assert rows[1]["agent_message_count"] == 1
+    assert rows[1]["agent_message_chars"] == len("result")
+    assert len(rows[1]["last_agent_message_sha256"]) == 64
+    assert len(live) == 1
+    assert "assistant.message_delta" in live[0][1]
 
 
 def test_codex_quota_events_and_daily_denial(

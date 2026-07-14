@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
@@ -38,6 +39,14 @@ _ACP_MANAGER_LABELS = frozenset(
         "chat-1",
     }
 )
+_CAPTURE_STDOUT_LINES_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_STDOUT_LINES"
+_CAPTURE_STDERR_LINES_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_STDERR_LINES"
+_CAPTURE_JSON_EVENTS_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_JSON_EVENTS"
+_STREAM_QUEUE_LINES_ENV = "ARGUS_SKILL_RUNNER_STREAM_QUEUE_LINES"
+_DEFAULT_CAPTURE_STDOUT_LINES = 512
+_DEFAULT_CAPTURE_STDERR_LINES = 256
+_DEFAULT_CAPTURE_JSON_EVENTS = 2048
+_DEFAULT_STREAM_QUEUE_LINES = 4096
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -74,6 +83,16 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
     "--add-dir",
     "--cd",
 })
+
+
+def _positive_env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
 
 
 def _read_only_extra_args(args: list[str], *, backend: RunnerBackend) -> list[str]:
@@ -255,16 +274,33 @@ class AgentCliRunner:
         else:
             self._close_stdin(process)
 
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
-        events: list[dict] = []
+        stdout_lines: deque[str] = deque(maxlen=_positive_env_int(
+            _CAPTURE_STDOUT_LINES_ENV,
+            _DEFAULT_CAPTURE_STDOUT_LINES,
+        ))
+        stderr_lines: deque[str] = deque(maxlen=_positive_env_int(
+            _CAPTURE_STDERR_LINES_ENV,
+            _DEFAULT_CAPTURE_STDERR_LINES,
+        ))
+        events: deque[dict] = deque(maxlen=_positive_env_int(
+            _CAPTURE_JSON_EVENTS_ENV,
+            _DEFAULT_CAPTURE_JSON_EVENTS,
+        ))
+        stdout_line_count = 0
+        stderr_line_count = 0
+        json_event_count = 0
         agent_messages: list[str] = []
         thread_id: str | None = resume_thread_id
         turn_completed = False
         turn_failed = False
         fatal_error: str | None = None
 
-        line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue(
+            maxsize=_positive_env_int(
+                _STREAM_QUEUE_LINES_ENV,
+                _DEFAULT_STREAM_QUEUE_LINES,
+            )
+        )
         soft_idle = options.watchdog_soft_idle_seconds or 0
         hard_idle = options.watchdog_hard_idle_seconds or 0
         last_activity_at = time.monotonic()
@@ -346,8 +382,8 @@ class AgentCliRunner:
                         command=command,
                         thread_id=thread_id,
                         last_agent_message=agent_messages[-1] if agent_messages else "",
-                        stdout_tail=stdout_lines[-50:],
-                        stderr_tail=stderr_lines[-50:],
+                        stdout_tail=list(stdout_lines)[-50:],
+                        stderr_tail=list(stderr_lines)[-50:],
                         run_label=run_label,
                     )
                     decision = options.inactivity_callback(snapshot)
@@ -386,11 +422,14 @@ class AgentCliRunner:
             self._emit(output_stream, text)
 
             if stream_name == "stdout":
+                stdout_line_count += 1
                 stdout_lines.append(text)
                 event = self._parse_json_line(text)
                 if event is None:
                     continue
-                events.append(event)
+                json_event_count += 1
+                if self._retain_json_event(event):
+                    events.append(event)
                 _msgs_before = len(agent_messages)
                 (
                     thread_id,
@@ -418,6 +457,7 @@ class AgentCliRunner:
                         except Exception:  # noqa: BLE001 — UI callback must not break the turn
                             pass
             else:
+                stderr_line_count += 1
                 stderr_lines.append(text)
 
         if process.poll() is None:
@@ -449,9 +489,12 @@ class AgentCliRunner:
             exit_code=process.returncode,
             thread_id=thread_id,
             agent_messages=agent_messages,
-            json_events=events,
-            stdout_lines=stdout_lines,
-            stderr_lines=stderr_lines,
+            json_events=list(events),
+            stdout_lines=list(stdout_lines),
+            stderr_lines=list(stderr_lines),
+            stdout_line_count=stdout_line_count,
+            stderr_line_count=stderr_line_count,
+            json_event_count=json_event_count,
             turn_completed=turn_completed,
             turn_failed=turn_failed,
             fatal_error=fatal_error,
@@ -839,6 +882,31 @@ class AgentCliRunner:
         if not isinstance(parsed, dict):
             return None
         return parsed
+
+    @staticmethod
+    def _retain_json_event(event: dict) -> bool:
+        """Keep semantic/final events, not high-frequency transport deltas.
+
+        Every event is still consumed immediately and forwarded to the live
+        callback. This only bounds the post-turn ``AgentRunResult`` retained in
+        Python memory. Token-bearing deltas are kept for accounting.
+        """
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        token_fields = {
+            "input_tokens", "cached_input_tokens", "cache_write_tokens",
+            "output_tokens", "reasoning_output_tokens", "inputTokens",
+            "cachedInputTokens", "cacheWriteTokens", "outputTokens",
+            "reasoningOutputTokens",
+        }
+        if any(field in event or field in data for field in token_fields):
+            return True
+        return str(event.get("type") or "") not in {
+            "assistant.message_delta",
+            "assistant.reasoning_delta",
+            "assistant.tool_call_delta",
+            "session.background_tasks_changed",
+            "tool.execution_partial_result",
+        }
 
     @staticmethod
     def _load_compact_schema_text(path: str) -> str:

@@ -150,7 +150,11 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
 def test_copilot_message_delta_accumulates() -> None:
     """assistant.message_delta events should accumulate per messageId."""
     sink = _RecordingSink()
-    cb = make_stream_progress_callback(sink)
+    cb = make_stream_progress_callback(
+        sink,
+        min_delta_interval_s=0,
+        min_delta_chars=0,
+    )
 
     def delta(content: str, mid: str = "m1") -> str:
         return json.dumps({
@@ -263,6 +267,28 @@ def test_copilot_tool_call_and_result_emit_progress() -> None:
     assert "tool_result" in kinds
 
 
+def test_copilot_message_deltas_are_throttled_but_final_is_flushed() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(
+        sink,
+        min_delta_interval_s=60,
+        min_delta_chars=50,
+    )
+    for _ in range(120):
+        cb("main.stdout", json.dumps({
+            "type": "assistant.message_delta",
+            "data": {"messageId": "m1", "deltaContent": "x"},
+        }))
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message",
+        "data": {"messageId": "m1", "content": "final answer"},
+    }))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert [len(e["text"]) for e in progress[:-1]] == [1, 51, 101]
+    assert progress[-1]["text"] == "final answer"
+
+
 # ---------------------------------------------------------------------------
 # StreamProgressRelay — the callback (and its copilot delta-accumulation buffer)
 # MUST be reused across stdout lines. Regression: the runner rebuilt it per line,
@@ -281,7 +307,7 @@ def test_relay_reuses_callback_so_deltas_accumulate() -> None:
     from argus_skill.adapters.stream_progress import StreamProgressRelay
 
     sink = _RecordingSink()
-    relay = StreamProgressRelay()
+    relay = StreamProgressRelay(min_delta_interval_s=0, min_delta_chars=0)
     for tok in ("I", "'ll ", "verify"):
         relay(sink, None, "main.stdout", _delta_line(tok))
 

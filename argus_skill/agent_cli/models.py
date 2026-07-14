@@ -13,6 +13,9 @@ class AgentRunResult:
     json_events: list[dict[str, Any]] = field(default_factory=list)
     stdout_lines: list[str] = field(default_factory=list)
     stderr_lines: list[str] = field(default_factory=list)
+    stdout_line_count: int = 0
+    stderr_line_count: int = 0
+    json_event_count: int = 0
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None

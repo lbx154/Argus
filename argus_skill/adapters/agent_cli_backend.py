@@ -30,6 +30,7 @@ at 0 (the loop never branches on token counts).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -97,10 +98,22 @@ _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
 _LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
 _AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
-_COMPACT_IO_RUN_LABELS = frozenset({
-    "skill.compaction_batch",
-    "wiki.compaction_batch",
-})
+_AGENT_IO_MODE_ENV = "ARGUS_SKILL_AGENT_IO_MODE"
+_AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
+_AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
+_DEFAULT_AGENT_IO_BATCH_BYTES = 64 * 1024
+_DEFAULT_AGENT_IO_FLUSH_INTERVAL_S = 0.5
+_PROGRESS_STREAM_MARKERS = (
+    '"item.completed"',
+    '"assistant.message_delta"',
+    '"assistant.message"',
+    '"type":"assistant"',
+    '"type": "assistant"',
+    '"tool.call"',
+    '"tool.result"',
+    '"type":"result"',
+    '"type": "result"',
+)
 _PROVIDER_COOLDOWN_PATTERNS = (
     "rate limit",
     "rate-limit",
@@ -131,8 +144,62 @@ _TRANSIENT_ERROR_PATTERNS = (
 )
 
 
-def _compact_agent_io(run_label: str) -> bool:
-    return (run_label or "").strip().lower() in _COMPACT_IO_RUN_LABELS
+def _agent_io_mode(run_label: str) -> str:
+    """Persistence mode: full-once (default) or summary-only compact."""
+    mode = os.environ.get(_AGENT_IO_MODE_ENV, "full").strip().lower()
+    if mode in {"compact", "summary", "off"}:
+        return "compact"
+    return "full"
+
+
+def _text_sha256(text: str) -> str:
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.01, float(raw))
+    except ValueError:
+        return default
+
+
+def _needed_for_live_progress(stream: str, line: str) -> bool:
+    canonical_stream = stream.rsplit(".", 1)[-1]
+    if canonical_stream != "stdout":
+        return False
+    raw = str(line or "").strip()
+    return raw.startswith("{") and any(
+        marker in raw for marker in _PROGRESS_STREAM_MARKERS
+    )
+
+
+def _command_metadata(command: Any) -> list[str]:
+    """Preserve argv once without duplicating a Copilot ``-p`` prompt body."""
+    values = [str(value) for value in (command or [])]
+    out: list[str] = []
+    index = 0
+    while index < len(values):
+        value = values[index]
+        out.append(value)
+        if value in {"-p", "--prompt"} and index + 1 < len(values):
+            out.append("<prompt>")
+            index += 2
+            continue
+        index += 1
+    return out
 
 
 def _reservation_denial_stop_kind(reason: str) -> StopKind:
@@ -386,6 +453,26 @@ def _jsonl_append(path: Path, row: dict[str, Any], lock: threading.Lock) -> None
         return
 
 
+def _jsonl_append_lines(
+    path: Path,
+    lines: list[str],
+    lock: threading.Lock,
+) -> None:
+    if not lines:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = "".join(line + "\n" for line in lines)
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        with lock:
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(payload)
+    except OSError:
+        return
+
+
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
 
 def _import_argusbot():
@@ -501,7 +588,11 @@ class AgentCliBackend:
         )
         self._external_event_callback = event_callback
         self._io_log_lock = threading.Lock()
-        self._io_context = threading.local()
+        # Shared rather than thread-local: warm ACP emits from its reader thread.
+        # One AgentCliBackend is serial by contract, so one protected call context
+        # captures the full stream without losing cross-thread frames.
+        self._io_context_lock = threading.RLock()
+        self._io_context: dict[str, Any] | None = None
         raw_default_extra_args = list(default_extra_args or [])
         codex_backend = chosen == deps["BACKEND_CODEX"]
         normalized_default_extra_args = (
@@ -651,13 +742,19 @@ class AgentCliBackend:
         if usage_project_root is None and log_path is not None:
             usage_project_root = log_path.parent
         cost_reservation = None
-        self._io_context.current = {
+        io_mode = _agent_io_mode(run_label)
+        io_context = {
             "call_id": call_id,
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
             "model": options.model,
-            "compact_io": _compact_agent_io(run_label),
+            "mode": io_mode,
+            "buffer": [],
+            "buffer_bytes": 0,
+            "last_flush": time.monotonic(),
         }
+        with self._io_context_lock:
+            self._io_context = io_context
 
         def _finalize_result(
             result: RunnerResult,
@@ -876,7 +973,7 @@ class AgentCliBackend:
                     )
                 except Exception:  # noqa: BLE001
                     log.exception("failed to record provider metric for %s", call_id)
-            self._io_context.current = None
+            self._close_io_context(call_id)
             return result
 
         budget_reason = ""
@@ -1147,8 +1244,9 @@ class AgentCliBackend:
             "resume_thread_id": resume_thread_id,
             "ts": time.time(),
         }
-        if _compact_agent_io(run_label):
+        if io_mode == "compact":
             start_row["prompt_chars"] = len(prompt)
+            start_row["prompt_sha256"] = _text_sha256(prompt)
         else:
             start_row["prompt"] = prompt
         self._log_agent_io(log_path, start_row)
@@ -1332,21 +1430,42 @@ class AgentCliBackend:
             "usage_model": translated.usage_model,
             "ts": time.time(),
         }
-        if _compact_agent_io(run_label):
-            complete_row.update({
-                "agent_message_count": len(getattr(argus_result, "agent_messages", []) or []),
-                "stdout_line_count": len(getattr(argus_result, "stdout_lines", []) or []),
-                "stderr_line_count": len(getattr(argus_result, "stderr_lines", []) or []),
-                "json_event_count": len(getattr(argus_result, "json_events", []) or []),
-            })
-        else:
-            complete_row.update({
-                "command": list(getattr(argus_result, "command", []) or []),
-                "agent_messages": list(getattr(argus_result, "agent_messages", []) or []),
-                "stdout_lines": list(getattr(argus_result, "stdout_lines", []) or []),
-                "stderr_lines": list(getattr(argus_result, "stderr_lines", []) or []),
-                "json_events": list(getattr(argus_result, "json_events", []) or []),
-            })
+        messages = list(getattr(argus_result, "agent_messages", []) or [])
+        retained_stdout = list(getattr(argus_result, "stdout_lines", []) or [])
+        retained_stderr = list(getattr(argus_result, "stderr_lines", []) or [])
+        retained_events = list(getattr(argus_result, "json_events", []) or [])
+        stdout_count = int(
+            getattr(argus_result, "stdout_line_count", 0)
+            or len(retained_stdout)
+        )
+        stderr_count = int(
+            getattr(argus_result, "stderr_line_count", 0)
+            or len(retained_stderr)
+        )
+        event_count = int(
+            getattr(argus_result, "json_event_count", 0)
+            or len(retained_events)
+        )
+        complete_row.update({
+            "agent_message_count": len(messages),
+            "agent_message_chars": sum(len(str(message)) for message in messages),
+            "last_agent_message_sha256": (
+                _text_sha256(messages[-1]) if messages else None
+            ),
+            "stdout_line_count": stdout_count,
+            "stderr_line_count": stderr_count,
+            "json_event_count": event_count,
+            "stdout_capture_truncated": stdout_count > len(retained_stdout),
+            "stderr_capture_truncated": stderr_count > len(retained_stderr),
+            "json_event_capture_truncated": event_count > len(retained_events),
+            "command": _command_metadata(
+                getattr(argus_result, "command", []) or []
+            ),
+        })
+        # Full raw frames are already persisted exactly once. Flush and close
+        # that stream before writing the summary so replay order is start →
+        # stream* → complete → usage.
+        self._close_io_context(call_id)
         self._log_agent_io(log_path, complete_row)
         return _finalize_result(
             translated,
@@ -1389,9 +1508,78 @@ class AgentCliBackend:
         )
         _jsonl_append(path, safe_row, self._io_log_lock)
 
+    def _buffer_agent_io_stream(
+        self,
+        context: dict[str, Any],
+        path: Path,
+        row: dict[str, Any],
+    ) -> None:
+        safe_row = redact_secrets_record(
+            normalize_event_envelope(row),
+            known_values=self._known_secret_values,
+        )
+        try:
+            line = json.dumps(
+                safe_row,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError):
+            return
+        flush_lines: list[str] = []
+        now = time.monotonic()
+        with self._io_context_lock:
+            if self._io_context is not context:
+                return
+            buffer = context["buffer"]
+            buffer.append(line)
+            context["buffer_bytes"] += len(line.encode("utf-8")) + 1
+            if (
+                context["buffer_bytes"]
+                >= _positive_int_env(
+                    _AGENT_IO_BATCH_BYTES_ENV,
+                    _DEFAULT_AGENT_IO_BATCH_BYTES,
+                )
+                or now - context["last_flush"]
+                >= _positive_float_env(
+                    _AGENT_IO_FLUSH_INTERVAL_ENV,
+                    _DEFAULT_AGENT_IO_FLUSH_INTERVAL_S,
+                )
+            ):
+                flush_lines = list(buffer)
+                buffer.clear()
+                context["buffer_bytes"] = 0
+                context["last_flush"] = now
+        if flush_lines:
+            _jsonl_append_lines(path, flush_lines, self._io_log_lock)
+
+    def _close_io_context(self, call_id: str) -> None:
+        lines: list[str] = []
+        path: Path | None = None
+        with self._io_context_lock:
+            context = self._io_context
+            if context is None or str(context.get("call_id") or "") != call_id:
+                return
+            raw_path = str(context.get("log_path") or "")
+            if raw_path:
+                path = Path(raw_path)
+            lines = list(context.get("buffer") or [])
+            self._io_context = None
+        if path is not None and lines:
+            _jsonl_append_lines(path, lines, self._io_log_lock)
+
     def _stream_event_callback(self, stream: str, line: str) -> None:
-        ctx = getattr(self._io_context, "current", None) or {}
+        with self._io_context_lock:
+            context = self._io_context
+        ctx = context or {}
         log_path = str(ctx.get("log_path") or "")
+        io_mode = str(ctx.get("mode") or "compact")
+        persist_raw = bool(log_path and io_mode == "full")
+        forward_live = self._external_event_callback is not None and (
+            _needed_for_live_progress(stream, line)
+        )
+        if not persist_raw and not forward_live:
+            return
         canonical_stream = stream.rsplit(".", 1)[-1]
         if canonical_stream not in {"stdout", "stderr"}:
             canonical_stream = "stdout"
@@ -1399,8 +1587,9 @@ class AgentCliBackend:
             line,
             known_values=self._known_secret_values,
         )
-        if log_path and not bool(ctx.get("compact_io")):
-            self._log_agent_io(Path(log_path), {
+        if persist_raw:
+            assert context is not None
+            self._buffer_agent_io_stream(context, Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
                 "io_kind": "stream",
                 "call_id": ctx.get("call_id"),
@@ -1411,7 +1600,7 @@ class AgentCliBackend:
                 "line": safe_line,
                 "ts": time.time(),
             })
-        if self._external_event_callback is not None:
+        if forward_live and self._external_event_callback is not None:
             self._external_event_callback(stream, safe_line)
 
     # --- helpers ----------------------------------------------------------

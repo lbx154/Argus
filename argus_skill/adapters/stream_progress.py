@@ -21,6 +21,8 @@ reliably across backends).
 from __future__ import annotations
 
 import json
+import os
+import time
 from typing import Any, Callable
 
 # Items larger than this are truncated in the cooked progress event so a
@@ -28,6 +30,28 @@ from typing import Any, Callable
 # payload is still recoverable from the raw ``stream`` lines in the
 # outbox.
 _PROGRESS_TEXT_LIMIT = 600
+_DEFAULT_DELTA_INTERVAL_S = 0.1
+_DEFAULT_DELTA_CHARS = 96
+
+
+def _nonnegative_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return default
+
+
+def _nonnegative_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default
 
 
 def _action_summary(kind: str, text: str, item: dict[str, Any]) -> str:
@@ -181,7 +205,13 @@ def _record_failure_if_any(ledger: Any, kind: str, item: dict[str, Any]) -> None
         pass
 
 
-def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Callable[[str, str], None]:
+def make_stream_progress_callback(
+    sink: Any,
+    *,
+    ledger: Any | None = None,
+    min_delta_interval_s: float | None = None,
+    min_delta_chars: int | None = None,
+) -> Callable[[str, str], None]:
     """Return an ``(stream, line) -> None`` callback that:
 
       * always forwards the raw line to ``sink.handle_stream_line`` so
@@ -208,6 +238,23 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
     # cross-task leakage. Mirror of ArgusBot's ``_COPILOT_DELTA_BUFFERS``
     # but instance-scoped.
     delta_buffers: dict[tuple[str, str], str] = {}
+    delta_emits: dict[tuple[str, str], tuple[float, int]] = {}
+    delta_interval_s = (
+        _nonnegative_float_env(
+            "ARGUS_SKILL_STREAM_PROGRESS_INTERVAL_S",
+            _DEFAULT_DELTA_INTERVAL_S,
+        )
+        if min_delta_interval_s is None
+        else max(0.0, float(min_delta_interval_s))
+    )
+    delta_chars = (
+        _nonnegative_int_env(
+            "ARGUS_SKILL_STREAM_PROGRESS_CHARS",
+            _DEFAULT_DELTA_CHARS,
+        )
+        if min_delta_chars is None
+        else max(0, int(min_delta_chars))
+    )
 
     def _emit_progress(*, kind: str, text: str, actor: str = "main",
                        replace: bool = False,
@@ -242,6 +289,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
     def _clear_actor_buffers(actor: str) -> None:
         for key in [k for k in delta_buffers if k[0] == actor]:
             delta_buffers.pop(key, None)
+            delta_emits.pop(key, None)
 
     def cb(stream: str, line: str) -> None:
         try:
@@ -333,6 +381,16 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             delta_buffers[key] = current
             if not current.strip():
                 return
+            now = time.monotonic()
+            previous_emit = delta_emits.get(key)
+            if previous_emit is not None:
+                last_at, last_chars = previous_emit
+                if (
+                    now - last_at < delta_interval_s
+                    and len(current) - last_chars < delta_chars
+                ):
+                    return
+            delta_emits[key] = (now, len(current))
             _emit_progress(
                 kind="agent_message",
                 text=current.strip(),
@@ -352,6 +410,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
                 # Final message arrived — drop the accumulated buffer
                 # for this messageId so we don't double-emit on resume.
                 delta_buffers.pop((actor, mid.strip()), None)
+                delta_emits.pop((actor, mid.strip()), None)
             if not isinstance(content, str):
                 return
             text = content.strip()
@@ -423,14 +482,26 @@ class StreamProgressRelay:
     fresh accumulation buffer IS wanted).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        min_delta_interval_s: float | None = None,
+        min_delta_chars: int | None = None,
+    ) -> None:
         self._cb: Callable[[str, str], None] | None = None
         self._sink: Any = None
         self._ledger: Any = None
+        self._min_delta_interval_s = min_delta_interval_s
+        self._min_delta_chars = min_delta_chars
 
     def __call__(self, sink: Any, ledger: Any, stream: str, line: str) -> None:
         if self._cb is None or self._sink is not sink or self._ledger is not ledger:
-            self._cb = make_stream_progress_callback(sink, ledger=ledger)
+            self._cb = make_stream_progress_callback(
+                sink,
+                ledger=ledger,
+                min_delta_interval_s=self._min_delta_interval_s,
+                min_delta_chars=self._min_delta_chars,
+            )
             self._sink = sink
             self._ledger = ledger
         self._cb(stream, line)
