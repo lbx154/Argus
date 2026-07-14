@@ -1,0 +1,27 @@
+{
+  "figures": [
+    {
+      "figure_id": "argus-architecture",
+      "figure_studio_source": "paper-framework-figure-studio-pro-v3.1.4a",
+      "figure_studio_stage": "S5-CANDIDATE-IMAGE",
+      "figure_type": "architecture",
+      "generation_provenance_path": "technical_report/figures/argus_architecture.png.provenance.json",
+      "generator": "codex-image2",
+      "generator_model": "gpt-image-2",
+      "height": 1024,
+      "inspect_path": "technical_report/figures/argus_architecture.png.inspect.json",
+      "model": "gpt-image-2",
+      "output_path": "technical_report/figures/argus_architecture.png",
+      "output_sha256": "a5bf253b195758b04ce852e4c85177534e3002332a15d544263a1c2ade82c832",
+      "prompt_path": "technical_report/figures/argus_architecture.prompt.txt",
+      "prompt_sha256": "9bdad7eba9f1b8eee5c2e7a1a75362500619018335b2f529e8d6b93bf8eae094",
+      "prompt_template_id": "argus-image2-paper-prompt-v1",
+      "requested_size": "auto",
+      "review_path": "technical_report/figures/argus_architecture.png.review.json",
+      "review_sha256": "ead8a6d86a0a604ccc9706b64d5b2eddd63667801d3f5704f8259096ec1d9c03",
+      "sidecar_path": "technical_report/figures/argus_architecture.png.json",
+      "source": "raster",
+      "width": 1536
+    }
+  ]
+}
