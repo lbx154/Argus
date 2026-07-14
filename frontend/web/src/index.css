@@ -574,6 +574,12 @@ button {
   border-radius: 9999px;
 }
 
+.slash-completion-menu {
+  max-height: min(22rem, 42dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @layer components {
   .card {
     @apply glass-card rounded-lg;

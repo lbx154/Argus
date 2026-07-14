@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { THINKING_LINES, rotateByTick, spinnerFrame } from '../lib/soul';
+import { slashCompletions, applyCompletion } from '../../../core/src/commands';
+import { SlashCompletionMenu } from './SlashCompletionMenu';
 
 /**
  * The Manager front-door as a single conversational box. The operator just
  * talks to Argus; the Manager decides whether
  * to reply (chat) or dispatch a mission to the planner/engineer/reviewer team.
  * No task/nudge/note modes to think about.
+ *
+ * The composer is controlled: draft state lives in the parent (App.tsx) so that
+ * slash completions can be applied atomically without racing internal state.
+ * `onSend` returns `boolean | Promise<boolean>` — false leaves the draft intact
+ * (e.g. a missing-argument error), true clears it.
  */
 export function ChatBox({
+  value,
+  onChange,
   onSend,
   onCancel,
   disabled,
@@ -16,8 +25,12 @@ export function ChatBox({
   embedded = false,
   phase = '',
   startedAt = 0,
+  slashSelection,
+  onSlashSelectionChange,
 }: {
-  onSend: (text: string) => void;
+  value: string;
+  onChange: (text: string) => void;
+  onSend: (text: string) => boolean | Promise<boolean>;
   onCancel: () => void;
   disabled: boolean;
   pending: boolean;
@@ -25,10 +38,14 @@ export function ChatBox({
   embedded?: boolean;
   phase?: string;
   startedAt?: number;
+  slashSelection: number;
+  onSlashSelectionChange: (n: number) => void;
 }) {
-  const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [thinkTick, setThinkTick] = useState(0);
+  // Track whether the user explicitly dismissed the menu for the current value.
+  const [menuDismissed, setMenuDismissed] = useState(false);
+
   useEffect(() => {
     if (!pending) return;
     setThinkTick((t) => t + 1);
@@ -45,20 +62,57 @@ export function ChatBox({
     if (focusSignal && !disabled) taRef.current?.focus();
   }, [focusSignal, disabled]);
 
-  const submit = () => {
-    const t = text.trim();
+  const completions = slashCompletions(value);
+  const completionOpen = completions.length > 0 && !menuDismissed;
+  const bounded = completionOpen ? Math.max(0, Math.min(slashSelection, completions.length - 1)) : 0;
+
+  const applySelected = (index: number) => {
+    const command = completions[index];
+    if (!command) return;
+    const completed = applyCompletion(command);
+    onChange(completed);
+    // Dismiss for commands without arguments — value now ends with no trailing
+    // space so applyCompletion already returned the full token; closing the menu
+    // lets the next Enter submit rather than re-complete.
+    if (command.argument === 'none') setMenuDismissed(true);
+    onSlashSelectionChange(0);
+    taRef.current?.focus();
+  };
+
+  const submit = async () => {
+    const t = value.trim();
     if (!t || pending || disabled) return;
-    onSend(t);
-    setText('');
+    const accepted = await onSend(t);
+    if (accepted) {
+      onChange('');
+      onSlashSelectionChange(0);
+      setMenuDismissed(false);
+    }
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Escape' && pending) {
-      e.preventDefault();
-      onCancel();
-    } else if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit();
+    if (completionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        onSlashSelectionChange(Math.min(bounded + 1, completions.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        onSlashSelectionChange(Math.max(bounded - 1, 0));
+      } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        applySelected(bounded);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setMenuDismissed(true);
+      }
+    } else {
+      if (e.key === 'Escape' && pending) {
+        e.preventDefault();
+        onCancel();
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        void submit();
+      }
     }
   };
 
@@ -77,12 +131,29 @@ export function ChatBox({
           <div className="mt-1 text-xs text-ink-faint">Esc stop waiting</div>
         </div>
       ) : null}
+      {completionOpen ? (
+        <SlashCompletionMenu
+          query={value}
+          selected={bounded}
+          onSelect={(command) => {
+            const completed = applyCompletion(command);
+            onChange(completed);
+            if (command.argument === 'none') setMenuDismissed(true);
+            onSlashSelectionChange(0);
+            taRef.current?.focus();
+          }}
+        />
+      ) : null}
       <div className="flex items-end gap-2 px-3 py-2">
         <span className="pb-2 font-mono text-lg text-blue" title="message Argus">›</span>
         <textarea
           ref={taRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            onSlashSelectionChange(0);
+            setMenuDismissed(false);
+          }}
           onKeyDown={onKey}
           rows={1}
           disabled={disabled}
@@ -92,8 +163,8 @@ export function ChatBox({
         />
         <button
           type="button"
-          onClick={pending ? onCancel : submit}
-          disabled={disabled || (!pending && !text.trim())}
+          onClick={pending ? onCancel : () => void submit()}
+          disabled={disabled || (!pending && !value.trim())}
           title={pending ? 'stop waiting for this reply; server-side work may continue' : undefined}
           aria-label={pending ? 'stop waiting' : 'send message'}
           className={`send-control h-9 w-9 shrink-0 rounded-full text-sm font-medium disabled:opacity-40 ${

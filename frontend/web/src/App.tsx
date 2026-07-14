@@ -167,6 +167,8 @@ export default function App() {
   );
   const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
   const [composerFocus, setComposerFocus] = useState(0);
+  const [composerDraft, setComposerDraft] = useState('');
+  const [slashSelection, setSlashSelection] = useState(0);
   const [chatPending, setChatPending] = useState(false);
   const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
@@ -745,15 +747,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string): Promise<boolean> => {
     const requestSid = activeSid;
-    if (!requestSid || messageRequestRef.current) return;
+    if (!requestSid || messageRequestRef.current) return false;
 
     const command = await dispatchWebCommand(text, commandHandlers);
-    if (command.kind === 'handled') return;
+    if (command.kind === 'handled') return true;
     if (command.kind === 'error') {
       notify('error', command.message);
-      return;
+      return false;
     }
 
     const requestId = ++messageEpochRef.current;
@@ -817,17 +819,17 @@ export default function App() {
         if (isCurrent()) streamErr = error as Error;
       }
 
-      if (!isCurrent()) return;
+      if (!isCurrent()) return true;
 
       // Fallback to the blocking endpoint only if streaming produced nothing.
       if (streamErr && !gotDelta) {
         try {
           const result = await api.message(requestSid, text, controller.signal);
-          if (!isCurrent()) return;
+          if (!isCurrent()) return true;
           if (result.kind === 'task') dispatchTask(result);
           void transcriptQ.refetch();
         } catch (error) {
-          if (!isCurrent()) return;
+          if (!isCurrent()) return true;
           notify('error', `Message failed: ${errorText(error)}`);
         }
       }
@@ -839,6 +841,7 @@ export default function App() {
         setManagerStartedAt(0);
       }
     }
+    return true;
   };
 
   const answerPendingReply = async (text: string) => {
@@ -1019,6 +1022,8 @@ export default function App() {
                     onAnswer={() => setPendingReplyOpen(true)}
                   />
                   <ChatBox
+                    value={composerDraft}
+                    onChange={setComposerDraft}
                     onSend={sendMessage}
                     onCancel={stopWaiting}
                     disabled={!activeSid}
@@ -1027,6 +1032,8 @@ export default function App() {
                     embedded
                     phase={managerPhase}
                     startedAt={managerStartedAt}
+                    slashSelection={slashSelection}
+                    onSlashSelectionChange={setSlashSelection}
                   />
                   </div>
                 </div>
