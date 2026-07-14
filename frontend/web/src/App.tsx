@@ -155,9 +155,14 @@ export default function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
-  const [themeMode, setThemeMode] = useState<ThemeMode>(
-    () => (localStorage.getItem('argus.theme') as ThemeMode | null) ?? 'system',
+  const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
+    const stored = localStorage.getItem('argus.theme');
+    return stored === 'light' || stored === 'dark' ? stored : null;
+  });
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
+  const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
   const [composerFocus, setComposerFocus] = useState(0);
   const [chatPending, setChatPending] = useState(false);
   const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
@@ -194,15 +199,15 @@ export default function App() {
   }, [workspaceView]);
 
   useEffect(() => {
-    localStorage.setItem('argus.theme', themeMode);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const dark = themeMode === 'dark' || (themeMode === 'system' && media.matches);
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    };
-    apply();
-    media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
+    const syncSystemTheme = () => setSystemDark(media.matches);
+    syncSystemTheme();
+    media.addEventListener('change', syncSystemTheme);
+    return () => media.removeEventListener('change', syncSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
 
   const cancelActiveMessage = useCallback(() => {
@@ -500,7 +505,9 @@ export default function App() {
     );
   };
   const cycleTheme = () => {
-    setThemeMode((mode) => mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system');
+    const next = themeMode === 'light' ? 'dark' : 'light';
+    setManualTheme(next);
+    localStorage.setItem('argus.theme', next);
   };
   const resizeSidebar = useCallback((
     side: 'left' | 'right',

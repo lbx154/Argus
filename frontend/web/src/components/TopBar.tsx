@@ -4,7 +4,7 @@ import { theme } from '../lib/theme';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
 
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
 

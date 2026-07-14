@@ -9,7 +9,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faAnglesLeft,
   faAnglesRight,
-  faDesktop,
   faEllipsis,
   faGear,
   faMoon,
@@ -80,8 +79,8 @@ export function Sidebar({
     });
     return [...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
-  const themeIcon = themeMode === 'light' ? faSun : themeMode === 'dark' ? faMoon : faDesktop;
-  const nextTheme = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
+  const themeIcon = themeMode === 'light' ? faSun : faMoon;
+  const nextTheme = themeMode === 'light' ? 'dark' : 'light';
 
   return (
     <aside

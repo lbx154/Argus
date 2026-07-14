@@ -150,7 +150,7 @@ describe('shared frontend core', () => {
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
-    const html = renderToStaticMarkup(createElement(Sidebar, {
+    const props = {
       projects: [],
       activeId: null,
       localCwd: '/workspace',
@@ -161,14 +161,20 @@ describe('shared frontend core', () => {
       loading: false,
       collapsed: false,
       onToggleCollapse: () => undefined,
-      themeMode: 'light',
       onCycleTheme: () => undefined,
-    }));
-    expect(html).toContain('Settings');
-    expect(html).toContain('data-icon="gear"');
-    expect(html).toContain('data-icon="sun"');
-    expect(html).not.toContain('>Runtime<');
-    expect(html).not.toContain('>light<');
+    };
+    const light = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'light' }));
+    const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
+    expect(light).toContain('Settings');
+    expect(light).toContain('data-icon="gear"');
+    expect(light).toContain('data-icon="sun"');
+    expect(light).toContain('switch to dark');
+    expect(dark).toContain('data-icon="moon"');
+    expect(dark).toContain('switch to light');
+    expect(`${light}${dark}`).not.toContain('system');
+    expect(`${light}${dark}`).not.toContain('desktop');
+    expect(light).not.toContain('>Runtime<');
+    expect(light).not.toContain('>light<');
   });
 
   it('renders a readable backend handshake before GSAP loads', () => {
