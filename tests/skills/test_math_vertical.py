@@ -204,19 +204,24 @@ def test_exploratory_bounded_evidence_can_end_normally(result_class: str) -> Non
     ) == ""
 
 
-def test_bounded_cycle_cannot_complete_doctoral_target() -> None:
+def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
     result = _research_result(
-        "new_theorem",
-        novelty="verified_new",
-        significance="doctoral",
+        "novelty_unverified",
+        novelty="unverified",
+        significance="unverified",
     )
 
     assert research_completion_issue(
         result,
         research_target_level="doctoral",
         scope="bounded",
-    ) == "bounded_cycle_cannot_complete_doctoral"
-    assert _final_stage_decision(result, "doctoral", scope="bounded") is None
+    ) == ""
+    assert _final_stage_decision(result, "doctoral", scope="bounded") is not None
+
+    reviewer_context = vertical_role_banner(load_vertical("math"), "reviewer")
+    assert "`done` certifies only" in reviewer_context
+    assert "does not certify the" in reviewer_context
+    assert "doctoral project target" in reviewer_context
 
 
 def test_legacy_math_result_gets_conservative_significance() -> None:

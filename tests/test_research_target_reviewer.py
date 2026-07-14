@@ -166,7 +166,7 @@ def test_exploratory_honest_failure_verdict_can_finish(tmp_path: Path) -> None:
     assert decision.status == "done"
 
 
-def test_bounded_doctoral_breakthrough_does_not_certify_mission(
+def test_bounded_doctoral_breakthrough_can_complete_item(
     tmp_path: Path,
 ) -> None:
     decision = _evaluate(
@@ -179,6 +179,50 @@ def test_bounded_doctoral_breakthrough_does_not_certify_mission(
         ),
         scope="bounded",
     )
+
+    assert decision.status == "done"
+
+
+def test_bounded_doctoral_novelty_probe_can_complete_item(
+    tmp_path: Path,
+) -> None:
+    decision = _evaluate(
+        tmp_path,
+        "doctoral",
+        _result(
+            "novelty_unverified",
+            novelty="unverified",
+            significance="unverified",
+        ),
+        scope="bounded",
+    )
+
+    assert decision.status == "done"
+    assert decision.research_result is not None
+    assert decision.research_result["novelty_status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value"),
+    [
+        ("evidence", []),
+        ("correctness_status", "uncertain"),
+        ("statement_fidelity_status", "failed"),
+    ],
+)
+def test_bounded_item_still_requires_valid_research_evidence(
+    tmp_path: Path,
+    invalid_field: str,
+    invalid_value: object,
+) -> None:
+    result = _result(
+        "novelty_unverified",
+        novelty="unverified",
+        significance="unverified",
+    )
+    result[invalid_field] = invalid_value
+
+    decision = _evaluate(tmp_path, "doctoral", result, scope="bounded")
 
     assert decision.status != "done"
 
@@ -217,8 +261,7 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
         research_target_level="doctoral",
         scope="bounded",
     )
-    assert issue == "bounded_cycle_cannot_complete_doctoral"
-    assert "missing" not in issue
+    assert issue == ""
     event = decision.to_event_payload(round_index=1)
     assert event["type"] == "round.review.completed"
     assert event["research_result"] == result
@@ -228,7 +271,7 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
         stage_order=("scope", "solve", "review"),
         vertical="math",
         mission_scope="bounded",
-        research_target_level=None,
+        research_target_level="doctoral",
     )
     assert completion is not None
     assert completion.action == "complete"

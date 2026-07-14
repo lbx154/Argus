@@ -622,13 +622,26 @@ class Reviewer:
 
         _research_target_level = resolve_research_target_level(_proot)
         if _research_target_level is not None:
+            _bounded_research_contract = (
+                "This is a structured `bounded` backlog item. `done` certifies "
+                "only this item's explicit objective and acceptance criteria; it "
+                "does NOT certify the persisted project-level research target. "
+                "Still emit an honest `research_result`, but do not require "
+                "verified novelty, publishable significance, or an original "
+                "terminal theorem unless this bounded objective explicitly asks "
+                "for them. A verification probe may therefore finish with a "
+                "correctly classified novelty-unverified result.\n"
+                if (scope or "").strip().lower().replace("-", "_") == "bounded"
+                else ""
+            )
             research_result_instruction = (
                 "For this targeted research mission, `research_result` is REQUIRED "
                 "on every verdict. Judge result_class, correctness_status, "
                 "novelty_status, significance_status, and any domain-specific "
                 "fidelity field independently; use concrete evidence and limitations.\n"
                 f"The Manager-persisted `research_target_level` is "
-                f"`{_research_target_level}`. Use exactly this success bar; do not "
+                f"`{_research_target_level}`. {_bounded_research_contract}"
+                "For non-bounded completion, use exactly this success bar; do not "
                 "downgrade it because a report is polished or a bounded cycle ended. "
                 "For `publishable` or `doctoral`, `done` requires "
                 "correctness_status=verified, novelty_status=verified_new, "

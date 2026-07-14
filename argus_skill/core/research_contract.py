@@ -181,6 +181,12 @@ def research_completion_issue(
         return "correctness_not_verified"
     if fidelity == "failed":
         return "statement_fidelity_failed"
+    if str(scope or "").strip().lower() == "bounded":
+        # A bounded backlog item certifies only its own acceptance criteria, not
+        # the persisted project-level research target.  Keep the structured
+        # result and evidence checks above, but leave terminal novelty and
+        # significance to final-submission missions.
+        return ""
     if target == "exploratory":
         if result_class not in _EXPLORATORY_TERMINAL_CLASSES:
             return f"result_class_not_exploratory_terminal:{result_class}"
@@ -190,8 +196,6 @@ def research_completion_issue(
         }:
             return "novelty_not_verified"
         return ""
-    if str(scope or "").strip().lower() == "bounded":
-        return f"bounded_cycle_cannot_complete_{target}"
     if result_class not in _BREAKTHROUGH_CLASSES:
         return f"result_class_below_{target}:{result_class}"
     if novelty != "verified_new":

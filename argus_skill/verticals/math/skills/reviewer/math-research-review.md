@@ -21,6 +21,9 @@ schema exactly rather than omitting the result. A doctoral mission succeeds
 only with correctness `verified`,
 novelty `verified_new`, and significance `publishable` or `doctoral`.
 Finite verification, partial results, known results, novelty-unverified work,
-structured failure reports, bounded-cycle completion, exhausted methods, and
-local Lean proofs are not doctoral success. End honest non-breakthrough cycles
-with the appropriate recoverable research status.
+structured failure reports, exhausted methods, and local Lean proofs are not
+doctoral project success. For `scope=bounded`, however, `done` certifies only
+that bounded item's explicit acceptance criteria; it does not certify the
+doctoral project target. Keep the structured result classification honest, and
+do not let an unmet project-level novelty or significance target veto a
+completed bounded item unless that item explicitly requires it.
