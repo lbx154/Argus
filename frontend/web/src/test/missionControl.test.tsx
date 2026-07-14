@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { emptyMissionView } from '../../../core/src/missionView';
-import { MissionControl } from '../components/MissionControl';
+import { compactMissionDag, MissionControl } from '../components/MissionControl';
 
 describe('MissionControl', () => {
   it('renders real DAG, metric, capability, replay, and git state', () => {
@@ -58,5 +58,23 @@ describe('MissionControl', () => {
     expect(markup).toContain('cold history · skill 4 · wiki 2 · 1.5 KB saved');
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('Git changes · main');
+  });
+
+  it('collapses old DAG history while retaining the active branch', () => {
+    const view = emptyMissionView();
+    view.dag = Array.from({ length: 30 }, (_, index) => ({
+      id: `task-${index}`,
+      title: `Task ${index}`,
+      objective: '',
+      status: index === 5 ? 'running' : index < 20 ? 'skipped' : 'done',
+      deps: index === 5 ? ['task-4'] : [],
+      branch_id: `task-${index}`,
+      parent_branch_id: null,
+    }));
+    const compact = compactMissionDag(view, 8);
+    expect(compact.nodes.some((node) => node.id === 'task-5')).toBe(true);
+    expect(compact.nodes.some((node) => node.id === 'task-4')).toBe(true);
+    expect(compact.nodes.some((node) => node.id === 'task-29')).toBe(true);
+    expect(compact.hidden.length).toBeGreaterThan(0);
   });
 });

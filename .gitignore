@@ -6,6 +6,9 @@ __pycache__/
 dist/
 build/
 node_modules/
+# The production Web bundle is intentionally checked in and release-verified.
+!/frontend/web/dist/
+!/frontend/web/dist/**
 .venv/
 venv/
 env/

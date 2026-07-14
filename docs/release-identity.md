@@ -20,3 +20,15 @@ Frontend production builds run the generator in `--check` mode before compiling,
 so stale checked-in bundles cannot be produced from changed source. Installed
 wheels that do not contain a source checkout trust the packaged manifest;
 editable/source checkouts recompute and verify it.
+
+Before committing or deploying any shipped source change, rebuild the complete
+release atomically:
+
+```bash
+python scripts/build_release.py
+```
+
+`scripts/check_release_artifacts.py` verifies that both the tracked Web entry
+bundle and the tracked TUI bundle embed the current release id. The Python test
+suite runs this check, so a release manifest can no longer be current while the
+actual user-facing bundles remain stale.

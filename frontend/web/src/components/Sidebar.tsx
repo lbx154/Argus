@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ProjectRow } from '../api';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
@@ -16,6 +16,21 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 
 type Scope = 'local' | 'all';
+
+export function recommendedSidebarScope(
+  projects: ProjectRow[],
+  activeId: string | null,
+  localCwd: string,
+): Scope {
+  if (projects.length === 0) return 'local';
+  const normalized = localCwd.trim();
+  const local = normalized
+    ? projects.filter((project) => project.launch_cwd?.trim() === normalized)
+    : [];
+  if (local.length === 0) return 'all';
+  if (activeId && !local.some((project) => project.id === activeId)) return 'all';
+  return 'local';
+}
 
 export function Sidebar({
   projects,
@@ -57,6 +72,7 @@ export function Sidebar({
   expandedWidth?: number;
 }) {
   const [scope, setScope] = useState<Scope>('local');
+  const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
   const slim = collapsed && !mobileOpen;
   const normalizedLocalCwd = localCwd.trim();
@@ -66,6 +82,11 @@ export function Sidebar({
       : [],
     [normalizedLocalCwd, projects],
   );
+  useEffect(() => {
+    if (initialScopeResolved.current || loading || projects.length === 0) return;
+    initialScopeResolved.current = true;
+    setScope(recommendedSidebarScope(projects, activeId, normalizedLocalCwd));
+  }, [activeId, loading, normalizedLocalCwd, projects]);
   const scoped = scope === 'local' ? localProjects : projects;
   const visible = query.trim() ? filterProjects(scoped, query) : scoped;
   const grouped = useMemo(() => {

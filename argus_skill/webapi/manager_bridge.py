@@ -26,6 +26,7 @@ _NO_DISPATCH_FALLBACK = (
     "could not complete the read-only reply. No task was queued and no daemon "
     "was started."
 )
+_PLAN_PREVIEW_CACHE_TTL_S = 60.0
 
 
 def manager_execution_handoff(
@@ -378,12 +379,12 @@ def manager_message(
             chat_state["turns"] = 1
             chat_state["rotations"] = int(chat_state.get("rotations", 0)) + 1
 
-        # 0+1) ONE merged front-door classify: config-intent + route in a SINGLE
-        # LLM call (was two sequential copilot cold-starts). A natural-language
+        # ONE merged front-door call decides config, control, route, TEAM
+        # lifetime, title, and an optional lightweight SELF reply. A natural-language
         # config change ("set the engineer to xhigh", "use copilot for reviewer",
         # "cap the budget at $10") is applied + confirmed inline and NEVER
-        # enqueued; otherwise the precomputed route is handed to triage so it does
-        # not re-classify.
+        # enqueued; otherwise the reusable decisions avoid a second route/lifetime
+        # call, and pure chat/capability turns may finish from this same response.
         # Classification is stateless and must see ONLY the current operator
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
@@ -407,6 +408,29 @@ def manager_message(
         else:
             intent, route = decision
             control = None
+
+        fast_reply = str(
+            chat_state.pop("_frontdoor_fast_reply", "") or ""
+        ).strip()
+        if (
+            fast_reply
+            and intent is None
+            and control is None
+            and route == "simple"
+            and send_body == body
+        ):
+            _fragment("delta", {"text": fast_reply})
+            try:
+                append_turn(life_dir, "argus", fast_reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                fast_reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {"kind": "chat", "reply": fast_reply}
 
         if (active_mission or mission_is_running(mem)) and control != "abort":
             _phase("Manager · responding while the current mission continues")
@@ -567,6 +591,13 @@ def manager_plan(
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Draft one bounded execution plan through the configured Planner role."""
+    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..core.knobs import (
+        resolve_knob,
+        resolve_role_backend,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
     from ..life.memory import MemoryBundle
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.plan_mode import draft_plan
@@ -581,18 +612,60 @@ def manager_plan(
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
         backend = getattr(runner, "planner_backend", None) if runner is not None else None
+        planner_model = resolve_role_model(
+            "planner",
+            role_env="ARGUS_SKILL_PLAN_MODEL",
+        )
+        preview_model = resolve_knob(
+            "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
+            "auto",
+        ).value.strip()
+        if preview_model.lower() in {"", "auto", "inherit", "default"}:
+            planner_backend = normalize_runner_backend(
+                resolve_role_backend("planner")
+            )
+            model = (
+                "gpt-5.4-mini"
+                if planner_backend in {"codex", "copilot"}
+                else planner_model
+            )
+        else:
+            model = preview_model
+        effort = resolve_role_reasoning_effort(
+            "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
+            default="low",
+        )
+        cache_key = (body, model, effort, id(backend))
+        cached = state.get("plan_preview_cache")
+        if (
+            isinstance(cached, tuple)
+            and len(cached) == 3
+            and cached[0] == cache_key
+            and time.monotonic() - float(cached[1]) < _PLAN_PREVIEW_CACHE_TTL_S
+        ):
+            return dict(cached[2])
         plan = draft_plan(
             backend,
             body,
-            model=None,
-            reasoning_effort="xhigh",
+            model=model,
+            reasoning_effort=effort,
             run_label="planner-preview",
         )
-    return {
-        "steps": [{"title": step.title, "detail": step.detail} for step in plan.steps],
-        "notes": list(plan.notes),
-        "error": plan.error,
-    }
+        result = {
+            "steps": [
+                {"title": step.title, "detail": step.detail}
+                for step in plan.steps
+            ],
+            "notes": list(plan.notes),
+            "error": plan.error,
+        }
+        if not plan.error:
+            state["plan_preview_cache"] = (
+                cache_key,
+                time.monotonic(),
+                result,
+            )
+    return result
 
 
 def reset_manager_context(

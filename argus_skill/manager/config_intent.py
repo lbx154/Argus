@@ -45,12 +45,16 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    Replaces the old sequential config-intent + route classify (two copilot
-    cold-starts → one) — see ``Manager.classify_front_door`` /
-    ``life.router.classify_front_door``. Fail-soft: no runner, no manager, or any
-    error → ``(None, None, "complex")`` so the message flows through the normal
-    task path unchanged (never swallow real work on a classify hiccup)."""
+    Reuses that same call's task-lifetime verdict and optional lightweight SELF
+    reply, avoiding another provider turn when the model can decide safely.
+    Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
+    so the message flows through the normal task path unchanged (never swallow
+    real work on a classify hiccup)."""
     suggested_names: list[str] = []
+    lifetime_decisions: list[str] = []
+    fast_replies: list[str] = []
+    chat_state.pop("_frontdoor_lifetime", None)
+    chat_state.pop("_frontdoor_fast_reply", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -65,6 +69,10 @@ def _front_door_classify(
             kwargs["root_task_id"] = root_task_id
         if accepts(mgr.classify_front_door, "name_sink"):
             kwargs["name_sink"] = suggested_names.append
+        if accepts(mgr.classify_front_door, "lifetime_sink"):
+            kwargs["lifetime_sink"] = lifetime_decisions.append
+        if accepts(mgr.classify_front_door, "fast_reply_sink"):
+            kwargs["fast_reply_sink"] = fast_replies.append
         decision = mgr.classify_front_door(text, **kwargs)
         if isinstance(decision, tuple) and len(decision) == 4:
             intent, control, route, suggested_name = decision
@@ -75,10 +83,29 @@ def _front_door_classify(
         else:
             intent, route = decision
             control = None
+        normalized_route = route if route in ("simple", "complex") else "complex"
+        if normalized_route == "complex":
+            lifetime = next(
+                (
+                    value
+                    for value in lifetime_decisions
+                    if value in {"bounded", "standing"}
+                ),
+                "",
+            )
+            if lifetime:
+                chat_state["_frontdoor_lifetime"] = lifetime
+        elif intent is None and control not in {"abort", "no_dispatch"}:
+            fast_reply = next(
+                (str(value).strip() for value in fast_replies if str(value).strip()),
+                "",
+            )
+            if fast_reply:
+                chat_state["_frontdoor_fast_reply"] = fast_reply
         return (
             intent,
             control if control in {"abort", "no_dispatch"} else None,
-            route if route in ("simple", "complex") else "complex",
+            normalized_route,
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
         return None, None, "complex"

@@ -116,6 +116,31 @@ test('achievement requires an explicit reviewer certification event', () => {
 });
 
 
+test('snapshot refreshes certified achievement counters from current state', () => {
+  const current = snapshot();
+  current.mission_view = emptyMissionView();
+  current.mission_view.mission.started_at = Date.now() / 1000 - 3_600;
+  current.mission_view.mission.status = 'working';
+  current.mission_view.experiments = [{ id: 'e1', name: 'run', status: 'completed' }];
+  current.mission_view.learned_skills = [{ id: 's1', name: 'skill', status: 'active' }];
+  current.mission_view.review.rejected_attempts = 4;
+  current.mission_view.achievement = {
+    id: 'a1', title: 'certified', goal: '', summary: '', metric_id: '',
+    reviewer_certified: true, elapsed_seconds: 0, experiments_run: 0,
+    rejected_attempts: 0, skills_learned: 0, artifacts: 0, certified_at: 1,
+  };
+  const view = projectMissionView(current, [], [
+    { path: 'result.md', name: 'result.md', kind: 'markdown', mime: 'text/markdown', exists: true, size: 1, mtime: 1, why: '', source: 'reviewer_evidence', group_title: 'Result' },
+    { path: 'pending.md', name: 'pending.md', kind: 'markdown', mime: 'text/markdown', exists: false, size: 0, mtime: null, why: '', source: 'manager_live', group_title: 'Live' },
+  ]);
+  assert.ok((view.achievement?.elapsed_seconds ?? 0) >= 3_599);
+  assert.equal(view.achievement?.experiments_run, 1);
+  assert.equal(view.achievement?.rejected_attempts, 4);
+  assert.equal(view.achievement?.skills_learned, 1);
+  assert.equal(view.achievement?.artifacts, 1);
+});
+
+
 test('natural-language progress never invents a metric or review verdict', () => {
   const view = projectMissionView(snapshot(), [{
     type: 'engineer.progress',

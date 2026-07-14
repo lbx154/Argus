@@ -256,6 +256,7 @@ class ConfigIntent:
 
 
 ControlIntent = Literal["abort", "no_dispatch"]
+LifetimeIntent = Literal["bounded", "standing"]
 
 
 def build_config_intent_prompt(text: str) -> str:
@@ -384,10 +385,10 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
 
 
 def build_front_door_prompt(text: str) -> str:
-    """Merged cockpit front-door classifier: config, control, routing, and title."""
+    """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify one operator message on FOUR independent axes.\n\n"
+        "Classify one operator message on SIX independent axes.\n\n"
         "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
         "runtime settings (its cockpit knobs), as opposed to a research task, a "
         "question, or small talk?\n"
@@ -442,17 +443,39 @@ def build_front_door_prompt(text: str) -> str:
         "still use TEAM; the `direct` workflow keeps them lean.\n"
         "  When in doubt, answer TEAM — never route work that needs review to a "
         "lone worker.\n\n"
-        "AXIS 4 — NAME: create a concise conversation title from the core intent "
+        "AXIS 4 — LIFETIME: for TEAM work only, is this BOUNDED or STANDING?\n"
+        "  BOUNDED = one concrete goal with a natural finish line, such as fixing "
+        "one bug, adding one feature, proving one stated result, or running one "
+        "benchmark.\n"
+        "  STANDING = open-ended work with no natural finish line that should keep "
+        "running autonomously until the operator stops it, such as continuously "
+        "improving, searching, monitoring, or optimizing as many cases as possible.\n"
+        "  For SELF messages answer NONE. For TEAM ambiguity answer STANDING; only "
+        "choose BOUNDED when the one-mission finish line is clear.\n\n"
+        "AXIS 5 — FAST_REPLY: optionally answer a lightweight SELF turn in this "
+        "same call. Write a brief one-line reply in the message's language for a "
+        "greeting, thanks, acknowledgement, farewell, small talk, or a generic "
+        "identity/capability question that can be answered only from these fixed "
+        "facts: Argus Manager is the operator's interface to an autonomous system; "
+        "it can answer read-only questions inline and route durable research or "
+        "engineering work to Planner, Engineer, and Reviewer. For questions about "
+        "the current model/backend/configuration, live mission status, workspace "
+        "or source contents, prior conversation, or any action/config/control/TEAM "
+        "task answer NONE because the full Manager must inspect real state. This "
+        "field never changes ROUTE.\n\n"
+        "AXIS 6 — NAME: create a concise conversation title from the core intent "
         "of this message. This title is required for SELF, TEAM, config, control, "
         "and conversational messages alike. Use the message's language. Distill "
         "the subject and requested action instead of copying polite framing such "
         "as 'please' or 'help me'. Prefer 2-12 Chinese characters or 2-8 words; "
         "use a short noun phrase, with no quotes, trailing punctuation, or session "
         "ID.\n\n"
-        "Reply with EXACTLY four lines and nothing else:\n"
+        "Reply with EXACTLY six lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
+        "LIFETIME: <BOUNDED | STANDING | NONE>\n"
+        "FAST_REPLY: <brief one-line lightweight SELF reply | NONE>\n"
         "NAME: <concise conversation title>\n"
         "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
         "daily_cap | max_daemons | codex_daily_requests | "
@@ -471,8 +494,15 @@ def classify_front_door(
     *,
     run_exec: Callable[[str], Any],
     name_sink: Callable[[str], None] | None = None,
+    lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
+    fast_reply_sink: Callable[[str], None] | None = None,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
-    """One model call for config, control, route, and an optional session title."""
+    """One model call for every cheap front-door decision.
+
+    The return shape stays backward-compatible; optional sinks expose the
+    lifetime verdict and a strictly social one-line reply so callers can avoid
+    otherwise redundant model turns.
+    """
     cleaned = (text or "").strip()
     if not cleaned:
         return None, None, "complex"
@@ -486,6 +516,8 @@ def classify_front_door(
     config_line = _line_after_prefix(answer, "CONFIG:")
     control_line = _line_after_prefix(answer, "CONTROL:")
     route_line = _line_after_prefix(answer, "ROUTE:")
+    lifetime_line = _line_after_prefix(answer, "LIFETIME:")
+    fast_reply_line = _line_after_prefix(answer, "FAST_REPLY:")
     name_line = _line_after_prefix(answer, "NAME:")
     intent = _parse_config_line(config_line) if config_line is not None else None
     control_token = (
@@ -503,6 +535,33 @@ def classify_front_door(
     )
     if control in {"abort", "no_dispatch"}:
         route = "simple"
+    lifetime_token = _first_alpha_token(lifetime_line).upper()
+    lifetime: LifetimeIntent | None = None
+    if route == "complex":
+        if lifetime_token in {"BOUNDED", "ONE_SHOT", "ONESHOT"}:
+            lifetime = "bounded"
+        elif lifetime_token in {"STANDING", "CONTINUOUS", "PERSIST", "PERSISTENT"}:
+            lifetime = "standing"
+    if callable(lifetime_sink) and lifetime is not None:
+        try:
+            lifetime_sink(lifetime)
+        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
+            pass
+    fast_reply = str(fast_reply_line or "").strip()
+    fast_reply_token = fast_reply.rstrip(".。!！").upper()
+    if (
+        callable(fast_reply_sink)
+        and route == "simple"
+        and intent is None
+        and control is None
+        and fast_reply
+        and fast_reply_token not in {"NONE", "N/A", "NA", "NULL"}
+        and len(fast_reply) <= 500
+    ):
+        try:
+            fast_reply_sink(fast_reply)
+        except Exception:  # noqa: BLE001 - optional latency fast-path only
+            pass
     if callable(name_sink) and name_line:
         try:
             name_sink(name_line)
@@ -514,6 +573,7 @@ def classify_front_door(
 __all__ = [
     "ConfigIntent",
     "ControlIntent",
+    "LifetimeIntent",
     "classify_is_conversational",
     "classify_route",
     "classify_needs_persistence",

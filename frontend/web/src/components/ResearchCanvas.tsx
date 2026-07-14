@@ -20,6 +20,29 @@ export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): Artifac
   return live[0] ?? null;
 }
 
+export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
+  const all = artifacts ?? [];
+  const live = selectLiveArtifacts(all);
+  if (live.some((item) => item.exists)) {
+    return [...live].sort((left, right) => Number(right.exists) - Number(left.exists));
+  }
+  const kindPriority: Record<string, number> = {
+    markdown: 0, pdf: 1, html: 2, text: 3, table: 4, json: 5,
+    image: 6, video: 7, audio: 8, binary: 9,
+  };
+  const existing = all.filter((item) => item.exists);
+  if (existing.length) {
+    return [...existing].sort(
+      (left, right) => (kindPriority[left.kind] ?? 99) - (kindPriority[right.kind] ?? 99),
+    );
+  }
+  return live;
+}
+
+export function selectPreferredPreviewArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
+  return selectPreviewArtifacts(artifacts).find((item) => item.exists) ?? null;
+}
+
 function artifactLabel(item: ArtifactInfo): string {
   const parts = item.path.split('/');
   return parts[parts.length - 1] || item.path;
@@ -42,16 +65,16 @@ export function ResearchCanvas({
   embedded?: boolean;
   onCollapse?: () => void;
 }) {
-  const live = useMemo(
-    () => selectLiveArtifacts(artifacts),
+  const previewArtifacts = useMemo(
+    () => selectPreviewArtifacts(artifacts),
     [artifacts],
   );
-  const preferred = useMemo(() => selectPreferredLiveArtifact(artifacts), [artifacts]);
+  const preferred = useMemo(() => selectPreferredPreviewArtifact(artifacts), [artifacts]);
   const [manualPath, setManualPath] = useState<string | null>(null);
 
   useEffect(() => setManualPath(null), [sid]);
 
-  const selected = live.find((item) => item.path === manualPath) ?? preferred;
+  const selected = previewArtifacts.find((item) => item.path === manualPath) ?? preferred;
   const artifactQ = useArtifact(sid, selected?.exists ? selected.path : null);
   const info = artifactQ.data;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -82,7 +105,7 @@ export function ResearchCanvas({
     };
   }, [sid, selected?.path, info?.kind, info?.mtime]);
 
-  const title = live[0]?.group_title || 'Live research';
+  const title = previewArtifacts[0]?.group_title || 'Live research';
   const download = async () => {
     if (!sid || !selected) return;
     setDownloading(true);
@@ -127,7 +150,7 @@ export function ResearchCanvas({
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
-        {live.length > 0 ? (
+        {previewArtifacts.length > 0 ? (
           <label className="min-w-0 flex-1">
             <span className="sr-only">Preview artifact</span>
             <select
@@ -136,7 +159,7 @@ export function ResearchCanvas({
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
               {!selected ? <option value="">Waiting…</option> : null}
-              {live.map((item) => (
+              {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists}>
                   {artifactLabel(item)}{item.exists ? '' : ' · pending'}
                 </option>
@@ -186,13 +209,13 @@ export function ResearchCanvas({
             Manager live view is temporarily unavailable.
           </div>
         ) : null}
-        {!error && live.length === 0 ? (
+        {!error && previewArtifacts.length === 0 ? (
           <div className="m-auto max-w-sm px-8 text-center">
             <div className="text-3xl text-ink-faint">◇</div>
             <h3 className="mt-3 text-xs text-ink-faint">No preview</h3>
           </div>
         ) : null}
-        {!error && live.length > 0 && !selected ? (
+        {!error && previewArtifacts.length > 0 && !selected ? (
           <div className="m-auto max-w-sm px-8 text-center">
             <Spinner />
             <p className="mt-3 text-xs text-ink-faint">Waiting…</p>

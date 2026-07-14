@@ -41,6 +41,28 @@ function orderedDag(view: MissionView) {
   return ordered;
 }
 
+export function compactMissionDag(view: MissionView, limit = 16) {
+  const ordered = orderedDag(view);
+  if (ordered.length <= limit) return { nodes: ordered, hidden: [] as typeof ordered };
+  const keep = new Set(ordered.slice(-limit).map((node) => node.id));
+  const active = ordered.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
+  const byId = new Map(ordered.map((node) => [node.id, node]));
+  const stack = active ? [active] : [];
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (keep.has(node.id)) continue;
+    keep.add(node.id);
+    node.deps.forEach((dep) => {
+      const parent = byId.get(dep);
+      if (parent) stack.push(parent);
+    });
+  }
+  return {
+    nodes: ordered.filter((node) => keep.has(node.id)),
+    hidden: ordered.filter((node) => !keep.has(node.id)),
+  };
+}
+
 function MetricChart({ view }: { view: MissionView }) {
   const metrics = metricSeries(view);
   if (!metrics.length) {
@@ -110,7 +132,9 @@ export function MissionControl({
   const improvement = missionMetricImprovement(metric);
   const roleMap = new Map(view.roles.map((role) => [role.role, role]));
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
-  const dag = orderedDag(view);
+  const dagView = compactMissionDag(view);
+  const dag = dagView.nodes;
+  const objective = view.mission.objective || view.mission.title || 'Waiting for a mission';
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
@@ -118,9 +142,10 @@ export function MissionControl({
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label="Mission control">
       <header className="border-b border-line/60 px-5 py-5">
         <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">Mission</div>
-        <h1 className="mt-1 max-w-4xl text-lg font-semibold leading-snug text-ink">
-          {view.mission.objective || view.mission.title || 'Waiting for a mission'}
+        <h1 className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink" title={objective}>
+          {objective}
         </h1>
+        {objective.length > 600 ? <details className="mt-2 text-xs text-ink-faint"><summary className="cursor-pointer hover:text-ink">Show full objective</summary><p className="mt-2 whitespace-pre-wrap text-ink-dim">{objective}</p></details> : null}
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
           <div><div className="text-ink-faint">Stage</div><div className="mt-0.5 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
           <div><div className="text-ink-faint">Elapsed</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.elapsed_seconds)}</div></div>
@@ -159,6 +184,11 @@ export function MissionControl({
             {activeNode ? <span className="max-w-48 truncate text-[10px] text-blue-sky">active · {activeNode.title}</span> : null}
           </div>
           <div className="mt-3 space-y-0">
+            {dagView.hidden.length ? (
+              <div className="mb-3 rounded border border-line/60 bg-bg/50 px-3 py-2 text-[10px] text-ink-faint">
+                {dagView.hidden.length} earlier tasks collapsed · {dagView.hidden.filter((node) => ['failed', 'blocked'].includes(node.status)).length} failed · {dagView.hidden.filter((node) => node.status === 'skipped').length} skipped
+              </div>
+            ) : null}
             {dag.length ? dag.map((node, index) => {
               const active = node.id === activeNode?.id;
               const done = ['done', 'completed'].includes(node.status);

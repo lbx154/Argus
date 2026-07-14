@@ -22,7 +22,11 @@ import {
 import { formatBytes } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
-import { selectPreferredLiveArtifact } from '../components/ResearchCanvas';
+import {
+  selectPreferredLiveArtifact,
+  selectPreferredPreviewArtifact,
+  selectPreviewArtifacts,
+} from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
@@ -345,6 +349,18 @@ describe('shared frontend core', () => {
       { ...artifacts[0], exists: false },
       artifacts[2],
     ])).toBeNull();
+  });
+
+  it('falls back to an existing reviewed artifact when the live draft is pending', () => {
+    const artifacts = [
+      { path: 'FINAL_REPORT.md', name: 'FINAL_REPORT.md', why: 'live', exists: false, kind: 'markdown' as const, mime: 'text/markdown', size: 0, mtime: null, source: 'manager_live' as const },
+      { path: 'research/results.jsonl', name: 'results.jsonl', why: 'rows', exists: true, kind: 'json' as const, mime: 'application/json', size: 10, mtime: 1, source: 'reviewer_evidence' as const },
+      { path: 'paper/main.pdf', name: 'main.pdf', why: 'paper', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'reviewer_evidence' as const },
+    ];
+    expect(selectPreviewArtifacts(artifacts).map((item) => item.path)).toEqual([
+      'paper/main.pdf', 'research/results.jsonl',
+    ]);
+    expect(selectPreferredPreviewArtifact(artifacts)?.path).toBe('paper/main.pdf');
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {

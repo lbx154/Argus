@@ -1041,8 +1041,10 @@ class Manager:
         run_exec: Any = None,
         root_task_id: str | None = None,
         name_sink: Any = None,
+        lifetime_sink: Any = None,
+        fast_reply_sink: Any = None,
     ) -> Any:
-        """One fresh model call classifying config, control, routing, and title.
+        """One fresh call classifying all cheap front-door decisions.
 
         Same discipline as ``classify_config_intent``: built FRESH on the raw
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
@@ -1081,6 +1083,8 @@ class Manager:
                 text,
                 run_exec=run_exec,
                 name_sink=name_sink,
+                lifetime_sink=lifetime_sink,
+                fast_reply_sink=fast_reply_sink,
             )
 
     def route(

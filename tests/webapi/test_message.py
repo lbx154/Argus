@@ -76,6 +76,32 @@ def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None
     assert body["reply"] == "你好呀 👋"
 
 
+def test_pure_social_fast_reply_skips_second_manager_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-fast-chat"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_fast_reply"] = "你好！我是 Argus。"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("pure social reply must not make a second model call")
+        ),
+    )
+
+    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+
+    assert result == {"kind": "chat", "reply": "你好！我是 Argus。"}
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.webapi.manager_bridge.manager_message",

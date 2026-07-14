@@ -23,7 +23,10 @@ def _exec(answer: str, exit_code: int = 0):
     def run_exec(prompt: str):
         assert all(
             label in prompt
-            for label in ("CONFIG:", "CONTROL:", "ROUTE:", "NAME:")
+            for label in (
+                "CONFIG:", "CONTROL:", "ROUTE:", "LIFETIME:",
+                "FAST_REPLY:", "NAME:",
+            )
         )
         return _FakeResult(answer, exit_code)
 
@@ -42,6 +45,59 @@ def test_name_axis_reports_concise_title_without_changing_route_contract() -> No
 
     assert decision == (None, None, "simple")
     assert names == ["勾股定理简证"]
+
+
+def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
+    lifetimes: list[str] = []
+    decision = classify_front_door(
+        "持续优化尽可能多的 kernel",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
+            "LIFETIME: STANDING\nFAST_REPLY: NONE\nNAME: Kernel 持续优化"
+        ),
+        lifetime_sink=lifetimes.append,
+    )
+
+    assert decision == (None, None, "complex")
+    assert lifetimes == ["standing"]
+
+
+def test_front_door_can_answer_pure_social_turn_without_second_model_call() -> None:
+    replies: list[str] = []
+    decision = classify_front_door(
+        "你好",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "LIFETIME: NONE\nFAST_REPLY: 你好！我是 Argus，有什么想一起推进的？\n"
+            "NAME: 打招呼"
+        ),
+        fast_reply_sink=replies.append,
+    )
+
+    assert decision == (None, None, "simple")
+    assert replies == ["你好！我是 Argus，有什么想一起推进的？"]
+
+
+def test_front_door_never_uses_fast_reply_for_team_or_control() -> None:
+    replies: list[str] = []
+    classify_front_door(
+        "停止任务",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: ABORT\nROUTE: SELF\n"
+            "LIFETIME: NONE\nFAST_REPLY: 好的\nNAME: 停止任务"
+        ),
+        fast_reply_sink=replies.append,
+    )
+    classify_front_door(
+        "修复代码",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
+            "LIFETIME: BOUNDED\nFAST_REPLY: 马上修\nNAME: 修复代码"
+        ),
+        fast_reply_sink=replies.append,
+    )
+
+    assert replies == []
 
 
 def test_both_axes_config_and_self() -> None:

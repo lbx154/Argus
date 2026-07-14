@@ -24,11 +24,16 @@ missing).
 """
 from __future__ import annotations
 
+import heapq
 import json
+import mmap
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 import uuid
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -102,10 +107,19 @@ def _read_jsonl_tail(
     n: int,
     *,
     predicate: Callable[[dict[str, Any]], bool] | None = None,
+    raw_predicate: Callable[[bytes], bool] | None = None,
+    raw_markers: tuple[bytes, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the last ``n`` matching JSONL rows without a full-file scan."""
     if n <= 0 or not path.exists():
         return []
+    if raw_markers:
+        return _read_jsonl_tail_marked(
+            path,
+            n,
+            raw_markers=raw_markers,
+            predicate=predicate,
+        )
 
     rows_rev: list[dict[str, Any]] = []
     # Sparse filtered tails (EventJournal) may need to walk far back through a
@@ -128,6 +142,8 @@ def _read_jsonl_tail(
                     raw = raw.strip()
                     if not raw:
                         continue
+                    if raw_predicate is not None and not raw_predicate(raw):
+                        continue
                     try:
                         row = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -141,6 +157,8 @@ def _read_jsonl_tail(
                 raw = buffer.strip()
                 if raw:
                     try:
+                        if raw_predicate is not None and not raw_predicate(raw):
+                            return list(reversed(rows_rev))
                         row = json.loads(raw.decode("utf-8"))
                         if predicate is None or predicate(row):
                             rows_rev.append(row)
@@ -149,6 +167,59 @@ def _read_jsonl_tail(
     except OSError:
         return []
 
+    rows_rev.reverse()
+    return rows_rev
+
+
+def _read_jsonl_tail_marked(
+    path: Path,
+    n: int,
+    *,
+    raw_markers: tuple[bytes, ...],
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Find sparse JSONL rows with mmap-backed reverse marker searches.
+
+    Long-running projects retain gigabytes of command/progress events while
+    journal and mission-completion events are rare. Broad event-prefix markers
+    avoid repeated whole-file scans while only handing candidate lines to
+    Python for decoding.
+    """
+    rows_rev: list[dict[str, Any]] = []
+    try:
+        with path.open("rb") as fh:
+            if fh.seek(0, os.SEEK_END) <= 0:
+                return []
+            with mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+                heap: list[tuple[int, int]] = []
+                for index, marker in enumerate(raw_markers):
+                    position = mapped.rfind(marker)
+                    if position >= 0:
+                        heapq.heappush(heap, (-position, index))
+                seen_line_starts: set[int] = set()
+                while heap and len(rows_rev) < n:
+                    negative_position, marker_index = heapq.heappop(heap)
+                    position = -negative_position
+                    line_start = mapped.rfind(b"\n", 0, position) + 1
+                    if line_start not in seen_line_starts:
+                        seen_line_starts.add(line_start)
+                        line_end = mapped.find(b"\n", position)
+                        if line_end < 0:
+                            line_end = len(mapped)
+                        raw = mapped[line_start:line_end].strip()
+                        if raw:
+                            try:
+                                row = json.loads(raw.decode("utf-8"))
+                            except (UnicodeDecodeError, json.JSONDecodeError):
+                                row = None
+                            if row is not None and (predicate is None or predicate(row)):
+                                rows_rev.append(row)
+                    marker = raw_markers[marker_index]
+                    previous = mapped.rfind(marker, 0, line_start)
+                    if previous >= 0:
+                        heapq.heappush(heap, (-previous, marker_index))
+    except (OSError, ValueError):
+        return []
     rows_rev.reverse()
     return rows_rev
 
@@ -210,6 +281,9 @@ def _read_jsonl_tail_history(
     n: int,
     *,
     predicate: Callable[[dict[str, Any]], bool] | None = None,
+    raw_predicate: Callable[[bytes], bool] | None = None,
+    raw_markers: tuple[bytes, ...] | None = None,
+    rg_pattern: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return a filtered tail across every retained generation."""
     if n <= 0:
@@ -219,12 +293,58 @@ def _read_jsonl_tail_history(
         needed = n - len(rows)
         if needed <= 0:
             break
-        rows = _read_jsonl_tail(
+        fast_rows = _read_jsonl_tail_rg(
             history_path,
             needed,
+            pattern=rg_pattern,
             predicate=predicate,
+        ) if rg_pattern else None
+        rows = (
+            fast_rows
+            if fast_rows is not None
+            else _read_jsonl_tail(
+                history_path,
+                needed,
+                predicate=predicate,
+                raw_predicate=raw_predicate,
+                raw_markers=raw_markers,
+            )
         ) + rows
     return rows
+
+
+def _read_jsonl_tail_rg(
+    path: Path,
+    n: int,
+    *,
+    pattern: str | None,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]] | None:
+    """Optional ripgrep fast path for very sparse events in huge JSONL files."""
+    rg = shutil.which("rg")
+    if not pattern or rg is None or n <= 0 or not path.is_file():
+        return None
+    try:
+        result = subprocess.run(
+            [rg, "--text", "--no-heading", "--no-filename", "--color", "never", "-e", pattern, str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode not in {0, 1}:
+        return None
+    rows: deque[dict[str, Any]] = deque(maxlen=n)
+    for raw in result.stdout.splitlines():
+        try:
+            row = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if predicate is None or predicate(row):
+            rows.append(row)
+    return list(rows)
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -419,6 +539,21 @@ class EventJournal(Journal):
         EventType.LIFE_LIFECYCLE_BLOCK,
         "user.note",
     }
+    _RAW_EVENT_MARKERS = tuple(
+        marker.encode("utf-8")
+        for marker in (
+            "journal_kind",
+            "life.",
+            "user.note",
+            "journal.entry",
+            "mission.",
+        )
+    )
+    _RG_PATTERN = (
+        r'"(?:type|canonical_type)"\s*:\s*"(?:journal\.entry|user\.note|'
+        r'mission\.(?:started|completed)|life\.(?:mission|planner|budget|lifecycle)\.[^"]+)"'
+        r'|"journal_kind"\s*:'
+    )
 
     def append(self, entry: JournalEntry) -> None:  # noqa: ARG002
         """Retired write API: project journals are derived from events only."""
@@ -428,6 +563,11 @@ class EventJournal(Journal):
     def _is_journal_event(cls, row: dict[str, Any]) -> bool:
         event_type = canonical_event_type(row.get("canonical_type") or row.get("type"))
         return bool(row.get("journal_kind")) or event_type in cls.JOURNAL_EVENT_TYPES
+
+    @classmethod
+    def _might_be_journal_event(cls, raw: bytes) -> bool:
+        """Cheaply reject ordinary progress lines before expensive JSON decoding."""
+        return any(marker in raw for marker in cls._RAW_EVENT_MARKERS)
 
     @staticmethod
     def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
@@ -505,6 +645,9 @@ class EventJournal(Journal):
             self.path,
             n,
             predicate=self._is_journal_event,
+            raw_predicate=self._might_be_journal_event,
+            raw_markers=self._RAW_EVENT_MARKERS,
+            rg_pattern=self._RG_PATTERN,
         )
         return [
             entry for row in events

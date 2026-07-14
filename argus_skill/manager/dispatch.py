@@ -112,24 +112,32 @@ def maybe_promote_to_continuous(
     root_task_id: str | None = None,
 ) -> bool:
     """Let Manager choose STANDING lifetime for an open-ended team task."""
-    runner = front_door._ensure_manager_runner(chat_state, mem)
-    classify = getattr(runner, "classify_needs_continuous", None)
-    if runner is None or not callable(classify):
+    frontdoor_lifetime = str(
+        chat_state.pop("_frontdoor_lifetime", "") or ""
+    ).strip().lower()
+    if frontdoor_lifetime == "bounded":
         return False
-
-    is_standing = True
-    try:
-        if root_task_id is None or not front_door._accepts_keyword(
-            classify,
-            "root_task_id",
-        ):
-            is_standing = bool(classify(body))
-        else:
-            is_standing = bool(classify(body, root_task_id=root_task_id))
-        if not is_standing:
+    if frontdoor_lifetime == "standing":
+        is_standing = True
+    else:
+        runner = front_door._ensure_manager_runner(chat_state, mem)
+        classify = getattr(runner, "classify_needs_continuous", None)
+        if runner is None or not callable(classify):
             return False
-    except Exception:  # noqa: BLE001 - substantive team work defaults to standing
-        pass
+
+        is_standing = True
+        try:
+            if root_task_id is None or not front_door._accepts_keyword(
+                classify,
+                "root_task_id",
+            ):
+                is_standing = bool(classify(body))
+            else:
+                is_standing = bool(classify(body, root_task_id=root_task_id))
+            if not is_standing:
+                return False
+        except Exception:  # noqa: BLE001 - substantive team work defaults to standing
+            pass
 
     from ..daemon.life_worker import continuous_mode_error
 

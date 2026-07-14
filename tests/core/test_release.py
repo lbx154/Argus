@@ -37,6 +37,18 @@ def test_release_generated_frontend_contract_is_current() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_checked_in_frontend_artifacts_match_current_release() -> None:
+    root = Path(__file__).parents[2]
+    result = subprocess.run(
+        [sys.executable, "scripts/check_release_artifacts.py"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_untracked_runtime_skill_does_not_change_release_identity() -> None:
     root = Path(__file__).parents[2]
     generated = root / "argus_skill" / "builtin_skills" / "_release-test-untracked.md"

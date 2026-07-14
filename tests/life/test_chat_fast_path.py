@@ -144,8 +144,9 @@ def _make_runner(backend: _FakeBackend) -> Any:
 
 # ---------- Manager SELF fast-path: runner unit tests ----------------------
 
-def test_execute_dispatches_to_manager_self_path_on_greeting() -> None:
+def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> None:
     """English greeting → one Manager turn, no team pipeline."""
+    monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     backend = _FakeBackend(response_message="Hi! How can I help?")
     runner = _make_runner(backend)
     sink = _RecordingSink()
@@ -159,8 +160,22 @@ def test_execute_dispatches_to_manager_self_path_on_greeting() -> None:
     # Exactly one backend call (no matcher / distill / reviewer).
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-    # SELF uses the same xhigh-effort default as the gpt-5.4-mini engineer route.
-    assert backend.calls[0]["options"].reasoning_effort == "xhigh"
+    # Foreground chat is latency-sensitive and no longer inherits the Engineer's
+    # xhigh setting; deep Manager/Planner/Engineer decisions keep their own knobs.
+    assert backend.calls[0]["options"].reasoning_effort == "medium"
+
+
+def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SELF_REASONING_EFFORT", "high")
+    backend = _FakeBackend(response_message="grounded")
+    runner = _make_runner(backend)
+
+    runner._simple_quick_reply(
+        objective="inspect the current state",
+        sink=_RecordingSink(),
+    )
+
+    assert backend.calls[-1]["options"].reasoning_effort == "high"
 
 
 def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:

@@ -99,6 +99,8 @@ def latest_evidence_files(
         1,
         predicate=lambda row: str(row.get("type") or "")
         == EventType.LIFE_MISSION_COMPLETED,
+        raw_predicate=lambda raw: b"life.mission.completed" in raw,
+        raw_markers=(b"life.mission.completed",),
     )
     latest = events[-1] if events else {}
     report = latest.get("planner_report") if isinstance(latest, dict) else {}

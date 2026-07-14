@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.knobs import resolve_role_reasoning_effort
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -371,7 +372,10 @@ class SelfReplyMixin:
 
         options = RunnerOptions(
             model=args.engineer_model,
-            reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
+            reasoning_effort=resolve_role_reasoning_effort(
+                "ARGUS_SKILL_SELF_REASONING_EFFORT",
+                default="medium",
+            ),
             full_auto=False,
             skip_git_repo_check=True,
             dangerous_yolo=False,

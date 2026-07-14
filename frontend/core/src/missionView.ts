@@ -485,6 +485,13 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
   } else if (view.mission.started_at && view.mission.completed_at) {
     view.mission.elapsed_seconds = Math.max(0, view.mission.completed_at - view.mission.started_at);
   }
+  if (view.achievement?.reviewer_certified) {
+    view.achievement.elapsed_seconds = view.mission.elapsed_seconds;
+    view.achievement.experiments_run = view.experiments.filter((row) => row.status === 'completed').length;
+    view.achievement.rejected_attempts = view.review.rejected_attempts;
+    view.achievement.skills_learned = view.learned_skills.filter((row) => row.status === 'active').length;
+    view.achievement.artifacts = artifacts.filter((artifact) => artifact.exists).length;
+  }
   refreshPrimaryMetric(view);
 }
 

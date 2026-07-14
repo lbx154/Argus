@@ -46,9 +46,12 @@
 | models | `ARGUS_SKILL_ENGINEER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
 | models | `ARGUS_SKILL_REVIEWER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
 | models | `ARGUS_SKILL_PLAN_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
+| models | `ARGUS_SKILL_PLAN_PREVIEW_MODEL` | `auto` | default | `auto` |
 | models | `ARGUS_SKILL_MATCHER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
 | reasoning | `ARGUS_SKILL_MANAGER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | reasoning | `ARGUS_SKILL_PLANNER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
+| reasoning | `ARGUS_SKILL_SELF_REASONING_EFFORT` | `medium` | default | `medium` |
+| reasoning | `ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT` | `low` | default | `low` |
 | reasoning | `ARGUS_SKILL_ENGINEER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | reasoning | `ARGUS_SKILL_REVIEWER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | budget | `ARGUS_SKILL_PER_MISSION_CAP_USD` | `30.0` | default | `30.0` |

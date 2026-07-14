@@ -90,6 +90,25 @@ def test_lifetime_promotion_keeps_explicit_bounded_task(memory, monkeypatch):
     assert "config" not in state
 
 
+def test_lifetime_promotion_reuses_frontdoor_verdict_without_second_call(
+    memory, monkeypatch,
+):
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("front-door lifetime must avoid a second model call")
+        ),
+    )
+    standing = {"backend": "codex", "_frontdoor_lifetime": "standing"}
+    bounded = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+
+    assert dispatch.maybe_promote_to_continuous(memory, "keep going", standing)
+    assert not dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
+    assert "_frontdoor_lifetime" not in standing
+    assert "_frontdoor_lifetime" not in bounded
+
+
 def test_failed_continuous_handoff_rolls_back_auto_promotion(memory, monkeypatch):
     state = {
         "backend": "codex",

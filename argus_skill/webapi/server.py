@@ -126,9 +126,14 @@ __all__ = [
 EVENT_FILE = "events.jsonl"
 _JOURNAL_TAIL_CACHE: dict[
     tuple[str, int],
-    tuple[tuple[tuple[int, int, int] | None, tuple[int, int, int] | None], list[dict[str, Any]]],
+    tuple[
+        tuple[tuple[int, int, int] | None, tuple[int, int, int] | None],
+        float,
+        list[dict[str, Any]],
+    ],
 ] = {}
 _JOURNAL_TAIL_CACHE_LOCK = threading.Lock()
+_JOURNAL_TAIL_CACHE_TTL_S = 2.0
 _WEB_UI_DROPPED_EVENT_TYPES = frozenset({
     EventType.AGENT_IO_START,
     EventType.AGENT_IO_STREAM,
@@ -1128,16 +1133,19 @@ def get_journal(
         _stat_signature(event_path.with_suffix(event_path.suffix + ".1")),
     )
     key = (str(life_dir.resolve()), max(1, n))
+    now = time.monotonic()
     with _JOURNAL_TAIL_CACHE_LOCK:
         cached = _JOURNAL_TAIL_CACHE.get(key)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
+        if cached is not None and (
+            cached[0] == signature or now - cached[1] < _JOURNAL_TAIL_CACHE_TTL_S
+        ):
+            return cached[2]
     try:
         rows = [e.to_jsonable() for e in LifeMemory.open(life_dir).journal.tail(max(1, n))]
     except Exception:  # noqa: BLE001
         rows = []
     with _JOURNAL_TAIL_CACHE_LOCK:
-        _JOURNAL_TAIL_CACHE[key] = (signature, rows)
+        _JOURNAL_TAIL_CACHE[key] = (signature, time.monotonic(), rows)
     return rows
 
 

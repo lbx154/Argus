@@ -49,6 +49,9 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_DAEMON_AUTO_RESTART",
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
         "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+        "ARGUS_SKILL_SELF_REASONING_EFFORT",
+        "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
+        "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     ):
         assert must in names

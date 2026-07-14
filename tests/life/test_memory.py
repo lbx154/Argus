@@ -166,6 +166,32 @@ def test_journal_tail_does_not_call_read_jsonl(
     assert [e.title for e in tail] == ["t247", "t248", "t249"]
 
 
+def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "events.jsonl"
+    rows = [
+        json.dumps({"type": "engineer.progress", "ts": i, "text": "command output"})
+        for i in range(2_000)
+    ]
+    rows.append(json.dumps({"type": "user.note", "ts": 2_001, "text": "keep me"}))
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    original = json.loads
+    calls = 0
+
+    def _counted(value: str, *args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal calls
+        calls += 1
+        return original(value, *args, **kwargs)
+
+    monkeypatch.setattr("argus_skill.life.memory.json.loads", _counted)
+    tail = EventJournal(path).tail(1)
+
+    assert [entry.summary for entry in tail] == ["keep me"]
+    assert calls <= 2
+
+
 def test_journal_tolerates_partial_trailing_line(tmp_path: Path) -> None:
     p = tmp_path / "journal.jsonl"
     j = Journal(p)
