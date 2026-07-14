@@ -6,7 +6,18 @@ Argus therefore ships a set of guards that keep a mission bounded and honest ---
 each one domain-agnostic, each one refusing to make a scientific judgment itself.
 Figure~2 sketches how they wrap a single mission's engineer/reviewer loop.
 
-\input{figures/fig_lifecycle}
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\textwidth]{figures/long_horizon_reliability.png}
+\caption{System schematic (not a measured performance plot) of the Argus
+long-horizon reliability cycle: Planner, Engineer, and Reviewer run one
+continuous loop; the Reviewer emits a single bounded checkpoint and a
+decision-progress class that reseeds a fresh Engineer thread; supervised
+background jobs run independently alongside the loop; and a safe round
+boundary returns a stalled or budget-exhausted mission to the Planner, all
+on top of a persistent budget, event-log, and artifact rail.}
+\label{fig:reliability}
+\end{figure}
 
 \subsection{Curated working-memory checkpoint}
 

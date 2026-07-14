@@ -8,7 +8,16 @@ pipeline rather than occupying a station on it. A fifth role, the Curator, is
 optional and runs only in team/subagent modes. The schematic in Figure~1
 shows how the roles sit over the domain-agnostic harness.
 
-\input{figures/fig_architecture}
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\textwidth]{figures/argus_architecture.png}
+\caption{System schematic (not a measured performance plot) of the Argus
+architecture: an operator objective enters a persistent, domain-agnostic
+harness; the Manager, Planner, Engineer, and Reviewer sit inside it as the
+four roles that make every research judgment; and inspectable artifacts and
+evidence exit back to the operator.}
+\label{fig:architecture}
+\end{figure}
 
 \subsection{Manager --- front door and stage authority}
 

@@ -5,6 +5,10 @@
 <p align="center"><strong>One goal in.<br>An autonomous AI research team wakes up.</strong></p>
 <p align="center"><em>Configure the machine policy once. Manager, Planner, Engineer, and Reviewer take it from there.</em></p>
 
+<p align="center">
+  <img src="technical_report/figures/argus_architecture.png" alt="Argus architecture schematic: an operator objective enters a persistent harness where Manager, Planner, Engineer, and Reviewer make every research judgment" width="100%">
+</p>
+
 ---
 
 ## What Argus is

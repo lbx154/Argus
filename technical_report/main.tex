@@ -18,8 +18,7 @@
 \usepackage{array}
 \usepackage{enumitem}
 \usepackage{tcolorbox}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage{graphicx}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 \usepackage[hidelinks]{hyperref}
@@ -80,14 +79,6 @@
   fonttitle=\bfseries\small\color{argusindigo},
   coltitle=argusindigo,
   title={#1}
-}
-
-\newtcolorbox{schematicpanel}[1]{
-  enhanced, breakable=false,
-  colback=panelfill, colframe=panelline,
-  boxrule=0.6pt, left=10pt, right=10pt, top=8pt, bottom=8pt,
-  arc=2pt,
-  title={\small\bfseries\color{graphitesoft}#1}
 }
 
 % Line spacing / paragraphs: short paragraphs, generous white space.

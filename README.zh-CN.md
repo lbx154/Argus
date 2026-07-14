@@ -6,6 +6,10 @@
 <p align="center"><em>Machine policy configured once. Manager, Planner, Engineer, and Reviewer take it from there.</em></p>
 
 <p align="center">
+  <img src="technical_report/figures/argus_architecture.png" alt="Argus 架构示意图：一个 operator 目标进入持久化 harness，Manager、Planner、Engineer、Reviewer 在其中做出所有科研判断" width="100%">
+</p>
+
+<p align="center">
 给它一个目标。四个角色启动，Planner 展开研究分支，Engineer 在真机上实验，<br>
 Reviewer 用证据打回或验收，指标、产物和新学到的能力实时进入同一个 Mission View。
 </p>
