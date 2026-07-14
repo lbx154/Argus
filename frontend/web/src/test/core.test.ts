@@ -62,6 +62,10 @@ describe('shared frontend core', () => {
     expect(css).toContain('.workbench-shell');
     expect(css).toContain('.glass-panel');
     expect(css).toContain('.glass-card');
+    expect(css).toContain('.icon-control');
+    expect(css).toContain('.compact-control');
+    expect(css).toContain('.send-control');
+    expect(css).toContain('.session-card');
   });
 
   it('renders branded shared button variants without changing semantics', () => {

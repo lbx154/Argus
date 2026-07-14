@@ -27,6 +27,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
+import { Button } from './components/primitives';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
@@ -110,18 +111,12 @@ function Landing({
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">
           {error ? (
-            <button type="button" onClick={onRetry} className="rounded border border-err/50 px-3 py-1.5 text-xs text-err hover:bg-err/10">
-              Retry
-            </button>
+            <Button onClick={onRetry} variant="danger">Retry</Button>
           ) : null}
           {hasProjects ? (
-            <button type="button" onClick={onChoose} className="rounded border border-line px-3 py-1.5 text-xs text-ink-dim hover:bg-panel">
-              Select session
-            </button>
+            <Button onClick={onChoose}>Select session</Button>
           ) : canCreate ? (
-            <button type="button" onClick={onNew} className="rounded border border-blue-deep bg-blue-deep px-3 py-1.5 text-xs text-ink hover:bg-blue-deep/80">
-              New session
-            </button>
+            <Button onClick={onNew} variant="primary">New session</Button>
           ) : null}
         </div>
       )}

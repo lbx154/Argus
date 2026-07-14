@@ -96,7 +96,7 @@ export function ChatBox({
           disabled={disabled || (!pending && !text.trim())}
           title={pending ? 'stop waiting for this reply; server-side work may continue' : undefined}
           aria-label={pending ? 'stop waiting' : 'send message'}
-          className={`h-9 w-9 shrink-0 rounded-full border text-sm font-medium transition-colors disabled:opacity-40 ${
+          className={`send-control h-9 w-9 shrink-0 rounded-full text-sm font-medium disabled:opacity-40 ${
             pending
               ? 'border-line text-warn hover:border-warn/60 hover:bg-warn/10'
               : 'border-blue/70 bg-blue/10 text-blue hover:border-blue hover:bg-blue/20'

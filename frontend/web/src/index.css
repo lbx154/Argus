@@ -89,7 +89,11 @@ body {
 
 .glass-panel {
   border-color: rgb(var(--glass-edge) / 55%);
-  background: rgb(var(--glass) / 82%);
+  background:
+    linear-gradient(145deg, rgb(var(--glass) / 76%), rgb(var(--glass-raised) / 66%));
+  box-shadow:
+    inset 0 1px 0 rgb(var(--spectral-blue) / 12%),
+    inset -1px 0 0 rgb(var(--spectral-gold) / 6%);
   backdrop-filter: blur(18px) saturate(1.15);
 }
 
@@ -213,6 +217,65 @@ body {
   border-color: rgb(var(--spectral-violet) / 58%);
   background: rgb(var(--glass-raised) / 94%);
   box-shadow: 0 0 14px -6px rgb(var(--spectral-blue) / 68%);
+}
+
+.icon-control,
+.compact-control,
+.send-control {
+  border: 1px solid rgb(var(--glass-edge) / 58%);
+  border-radius: 8px;
+  background: rgb(var(--glass-raised) / 56%);
+  color: rgb(var(--ink-faint));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.compact-control {
+  font-size: 0.75rem;
+}
+
+.send-control {
+  border-color: rgb(var(--spectral-violet) / 58%);
+  background:
+    radial-gradient(circle at 25% 20%, rgb(var(--spectral-blue) / 20%), transparent 48%),
+    rgb(var(--glass-raised) / 82%);
+  color: rgb(var(--spectral-blue));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 32%),
+    0 8px 22px -14px rgb(var(--spectral-violet) / 68%);
+}
+
+.session-card {
+  border: 1px solid transparent;
+}
+
+.session-card[aria-current='page'],
+.session-card:has([aria-current='page']) {
+  border-color: rgb(var(--spectral-violet) / 28%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 8px 20px -18px rgb(var(--spectral-blue) / 65%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .icon-control:hover,
+  .compact-control:hover,
+  .send-control:hover {
+    border-color: rgb(var(--spectral-violet) / 58%);
+    background-color: rgb(var(--glass-raised) / 88%);
+    color: rgb(var(--ink));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 34%),
+      0 8px 22px -16px rgb(var(--spectral-blue) / 58%);
+  }
+
+  .session-card:hover {
+    border-color: rgb(var(--spectral-blue) / 24%);
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

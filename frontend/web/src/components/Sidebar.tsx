@@ -97,7 +97,7 @@ export function Sidebar({
         ) : (
           <>
             <Wordmark size={24} />
-            <button type="button" onClick={onToggleCollapse} aria-label="Collapse sessions" title="Collapse sessions · Ctrl/⌘ B" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink">
+            <button type="button" onClick={onToggleCollapse} aria-label="Collapse sessions" title="Collapse sessions · Ctrl/⌘ B" className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
               <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
             </button>
           </>
@@ -177,7 +177,7 @@ export function Sidebar({
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
-                      className={`group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
+                      className={`session-card group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
                         active ? 'bg-blue/10 text-ink' : 'text-ink-dim hover:bg-bg/70 hover:text-ink'
                       }`}
                     >
@@ -217,10 +217,10 @@ export function Sidebar({
           </div>
 
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
-            <button type="button" onClick={() => onOpenPanel('config')} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink" aria-label="Open settings" title="Settings">
+            <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label="Open settings" title="Settings">
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={onCycleTheme} title={`${themeMode} theme · switch to ${nextTheme}`} aria-label={`${themeMode} theme; switch to ${nextTheme}`} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink">
+            <button type="button" onClick={onCycleTheme} title={`${themeMode} theme · switch to ${nextTheme}`} aria-label={`${themeMode} theme; switch to ${nextTheme}`} className="icon-control flex h-8 w-8 items-center justify-center">
               <FontAwesomeIcon icon={themeIcon} className="h-3.5 w-3.5" />
             </button>
           </div>
