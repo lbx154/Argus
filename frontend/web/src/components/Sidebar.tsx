@@ -194,11 +194,12 @@ export function Sidebar({
                   return (
                     <div
                       key={project.id}
+                      data-active={active ? 'true' : 'false'}
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
                       className={`session-card group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
-                        active ? 'bg-blue/10 text-ink' : 'text-ink-dim hover:bg-bg/70 hover:text-ink'
+                        active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
                       <span aria-hidden="true" className={`absolute left-0 transition-colors ${active ? 'inset-y-1 w-px bg-blue' : 'inset-y-2 w-px bg-transparent group-hover:bg-ink-faint/30'}`} />

@@ -136,7 +136,12 @@ function RoleLogGroup({
     return () => window.cancelAnimationFrame(frame);
   }, [open, rows.length, tailLength]);
   return (
-    <section className="border-b border-line/50">
+    <section
+      className="role-log-group border-b border-line/50"
+      data-role={role}
+      data-open={open ? 'true' : 'false'}
+      data-active={active ? 'true' : 'false'}
+    >
       <button
         type="button"
         onClick={onToggle}

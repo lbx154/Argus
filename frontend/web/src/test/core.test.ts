@@ -95,6 +95,8 @@ describe('shared frontend core', () => {
     expect(css).toContain('[data-page-visible=\"false\"]');
     expect(css).not.toContain('--spectral-violet: 105 73 205');
     expect(css).not.toContain('--spectral-rose: 190 67 119');
+    expect(css).toContain('.workspace-tab-indicator');
+    expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
   it('keeps light-theme spectral info text at WCAG AA contrast', () => {

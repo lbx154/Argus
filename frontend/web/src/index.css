@@ -326,14 +326,93 @@ body {
 
 .session-card {
   border: 1px solid transparent;
+  background: rgb(var(--glass-raised) / 24%);
 }
 
-.session-card[aria-current='page'],
-.session-card:has([aria-current='page']) {
-  border-color: rgb(var(--spectral-violet) / 28%);
+.session-card[data-active='true'] {
+  border-color: rgb(var(--spectral-blue) / 42%);
+  background:
+    linear-gradient(100deg, rgb(var(--spectral-blue) / 12%), rgb(var(--spectral-gold) / 8%)),
+    rgb(var(--glass-raised) / 70%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 18%),
-    0 8px 20px -18px rgb(var(--spectral-blue) / 65%);
+    inset 2px 0 0 rgb(var(--spectral-blue)),
+    inset -1px 0 0 rgb(var(--spectral-gold) / 55%),
+    0 10px 26px -20px rgb(var(--spectral-blue) / 72%);
+}
+
+.workspace-tabs {
+  position: relative;
+  display: grid;
+  width: 142px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  border: 1px solid rgb(var(--glass-edge) / 58%);
+  border-radius: 9px;
+  background: rgb(var(--glass-raised) / 48%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%);
+}
+
+.workspace-tab {
+  position: relative;
+  z-index: 1;
+  height: 26px;
+  border-radius: 6px;
+  color: rgb(var(--ink-faint));
+  font-size: 0.75rem;
+  transition: color 200ms ease;
+}
+
+.workspace-tab[data-selected='true'] {
+  color: rgb(var(--ink));
+}
+
+.workspace-tab-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background:
+    linear-gradient(rgb(var(--glass-raised) / 94%), rgb(var(--glass-raised) / 88%)) padding-box,
+    linear-gradient(90deg, rgb(var(--spectral-blue) / 80%), rgb(var(--spectral-gold) / 72%)) border-box;
+  box-shadow:
+    0 6px 16px -12px rgb(var(--spectral-blue) / 80%),
+    inset 0 1px 0 rgb(255 255 255 / 48%);
+  transition: transform 200ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.workspace-tabs[data-active='activity'] .workspace-tab-indicator {
+  transform: translateX(100%);
+}
+
+.role-log-group {
+  position: relative;
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+
+.role-log-group::before {
+  content: '';
+  position: absolute;
+  inset: 5px auto 5px 0;
+  width: 2px;
+  border-radius: 999px;
+  opacity: 0;
+  background: linear-gradient(180deg, rgb(var(--spectral-blue)), rgb(var(--spectral-gold)));
+  transition: opacity 200ms ease, box-shadow 200ms ease;
+}
+
+.role-log-group[data-open="true"] {
+  background: linear-gradient(90deg, rgb(var(--spectral-blue) / 5%), transparent 38%);
+}
+
+.role-log-group[data-open="true"]::before {
+  opacity: 1;
+}
+
+.role-log-group[data-active='true']::before {
+  box-shadow: 0 0 14px rgb(var(--spectral-blue) / 52%);
 }
 
 @media (hover: hover) and (pointer: fine) {

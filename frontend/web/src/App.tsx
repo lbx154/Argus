@@ -865,8 +865,11 @@ export default function App() {
                 missionView={missionView}
               />
               <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
-                <button type="button" onClick={() => setWorkspaceView('mission')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'mission' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Mission</button>
-                <button type="button" onClick={() => setWorkspaceView('activity')} className={`rounded px-2.5 py-1 text-xs ${workspaceView === 'activity' ? 'bg-blue-deep/20 text-blue-sky' : 'text-ink-faint hover:text-ink'}`}>Activity</button>
+                <div className="workspace-tabs" data-active={workspaceView}>
+                  <span className="workspace-tab-indicator" aria-hidden="true" />
+                  <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>Mission</button>
+                  <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>Activity</button>
+                </div>
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? `${missionView.active_role} active` : 'mission overview'}</span> : <span className="ml-auto" />}
                 {!kiosk ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">Operations</button> : null}
               </div>
