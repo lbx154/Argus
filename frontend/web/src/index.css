@@ -193,6 +193,28 @@ body {
     0 0 0 1px rgb(var(--spectral-violet) / 10%);
 }
 
+.handshake-mark {
+  color: rgb(var(--spectral-blue));
+  box-shadow:
+    0 20px 58px -30px rgb(var(--spectral-violet) / 75%),
+    0 0 32px -18px rgb(var(--spectral-gold) / 72%);
+}
+
+.handshake-line {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--spectral-blue)),
+    rgb(var(--spectral-violet)),
+    rgb(var(--spectral-gold))
+  );
+}
+
+.handshake-node {
+  border-color: rgb(var(--spectral-violet) / 58%);
+  background: rgb(var(--glass-raised) / 94%);
+  box-shadow: 0 0 14px -6px rgb(var(--spectral-blue) / 68%);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .brand-button:hover {
     color: rgb(var(--ink));

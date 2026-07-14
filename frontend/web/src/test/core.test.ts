@@ -28,7 +28,7 @@ import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
-import { motionQueries } from '../lib/motion';
+import { motionDistance, motionDuration, motionQueries } from '../lib/motion';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
@@ -161,6 +161,13 @@ describe('shared frontend core', () => {
       all: '(min-width: 0px)',
       reduceMotion: '(prefers-reduced-motion: reduce)',
     });
+  });
+
+  it('keeps workbench motion bounded and accessible', () => {
+    expect(motionDuration.fast).toBeGreaterThanOrEqual(0.18);
+    expect(motionDuration.normal).toBeLessThanOrEqual(0.32);
+    expect(motionDistance.magnetic).toBeLessThanOrEqual(6);
+    expect(motionQueries.reduceMotion).toBe('(prefers-reduced-motion: reduce)');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {
