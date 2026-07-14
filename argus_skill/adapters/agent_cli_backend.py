@@ -700,6 +700,7 @@ class AgentCliBackend:
             usage_record = None
             reservation_overrun_usd: float | None = None
             result.call_id = call_id
+            result.call_id_log_correlated = True
             result.stop_kind = normalize_stop_kind(result.stop_kind)
             result.thread_id = result.thread_id or resume_thread_id
             result.started_at = started_at

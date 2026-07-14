@@ -1817,6 +1817,17 @@ class SupervisedEngineer:
                         background_context=reviewer_background_context,
                         escalate_hint=escalate_hint,
                         engineer_log_path=supervised_config.engineer_log_path,
+                        engineer_call_id=(
+                            str(getattr(engineer_result, "call_id", "") or "")
+                            if bool(
+                                getattr(
+                                    engineer_result,
+                                    "call_id_log_correlated",
+                                    False,
+                                )
+                            )
+                            else ""
+                        ),
                         resume_thread_id=reviewer_resume_id,
                         prior_static_fingerprint=reviewer_static_fingerprint,
                     )

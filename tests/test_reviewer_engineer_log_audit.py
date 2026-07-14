@@ -21,6 +21,7 @@ Pinned here:
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 
 from argus_skill.core.models import ReviewDecision, RunnerResult
@@ -32,9 +33,16 @@ from argus_skill.engineer.runner import (
 from argus_skill.reviewer import Reviewer, ReviewerConfig
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
+_CALL_ID = "0123456789abcdef"
 
 
-def _build(path: str, *, monkeypatch=None, measured: bool = False) -> str:
+def _build(
+    path: str,
+    *,
+    call_id: str = "",
+    monkeypatch=None,
+    measured: bool = False,
+) -> str:
     if monkeypatch is not None:
         if measured:
             monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
@@ -51,6 +59,7 @@ def _build(path: str, *, monkeypatch=None, measured: bool = False) -> str:
         main_error=None,
         prior_checkpoint={},
         engineer_log_path=path,
+        engineer_call_id=call_id,
     )
 
 
@@ -73,6 +82,25 @@ def test_no_audit_section_when_log_path_empty(monkeypatch) -> None:
     p = _build("", monkeypatch=monkeypatch)
     assert "Engineer execution-log audit" not in p
     assert "events.jsonl" not in p
+
+
+def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> None:
+    p = _build(_LOG_PATH, call_id=_CALL_ID, monkeypatch=monkeypatch)
+
+    assert f"Current engineer call id: `{_CALL_ID}`" in p
+    assert f"'{sys.executable}' -I -m argus_skill.tools.event_log_query" in p
+    assert f"--log '{_LOG_PATH}' --call-id '{_CALL_ID}'" in p
+    assert "rg -F" not in p
+    assert "\n    grep -nE 'use_attach" not in p
+    assert "\n    grep -nE 'pytest" not in p
+
+
+def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
+    p = _build(_LOG_PATH, monkeypatch=monkeypatch)
+
+    assert "Current engineer call id:" not in p
+    assert "grep -nE 'use_attach" in p
+    assert "grep -nE 'pytest" in p
 
 
 def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
@@ -127,6 +155,8 @@ class _OneRoundEngineerRunner:
             exit_code=0,
             agent_messages=["implemented the increment; artifact at out.json"],
             thread_id="t1",
+            call_id=_CALL_ID,
+            call_id_log_correlated=True,
             fatal_error=None,
         )
 
@@ -136,15 +166,26 @@ class _CapturingReviewer:
 
     def __init__(self) -> None:
         self.seen_log_path: str | None = None
+        self.seen_call_id: str | None = None
 
     def evaluate(self, **kwargs) -> ReviewDecision:
         self.seen_log_path = kwargs.get("engineer_log_path")
+        self.seen_call_id = kwargs.get("engineer_call_id")
         return ReviewDecision(
             status="done",
             reason="ok",
             next_action="",
             round_summary_markdown="# done",
             completion_summary_markdown="done",
+        )
+
+
+class _UncorrelatedEngineerRunner:
+    def run_exec(self, **_kwargs):
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=["implemented without a backend audit log"],
+            thread_id="t2",
         )
 
 
@@ -170,6 +211,35 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
         on_event=lambda _e: None,
     )
     assert reviewer.seen_log_path == _LOG_PATH
+    assert reviewer.seen_call_id == _CALL_ID
+
+
+def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
+    tmp_path: Path,
+) -> None:
+    reviewer = _CapturingReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=_UncorrelatedEngineerRunner(),
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+    config = SupervisedConfig(
+        max_rounds=1,
+        effective_progress_timeout_seconds=0,
+        background_subagent_advisory=False,
+        engineer_log_path=_LOG_PATH,
+    )
+
+    engine.run(
+        objective="implement the increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do it",
+        supervised_config=config,
+        workdir=tmp_path,
+        on_event=lambda _e: None,
+    )
+
+    assert reviewer.seen_call_id == ""
 
 
 def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
@@ -193,6 +263,7 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
         on_event=lambda _e: None,
     )
     assert reviewer.seen_log_path == ""
+    assert reviewer.seen_call_id == _CALL_ID
 
 
 def test_checkpoint_path_prefers_explicit_session_state_dir(tmp_path: Path) -> None:

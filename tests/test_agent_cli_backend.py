@@ -256,6 +256,7 @@ def test_run_exec_translates_options_and_result(
     ]
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == result.call_id
+    assert result.call_id_log_correlated is True
 
 
 def test_completed_run_exec_counts_after_mission_process_is_killed(

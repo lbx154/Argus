@@ -133,6 +133,9 @@ class RunnerResult:
     # Stable call identity and usage-presence metadata.  Zero-valued token fields
     # alone cannot distinguish a real zero from a provider that omitted usage.
     call_id: str = ""
+    # True only when ``call_id`` is the top-level identity persisted in the
+    # configured agent I/O log. Gateway-generated tracing IDs leave this false.
+    call_id_log_correlated: bool = False
     input_tokens_present: bool = False
     cached_input_tokens_present: bool = False
     cache_write_tokens_present: bool = False

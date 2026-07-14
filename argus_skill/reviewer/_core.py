@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -144,7 +145,11 @@ def _verification_directive() -> str:
 
 
 def _engineer_log_audit_block(
-    engineer_log_path: str, *, round_index: int, measured: bool  # noqa: ARG001 — round_index kept for call-site symmetry with the other audit blocks
+    engineer_log_path: str,
+    *,
+    engineer_call_id: str = "",
+    round_index: int,
+    measured: bool,  # noqa: ARG001 — round_index kept for call-site symmetry with the other audit blocks
 ) -> str:
     """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
 
@@ -172,7 +177,54 @@ def _engineer_log_audit_block(
     path = (engineer_log_path or "").strip()
     if not path:
         return ""
+    call_id = (engineer_call_id or "").strip()
     progress_filter = '\'"type": "engineer.progress"\''
+    if call_id:
+        def shell_quote(value: str) -> str:
+            return "'" + value.replace("'", "'\"'\"'") + "'"
+
+        current_call_rows = (
+            f"{shell_quote(sys.executable)} -I -m "
+            "argus_skill.tools.event_log_query "
+            f"--log {shell_quote(path)} --call-id {shell_quote(call_id)}"
+        )
+        audit_scope = (
+            f"Current engineer call id: `{call_id}`. Scope every audit command "
+            "to this id so prior rounds and this Reviewer's own prompt cannot "
+            "pollute the evidence. The query parses top-level JSON fields and "
+            "reads rolled logs in chronological order.\n"
+        )
+        progress_recipe = f"{current_call_rows} | tail -60"
+        cheat_recipe = (
+            f"{current_call_rows} | grep -nE 'use_attach|set_pose|teleport|hardcod|"
+            "HARDCODE|TODO|FIXME|mock|monkeypatch|fake|dummy|placeholder|"
+            "return 0\\.9|assert True|--skip|xfail'"
+        )
+        evaluator_recipe = (
+            f"{current_call_rows} | grep -nE "
+            "'pytest|check_success|scorer|evaluate|benchmark|metric'"
+        )
+        log_row_description = (
+            "The call-scoped raw `agent.io.*` rows record the commands, tool "
+            "results, and assistant messages produced by this invocation."
+        )
+    else:
+        audit_scope = ""
+        progress_recipe = f"grep {progress_filter} '{path}' | tail -60"
+        cheat_recipe = (
+            "grep -nE 'use_attach|set_pose|teleport|hardcod|HARDCODE|TODO|FIXME|"
+            "mock|monkeypatch|fake|dummy|placeholder|return 0\\.9|assert True|"
+            f"--skip|xfail' '{path}'"
+        )
+        evaluator_recipe = (
+            "grep -nE 'pytest|check_success|scorer|evaluate|benchmark|metric' "
+            f"'{path}'"
+        )
+        log_row_description = (
+            "Each `engineer.progress` event's `text` field is what the engineer "
+            "actually DID this round — a shell command it ran, a tool call, or a "
+            "reasoning beat."
+        )
     if measured:
         when_clause = (
             "MEASURED-BENCHMARK mode is active, so this is a RED-FLAG-ONLY check: "
@@ -196,10 +248,9 @@ def _engineer_log_audit_block(
         "## Engineer execution-log audit (process correctness — SUPPLEMENTARY)\n"
         "This round's engineer EXECUTION LOG is on disk at:\n"
         f"  {path}\n"
-        "It is the per-project event log (NOT in the git work-tree). Each "
-        "`engineer.progress` event's `text` field is what the engineer actually "
-        "DID this round — a shell command it ran, a tool call, or a reasoning "
-        "beat. You have shell access; you can grep it.\n\n"
+        "It is the per-project event log (NOT in the git work-tree). "
+        f"{log_row_description} You have shell access; you can grep it.\n"
+        f"{audit_scope}\n"
         "Result-traceability (does the final artifact match the checklist?) tells "
         "you the OUTCOME is real. This log tells you the PROCESS was honest — the "
         "two are different, and an artifact can match the checklist while the "
@@ -208,15 +259,12 @@ def _engineer_log_audit_block(
         f"{when_clause}\n"
         "Grep recipes (substitute the path above):\n"
         "- See what the engineer ran this round (newest last):\n"
-        f"    grep {progress_filter} '{path}' | tail -60\n"
+        f"    {progress_recipe}\n"
         "- Hunt for cheats / shortcuts that mask a real failure:\n"
-        "    grep -nE 'use_attach|set_pose|teleport|hardcod|HARDCODE|TODO|FIXME|"
-        "mock|monkeypatch|fake|dummy|placeholder|return 0\\.9|assert True|--skip|"
-        f"xfail' '{path}'\n"
+        f"    {cheat_recipe}\n"
         "- Check the claimed evaluator/scorer was actually invoked (not bypassed "
         "or replaced by an inline constant):\n"
-        f"    grep -nE 'pytest|check_success|scorer|evaluate|benchmark|metric' "
-        f"'{path}'\n\n"
+        f"    {evaluator_recipe}\n\n"
         "Red flags → even if the artifact traces to the checklist, return "
         "`continue` (or `blocked` if it needs the operator) and NAME the process "
         "defect in `reason` / `next_action`:\n"
@@ -273,6 +321,7 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
+        engineer_call_id: str = "",
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
@@ -350,6 +399,7 @@ class Reviewer:
             background_context=background_context,
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
+            engineer_call_id=engineer_call_id,
             working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
@@ -547,6 +597,7 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
+        engineer_call_id: str = "",
         working_dir: str | Path | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
@@ -889,7 +940,10 @@ class Reviewer:
         # (memory backend / tests / unresolvable life_dir) → block omitted, prompt
         # byte-for-byte unchanged (back-compat).
         engineer_log_audit_block = _engineer_log_audit_block(
-            engineer_log_path, round_index=round_index, measured=_measured
+            engineer_log_path,
+            engineer_call_id=engineer_call_id,
+            round_index=round_index,
+            measured=_measured,
         )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
