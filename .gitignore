@@ -50,6 +50,7 @@ benchmarks/evidence/**/agent/sessions/
 *.swp
 .DS_Store
 .codex
+.superpowers/
 
 # vendored / scratch directories (not part of argus-skill)
 pyknotid-scratch/

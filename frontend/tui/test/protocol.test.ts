@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import {
   inspectApiMeta,
@@ -10,7 +10,7 @@ import {
 } from '../../core/src/protocol.js';
 import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
-import { ensureApi, probeApi } from '../src/ensureApi.js';
+import { ensureApi, probeApi, type ApiProbeResult } from '../src/ensureApi.js';
 
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -115,6 +115,88 @@ test('startup probe reports the backend checkout and revision', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ── Stale-release recovery ──────────────────────────────────────────────────
+
+const staleProbe: ApiProbeResult = {
+  state: 'incompatible' as const,
+  message: 'backend release 0.1.0+stale does not match client release',
+};
+const downProbe: ApiProbeResult = {
+  state: 'unreachable',
+  message: 'connection refused',
+};
+const currentProbe: ApiProbeResult = {
+  state: 'compatible' as const,
+  message: 'current release',
+};
+const probeSequence = (...values: ApiProbeResult[]) => {
+  let index = 0;
+  return async () => values[Math.min(index++, values.length - 1)];
+};
+const ownedRecord = {
+  schema: 1 as const,
+  pid: 4321,
+  host: '127.0.0.1',
+  port: 8899,
+  backendBin: '/repo/.venv/bin/argus-skill',
+  startedAt: '2026-07-14T00:00:00Z',
+};
+
+test('replaces a proven owned stale API with SIGTERM only', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence(staleProbe, downProbe, currentProbe),
+      readOwnedApi: async () => ownedRecord,
+      signal: (pid, signal) => signals.push([pid, signal]),
+      spawnApi: async () => ({ pid: 9876 }),
+      sleep: async () => undefined,
+    },
+  });
+  assert.deepEqual(signals, [[4321, 'SIGTERM']]);
+  assert.equal(result.reachable, true);
+});
+
+test('never signals an incompatible unowned listener', async () => {
+  const signal = mock.fn();
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: async () => staleProbe,
+      readOwnedApi: async () => null,
+      signal,
+    },
+  });
+  assert.equal(signal.mock.callCount(), 0);
+  assert.match(result.message, /ownership could not be proven/);
+});
+
+test('does not spawn when graceful shutdown times out', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const spawnApi = mock.fn(async () => ({ pid: 9876 }));
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: async () => staleProbe,
+      readOwnedApi: async () => ownedRecord,
+      signal: (pid, sig) => signals.push([pid, sig]),
+      spawnApi,
+      sleep: async () => undefined,
+    },
+  });
+  assert.deepEqual(signals, [[4321, 'SIGTERM']]);
+  assert.equal(spawnApi.mock.callCount(), 0);
+  assert.equal(result.reachable, false);
+  assert.match(result.message, /graceful shutdown timed out/);
 });
 
 test('ApiClient validates snapshot schema after the one-time handshake', async () => {

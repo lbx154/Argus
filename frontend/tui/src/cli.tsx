@@ -74,6 +74,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
         host: args.host,
         port: args.port,
         token: args.token,
+        ownerFile: args.ownerFile,
         onStatus: (s) => !cancelled && setNote(s),
       });
       if (cancelled) return;
@@ -202,6 +203,7 @@ async function main() {
       host: args.host,
       port: args.port,
       token: args.token,
+      ownerFile: args.ownerFile,
       onStatus: (status) => process.stderr.write(`${status}\n`),
     });
     if (!result.reachable) {

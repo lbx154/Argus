@@ -5,6 +5,7 @@ export interface Args {
   resume: boolean;
   resumeAll: boolean;
   token?: string;
+  ownerFile?: string;
   once: boolean;
   json: boolean;
   count: number;
@@ -31,6 +32,7 @@ export function parseArgs(argv: string[]): Args {
     resume: false,
     resumeAll: false,
     token: process.env.ARGUS_SKILL_WEB_TOKEN,
+    ownerFile: process.env.ARGUS_TUI_API_OWNER_FILE,
     once: false,
     json: false,
     count: 5,

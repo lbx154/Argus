@@ -7,6 +7,11 @@ import {
   inspectApiMeta,
   type ApiMeta,
 } from '../../core/src/protocol.js';
+import {
+  readOwnedApi as readOwnedApiImpl,
+  writeOwnershipRecord as writeOwnershipRecordImpl,
+  type ApiOwnershipRecord,
+} from './apiOwnership.js';
 
 /**
  * Make `argus` a true one-command launch: if the backend API isn't up, start
@@ -85,22 +90,121 @@ export async function ensureApi(opts: {
   port: number;
   token?: string;
   autostart?: boolean;
+  ownerFile?: string;
   onStatus?: (s: string) => void;
+  dependencies?: {
+    probeApi: () => Promise<ApiProbeResult>;
+    readOwnedApi?: () => Promise<ApiOwnershipRecord | null>;
+    signal?: (pid: number, signal: NodeJS.Signals) => void;
+    spawnApi?: () => Promise<{ pid: number }>;
+    sleep?: (ms: number) => Promise<void>;
+  };
 }): Promise<EnsureResult> {
-  const { host, port, token, autostart = true, onStatus } = opts;
+  const { host, port, token, autostart = true, ownerFile, onStatus, dependencies: deps } = opts;
 
-  const initial = await probeApi(host, port, token);
+  const doProbe = deps?.probeApi ?? (() => probeApi(host, port, token));
+  const doSleep = deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const initial = await doProbe();
   if (initial.state === 'compatible') {
     return { reachable: true, spawned: false, message: `api up · ${initial.message}` };
   }
   if (initial.state === 'incompatible') {
+    if (!ownerFile) {
+      return {
+        reachable: false,
+        spawned: false,
+        message: `incompatible Argus API at ${host}:${port}: ${initial.message}. Stop that WebAPI or choose another port.`,
+      };
+    }
+
+    // Recovery: verify ownership then replace the stale API.
+    const bin = resolveBin();
+    const doReadOwned = deps?.readOwnedApi ?? (() =>
+      readOwnedApiImpl({ path: ownerFile, host, port, backendBin: bin }));
+    const doSignal = deps?.signal ?? ((pid: number, sig: NodeJS.Signals) => {
+      process.kill(pid, sig);
+    });
+
+    const record = await doReadOwned();
+    if (!record) {
+      return {
+        reachable: false,
+        spawned: false,
+        message: `incompatible Argus API at ${host}:${port}: ${initial.message} — ownership could not be proven`,
+      };
+    }
+
+    // SIGTERM only — never escalate to SIGKILL.
+    doSignal(record.pid, 'SIGTERM');
+    onStatus?.('waiting for stale backend to shut down…');
+
+    // Probe every 250 ms for at most 8 seconds.
+    let shutdown = false;
+    for (let i = 0; i < 32; i++) {
+      await doSleep(250);
+      const probe = await doProbe();
+      if (probe.state === 'unreachable') {
+        shutdown = true;
+        break;
+      }
+    }
+
+    if (!shutdown) {
+      return {
+        reachable: false,
+        spawned: false,
+        message: `incompatible Argus API at ${host}:${port}: graceful shutdown timed out after SIGTERM`,
+      };
+    }
+
+    // Spawn replacement backend.
+    const doSpawn = deps?.spawnApi ?? (async () => {
+      const child = spawn(bin, ['--web', '--web-host', host, '--web-port', String(port)], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      return { pid: child.pid! };
+    });
+
+    onStatus?.('starting backend api…');
+    const spawned = await doSpawn();
+
+    // Write new ownership record.
+    await writeOwnershipRecordImpl(ownerFile, {
+      schema: 1,
+      pid: spawned.pid,
+      host,
+      port,
+      backendBin: bin,
+      startedAt: new Date().toISOString(),
+    });
+
+    // Poll for the new backend to come online.
+    for (let i = 0; i < 20; i++) {
+      await doSleep(500);
+      const probe = await doProbe();
+      if (probe.state === 'compatible') {
+        return { reachable: true, spawned: true, message: `api started · ${probe.message}` };
+      }
+      if (probe.state === 'incompatible') {
+        return {
+          reachable: false,
+          spawned: true,
+          message: `port ${port} is occupied by an incompatible Argus API: ${probe.message}`,
+        };
+      }
+      onStatus?.(`starting backend api… ${i + 1}`);
+    }
     return {
       reachable: false,
-      spawned: false,
-      message: `incompatible Argus API at ${host}:${port}: ${initial.message}. Stop that WebAPI or choose another port.`,
+      spawned: true,
+      message: `started backend but it did not come online at ${host}:${port}`,
     };
   }
-  // Only auto-start a LOCAL API — never try to launch a daemon on a remote host.
+
+  // Unreachable — try to auto-start a local API.
   const local = host === '127.0.0.1' || host === 'localhost' || host === '::1';
   if (!autostart || !local) {
     return {
@@ -128,10 +232,9 @@ export async function ensureApi(opts: {
     };
   }
 
-  // poll up to ~10s for it to come online
   for (let i = 0; i < 20; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    const probe = await probeApi(host, port, token);
+    await doSleep(500);
+    const probe = await doProbe();
     if (probe.state === 'compatible') {
       return { reachable: true, spawned: true, message: `api started · ${probe.message}` };
     }
