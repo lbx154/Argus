@@ -14,31 +14,67 @@
 ## What Argus is
 
 Argus is a **7×24 harness for long-horizon autonomous research**, not a
-polish-your-paper assistant and not a fixed prompt chain. You give it an
+polish-your-paper assistant or a fixed prompt chain. You give it an
 **objective** and a **special prompt** describing this machine's operating
 rules (GPU allocation, working paths, scheduling constraints), and four
 persistent roles — Manager, Planner, Engineer, and Reviewer — take it from
 there: proposing work, executing it on real hardware, and deciding whether it
-is actually done. Argus is a reliable harness and a live workbench for this
-kind of work; it is not a guaranteed path to state-of-the-art results or a
-guaranteed paper acceptance.
+is actually done. It is a reliable harness and a live workbench, not a
+guaranteed path to state-of-the-art results or paper acceptance.
 
-The live, day-to-day product is a **benchmark-reproduction agent** across
-metric verticals such as nanochat, nanoGPT speedrun, and KernelBench. A
-separate optional mode (the `research` vertical) drives an idea-to-submission
-academic paper pipeline; it is not the default identity of the project.
+The day-to-day product is a **benchmark-reproduction agent** across metric
+verticals such as nanochat, nanoGPT speedrun, and KernelBench; a separate
+optional `research` vertical drives an idea-to-submission paper pipeline, not
+the project's default identity.
+
+## Results
+
+Argus's public results, published live on
+[argusbot.cn/results.html](https://argusbot.cn/results.html) and
+[/research.html](https://argusbot.cn/research.html), are compared **against
+human SOTA, human-authored public records, or paper-reported bests first** —
+never against another agent as the headline. Machine-readable evidence for
+every row below: [`technical_report/evidence/website_results.json`](technical_report/evidence/website_results.json)
+and [`technical_report/evidence/paper_inventory.json`](technical_report/evidence/paper_inventory.json).
+
+| Arena | Protocol | Result | Human comparison |
+|---|---|---|---|
+| NVIDIA SOL-ExecBench | B200 · 101 kernels | Global #6 · 2× #1 · 7 top-3 | Two head-to-head wins over Recursive |
+| nanochat · B200 | 5 min · 1×B200 · 426 attempts | 0.9636 BPB | Human SOTA: 0.9646 |
+| nanochat · H100 | 5 min · 1×H100 · 37 mechanisms | 0.9855 BPB | Human SOTA: 0.9879 |
+| nanoGPT speedrun | 8×H100 · N=10 | 79.77 seconds | Same-device human #83: 80.18s |
+| AARRI-Bench | 82 research-intern tasks | 63/82 · 76.8% | Paper-reported best: 68.3% |
+| Arbor · RUC NLPIR | Math-Reasoning Data | 28.0 gap | Arbor 20.83 · Claude Code 8.33 · Codex 6.25 |
+
+Plus a **41-paper research collection** spanning six programs — Cognitive Bias
+in LLMs (9), Multimodal & Vision-Language Models (16), LLM Agent Methods (5),
+Efficiency/Compression/Decoding (7), World Models (2), and State Trace &
+Auditability (2) — 35 manuscripts and 6 drafts, duplicates removed. The
+collection is judged only against human-authored literature and human-SOTA or
+strong-human baselines, never against another agent's paper count or quality.
+
+Read every number with its qualifier, not in isolation: 79.77 s is **N=10,
+verifier-certified** (`SCORE valid=true n=10 ... seal=ok`, corroborated
+on-disk in `nanogpt-speedrun-h100`); 0.9636 BPB is the published website
+result and matches the local one-seed, frozen-scorer floor of 0.963634 in
+`nanochat-mission-b200`; the 426/37 attempt/mechanism counts are the website's
+own published snapshot; and 41 is a de-duplicated paper-run inventory, not 41
+acceptances — Argus makes **no paper-acceptance claim**. Four of the six arena
+rows (SOL-ExecBench, nanochat H100, AARRI-Bench, Arbor) currently carry
+website-snapshot evidence only, with no local reproduction artifact yet; that
+is stated here plainly rather than hidden. The Arbor row is reported as
+published on the site and is not elevated into an agent-vs-agent headline.
 
 ## Why long-horizon autonomy fails without a harness
 
-Give a capable model a single hard objective and enough time, and it does not
-fail because it lacks intelligence — it fails because the *execution
-substrate* degrades. Sessions get resumed dozens or hundreds of times and lose
-working memory to lossy compaction. Idle rounds burn budget with no forward
-motion. A long-running background experiment quietly blocks the main thread of
-work. A reviewer and an engineer drift out of sync on what "done" means.
-None of this is a reasoning problem, so patching it with better prompts does
-not fix it. It has to be fixed structurally, in the harness, without the
-harness pretending it knows better than the agent about the actual research.
+Give a capable model a single hard objective and enough time, and it fails not
+from a lack of intelligence but because the *execution substrate* degrades:
+sessions get resumed until lossy compaction erases working memory, idle rounds
+burn budget with no forward motion, a background experiment silently blocks
+the main thread, and reviewer/engineer drift out of sync on what "done"
+means. None of this is a reasoning problem, so it has to be fixed
+structurally, in the harness — without the harness pretending it knows better
+than the agent about the actual research.
 
 ## Four roles, one dumb pipe
 
@@ -48,16 +84,16 @@ finished, should we submit); **domain-agnostic plumbing belongs to the
 harness** (budget and rate limits, disk persistence and memory, scheduling and
 daemon lifecycle, structured I/O, anti-cheat guardrails). The harness is a
 thick, dumb pipe — it feeds tasks to the agent, stores artifacts, and paces
-work against budget. It never uses keyword or regex heuristics to second-guess
+work against budget, never using keyword or regex heuristics to second-guess
 whether something is a paper task, whether an objective should run forever, or
 whether an idea is good enough. Every temptation to let the harness quietly
-override an agent's judgment has been removed and replaced with either an
-explicit structured signal or a decision handed back to the agent.
+override an agent's judgment has been replaced with either an explicit
+structured signal or a decision handed back to the agent.
 
 The four roles:
 
 - **Manager** is the single entry point for the operator. Free-form text is
-  routed to chat or task by a model call, not a keyword match. It is also the
+  routed to chat or task by a model call, not a keyword match, and it is the
   sole authority for pipeline-stage transitions — the other three roles can
   only recommend a stage change.
 - **Planner (L4)** queues the next unit of work once the backlog is empty in
@@ -68,13 +104,12 @@ The four roles:
   the Reviewer.
 - **Reviewer (L2)** is the **sole authority on completion**. Each round it
   checks the Engineer's output against a stage checklist and returns `done`,
-  `continue` (with a concrete next step), or `blocked`. There is no separate
-  hardcoded completion gate — the Reviewer's structured verdict is the only
-  source of truth.
+  `continue` (with a concrete next step), or `blocked` — there is no separate
+  hardcoded completion gate.
 
 A retired L3 "critic" round-polishing layer no longer exists; all acceptance
 runs through the Reviewer. An optional Curator role handles skill-pool
-maintenance in team/subagent modes, but does not participate in the default
+maintenance in team/subagent modes but does not participate in the default
 single-mission pipeline.
 
 ## Reliability mechanisms
@@ -83,30 +118,28 @@ The biggest risk in long-horizon runs is execution drift, not weak reasoning,
 so Argus ships several domain-agnostic guards that never make a scientific
 judgment call themselves:
 
-- **Curated working-memory checkpoint and session-roll.** A single mission's
-  session gets resumed repeatedly and, left unchecked, accumulates lossy
-  compaction that erases working memory. The Reviewer audits and rewrites a
-  small, hard-capped checkpoint (goal, done items, tried-and-failed attempts,
-  open blocker, next step) every round. The engineer session rolls over to a
-  fresh session, reseeded from that checkpoint, after **3 consecutive rounds**
-  or once the prior round's input reaches **1.5M tokens** — both configurable,
+- **Curated working-memory checkpoint and session-roll.** A mission's session
+  gets resumed repeatedly and, left unchecked, accumulates lossy compaction
+  that erases working memory. The Reviewer audits and rewrites a small,
+  hard-capped checkpoint (goal, done items, tried-and-failed attempts, open
+  blocker, next step) every round. The engineer session rolls over to a fresh
+  session, reseeded from that checkpoint, after **3 consecutive rounds** or
+  once the prior round's input reaches **1.5M tokens** — both configurable,
   either can be disabled — instead of letting a single thread compact without
   bound.
 - **Structured decision-progress classification.** The Reviewer labels each
   round's `progress_class` (`decision`, `evidence`, `setup_only`,
-  `artifact_sync_only`, or `none`). Two consecutive rounds classified as
-  nondecision progress trip a stall counter, paired with a safe,
-  round-boundary **1,800-second** budget measured from the last
-  decision/evidence increment — this never interrupts an in-flight model call
-  and never lets a mission spin indefinitely.
+  `artifact_sync_only`, or `none`). Two consecutive nondecision rounds trip a
+  stall counter, paired with a safe, round-boundary **1,800-second** budget
+  measured from the last decision/evidence increment — this never interrupts
+  an in-flight model call and never lets a mission spin indefinitely.
 - **Dynamic review cadence.** An Engineer that has landed a real increment and
   has an unambiguous next step can request one deferred Reviewer round; it can
   only defer once in a row, and `done` can still only ever come from the
   Reviewer.
-- **Background-subagent cadence wait.** When the Engineer starts a
-  self-monitored long-running job (for example, GPU training), it can wait on
-  that job's own monitoring cadence instead of polling a healthy run every
-  round.
+- **Background-subagent cadence wait.** An Engineer running a self-monitored
+  long job (for example, GPU training) can wait on that job's own monitoring
+  cadence instead of polling a healthy run every round.
 - **Live credential guard.** Newly written artifacts are scrubbed for
   credentials, domain-agnostically, before they reach the event log or the
   Reviewer's prompt.
@@ -114,21 +147,16 @@ judgment call themselves:
 ## Auditable research programs
 
 Argus's benchmark-reproduction verticals (KernelBench, nanoGPT speedrun,
-nanochat, and similar) are designed to be run against real public benchmarks
-with an auditable trail: real benchmark data, no reward hacking against a
-known evaluation input distribution, and a persisted record of every round's
-evidence, verdict, and skill update. Structured stage checklists — not
-keyword-matched validators — are what the Reviewer checks against, and the
-Reviewer is the only authority that can certify a research program complete.
-
-Public status is intentionally modest: the KernelBench, nanoGPT speedrun, and
-nanochat reproduction programs are **ongoing** work, not finished claims,
-unless a reproducible in-repo evidence artifact proves otherwise for a given
-run. Argus does not publicly claim to have produced an accepted paper through
-its autonomous pipeline. Any external reference numbers that may appear in
-project documentation (for example, published SOL/timing/loss baselines from
-other work) are external or reference baselines used for comparison, not
-Argus's own achieved results, and are labeled as such wherever they appear.
+nanochat, and similar) run against real public benchmarks with an auditable
+trail: real benchmark data, no reward hacking against a known evaluation input
+distribution, and a persisted record of every round's evidence, verdict, and
+skill update. Structured stage checklists — not keyword-matched validators —
+are what the Reviewer checks against, and the Reviewer is the only authority
+that can certify a research program complete. Beyond the evidence-linked
+Results above, any external reference numbers in project documentation (for
+example, published SOL/timing/loss baselines from other work) are external
+comparison baselines, not Argus's own achieved results, and are labeled as
+such wherever they appear.
 
 ## Quick start
 

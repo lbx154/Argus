@@ -35,6 +35,42 @@ Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串�
 
 > 活的产品是 **benchmark 复现 agent**（nanochat / nanogpt-speedrun / KernelBench 等 metric vertical）。"从 idea 写到投稿"的论文流水线是一个**可选模式**（`research` vertical），不是默认身份。
 
+## 结果
+
+Argus 的公开结果实时发布在
+[argusbot.cn/results.html](https://argusbot.cn/results.html) 和
+[/research.html](https://argusbot.cn/research.html)，对比对象**首先是人类
+SOTA、人类作者的公开记录，或论文报告的最佳成绩**——从不把和其他 agent 的对比
+当作头条。每一行数字都有对应的机器可读证据：
+[`technical_report/evidence/website_results.json`](technical_report/evidence/website_results.json)
+与
+[`technical_report/evidence/paper_inventory.json`](technical_report/evidence/paper_inventory.json)。
+
+| 赛道 | 协议 | 结果 | 人类对比 |
+|---|---|---|---|
+| NVIDIA SOL-ExecBench | B200 · 101 个 kernel | 全球第 6 · 2 项第 1 · 7 项前三 | 两次头对头击败 Recursive |
+| nanochat · B200 | 5 分钟 · 1×B200 · 426 次尝试 | 0.9636 BPB | 人类 SOTA：0.9646 |
+| nanochat · H100 | 5 分钟 · 1×H100 · 37 种机制 | 0.9855 BPB | 人类 SOTA：0.9879 |
+| nanoGPT speedrun | 8×H100 · N=10 | 79.77 秒 | 同设备人类第 83 名：80.18 秒 |
+| AARRI-Bench | 82 个研究实习任务 | 63/82 · 76.8% | 论文报告最佳：68.3% |
+| Arbor · RUC NLPIR | Math-Reasoning Data | 28.0 差距 | Arbor 20.83 · Claude Code 8.33 · Codex 6.25 |
+
+此外还有一个**覆盖 41 篇论文的研究集合**，跨六个研究方向——LLM 认知偏差（9）、
+多模态与视觉-语言模型（16）、LLM Agent 方法（5）、效率/压缩/解码（7）、世界模型
+（2）、状态追踪与可审计性（2）——35 篇 manuscript + 6 篇 draft，去重后的数字。这
+个集合只与人类作者的文献、人类 SOTA 或强人类基线比较，从不与其他 agent 的论文
+数量或质量比较。
+
+读每一个数字时都要连着它的协议限定词一起读，不要孤立看：79.77 秒是 **N=10、
+经 verifier 认证**的结果（`SCORE valid=true n=10 ... seal=ok`，在
+`nanogpt-speedrun-h100` 项目里有本地 artifact 佐证）；0.9636 BPB 是网站发布的
+结果，与 `nanochat-mission-b200` 项目里本地单 seed、冻结 scorer 测得的
+0.963634 一致；426/37 这两个尝试/机制计数是网站自己发布的快照数字；41 篇论文
+是去重后的论文产出清单，**不代表 41 篇已被接收**——Argus **不做论文录用主张**。
+六项结果中有四项（SOL-ExecBench、nanochat H100、AARRI-Bench、Arbor）目前只有
+网站快照证据，尚无本地复现 artifact；这一点在此明确说明，不作隐瞒。Arbor 这一
+行按网站原文照录，不会被拔高成一个"agent 对 agent"的头条对比。
+
 ## 设计哲学（先读这一节）
 
 整个系统建立在三条核心理念上。
@@ -426,11 +462,13 @@ pytest -q
 
 Argus 仍在持续开发中：它是一个让 agent 拥有真实判断力、真实工具访问权和真实
 长程持久化能力的 harness，而不是一个保证 SOTA 结果、保证论文录用、或今天就已
-在每个 vertical 上跑完并审计过的成品研究项目。KernelBench / nanoGPT-speedrun /
-nanochat 这几个 metric vertical 目前仍在持续推进中，尚无干净、可公开引用的
-Argus 复现分数；目前也没有任何"由 Argus 自主产出的论文已被会议录用"的公开
-主张。文档中出现的任何具体数字，请只当作明确标注的外部/参考基线，或某次具体
-run 的可复现、仓库内证据 artifact——不要当作对 Argus 能力的通用保证。
+在每个 vertical 上跑完并审计过的成品研究项目。上面「结果」一节的六项赛道数字
+均来自实时公开网站并附证据链接，其中两项（nanoGPT speedrun 79.77 秒、
+nanochat B200 0.9636 BPB）还有可复现的本地 artifact 佐证，其余四项目前仅为
+网站快照，尚无本地复现 artifact——这一区分在「结果」一节已如实标注。目前也没
+有任何"由 Argus 自主产出的论文已被会议录用"的公开主张。文档中出现的其他具体
+数字，请只当作明确标注的外部/参考基线，或某次具体 run 的可复现、仓库内证据
+artifact——不要当作对 Argus 能力的通用保证。
 
 ## License
 
