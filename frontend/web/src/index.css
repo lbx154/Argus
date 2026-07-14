@@ -21,6 +21,13 @@
   --role-reviewer: 161 98 7;
   --conversation-user: 243 244 246;
   --conversation-argus: 238 242 255;
+  --spectral-blue: 44 116 235;
+  --spectral-violet: 105 73 205;
+  --spectral-rose: 190 67 119;
+  --spectral-gold: 207 153 49;
+  --glass: 255 255 255;
+  --glass-raised: 255 255 255;
+  --glass-edge: 179 192 214;
 }
 
 :root[data-theme='dark'] {
@@ -42,6 +49,13 @@
   --role-reviewer: 253 230 138;
   --conversation-user: 31 41 55;
   --conversation-argus: 30 27 75;
+  --spectral-blue: 110 168 255;
+  --spectral-violet: 170 132 255;
+  --spectral-rose: 255 126 177;
+  --spectral-gold: 237 201 111;
+  --glass: 15 27 45;
+  --glass-raised: 20 35 57;
+  --glass-edge: 65 88 122;
   font-synthesis: none;
 }
 
@@ -63,6 +77,26 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workbench-shell {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 12% 0%, rgb(var(--spectral-blue) / 10%), transparent 32rem),
+    radial-gradient(circle at 88% 100%, rgb(var(--spectral-gold) / 8%), transparent 30rem),
+    rgb(var(--bg));
+}
+
+.glass-panel {
+  border-color: rgb(var(--glass-edge) / 55%);
+  background: rgb(var(--glass) / 82%);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.glass-card {
+  border: 1px solid rgb(var(--glass-edge) / 52%);
+  background: rgb(var(--glass-raised) / 72%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 36%);
 }
 
 @keyframes argus-web-splash-exit {
@@ -189,7 +223,7 @@ button {
 
 @layer components {
   .card {
-    @apply rounded-lg border border-line/80 bg-panel;
+    @apply glass-card rounded-lg;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-md border border-line/80 px-1.5 py-0.5 text-xs;

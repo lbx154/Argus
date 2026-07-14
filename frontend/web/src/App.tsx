@@ -789,7 +789,7 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting]);
 
   return (
-    <div ref={shellRef} className="flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden bg-bg text-ink">
+    <div ref={shellRef} className="workbench-shell flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden text-ink">
       {!kiosk && sidebarOpen ? (
         <button
           type="button"

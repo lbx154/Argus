@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   activeGuardianAlert,
   authoritativeSpend,
@@ -43,6 +45,24 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('defines the public-brand workbench surface contract', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    for (const token of [
+      '--spectral-blue',
+      '--spectral-violet',
+      '--spectral-rose',
+      '--spectral-gold',
+      '--glass',
+      '--glass-raised',
+      '--glass-edge',
+    ]) {
+      expect(css).toContain(token);
+    }
+    expect(css).toContain('.workbench-shell');
+    expect(css).toContain('.glass-panel');
+    expect(css).toContain('.glass-card');
+  });
+
   it('renders generated HTML only inside an opaque script sandbox', () => {
     const markup = renderToStaticMarkup(createElement(HtmlPreview, {
       html: '<button onclick="document.body.dataset.ok=1">Start</button>',

@@ -4,11 +4,11 @@
  * rainbow dashboard.
  */
 export const theme = {
-  accent: '#c7a66a',
+  accent: 'rgb(var(--spectral-gold))',
   success: '#7fa386',
   error: '#c77b72',
-  warning: '#c1a363',
-  info: 'rgb(var(--blue))',
+  warning: 'rgb(var(--spectral-gold))',
+  info: 'rgb(var(--spectral-blue))',
   ink: 'rgb(var(--ink))',
   inkDim: 'rgb(var(--ink-dim))',
   inkFaint: 'rgb(var(--ink-faint))',
