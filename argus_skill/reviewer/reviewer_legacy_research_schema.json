@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Read-only compatibility schema for pre-research-contract reviewer output.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

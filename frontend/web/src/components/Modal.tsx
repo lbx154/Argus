@@ -108,7 +108,7 @@ export function Modal({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={`brand-modal glass-panel relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl border shadow-glow scroll-thin sm:max-h-[88dvh]`}
+        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl border shadow-glow scroll-thin sm:max-h-[88dvh]`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}

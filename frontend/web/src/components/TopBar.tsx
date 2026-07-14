@@ -58,7 +58,7 @@ export function TopBar({
     : 'Reconnecting';
 
   return (
-    <header className="glass-panel flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
+    <header className="glass-panel glass-panel--raised flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
       {onOpenSessions ? (
         <button type="button" onClick={onOpenSessions} aria-label="Open sessions" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">

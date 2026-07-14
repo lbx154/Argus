@@ -16,6 +16,7 @@ from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus_skill.skills.stage_checklists import resolve_stage_checklist_contract
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -438,9 +439,21 @@ def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
     sink = _Sink()
+    checklist = resolve_stage_checklist_contract(
+        "submission",
+        project_root=root,
+    )
+    review = _review(checklist=[
+        {
+            "item": item.id,
+            "satisfied": True,
+            "evidence": f"verified {item.evidence_hint}",
+        }
+        for item in checklist.items
+    ])
 
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review())], workdir=root, sink=sink
+        rounds_list=[_Round(review)], workdir=root, sink=sink
     )
 
     assert backend.calls == 3
@@ -456,7 +469,7 @@ def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     assert event["diagnostic"] == "empty_output_no_next_stage"
 
 
-def test_hook_explicit_hold_completes_bounded_final_stage_without_checklist(
+def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
     tmp_path: Path,
 ) -> None:
     root = _submission_project(tmp_path)
@@ -470,7 +483,7 @@ def test_hook_explicit_hold_completes_bounded_final_stage_without_checklist(
         mission_scope="bounded",
     )
 
-    assert decision["action"] == "complete"
+    assert decision["action"] == "hold"
     assert decision["target_stage"] == "submission"
 
 

@@ -1,8 +1,8 @@
 {
   "api": {
-    "base_url_source": "vault:/home/argustest/.argus-skill/capabilities/model_api.json:routes.image",
+    "base_url_source": "vault:capabilities/model_api.json:routes.image",
     "endpoint": "/images/generations",
-    "key_source": "vault:/home/argustest/.argus-skill/capabilities/model_api.json:routes.image",
+    "key_source": "vault:capabilities/model_api.json:routes.image",
     "provider": "codex",
     "wire_api": "images"
   },

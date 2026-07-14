@@ -190,11 +190,11 @@ without editing a config file.
 
 ## Technical report
 
-A full technical report on the architecture and evidence behind Argus will be
-published at
-[`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf).
-That file does not exist yet in this repository; the link is a stable
-placeholder that will resolve once the report is added.
+A full technical report on the architecture, reliability mechanisms, and
+evidence methodology behind Argus is available at
+[`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf)
+(Technical Report 0.1). The LaTeX source lives under `technical_report/` and
+rebuilds with `make -C technical_report clean all`.
 
 ## Limitations and status
 

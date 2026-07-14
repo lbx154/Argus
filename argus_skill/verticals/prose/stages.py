@@ -21,6 +21,7 @@ from __future__ import annotations
 from ...skills.stage_checklists import ChecklistItem
 
 STAGE_ORDER = ["intake", "plan", "draft", "structure_check", "review", "revise"]
+CHECKLIST_OPTIONAL_STAGES = ("intake", "plan", "draft", "revise")
 completion_gate = "none"
 
 _PIPELINE_CHECK = ("Pipeline state present", "test -f research/PIPELINE_STATE.json")

@@ -245,6 +245,7 @@ def build_vertical_decision_prompt(
     *,
     verticals_with_purpose: dict[str, str],
     existing_data_domains: Sequence[str] = (),
+    research_target_verticals: Sequence[str] = (),
 ) -> str:
     """Render the prompt asking the Manager to CHOOSE a vertical for ``task``.
 
@@ -258,6 +259,10 @@ def build_vertical_decision_prompt(
         f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
     ) or "  (none)"
     existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
+    target_verticals = (
+        ", ".join(f"`{name}`" for name in research_target_verticals)
+        or "(none)"
+    )
     return (
         "You are the MANAGER of an automated research/engineering pipeline. "
         "Decide which single VERTICAL should run the Task below. A vertical is a "
@@ -327,22 +332,24 @@ def build_vertical_decision_prompt(
         "level of specificity: do NOT invent mandatory word counts, enumerated "
         "content requirements, research files, stages, or acceptance gates that "
         "the operator did not request.\n\n"
-        "If and only if you choose `math`, also set `research_target_level` from "
+        "The following built-ins declare a project-level research target contract: "
+        f"{target_verticals}. If you choose one of them, set "
+        "`research_target_level` from "
         "the operator's requested success bar (not from how hard you think the "
         "problem is): `exploratory` when a bounded investigation, known proof, "
         "finite computation, local Lean check, or honest negative report can "
         "satisfy the request; `publishable` when success requires a verified "
         "original result of publication significance; `doctoral` when success "
-        "explicitly requires doctoral/thesis-level original mathematical "
-        "research. For every non-math vertical set it to null.\n\n"
+        "explicitly requires doctoral/thesis-level original research. For every "
+        "vertical outside that declared set, set it to null.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"execution_task": "<Planner/Engineer task only>", '
-        '"research_target_level": "<exploratory|publishable|doctoral when math, '
-        'otherwise null>", '
+        '"research_target_level": "<exploratory|publishable|doctoral when the '
+        'vertical declares a target contract, otherwise null>", '
         '"live_view": null | {"title": "<short title>", "reason": "<why these '
         'files>", "paths": ["<relative/path>", ...]}, "presentations": '
         '[{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
@@ -361,35 +368,55 @@ def build_vertical_decision_prompt(
     )
 
 
-def build_research_target_prompt(task: str) -> str:
+def build_research_target_prompt(
+    task: str,
+    *,
+    supported_levels: Sequence[str] = (
+        "exploratory",
+        "publishable",
+        "doctoral",
+    ),
+) -> str:
     """Ask the Manager for a success bar when research routing is fixed."""
     return (
         "You are the MANAGER of a targeted research pipeline. The operator has "
         "already fixed the vertical; do not revisit routing. Decide only the "
         "requested research success bar from the task below. Judge what outcome "
         "the operator requires, not the problem's apparent difficulty.\n\n"
-        "- exploratory: a bounded investigation, known proof, finite computation, "
-        "local Lean verification, or honest negative report may satisfy the task.\n"
+        "- exploratory: a bounded investigation, known result, finite computation, "
+        "domain-specific local verification, or honest negative report may satisfy "
+        "the task.\n"
         "- publishable: success requires a correctness-verified, novelty-verified "
         "original result with publishable significance.\n"
         "- doctoral: success explicitly requires doctoral/thesis-level original "
-        "mathematical research. Reports, literature review, finite checks, and "
-        "local formalization alone are not success.\n\n"
+        "research. Reports, literature review, finite checks, and local validation "
+        "alone are not success.\n\n"
         "Task:\n"
         f"{(task or '').strip()}\n\n"
+        "Allowed levels for this vertical: "
+        f"{', '.join(supported_levels)}.\n\n"
         "Reply with one JSON object and nothing else:\n"
-        '{"research_target_level":"exploratory|publishable|doctoral",'
+        '{"research_target_level":"one allowed level",'
         '"rationale":"brief reason tied to the requested success bar"}'
     )
 
 
-def parse_research_target_level(raw_text: str) -> str | None:
+def parse_research_target_level(
+    raw_text: str,
+    *,
+    supported_levels: Sequence[str] = (
+        "exploratory",
+        "publishable",
+        "doctoral",
+    ),
+) -> str | None:
     """Parse the Manager's explicit research-target verdict, fail-closed."""
     obj = _loads_first_json(raw_text)
     if not isinstance(obj, dict):
         return None
     level = str(obj.get("research_target_level") or "").strip().lower()
-    return level if level in {"exploratory", "publishable", "doctoral"} else None
+    allowed = {str(value or "").strip().lower() for value in supported_levels}
+    return level if level in allowed else None
 
 
 def parse_vertical_decision(
@@ -397,6 +424,7 @@ def parse_vertical_decision(
     *,
     known_verticals: Sequence[str] = (),
     existing_data_domains: Sequence[str] = (),
+    research_target_verticals: Sequence[str] = (),
 ) -> VerticalDecision | None:
     """Validate the Manager's vertical-decision JSON; fail-closed to ``None``.
 
@@ -425,13 +453,17 @@ def parse_vertical_decision(
         target_level = str(obj.get("research_target_level") or "").strip().lower()
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
-        if name == "math" and target_level not in {
+        targeted = {
+            str(value or "").strip().lower()
+            for value in research_target_verticals
+        }
+        if name in targeted and target_level not in {
             "exploratory",
             "publishable",
             "doctoral",
         }:
             return None
-        if name != "math":
+        if name not in targeted:
             target_level = ""
         if name and name in known:
             return VerticalDecision(

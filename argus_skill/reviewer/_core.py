@@ -58,6 +58,9 @@ class ReviewerConfig:
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
 RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.json"))
+LEGACY_RESEARCH_SCHEMA_PATH = str(
+    Path(__file__).with_name("reviewer_legacy_research_schema.json")
+)
 def _load_reviewer_engineer_handoff_skill() -> str:
     return load_builtin_skill_text("reviewer-engineer-handoff.md")
 
@@ -328,17 +331,17 @@ class Reviewer:
     ) -> ReviewDecision:
         schema_path = self.schema_path
         research_target_level = None
+        research_target_required = False
         structured_result_required = False
         try:
-            from ..core.research_contract import resolve_research_target_level
+            from ..core.research_contract import resolve_research_target_contract
             from ..skills.harness_overlay import resolve_project_root
-            from ..skills.vertical_select import resolve_vertical
 
             root = resolve_project_root(config.working_dir)
-            research_target_level = resolve_research_target_level(root)
-            structured_result_required = (
-                research_target_level is not None or resolve_vertical(root) == "math"
-            )
+            target_contract = resolve_research_target_contract(root)
+            research_target_level = target_contract.selected_level
+            research_target_required = target_contract.required
+            structured_result_required = research_target_required
             if structured_result_required and schema_path == SCHEMA_PATH:
                 schema_path = RESEARCH_SCHEMA_PATH
         except Exception:  # noqa: BLE001 — default schema remains safe
@@ -356,7 +359,7 @@ class Reviewer:
                 schema_contract = Path(schema_path).read_bytes()
         except OSError as exc:
             reason = (
-                "Reviewer output-schema file is unavailable at "
+                "Reviewer output-schema file is unavailable (missing or unreadable) at "
                 f"{schema_path} ({type(exc).__name__}: {exc}); the reviewer backend "
                 "cannot start. This is "
                 "an environment/packaging fault (e.g. the schema was moved or a "
@@ -548,7 +551,24 @@ class Reviewer:
         # reviewer thread next round and detects mid-mission static drift.
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
-        if research_target_level is not None and parsed.status == "done":
+        if (
+            research_target_required
+            and research_target_level is None
+            and parsed.status == "done"
+            and str(scope or "").strip().lower() != "bounded"
+        ):
+            parsed.status = "research_incomplete"
+            parsed.achievement = None
+            parsed.reason = (
+                "Research completion gate held: the target-capable vertical has "
+                "no persisted research_target_level. "
+                + parsed.reason
+            )[:5000]
+            parsed.next_action = (
+                "Restore the Manager-owned research target contract before "
+                "claiming project completion."
+            )
+        elif research_target_level is not None and parsed.status == "done":
             from ..core.research_contract import (
                 research_completion_issue,
                 research_pause_status,

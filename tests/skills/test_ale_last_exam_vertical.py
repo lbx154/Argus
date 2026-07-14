@@ -8,8 +8,10 @@ from argus_skill.skills.builtins import (
     seed_builtin_skills_for_vertical,
 )
 from argus_skill.skills.stage_checklists import (
+    ChecklistLoadState,
     format_full_pipeline_checklist,
     format_stage_checklist,
+    resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import (
     VERTICAL_PURPOSES,
@@ -96,3 +98,15 @@ def test_ale_last_exam_vertical_skills_are_packaged(tmp_path: Path) -> None:
     assert "MOVED — this is a pointer stub" not in seeded_reviewer
     assert "## Operating method" in seeded_engineer
     assert "## Review protocol" in seeded_reviewer
+
+
+def test_ale_last_exam_execute_checklist_is_loaded_and_required(tmp_path: Path) -> None:
+    """Req 15: non-Math regression — ale_last_exam checklist is loaded + required."""
+    root = _ale_project(tmp_path)
+
+    contract = resolve_stage_checklist_contract("execute", project_root=root)
+
+    assert contract.state is ChecklistLoadState.LOADED
+    assert contract.checklist_optional is False
+    assert len(contract.items) > 0
+    assert any("contract-complete" in item.id for item in contract.items)

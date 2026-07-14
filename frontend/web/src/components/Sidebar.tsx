@@ -107,7 +107,7 @@ export function Sidebar({
     <aside
       data-state={slim ? 'collapsed' : 'expanded'}
       style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
-      className={`glass-panel fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
+      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
         slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
       } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
     >
@@ -194,11 +194,12 @@ export function Sidebar({
                   return (
                     <div
                       key={project.id}
+                      data-active={active ? 'true' : 'false'}
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
                       className={`session-card group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
-                        active ? 'bg-blue/10 text-ink' : 'text-ink-dim hover:bg-bg/70 hover:text-ink'
+                        active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
                       <span aria-hidden="true" className={`absolute left-0 transition-colors ${active ? 'inset-y-1 w-px bg-blue' : 'inset-y-2 w-px bg-transparent group-hover:bg-ink-faint/30'}`} />

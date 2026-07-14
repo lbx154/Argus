@@ -360,10 +360,44 @@
     },
     "life.planner.verdict": {
       "version": 1,
-      "required": ["status"],
+      "required": [
+        "status",
+        "success",
+        "recoverable",
+        "reason",
+        "summary",
+        "project_id",
+        "mission_id"
+      ],
       "properties": {
-        "status": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "completed",
+            "research_incomplete",
+            "paused_budget",
+            "paused_no_breakthrough",
+            "exhausted_current_methods",
+            "provider_cooldown",
+            "provider_fence",
+            "infra_blocked",
+            "error"
+          ]
+        },
+        "success": {"type": "boolean"},
+        "recoverable": {"type": "boolean"},
         "reason": {"type": "string"},
+        "summary": {"type": "string"},
+        "project_id": {"type": "string"},
+        "mission_id": {"type": "string"},
+        "research_target_level": {"type": ["string", "null"]},
+        "correctness_status": {"type": ["string", "null"]},
+        "novelty_status": {"type": ["string", "null"]},
+        "significance_status": {"type": ["string", "null"]},
+        "stop_kind": {"type": ["string", "null"]},
+        "completion_kind": {"type": ["string", "null"]},
+        "delivery_id": {"type": "string", "minLength": 1},
         "tasks_added": {"type": "integer", "minimum": 0}
       }
     },
