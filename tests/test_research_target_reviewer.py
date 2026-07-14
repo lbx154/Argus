@@ -48,6 +48,8 @@ def _schema_verdict(result: dict) -> dict:
             "headline": "review certified",
             "blocker": "",
             "recommended_next": "",
+            "plan_signal": "continue",
+            "plan_signal_reason": "",
             "evidence_files": [],
         },
         "checklist": [
