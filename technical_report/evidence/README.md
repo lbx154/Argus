@@ -8,8 +8,8 @@ published on `argusbot.cn`, for use by the README and the technical report.
 - `website_results.json` — the six result cards from
   `https://argusbot.cn/results.html`, each with `arena`, `protocol`,
   `result`, `human_comparison`, verbatim `website_quote`, `source_url`, and
-  `evidence_tier`. Includes public-safe local corroboration for the two results
-  that have reproducible on-disk artifacts.
+  `evidence_tier`. Includes public-safe artifact-digest corroboration for two
+  results whose artifacts live in named external project workspaces.
 - `paper_inventory.json` — the 41 de-duplicated research cards from
   `https://argusbot.cn/research.html` (35 manuscripts + 6 drafts across six
   research programs), each with title, program, status, page count, and page link.
@@ -24,22 +24,23 @@ published on `argusbot.cn`, for use by the README and the technical report.
 
 ## Comparison rule
 
-In public docs the primary comparison column is **human SOTA**, a human-authored
-public record, or the **paper-reported best** where the website provides one.
-Recursive is referenced **only** for the SOL-ExecBench head-to-head fact already
-published on the site. The 41-paper collection is compared to human-authored
+In public docs **human SOTA**, a human-authored public record, or the
+**paper-reported best** is primary where the website provides one. SOL-ExecBench
+and Arbor preserve the site's published system/agent comparisons as secondary or
+source-verbatim context. The 41-paper collection is compared to human-authored
 literature/baselines only — paper count and paper quality are **not** compared to
 any other agent or model.
 
 ## Evidence tiers
 
 - `website_snapshot` — value quoted verbatim from the live public website.
-- `local_artifact` — additionally corroborated by an on-disk reproduction
-  artifact identified by logical project + artifact ID + SHA-256 (no local
-  absolute paths). Present for nanoGPT speedrun (79.77s, N=10) and nanochat B200
-  (0.963634 MEAN_VAL_BPB). The remaining four results carry
+- `local_artifact` — additionally corroborated by committed metadata identifying
+  an artifact in a named external project by logical project + artifact ID +
+  SHA-256 (no local absolute paths and no artifact bytes in this repository).
+  Present for nanoGPT speedrun (79.77s, N=10) and nanochat B200 (0.963634
+  MEAN_VAL_BPB). The remaining four results carry
   `corroboration: website_snapshot`; no corroboration file was fabricated where a
-  clean local artifact was not available.
+  source artifact digest was not available.
 
 ## Provenance and safety
 

@@ -9,8 +9,8 @@ capability promise, and each is stated so that its completion is checkable.
 
 The highest-priority item is to convert the four website-snapshot results of
 Table~\ref{tab:results} --- SOL-ExecBench, nanochat H100, AARRI-Bench, and Arbor ---
-into locally corroborated artifacts tied to a named commit, matching the nanoGPT
-and nanochat-B200 rows that already carry corroboration. The target is that every
+into artifact-digest records tied to a named commit, matching the nanoGPT and
+nanochat-B200 rows that already carry digest corroboration. The target is that every
 published number can make a specific, auditable claim on stated hardware,
 verifiable by a third party from a commit and an artifact digest.
 
@@ -34,8 +34,8 @@ than a settled plan.
 
 \subsection{Retiring debt and lowering cost}
 
-The back-compatibility surface (legacy shims, the retained JSON checkpoint field,
-legacy queue helpers) is scheduled for removal once migration paths are confirmed,
+The back-compatibility surface (legacy shims and queue helpers) is scheduled for
+removal once migration paths are confirmed,
 and the GPU lease is a candidate for tighter but still explicit scheduler
 coordination. In parallel, tightening budget accounting and the cockpit --- better
 cost attribution, clearer paused/blocked surfacing, lower-overhead observation ---

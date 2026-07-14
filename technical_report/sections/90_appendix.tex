@@ -42,20 +42,24 @@ explicit (success, recoverable) policy that determines how the scheduler reacts.
 \code{error}, \code{budget\_exhausted}; and the paused set \code{paused\_budget},
 \code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
 \code{infra\_blocked}, \code{research\_incomplete}, \code{paused\_no\_breakthrough},
-\code{exhausted\_current\_methods}. Every mission ends in exactly one of these ---
-never an unbounded spin (Section~\ref{sec:runtime}).
+\code{exhausted\_current\_methods}; and the control-transfer status
+\code{replan\_requested}, used only when dynamic planning requests a return to the
+Planner. Every mission yields one of these statuses --- never an unbounded spin
+(Section~\ref{sec:runtime}).
 
 \section{Persisted State Map}
 \label{app:state}
 
 Table~\ref{tab:persist} (Section~\ref{sec:state}) lists the principal state files;
-the full layout is defined in \srcpath{core/paths.py}. The global root
+the root layout is defined in \srcpath{core/paths.py}, while runtime composition
+adds the per-project checkpoint path in \srcpath{apps/\_runtime.py}. The global root
 \code{\textasciitilde/.argus-skill/} (overridable via \code{ARGUS\_SKILL\_HOME}; a
 legacy \code{ARGUS\_SKILL\_LIFE\_DIR} shim is retained for migration) holds
 cross-project identity, the shared skill library, and an operator knob store; each
 \code{projects/<fingerprint>/} subtree holds the append-only \code{events.jsonl},
 \code{backlog.jsonl}, \code{continuous.json}, \code{inbox.jsonl}, a \code{skills/}
-directory, \code{daemon.pid}, \code{daemon.status.json}, and \code{CHECKPOINT.md}.
+directory, \code{daemon.pid}, \code{daemon.status.json}, and
+\code{checkpoint.json}.
 A runtime path resolver rejects unresolved shell placeholders, and the project-root
 helper rejects empty, \code{.}, and \code{/} fingerprints, so a mis-resolved path
 fails loudly rather than writing to the wrong place.
@@ -110,7 +114,7 @@ directories. Table~\ref{tab:evmap} maps each subsystem to its primary live sourc
 \midrule
 Three planes (\S\ref{sec:architecture})       & \code{docs/ARCHITECTURE.md}; \code{core/}, \code{manager/}, \code{engineer/}, \code{reviewer/} \\
 Mission lifecycle / daemon (\S\ref{sec:runtime}) & \code{life/supervisor/\_core.py}, \code{daemon/life\_worker.py}, \code{daemon/handoff.py} \\
-State \& memory (\S\ref{sec:state})           & \code{core/paths.py}, \code{engineer/checkpoint.py}, \code{life/memory.py}, \code{skills/}, \code{wiki/} \\
+State \& memory (\S\ref{sec:state})           & \code{core/paths.py}, \code{apps/\_runtime.py}, \code{engineer/checkpoint.py}, \code{life/memory.py}, \code{skills/}, \code{wiki/} \\
 Role interfaces (\S\ref{sec:roles})           & \code{core/models.py}, \code{planner/planner.py}, \code{manager/\_core.py}, \code{reviewer/reviewer\_schema.json} \\
 Execution / budgets (\S\ref{sec:execution})   & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
 Reliability guards (\S\ref{sec:reliability})  & \code{engineer/runner.py}, \code{regime\_jump/} \\
@@ -125,12 +129,14 @@ paths on \code{main}, not any transient local filesystem location.}
 \label{tab:evmap}
 \end{table}
 
-\paragraph{Figure provenance.} The four data figures (\code{system\_planes},
+\paragraph{Figure provenance.} The four deterministic figures (\code{system\_planes},
 \code{mission\_lifecycle}, \code{public\_results}, \code{paper\_portfolio}) are
 generated deterministically by
-\srcpath{technical\_report/figures/build\_report\_figures.py} from the committed
-evidence bundles, with no image-model call; their reproducible SHA-256 digests are
-in \srcpath{figures/REPORT\_FIGURES.json}. The two schematic figures were produced
+\srcpath{technical\_report/figures/build\_report\_figures.py}, with no image-model
+call. The two result figures read the committed evidence bundles; the architecture
+and lifecycle schematics encode source-grounded system structure. Reproducible
+SHA-256 digests are in \srcpath{figures/REPORT\_FIGURES.json}. The two editorial
+illustration plates were produced
 through the image-2 pipeline and carry prompt, inspect, review, and provenance
 sidecars in \srcpath{figures/IMAGE2\_FIGURES.json}.
 

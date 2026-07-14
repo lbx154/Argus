@@ -60,9 +60,10 @@ stance as the completion gate.
 
 Published evidence carries provenance. For website-sourced results, the retrieval
 records an HTTP status and a raw-HTML SHA-256 for each source page; for
-reproduced results, an on-disk artifact is identified by a logical project name,
-an artifact id, and a SHA-256 --- with no local absolute paths, usernames, or
-session ids (\srcpath{technical\_report/evidence/README.md}). The report figures
+corroborated results, the bundle identifies an artifact in a named external
+project by logical project name, artifact id, and SHA-256 --- with no local
+absolute paths, usernames, or session ids. The artifact bytes are not committed
+in this repository (\srcpath{technical\_report/evidence/README.md}). The report figures
 carry their own provenance sidecars and reproducible hashes
 (Appendix~\ref{app:evidencemap}). Result \emph{signing} is deliberately not
 claimed: no cryptographic result-signing component exists in the current tree, and
@@ -80,15 +81,15 @@ ongoing programs as reporting categories (Table~\ref{tab:tiers}).
 \small
 \begin{tabularx}{\linewidth}{@{}p{3.2cm} X p{3.0cm}@{}}
 \toprule
-\textbf{Tier / category} & \textbf{What it means} & \textbf{What it may claim} \\
+\textbf{Corroboration / category} & \textbf{What it means} & \textbf{What it may claim} \\
 \midrule
 \code{local\_artifact} &
-A website result additionally corroborated by an in-repository reproduction
-artifact (logical project + artifact id + SHA-256). &
+A website result with a committed digest record for an artifact in a named
+external project (logical project + artifact id + SHA-256). &
 An Argus result for that run, on stated hardware. \\
 \code{website\_snapshot} &
-A result card quoted verbatim from the live public record, with no in-repository
-reproduction artifact yet. &
+A result card quoted verbatim from the live public record, with no artifact-digest
+corroboration yet. &
 A scoped public claim under its stated protocol. \\
 External baseline &
 A published third-party or human target used for comparison. &
@@ -98,10 +99,10 @@ A program running without certified, reproducible completion. &
 Status ``ongoing''; no numeric Argus claim. \\
 \bottomrule
 \end{tabularx}
-\caption{Evidence tiers. The bundle
-(\code{technical\_report/evidence/website\_results.json}) marks each result
-\code{website\_snapshot} or \code{local\_artifact}; two of six carry the stronger
-tier (Section~\ref{sec:results}).}
+\caption{Evidence categories. All six claims originate as
+\code{website\_snapshot}; the bundle's separate \code{corroboration} field marks
+two as \code{local\_artifact} because digest metadata is available
+(Section~\ref{sec:results}).}
 \label{tab:tiers}
 \end{table}
 

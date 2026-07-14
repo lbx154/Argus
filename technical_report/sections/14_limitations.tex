@@ -42,11 +42,12 @@ concentration of authority, which remains an open problem.
 
 \begin{description}[leftmargin=1.4em, style=nextline]
   \item[Four of six results are snapshots.] Only two of the six public results
-    (Section~\ref{sec:results}) carry an in-repository reproduction artifact; the
-    other four are public website snapshots linked to the evidence bundle. They are
-    real, scoped claims under their protocols, but they are not yet independently
-    reproducible from a named commit, and the report does not present them as if
-    they were.
+    (Section~\ref{sec:results}) carry committed digest records referencing
+    artifacts in named external projects; the artifact bytes are not in this
+    repository. The other four are public website snapshots linked to the evidence
+    bundle. They are real, scoped claims under their protocols, but they are not
+    yet independently reproducible from a named commit, and the report does not
+    present them as if they were.
   \item[Integrity is per-benchmark and ongoing.] The anti-cheat construction is
     task-agnostic, but a determined agent explores the exploit surface of each
     specific benchmark. A new benchmark can present a new exploit --- a leaked test
@@ -69,9 +70,8 @@ concentration of authority, which remains an open problem.
     gap or an oversized artifact blocks certification rather than guaranteeing zero
     leakage, and operators remain responsible for how secrets enter the environment.
   \item[Back-compatibility surface.] Legacy shims (an older global-directory
-    variable, a retained JSON checkpoint field, legacy queue helpers) are kept for
-    migration; they are technical debt to retire and add surface an audit must
-    account for.
+    variable and queue helpers) are kept for migration; they are technical debt to
+    retire and add surface an audit must account for.
   \item[GPU lease is invoked, not automatic.] The GPU lease
     (Section~\ref{sec:execution}) is robust but is an operator/agent-invoked tool,
     not an automatic runtime service; coordinating scarce hardware still depends on
@@ -94,7 +94,7 @@ Argus is under active development at Technical Report 0.2. The architecture and
 mechanisms described here are implemented and grounded in the current source tree;
 the public results (Section~\ref{sec:results}) are scoped claims under their stated
 protocols and evidence tiers, not universal-capability guarantees. Treat any
-performance number according to its tier --- a locally corroborated artifact, a
+performance number according to its tier --- an artifact-digest record, a
 public website snapshot linked to the bundle, or a labeled external baseline ---
 never as a general guarantee of capability.
 \end{callout}

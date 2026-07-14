@@ -48,15 +48,16 @@ identity-checked resume so an upgrade never silently re-plans a campaign
 Argus publishes a live public record~\cite{argus_results}. This report
 reproduces its six current arena results
 (Section~\ref{sec:results}, Figure~\ref{fig:results}), each with the exact
-protocol it was measured under and a human-first comparison: NVIDIA
+protocol it was measured under and its published reference: NVIDIA
 SOL-ExecBench (B200, global rank \#6 with two head-to-head wins over
 Recursive~\cite{recursive2026firststeps}), nanochat on B200 (0.9636 BPB vs.\
 human SOTA 0.9646) and H100 (0.9855 vs.\ 0.9879 BPB), the nanoGPT speedrun
 (79.77\,s vs.\ the same-device human record 80.18\,s), AARRI-Bench (76.8\% vs.\
-the paper-reported best 68.3\%), and Arbor. Two of the six are additionally
-corroborated by an in-repository reproduction artifact; the distinction between a
-public website snapshot and a locally corroborated artifact is kept visible
-throughout (Section~\ref{sec:evidence}). Separately, the public research
+the paper-reported best 68.3\%), and Arbor's site-reported system comparison.
+Two of the six additionally carry committed digest records pointing to artifacts
+in named external projects; the distinction between those records and public
+website snapshots is kept visible throughout (Section~\ref{sec:evidence}).
+Separately, the public research
 page~\cite{argus_research} lists a portfolio of \textbf{41 papers} ---
 35 manuscripts and 6 drafts across six research programs
 (Section~\ref{sec:portfolio}, Figure~\ref{fig:portfolio}) --- compared only to
@@ -84,7 +85,7 @@ not universal-capability guarantees. The limitations are material and are stated
 in full in Section~\ref{sec:limitations}: the quality ceiling of any run is the
 underlying model's; the Reviewer is a single, fallible completion authority;
 measurement integrity is an ongoing per-benchmark obligation; four of six public
-results are website snapshots not yet backed by an in-repository artifact; and
+results are website snapshots without artifact-digest corroboration; and
 7$\times$24 operation has a real, if bounded, cost. Argus is meant to be
 operated and audited, not fired and forgotten.
 \end{callout}

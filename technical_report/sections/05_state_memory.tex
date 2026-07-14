@@ -3,7 +3,7 @@
 
 \begin{designbox}
 Persist every mission-relevant fact on disk so that the runtime can recover at
-round and mission boundaries. Working memory is a small, shared, rewritable note;
+round and mission boundaries. Working memory is a small, hard-capped structured state;
 long-term knowledge is a set of reusable skills and an immutable, evidence-cited
 wiki. Provider sessions are bounded execution caches, not the sole system of record.
 \end{designbox}
@@ -15,8 +15,10 @@ model, the session model, and the two long-term knowledge systems.
 
 \subsection{On-disk layout}
 
-A single module is the source of truth for all paths
-(\srcpath{core/paths.py}). A global root, \code{\textasciitilde/.argus-skill/}
+Core path helpers define the global and per-project roots
+(\srcpath{core/paths.py}); runtime composition derives the checkpoint path inside
+that project state directory (\srcpath{apps/\_runtime.py}). A global root,
+\code{\textasciitilde/.argus-skill/}
 (overridable via \code{ARGUS\_SKILL\_HOME}), holds cross-project identity, shared
 skills, and an operator knob store; each project lives under
 \code{projects/<fingerprint>/}, where the fingerprint is derived from the project
@@ -38,7 +40,7 @@ or working state that can be rebuilt or safely reset.
 \code{continuous.json}     & scheduler      & STANDING lifetime + campaign config & rewrite \\
 \code{inbox.jsonl}         & operator       & queued operator messages / answers & append + drain \\
 \code{skills/}             & skill system   & project-layer distilled skills & versioned \\
-\code{CHECKPOINT.md}       & Eng./Rev. & shared working-memory note & rewrite in place \\
+\code{checkpoint.json}     & Reviewer & hard-capped curated working memory & atomic rewrite \\
 \code{daemon.pid}          & daemon         & concurrency lock & exclusive \\
 \code{daemon.status.json}  & daemon         & liveness / status snapshot & rewrite \\
 \addlinespace
@@ -58,14 +60,15 @@ $^\dagger$ under the global root \code{\textasciitilde/.argus-skill/}.}
 
 Argus does \emph{not} depend on one unbounded provider transcript. Engineer and
 Reviewer use separate resumable sessions so recent context and provider prefix
-caches remain useful, while an ordinary Markdown note in the project root,
-\code{CHECKPOINT.md} (\srcpath{engineer/checkpoint.py}), carries the curated
-cross-round state. The note has fixed sections --- Goal, Current State, Verified
-Done, Failed / Dead Ends, Open Questions / Blockers, Next Action, Relevant Files
-and Evidence --- and a strict edit protocol: the Engineer reads the current
-version and updates it; when independent review runs, the Reviewer checks that
-edit against the real artifacts and is the final editor of the reviewed
-transition. One bounded review deferral is permitted by default when the Engineer
+caches remain useful, while a structured \code{checkpoint.json} in the project
+state directory carries curated cross-round state
+(\srcpath{engineer/checkpoint.py}, \srcpath{apps/\_runtime.py}). Its
+\code{CheckpointState} fields cover the goal, verified work, dead ends, maturing
+directions, one open blocker, the next step, an active-line code pointer, and
+bounded environment facts. Python enforces item and character caps. The Engineer
+ends a turn with a concise handoff proposal; when independent review runs, the
+Reviewer checks that proposal against the artifacts and authors the canonical
+checkpoint. One bounded review deferral is permitted by default when the Engineer
 returns an explicit next execution step; the accumulated work is then reviewed.
 
 The resume window is explicitly bounded. By default, the runtime rolls each role's
@@ -74,11 +77,9 @@ least 1.5 million input tokens; the next call opens a new session and the Engine
 is reseeded from the checkpoint (\srcpath{engineer/runner.py},
 \srcpath{core/knobs.py}). If provider-side compaction occurs before a roll, the
 next round resends the full static preamble. This combines short-window context
-reuse with a structural limit on transcript growth. The note remains a
-\emph{current-state} scratchpad rather than an append-only log, stale detail can
-be deleted rather than accumulated, and the ground truth remains in on-disk
-artifacts. It replaces an earlier structured-JSON checkpoint field retained only
-for backward compatibility.
+reuse with a structural limit on transcript growth. The checkpoint remains a
+\emph{current-state} object rather than an append-only log; stale detail is
+deleted rather than accumulated, while ground truth remains in on-disk artifacts.
 
 \subsection{Session model and recency memory}
 

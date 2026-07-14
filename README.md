@@ -47,9 +47,9 @@ and
 | Arena | Protocol | Argus result | Primary reference | Evidence tier |
 |---|---|---:|---|---|
 | NVIDIA SOL-ExecBench | B200 · 101 kernels | Global #6 · 2× #1 · 7 top-3 | Public leaderboard rank | Website snapshot |
-| nanochat · B200 | 5 min · 1×B200 · 426 attempts | **0.9636 BPB** | Human SOTA: 0.9646 | Local artifact |
+| nanochat · B200 | 5 min · 1×B200 · 426 attempts | **0.9636 BPB** | Human SOTA: 0.9646 | Artifact digest |
 | nanochat · H100 | 5 min · 1×H100 · 37 mechanisms | **0.9855 BPB** | Human SOTA: 0.9879 | Website snapshot |
-| nanoGPT speedrun | 8×H100 · N=10 | **79.77 s** | Same-device human #83: 80.18 s | Local artifact |
+| nanoGPT speedrun | 8×H100 · N=10 | **79.77 s** | Same-device human #83: 80.18 s | Artifact digest |
 | AARRI-Bench | 82 research-intern tasks | **63/82 · 76.8%** | Paper-reported best: 68.3% | Website snapshot |
 | Arbor · RUC NLPIR | Math-Reasoning Data | **28.0 gap** | Arbor: 20.83 | Website snapshot |
 
@@ -60,12 +60,13 @@ efficiency/compression/decoding (7), world models (2), and state trace and
 auditability (2). This is an output inventory, not an acceptance count; Argus
 makes no claim that 41 papers have been accepted.
 
-Two arena results currently have in-repository corroboration. The nanoGPT result
-is verifier-certified over ten runs (`valid=true`, `p=0.004007`,
-`79.77±0.06 s`, `seal=ok`). The nanochat B200 result matches a frozen-scorer,
-one-seed artifact with `MEAN_VAL_BPB=0.963634`. The other four rows are public
-website snapshots and are labeled accordingly rather than presented as locally
-reproduced measurements.
+Two arena results have committed digest corroboration that points to artifacts
+in named external project workspaces. The nanoGPT record includes a ten-run
+verifier line (`valid=true`, `p=0.004007`, `79.77±0.06 s`, `seal=ok`); the
+nanochat B200 record includes a frozen-scorer, one-seed
+`MEAN_VAL_BPB=0.963634`. This repository stores their logical artifact IDs and
+SHA-256 digests, not the artifact bytes. The other four rows are website
+snapshots and are labeled accordingly.
 
 ## System architecture
 
@@ -75,7 +76,7 @@ Argus separates the runtime into three cooperating planes:
 |---|---|---|
 | **Control plane** | Intent interpretation, mission planning, stage transitions, scheduling, budgets, and daemon lifecycle | Manager, Planner, `LifeSupervisor`, backlog, project configuration |
 | **Execution plane** | Literature search, code changes, experiments, manuscript work, independent review, and background jobs | Engineer, Reviewer, agent-CLI backends, tool adapters, GPU utilities |
-| **Evidence plane** | Durable state, typed events, artifacts, usage accounting, measurement records, and publication provenance | `events.jsonl`, `CHECKPOINT.md`, journal, evidence bundles, figure manifests |
+| **Evidence plane** | Durable state, typed events, artifacts, usage accounting, measurement records, and publication provenance | `events.jsonl`, `checkpoint.json`, journal, evidence bundles, figure manifests |
 
 The four roles communicate through explicit interfaces:
 
@@ -104,9 +105,11 @@ event tape is the canonical timeline; backlog, journal, daemon status, project
 configuration, and artifacts provide inspectable working state. Engineer and
 Reviewer maintain separate resumable provider sessions for short-window context
 reuse. By default, each role's thread is rolled after three rounds or when the
-preceding call reports at least 1.5 million input tokens. A curated
-`CHECKPOINT.md` carries current goals, verified work, failed approaches,
-blockers, evidence, and the next action across those rolls.
+preceding call reports at least 1.5 million input tokens. A hard-capped,
+Reviewer-authored `checkpoint.json` carries the current goal, verified work,
+failed and maturing approaches, blocker, next step, active-line pointer, and
+environment facts across those rolls. The Engineer proposes a concise handoff;
+the Reviewer validates and persists the canonical structured state.
 
 The skill system distills reusable procedures from completed work and stores
 them in project or shared layers. Skills are versioned and can be updated,
@@ -237,10 +240,12 @@ with `make -C technical_report clean all`.
 Argus is under active development. Research quality remains bounded by the
 underlying models, tools, data, and compute. The Reviewer is a single fallible
 completion authority, four of the six public arena results do not yet have
-in-repository reproduction artifacts, and continuous operation has real compute
-and provider cost. Benchmark integrity must be engineered separately for each
-evaluation protocol. The current evidence system provides content hashes and
-provenance manifests, not cryptographic result signing.
+artifact-digest corroboration, and continuous operation has real compute and
+provider cost. Even the two corroborated rows reference external project
+artifacts rather than storing their bytes here. Benchmark integrity must be
+engineered separately for each evaluation protocol. The current evidence system
+provides content hashes and provenance manifests, not cryptographic result
+signing.
 
 Treat every performance number as a scoped result under its stated protocol,
 not as a universal capability guarantee.

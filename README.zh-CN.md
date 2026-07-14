@@ -43,9 +43,9 @@ vertical 使用同一套运行时执行从 idea 到投稿材料的完整流程�
 | 赛道 | 协议 | Argus 结果 | 主要参考 | 证据层级 |
 |---|---|---:|---|---|
 | NVIDIA SOL-ExecBench | B200 · 101 个 kernel | 全球第 6 · 2 项第 1 · 7 项前三 | 公开排行榜 | 网站快照 |
-| nanochat · B200 | 5 分钟 · 1×B200 · 426 次尝试 | **0.9636 BPB** | 人类 SOTA：0.9646 | 本地 artifact |
+| nanochat · B200 | 5 分钟 · 1×B200 · 426 次尝试 | **0.9636 BPB** | 人类 SOTA：0.9646 | artifact digest |
 | nanochat · H100 | 5 分钟 · 1×H100 · 37 种机制 | **0.9855 BPB** | 人类 SOTA：0.9879 | 网站快照 |
-| nanoGPT speedrun | 8×H100 · N=10 | **79.77 秒** | 同设备人类第 83 名：80.18 秒 | 本地 artifact |
+| nanoGPT speedrun | 8×H100 · N=10 | **79.77 秒** | 同设备人类第 83 名：80.18 秒 | artifact digest |
 | AARRI-Bench | 82 个研究实习任务 | **63/82 · 76.8%** | 论文报告最佳：68.3% | 网站快照 |
 | Arbor · RUC NLPIR | Math-Reasoning Data | **28.0 gap** | Arbor：20.83 | 网站快照 |
 
@@ -54,10 +54,11 @@ vertical 使用同一套运行时执行从 idea 到投稿材料的完整流程�
 方法（5）、效率/压缩/解码（7）、世界模型（2）、状态追踪与可审计性（2）。这是产物
 清单，不是录用数量；Argus 不声称这些论文均已被接收。
 
-目前两项结果有仓库内佐证。nanoGPT 的 79.77 秒来自 N=10 的 verifier-certified
-测量（`valid=true`、`p=0.004007`、`79.77±0.06 s`、`seal=ok`）；nanochat B200
-与冻结 scorer、单 seed 的 `MEAN_VAL_BPB=0.963634` 一致。其余四项明确标注为网站
-快照，不包装成本地完成的复现。
+目前两项结果有已提交的 digest 佐证，指向具名的外部项目 artifact。nanoGPT 记录包含
+N=10 的 verifier line（`valid=true`、`p=0.004007`、`79.77±0.06 s`、
+`seal=ok`）；nanochat B200 记录包含冻结 scorer、单 seed 的
+`MEAN_VAL_BPB=0.963634`。本仓库保存 logical artifact ID 与 SHA-256，不保存 artifact
+本体。其余四项明确标注为网站快照。
 
 ## 三平面系统架构
 
@@ -65,7 +66,7 @@ vertical 使用同一套运行时执行从 idea 到投稿材料的完整流程�
 |---|---|---|
 | **控制平面** | 意图解释、任务规划、stage 迁移、调度、预算与 daemon 生命周期 | Manager、Planner、`LifeSupervisor`、backlog、项目配置 |
 | **执行平面** | 文献搜索、代码、实验、写作、独立审查与后台任务 | Engineer、Reviewer、agent CLI backend、工具与 GPU 能力 |
-| **证据平面** | 持久化状态、类型化事件、artifact、用量核算、测量记录与发布溯源 | `events.jsonl`、`CHECKPOINT.md`、journal、evidence bundle、figure manifest |
+| **证据平面** | 持久化状态、类型化事件、artifact、用量核算、测量记录与发布溯源 | `events.jsonl`、`checkpoint.json`、journal、evidence bundle、figure manifest |
 
 Manager 是唯一前门和 stage 权威；Planner 只生成结构化任务与规划裁决；Engineer
 执行一个有边界的真实工作回合；Reviewer 返回 `done`、`continue` 或 `blocked`，
@@ -83,8 +84,9 @@ claim、Engineer–Reviewer 多轮执行，最终进入完成、阻塞、暂停�
 journal、daemon status、项目配置和研究 artifact 都可以直接检查。Engineer 与 Reviewer
 使用各自独立、可 resume 的短窗口 provider session。默认同一 role 的 thread 在连续
 3 轮后滚动；若上一调用报告的输入达到 150 万 token，也会开启新 session。
-`CHECKPOINT.md` 负责跨 session 保存当前目标、已验证工作、失败路线、blocker、证据与
-下一步。
+Reviewer 维护一份带 Python 硬上限的 `checkpoint.json`，跨 session 保存目标、已验证
+工作、失败与 maturing 路线、blocker、下一步、active-line 指针和环境事实。Engineer
+提出简短 handoff，Reviewer 对照真实 artifact 后写入规范结构化状态。
 
 Skill 系统把真实任务中形成的可复用过程沉淀为项目层或共享层能力，并支持版本化、
 更新、拆分、合并、归档和退役。独立的 evidence-cited wiki 保存稳定知识，避免把完整
@@ -189,9 +191,10 @@ LaTeX 源码位于 [`technical_report/`](technical_report/)，使用
 ## 局限与项目状态
 
 Argus 仍在快速开发。研究质量受底层模型、工具、数据和算力限制；Reviewer 是单一且
-可能犯错的完成权威；六项公开结果中有四项尚无仓库内复现 artifact；持续运行会产生
-真实的 GPU 与 provider 成本；每个 benchmark 的完整性仍需按其协议单独设计。当前
-证据系统提供内容 hash 与 provenance manifest，不提供密码学结果签名。
+可能犯错的完成权威；六项公开结果中有四项尚无 artifact-digest 佐证，另两项也只在
+本仓库保存外部项目 artifact 的 ID 与 hash，而非本体；持续运行会产生真实的 GPU 与
+provider 成本；每个 benchmark 的完整性仍需按其协议单独设计。当前证据系统提供内容
+hash 与 provenance manifest，不提供密码学结果签名。
 
 所有性能数字都应按其明确协议理解，不能外推为普适能力保证。
 

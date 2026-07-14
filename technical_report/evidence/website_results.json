@@ -1,6 +1,6 @@
 {
   "schema": "argus-website-results/v1",
-  "description": "Public snapshot of every current result card on argusbot.cn/results.html, with human-comparison columns preserved verbatim and, where available, public-safe local corroboration.",
+  "description": "Public snapshot of every current result card on argusbot.cn/results.html, with published comparison columns preserved verbatim and, where available, public-safe artifact-digest corroboration.",
   "retrieval": {
     "timestamp_utc": "2026-07-14T12:29:51Z",
     "source_url": "https://argusbot.cn/results.html",
@@ -8,7 +8,7 @@
     "http_status": 200,
     "raw_html_sha256": "5143a58774c513ec7917a508837d2992fb950f34923d34f2a5c85449900f38bf"
   },
-  "comparison_rule": "Primary comparison column is human SOTA / human-authored public record / paper-reported best as shown on the website. Recursive appears only for the SOL-ExecBench head-to-head fact already published on the site.",
+  "comparison_rule": "Human SOTA, human-authored records, and paper-reported bests are primary where the website provides them. SOL-ExecBench and Arbor preserve the site's published system/agent comparisons as secondary or source-verbatim context.",
   "results_count": 6,
   "results": [
     {
