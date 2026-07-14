@@ -22,6 +22,7 @@ from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import normalize_stop_kind
+from ..core.task_contract import EFFECTIVE_TASK_CONTRACT
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
@@ -991,6 +992,8 @@ class Reviewer:
             )
             + optimize_banner
             + research_result_instruction
+            + EFFECTIVE_TASK_CONTRACT
+            + "\n\n"
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             + _verification_directive()
@@ -1229,6 +1232,11 @@ class Reviewer:
             "  PRESERVE valuable memory across the session boundary, dropping only\n"
             "  what is genuinely low-value.\n\n"
             "Decision rules:\n"
+            "- Set `progress_class`; Do not add a separate explanation: `decision` for a\n"
+            "  candidate/gate/NO-GO conclusion (including negative results),\n"
+            "  `evidence` for fresh experiment/source/proof evidence, `setup_only`\n"
+            "  for scaffolding without executed evidence, `artifact_sync_only` for\n"
+            "  bookkeeping-only work, or `none`. Reuse reason/planner_report.\n"
             "1) `done` ONLY when the summary shows CONCRETE EVIDENCE of success —\n"
             "   real command output, test results, file contents, query results. A\n"
             "   bare `I implemented X` / `verified Y exists` without the command +\n"
@@ -1278,7 +1286,7 @@ class Reviewer:
             "   with statistical support. For `bounded`/absent scope, do not require\n"
             "   the full pipeline checklist — judge by the task's own acceptance\n"
             "   criteria + the relevant per-stage items.\n\n"
-            "Original operator request (immutable anchor):\n"
+            "Original operator request (root substantive anchor):\n"
             f"{(original_objective or objective).strip()}\n\n"
             "Current mission objective (may include planner/prelude context):\n"
             f"{objective}\n\n"

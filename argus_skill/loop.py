@@ -35,6 +35,7 @@ from .core.event_catalog import EventType
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .core.stop_kinds import stop_kind_is_recoverable
+from .core.task_contract import EFFECTIVE_TASK_CONTRACT
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .reviewer import Reviewer, ReviewerConfig
 from .skills.missions import EngineerMission
@@ -1027,17 +1028,18 @@ class SkillLoop:
         # (the anti-amnesia hedge). See SupervisedEngineer.run (F5).
         sections: list[str] = []
         delta_sections: list[str] = []
+        sections.append(EFFECTIVE_TASK_CONTRACT)
         if role_banner.strip():
             sections.append("## Active vertical role\n" + role_banner.strip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         if original_request.strip():
             sections.append(
-                "## Original operator request (immutable anchor)\n"
+                "## Original operator request (root substantive anchor)\n"
                 "This is the user's original ask before planner/reviewer/prelude "
-                "rewrites. Treat it as the non-negotiable north star; if later "
-                "guidance conflicts, satisfy the original intent or call out the "
-                "conflict explicitly.\n\n"
+                "rewrites. Interpret it under the Effective task contract above: "
+                "live operator instructions may clarify or override it, while "
+                "lower-authority guidance may not silently narrow or expand it.\n\n"
                 + original_request.strip()
             )
         sections.append("## Current mission task\n" + task)

@@ -40,6 +40,7 @@ def _schema_verdict(result: dict) -> dict:
         "completion_summary_markdown": "# Complete\n",
         "achievement": None,
         "failure_cause": None,
+        "progress_class": "decision",
         "scope": "bounded",
         "research_result": result,
         "planner_report": {

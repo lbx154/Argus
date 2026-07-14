@@ -85,7 +85,7 @@ def test_missing_output_schema_is_blocked_without_spawning_codex() -> None:
     assert decision.status == "blocked"
     assert decision.backend_unavailable is True
     assert decision.failure_cause == "environmental"
-    assert "missing" in decision.reason.lower()
+    assert "unavailable" in decision.reason.lower()
 
 
 def test_empty_clean_output_stays_continue() -> None:

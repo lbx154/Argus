@@ -251,6 +251,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "checklist"?: Array<Record<string, unknown>>;
   "research_result"?: Record<string, unknown> | null;
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "progress_class"?: "decision" | "evidence" | "setup_only" | "artifact_sync_only" | "none" | "";
   "planner_report"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
   "achievement"?: Record<string, unknown> | null;

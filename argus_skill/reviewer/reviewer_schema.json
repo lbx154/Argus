@@ -104,6 +104,16 @@
         null
       ]
     },
+    "progress_class": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "evidence",
+        "setup_only",
+        "artifact_sync_only",
+        "none"
+      ]
+    },
     "scope": {
       "type": [
         "string",
@@ -582,6 +592,7 @@
     "completion_summary_markdown",
     "achievement",
     "failure_cause",
+    "progress_class",
     "scope",
     "planner_report",
     "checklist",

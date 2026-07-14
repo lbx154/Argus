@@ -129,6 +129,7 @@ _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
 _THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
+_DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
 _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 # Toggle for the background-subagent advisory + agent-driven cadence wait. When
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
@@ -144,6 +145,7 @@ _CONTINUE_WORK_MAX_CHARS = 500
 # prompts while cutting off the measured bloat zone. Tunable via
 # ARGUS_SKILL_THREAD_TOKEN_LIMIT (0 disables the token roll).
 _DEFAULT_THREAD_TOKEN_LIMIT = 1_500_000
+_DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
 # A single engineer round should essentially never reach Codex auto-compaction:
 # the runner proactively rolls the session every ``shift_round_limit`` rounds
@@ -525,26 +527,62 @@ def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
         return False
 
 
+_DECISION_PROGRESS_CLASSES = frozenset({"decision", "evidence"})
+_NONDECISION_PROGRESS_CLASSES = frozenset({
+    "setup_only",
+    "artifact_sync_only",
+    "none",
+})
+
+
+def _review_progress_class(review: ReviewDecision) -> str:
+    value = str(getattr(review, "progress_class", "") or "").strip().lower()
+    if value in _DECISION_PROGRESS_CLASSES | _NONDECISION_PROGRESS_CLASSES:
+        return value
+    report = getattr(review, "planner_report", None)
+    return (
+        "none"
+        if isinstance(report, dict) and report.get("forward_progress") is False
+        else "evidence"
+    )
+
+
+def _next_decision_stall_streak(
+    review: ReviewDecision,
+    current_streak: int,
+) -> int:
+    if review.status != "continue":
+        return 0
+    if _review_progress_class(review) in _DECISION_PROGRESS_CLASSES:
+        return 0
+    return max(0, int(current_streak)) + 1
+
+
+def _pause_decision_clock(last_progress_at: float, waited_seconds: float) -> float:
+    return float(last_progress_at) + max(0.0, float(waited_seconds or 0.0))
+
+
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
     max_rounds: int = 500
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
-    # Consecutive ``continue`` rounds where the reviewer EXPLICITLY reports
-    # ``forward_progress == false`` (engineer is active but the reviewer judges
-    # the project did not actually advance) before bailing as ``no_progress``.
-    # This is the SEMANTIC stall guard, distinct from ``no_progress_threshold``
-    # which only counts rounds with no engineer output at all. Only an explicit
-    # boolean ``false`` counts — a missing/omitted field never does — so a
-    # reviewer/schema hiccup can never falsely kill a healthy long mission.
-    # Set high so it catches genuine runaway spins (the observed pathology was
-    # 17–19 fruitless rounds) while leaving ample room for legitimate staged
-    # setup / status-polling rounds. 0 disables it.
-    stall_threshold: int = 8
-    # Anti-livelock escalation — distinct from the stall guards above, which only
-    # fire when the engineer is idle (no_progress) or the reviewer EXPLICITLY
-    # reports forward_progress=false. A mission that makes marginal progress every
-    # round but never passes its gate would otherwise drift to ``max_rounds``.
+    # Consecutive reviewed rounds classified by the Reviewer as setup-only,
+    # artifact-sync-only, or no decision progress. The harness counts the
+    # structured verdict; it never infers scientific progress from activity.
+    stall_threshold: int = 2
+    # Safe round-boundary budget since the last Reviewer-classified decision or
+    # evidence increment. This never interrupts a live provider call.
+    decision_progress_timeout_seconds: int = field(
+        default_factory=lambda: _env_int(
+            _DECISION_PROGRESS_TIMEOUT_ENV,
+            _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS,
+        )
+    )
+    # Anti-livelock escalation — distinct from the stall guards above, which fire
+    # when the engineer is idle or the Reviewer classifies repeated rounds as
+    # nondecision work. A mission that makes evidence progress every round but
+    # never passes its gate would otherwise drift to ``max_rounds``.
     # At ``soft_round_limit`` the reviewer is instructed to return ``blocked`` if
     # the binding constraint is an external/unresolvable dependency; at
     # ``hard_escalate_rounds`` the loop force-ends as ``blocked`` so the planner
@@ -1085,6 +1123,7 @@ class SupervisedEngineer:
         review_deferral_streak = 0
         no_progress_streak = 0
         semantic_stall_streak = 0
+        last_decision_progress_at = time.monotonic()
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
         pending_secret_guard_notes: list[str] = []
@@ -1616,6 +1655,10 @@ class SupervisedEngineer:
                                 f"waiting on {wait_task_id}"
                             ),
                         })
+                    last_decision_progress_at = _pause_decision_clock(
+                        last_decision_progress_at,
+                        waited_s,
+                    )
                     # A deliberate yield is neither progress nor a stall: reset the
                     # no-progress streak and re-assess fresh next round (the next
                     # round's advisory reflects the post-wait registry state).
@@ -2099,37 +2142,32 @@ class SupervisedEngineer:
             reviewer_backend_failure_streak = 0
             review_deferral_streak = 0
             pending_secret_guard_notes.clear()
-            # SEMANTIC stall tracking: the engineer can stay busy (non-empty
-            # messages, so ``no_progress_streak`` keeps resetting) yet make no
-            # real advance round after round. The reviewer reports this via
-            # ``planner_report.forward_progress``. Count only EXPLICIT boolean
-            # ``False`` on a ``continue`` round — a missing/omitted field is
-            # treated as "unknown", never as a stall — so a reviewer or schema
-            # hiccup cannot falsely kill a healthy long-running mission.
-            # ``_classify`` bails as ``no_progress`` once it crosses
-            # ``stall_threshold``.
-            planner_report = getattr(review, "planner_report", None)
-            raw_forward_progress = (
-                planner_report.get("forward_progress")
-                if isinstance(planner_report, dict)
-                else None
+            progress_class = _review_progress_class(review)
+            semantic_stall_streak = _next_decision_stall_streak(
+                review,
+                semantic_stall_streak,
             )
-            if review.status == "continue" and raw_forward_progress is False:
-                semantic_stall_streak += 1
-                if on_event and semantic_stall_streak > 0:
-                    on_event({
-                        "type": EventType.ROUND_STALL,
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "semantic_stall_streak": semantic_stall_streak,
-                        "stall_threshold": supervised_config.stall_threshold,
-                        "text": (
-                            f"no forward progress {semantic_stall_streak}/"
-                            f"{supervised_config.stall_threshold} rounds"
-                        ),
-                    })
-            else:
-                semantic_stall_streak = 0
+            now_monotonic = time.monotonic()
+            if progress_class in _DECISION_PROGRESS_CLASSES:
+                last_decision_progress_at = now_monotonic
+            decision_idle_seconds = max(
+                0.0,
+                now_monotonic - last_decision_progress_at,
+            )
+            if on_event and semantic_stall_streak > 0:
+                on_event({
+                    "type": EventType.ROUND_STALL,
+                    "round_index": round_index,
+                    "round_max": supervised_config.max_rounds,
+                    "progress_class": progress_class,
+                    "semantic_stall_streak": semantic_stall_streak,
+                    "stall_threshold": supervised_config.stall_threshold,
+                    "decision_idle_seconds": round(decision_idle_seconds, 1),
+                    "text": (
+                        f"no decision progress {semantic_stall_streak}/"
+                        f"{supervised_config.stall_threshold} rounds"
+                    ),
+                })
             # Update curated working memory from the reviewer-authored
             # checkpoint. Fail-soft: an empty/malformed checkpoint keeps the
             # prior one rather than wiping memory on a noisy verdict.
@@ -2167,6 +2205,10 @@ class SupervisedEngineer:
                 round_index=round_index,
                 max_rounds=supervised_config.max_rounds,
                 hard_escalate_rounds=supervised_config.hard_escalate_rounds,
+                decision_idle_seconds=decision_idle_seconds,
+                decision_timeout_seconds=(
+                    supervised_config.decision_progress_timeout_seconds
+                ),
             )
             if terminal_status is not None:
                 return (
@@ -2297,6 +2339,8 @@ class SupervisedEngineer:
         round_index: int,
         max_rounds: int,
         hard_escalate_rounds: int = 0,
+        decision_idle_seconds: float = 0.0,
+        decision_timeout_seconds: int = 0,
     ) -> tuple[LoopStatus | None, str]:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
@@ -2327,8 +2371,17 @@ class SupervisedEngineer:
         ):
             return (
                 "no_progress",
-                "Reviewer reported no forward progress for "
+                "Reviewer reported no decision progress for "
                 f"{semantic_stall_streak} consecutive rounds.",
+            )
+        if (
+            decision_timeout_seconds > 0
+            and decision_idle_seconds >= decision_timeout_seconds
+            and round_index < max_rounds
+        ):
+            return (
+                "no_progress",
+                f"Reached {decision_timeout_seconds} seconds without decision progress.",
             )
         if (
             hard_escalate_rounds > 0

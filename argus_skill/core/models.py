@@ -185,6 +185,9 @@ class ReviewDecision:
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
     failure_cause: str = ""
+    # Compact reviewer-authored decision-progress classification. The harness
+    # counts it but never infers it from filenames, keywords, or tool activity.
+    progress_class: str = ""
     verification_summary: str = ""
     # Optional project-level research achievement independently certified by
     # this reviewer. The loop emits the sole authoritative
@@ -356,6 +359,7 @@ class ReviewDecision:
             "round_summary_markdown": self.round_summary_markdown or "",
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
+            "progress_class": self.progress_class or "",
             "verification_summary": self.verification_summary or "",
             "achievement": (
                 dict(self.achievement) if isinstance(self.achievement, dict) else None

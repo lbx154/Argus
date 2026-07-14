@@ -94,6 +94,7 @@ def parse_decision_text(
     assert next_action is not None
     assert round_summary_markdown is not None
     assert completion_summary_markdown is not None
+    planner_report = _parse_planner_report(parsed, status=status, reason=reason)
     return ReviewDecision(
         status=status,
         reason=reason,
@@ -104,10 +105,11 @@ def parse_decision_text(
         round_summary_markdown=round_summary_markdown,
         completion_summary_markdown=completion_summary_markdown,
         achievement=_parse_achievement(parsed, status=status),
+        progress_class=_parse_progress_class(parsed, planner_report),
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
         research_result=_parse_research_result(parsed),
-        planner_report=_parse_planner_report(parsed, status=status, reason=reason),
+        planner_report=planner_report,
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
         skill_ops=_parse_skill_ops(parsed),
@@ -115,6 +117,25 @@ def parse_decision_text(
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
     )
+
+
+_PROGRESS_CLASSES = frozenset({
+    "decision",
+    "evidence",
+    "setup_only",
+    "artifact_sync_only",
+    "none",
+})
+
+
+def _parse_progress_class(
+    parsed: dict[str, Any],
+    planner_report: dict[str, Any],
+) -> str:
+    value = str(parsed.get("progress_class") or "").strip().lower()
+    if value in _PROGRESS_CLASSES:
+        return value
+    return "none" if planner_report.get("forward_progress") is False else "evidence"
 
 
 def _parse_research_result(parsed: dict[str, Any]) -> dict[str, Any] | None:
