@@ -277,6 +277,14 @@ class PlanningCycleMixin:
             expected_plan_version = int(
                 revision_request.get("expected_plan_version") or 0
             )
+            if not expected_plan_id:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "unversioned backlog items cannot be revised",
+                    "expected_plan_id": "",
+                    "expected_plan_version": expected_plan_version,
+                })
+                return PLAN_ERROR
             try:
                 revision_active_items = [
                     item
@@ -342,6 +350,13 @@ class PlanningCycleMixin:
             return self._enqueue_wiki_collect_task(wiki_collect_task)
 
         if self.planner_runner is None:
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "no planner runner wired",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             self._emit_status("planner error: no planner runner wired; retry later")
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
@@ -462,6 +477,13 @@ class PlanningCycleMixin:
                     stream_ctx.__exit__(None, None, None)
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: planner raised; retrying later")
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": f"planner raised: {type(exc).__name__}: {exc}",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,
@@ -667,6 +689,13 @@ class PlanningCycleMixin:
 
         if verdict.restart_daemon and not verdict.new_tasks:
             restart_reason = verdict.restart_reason or verdict.reason
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "replacement planner requested daemon restart",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             delivered = self._emit_planner_verdict(
                 status=PlannerVerdictStatus.INFRA_BLOCKED,
                 completion_kind="daemon_handoff",
@@ -696,6 +725,13 @@ class PlanningCycleMixin:
             return PLAN_ERROR
 
         if not verdict.new_tasks:
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "planner produced no replacement tasks",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,

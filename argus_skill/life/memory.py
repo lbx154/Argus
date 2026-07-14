@@ -1054,6 +1054,8 @@ class Backlog:
         expected_version = int(expected_version)
         new_version = int(new_version)
         reason = str(reason).strip()
+        if not str(expected_plan_id).strip():
+            raise ValueError("expected plan id must not be empty")
         supersede_ids = tuple(dict.fromkeys(str(item_id) for item_id in supersede_item_ids))
         replacements = list(new_items)
         if not reason:

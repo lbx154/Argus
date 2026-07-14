@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus_skill.planner import Planner
 
 
 class _Sink:
@@ -54,6 +55,11 @@ class _PlannerRunner:
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         return RunnerResult(exit_code=0, agent_messages=[self.response])
+
+
+class _RaisingPlannerRunner:
+    def run_exec(self, **_kwargs):
+        raise RuntimeError("planner backend down")
 
 
 def _replacement_verdict() -> str:
@@ -396,3 +402,133 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
     assert "research/NO_GO.md" in rendered
     assert "records why the prior route failed" in rendered
     assert "abc123" in rendered
+
+
+def test_unversioned_replan_request_preserves_unrelated_manual_items(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(item_id="manual-a", title="A", objective="A")
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(item_id="manual-b", title="B", objective="B")
+    )
+    _isolate_planning(supervisor, monkeypatch)
+    request = _revision_request()
+    request.update(
+        item_id="manual-a",
+        expected_plan_id="",
+        expected_plan_version=0,
+    )
+
+    assert supervisor._plan_next_work(revision_request=request) is not True
+
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows["manual-a"].status == "pending"
+    assert rows["manual-b"].status == "pending"
+    assert not any(
+        event["type"] == "life.plan.revision.proposed" for event in sink.events
+    )
+    rejected = next(
+        event
+        for event in sink.events
+        if event["type"] == "life.plan.revision.rejected"
+    )
+    assert rejected["reason"] == "unversioned backlog items cannot be revised"
+
+
+def test_revision_without_planner_resolves_proposal_as_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(tmp_path)
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is None
+
+    types = [event["type"] for event in sink.events]
+    assert types.count("life.plan.revision.proposed") == 1
+    assert types.count("life.plan.revision.rejected") == 1
+
+
+def test_revision_planner_exception_resolves_proposal_as_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(tmp_path)
+    supervisor.planner_runner = _RaisingPlannerRunner()
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is not True
+
+    rejected = [
+        event
+        for event in sink.events
+        if event["type"] == "life.plan.revision.rejected"
+    ]
+    assert "planner backend down" in rejected[-1]["reason"]
+
+
+def test_revision_uncaught_planner_exception_resolves_proposal_as_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+
+    def raise_uncaught(_self, **_kwargs):
+        raise RuntimeError("uncaught planner fault")
+
+    monkeypatch.setattr(Planner, "plan_next", raise_uncaught)
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is None
+
+    rejected = [
+        event
+        for event in sink.events
+        if event["type"] == "life.plan.revision.rejected"
+    ]
+    assert rejected[-1]["reason"] == (
+        "planner raised: RuntimeError: uncaught planner fault"
+    )
+
+
+def test_revision_restart_without_tasks_resolves_proposal_as_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    response = json.dumps(
+        {
+            "project_done": False,
+            "reason": "runtime upgrade required",
+            "restart_daemon": True,
+            "restart_reason": "load upgraded code",
+            "waiting": False,
+            "waiting_reason": "",
+            "new_tasks": [],
+        }
+    )
+    supervisor, sink = _supervisor(tmp_path, planner_response=response)
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    monkeypatch.setattr(supervisor, "_handle_planner_restart", lambda _reason: False)
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) is not True
+
+    rejected = [
+        event
+        for event in sink.events
+        if event["type"] == "life.plan.revision.rejected"
+    ]
+    assert rejected[-1]["reason"] == "replacement planner requested daemon restart"

@@ -171,3 +171,34 @@ def test_plan_revision_write_failure_keeps_previous_file(
         _apply(backlog)
 
     assert backlog.path.read_bytes() == before
+
+
+def test_unversioned_items_cannot_be_revised_as_one_implicit_plan(
+    tmp_path: Path,
+) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    backlog.add(BacklogItem.new(item_id="manual-a", title="A", objective="A"))
+    backlog.add(BacklogItem.new(item_id="manual-b", title="B", objective="B"))
+    before = backlog.path.read_bytes()
+
+    with pytest.raises(ValueError, match="expected plan id must not be empty"):
+        backlog.apply_plan_revision(
+            expected_plan_id="",
+            expected_version=0,
+            new_plan_id="plan-b",
+            new_version=1,
+            supersede_item_ids=["manual-a", "manual-b"],
+            new_items=[
+                BacklogItem.new(
+                    item_id="new",
+                    title="replacement",
+                    objective="replacement",
+                    plan_id="plan-b",
+                    plan_version=1,
+                    node_key="replacement",
+                )
+            ],
+            reason="one manual item requested reconsideration",
+        )
+
+    assert backlog.path.read_bytes() == before
