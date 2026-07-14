@@ -253,7 +253,7 @@ argus-skill --setup
   Do all 3 agents share the same API endpoint? (y/n) [y]: y
   API Base URL: https://api.openai.com/v1/
   API Key: sk-...
-  Planner / Engineer / Reviewer model [gpt-5.4]:
+  Planner / Engineer / Reviewer model [gpt-5.5]:
 
   Step 1b: Experiment API access
   ── Experiment API access ──
@@ -417,6 +417,16 @@ pytest -q
 
 完整的架构与实证细节技术报告将发布于
 [`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf)（尚未生成，链接为占位，稍后随该文档产出而生效）。
+
+## 局限与现状
+
+Argus 仍在持续开发中：它是一个让 agent 拥有真实判断力、真实工具访问权和真实
+长程持久化能力的 harness，而不是一个保证 SOTA 结果、保证论文录用、或今天就已
+在每个 vertical 上跑完并审计过的成品研究项目。KernelBench / nanoGPT-speedrun /
+nanochat 这几个 metric vertical 目前仍在持续推进中，尚无干净、可公开引用的
+Argus 复现分数；目前也没有任何"由 Argus 自主产出的论文已被会议录用"的公开
+主张。文档中出现的任何具体数字，请只当作明确标注的外部/参考基线，或某次具体
+run 的可复现、仓库内证据 artifact——不要当作对 Argus 能力的通用保证。
 
 ## License
 
