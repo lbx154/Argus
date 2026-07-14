@@ -9,9 +9,9 @@ restarts.
 The design is intentionally minimal:
 
 * Decorator pattern: ``JsonlEventSink(downstream, path)`` wraps any sink
-  conforming to the ``handle_event(dict) -> None`` protocol. Calls
-  through to the downstream first, then appends to disk. We never let a
-  disk write failure poison the in-memory event flow.
+  conforming to the ``handle_event(dict)`` protocol. Durable append happens
+  before downstream delivery, and the return value acknowledges whether the
+  canonical log accepted the event.
 * One JSON object per line. ``ts`` is injected if the caller didn't.
 * Soft size cap: when ``events.jsonl`` exceeds ``ROLL_BYTES`` we rotate
   to ``events.jsonl.1``. We retain EVERY generation: the previous ``.1``
@@ -50,7 +50,7 @@ EVENT_LOCK_FILE = "events.lock"
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 # Idle-poll chatter that pollutes the persistent log without telling
 # operators anything actionable. We keep these on the in-process sink
@@ -101,7 +101,7 @@ def _should_persist_for_verbosity(event: dict[str, Any], verbosity: str) -> bool
 
 
 class _Sink(Protocol):
-    def handle_event(self, event: dict[str, Any]) -> None: ...
+    def handle_event(self, event: dict[str, Any]) -> bool | None: ...
 
 
 class JsonlEventSink:
@@ -134,19 +134,27 @@ class JsonlEventSink:
 
     # --- Sink protocol -----------------------------------------------
 
-    def handle_event(self, event: dict[str, Any]) -> None:
+    def handle_event(self, event: dict[str, Any]) -> bool:
         safe_event = self._normalize(event)
+        if self._is_idle_chatter(safe_event):
+            persisted = True
+        elif not _should_persist_for_verbosity(safe_event, self._verbosity):
+            persisted = True
+        else:
+            persisted = self._append(safe_event)
+        if not persisted:
+            if safe_event.get("event_validation") and self._downstream is not None:
+                try:
+                    self._downstream.handle_event(safe_event)
+                except Exception:  # noqa: BLE001
+                    pass
+            return False
         if self._downstream is not None:
             try:
                 self._downstream.handle_event(safe_event)
             except Exception:  # noqa: BLE001
-                # Never let downstream failure break disk-logging path.
                 pass
-        if self._is_idle_chatter(safe_event):
-            return
-        if not _should_persist_for_verbosity(safe_event, self._verbosity):
-            return
-        self._append(safe_event)
+        return True
 
     def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
         """Accept stream progress so the sink satisfies EventSink."""
@@ -183,17 +191,18 @@ class JsonlEventSink:
 
     # --- public so tests / migrations can drop one-shot lines --------
 
-    def append(self, event: dict[str, Any]) -> None:
-        self._append(event)
+    def append(self, event: dict[str, Any]) -> bool:
+        return self._append(event)
 
     # --- helpers -----------------------------------------------------
 
-    def _append(self, event: dict[str, Any]) -> None:
+    def _append(self, event: dict[str, Any]) -> bool:
         try:
             payload = self._normalize(event)
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         except Exception:  # noqa: BLE001
-            return
+            return False
+        valid = not bool(payload.get("event_validation"))
         if payload.get("event_validation"):
             try:
                 from ..core.metrics import metrics_root_for_project, record_metric
@@ -230,7 +239,7 @@ class JsonlEventSink:
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in
                 # the daemon log via _DaemonSink.handle_event downstream.
-                pass
+                return False
             finally:
                 if fcntl is not None:
                     try:
@@ -238,6 +247,7 @@ class JsonlEventSink:
                     except OSError:
                         pass
                 os.close(lock_fd)
+        return valid
 
     @staticmethod
     def _normalize(event: dict[str, Any]) -> dict[str, Any]:

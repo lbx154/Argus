@@ -21,6 +21,11 @@ from argus_skill.manager.stage_decider import (
     final_stage_completion_decision,
     parse_stage_decision,
 )
+from argus_skill.skills.stage_checklists import (
+    ChecklistItem,
+    ChecklistLoadState,
+    StageChecklistContract,
+)
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -118,6 +123,110 @@ def _read_stage_status(root: Path, stage: str) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["stages"][stage]["status"]
+
+
+def _checklist_contract(
+    state: ChecklistLoadState,
+    *,
+    optional: bool = False,
+) -> StageChecklistContract:
+    items = (
+        ChecklistItem("review.required", "Verify the result.", "REVIEW.md"),
+    ) if state is ChecklistLoadState.LOADED else ()
+    return StageChecklistContract(
+        stage="review",
+        state=state,
+        checklist_optional=optional,
+        items=items,
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [ChecklistLoadState.NOT_LOADED, ChecklistLoadState.EMPTY],
+)
+def test_required_checklist_cannot_complete_when_unloaded_or_empty(
+    state: ChecklistLoadState,
+) -> None:
+    decision = final_stage_completion_decision(
+        _review(checklist=[]),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        checklist_contract=_checklist_contract(state),
+    )
+
+    assert decision is None
+
+
+def test_loaded_required_checklist_requires_every_declared_item() -> None:
+    contract = _checklist_contract(ChecklistLoadState.LOADED)
+
+    missing = final_stage_completion_decision(
+        _review(checklist=[]),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        checklist_contract=contract,
+    )
+    complete = final_stage_completion_decision(
+        _review(checklist=[{
+            "item": "review.required",
+            "satisfied": True,
+            "evidence": "REVIEW.md line 4",
+        }]),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        checklist_contract=contract,
+    )
+
+    assert missing is None
+    assert complete is not None
+    assert complete.action == "complete"
+
+
+def test_explicit_optional_checklist_can_complete_without_items() -> None:
+    decision = final_stage_completion_decision(
+        _review(checklist=[]),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        checklist_contract=_checklist_contract(
+            ChecklistLoadState.NOT_APPLICABLE,
+            optional=True,
+        ),
+    )
+
+    assert decision is not None
+    assert decision.action == "complete"
+
+
+def test_manager_holds_empty_required_checklist_before_stage_backend(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "solve"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    (tmp_path / "research" / "CHECKLISTS.json").write_text(
+        json.dumps({"revision": 1, "stages": {"solve": []}}),
+        encoding="utf-8",
+    )
+    backend = _StubRunner({
+        "action": "advance",
+        "target_stage": "review",
+        "reason": "empty checklist looked complete",
+    })
+
+    transition = Manager(
+        project_root=tmp_path,
+        runner=backend,
+    ).decide_stage_transition(
+        review=_review(checklist=[]),
+        project_root=tmp_path,
+    )
+
+    assert transition.action == "hold"
+    assert transition.diagnostic == "required_checklist_empty"
+    assert backend.calls == 0
 
 
 # --- decide_stage_transition: writes -------------------------------------
@@ -395,8 +504,24 @@ def test_decide_persistent_empty_done_satisfied_completes_final_stage(
     root = _submission_project(tmp_path)
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
+    from argus_skill.skills.stage_checklists import (
+        resolve_stage_checklist_contract,
+    )
 
-    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+    contract = resolve_stage_checklist_contract(
+        "submission",
+        project_root=root,
+    )
+    review = _review(checklist=[
+        {
+            "item": item.id,
+            "satisfied": True,
+            "evidence": f"verified {item.evidence_hint}",
+        }
+        for item in contract.items
+    ])
+
+    st = mgr.decide_stage_transition(review=review, project_root=root)
 
     assert backend.calls == 3
     assert st.action == "complete"

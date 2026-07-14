@@ -153,6 +153,9 @@ def reserve_global_daily_budget(
 
 class _MemoryView(Protocol):
     @property
+    def root(self) -> Path: ...
+
+    @property
     def backlog(self) -> Any: ...
 
     @property

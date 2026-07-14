@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
 from ._constants import (
     FULL_PAPER_GATE_DESCRIPTION,
@@ -31,6 +32,18 @@ log = logging.getLogger(__name__)
 
 
 class PlanningContextMixin:
+    def _emit_planner_verdict(
+        self,
+        *,
+        status: PlannerVerdictStatus,
+        reason: str,
+        completion_kind: str,
+        resume_outcome: bool | str,
+        terminal_signature: str = "",
+        **details: Any,
+    ) -> bool:
+        raise NotImplementedError
+
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
         if (
@@ -925,7 +938,7 @@ class PlanningContextMixin:
             )
         return None
 
-    def _enqueue_wiki_collect_task(self, task: Any) -> bool:
+    def _enqueue_wiki_collect_task(self, task: Any) -> bool | str:
         item = BacklogItem.new(
             title=task.title,
             objective=task.objective,
@@ -949,27 +962,29 @@ class PlanningContextMixin:
             "impact_score": task.impact_score,
             "impact_area": task.impact_area,
         })
-        self._emit({
-            "type": EventType.LIFE_PLANNER_VERDICT,
-            "cycle": self._planning_cycles,
-            "project_done": False,
-            "reason": "external blocker present; scheduling one wiki_collect escape-valve mission",
-            "task_count": 1,
-            "enqueued_tasks": 1,
-            "skipped_duplicate_tasks": 0,
-            "skipped_recent_failure_tasks": 0,
-            "skipped_subagent_family_failure_tasks": 0,
-            "enqueued_titles": [item.title],
-            "enqueued_impact_scores": [task.impact_score],
-            "skipped_duplicate_titles": [],
-            "skipped_recent_failure_titles": [],
-            "skipped_subagent_family_failure_titles": [],
-            "input_tokens": 0,
-            "cached_input_tokens": 0,
-            "output_tokens": 0,
-            "cost_usd": 0.0,
-        })
-        return True
+        delivered = self._emit_planner_verdict(
+            status=PlannerVerdictStatus.PLANNED,
+            completion_kind="tasks_scheduled",
+            resume_outcome=True,
+            cycle=self._planning_cycles,
+            project_done=False,
+            reason="external blocker present; scheduling one wiki_collect escape-valve mission",
+            task_count=1,
+            enqueued_tasks=1,
+            skipped_duplicate_tasks=0,
+            skipped_recent_failure_tasks=0,
+            skipped_subagent_family_failure_tasks=0,
+            enqueued_titles=[item.title],
+            enqueued_impact_scores=[task.impact_score],
+            skipped_duplicate_titles=[],
+            skipped_recent_failure_titles=[],
+            skipped_subagent_family_failure_titles=[],
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+        )
+        return True if delivered else "planner_retry"
 
 
 __all__ = ["PlanningContextMixin"]

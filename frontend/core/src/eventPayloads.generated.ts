@@ -280,8 +280,20 @@ export interface LifePlannerStartEvent extends EventMsg {
 export interface LifePlannerVerdictEvent extends EventMsg {
   type: "life.planner.verdict";
   payload_schema_version?: 1;
-  "status": string;
-  "reason"?: string;
+  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "provider_fence" | "infra_blocked" | "error";
+  "success": boolean;
+  "recoverable": boolean;
+  "reason": string;
+  "summary": string;
+  "project_id": string;
+  "mission_id": string;
+  "research_target_level"?: string | null;
+  "correctness_status"?: string | null;
+  "novelty_status"?: string | null;
+  "significance_status"?: string | null;
+  "stop_kind"?: string | null;
+  "completion_kind"?: string | null;
+  "delivery_id"?: string;
   "tasks_added"?: number;
 }
 

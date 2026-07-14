@@ -37,6 +37,7 @@ import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 import { Button } from '../components/primitives';
+import { ArgusMark, Wordmark } from '../components/Wordmark';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -50,6 +51,18 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('uses Rounded 02 geometry with one continuous brand gradient', () => {
+    const lockup = renderToStaticMarkup(createElement(Wordmark, { size: 24 }));
+    const mark = renderToStaticMarkup(createElement(ArgusMark, { size: 32 }));
+    expect(lockup).toContain('data-logo="rounded-horizontal"');
+    expect(mark).toContain('data-logo="rounded-mark"');
+    expect(lockup).toContain('gradientUnits="userSpaceOnUse"');
+    expect(lockup).toContain('x1="180"');
+    expect(lockup).toContain('x2="1280"');
+    expect(lockup).not.toContain('var(--spectral-violet)');
+    expect(lockup).not.toContain('NightPupil');
+  });
+
   it('defines the public-brand workbench surface contract', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     for (const token of [
@@ -70,6 +83,22 @@ describe('shared frontend core', () => {
     expect(css).toContain('.compact-control');
     expect(css).toContain('.send-control');
     expect(css).toContain('.session-card');
+    for (const selector of [
+      '.ambient-canvas',
+      '.glass-panel--side',
+      '.glass-panel--main',
+      '.glass-panel--raised',
+    ]) {
+      expect(css).toContain(selector);
+    }
+    expect(css).toContain('@keyframes ambient-drift');
+    expect(css).toContain('[data-page-visible=\"false\"]');
+    expect(css).not.toContain('--spectral-violet: 105 73 205');
+    expect(css).not.toContain('--spectral-rose: 190 67 119');
+    expect(css).not.toContain('#89dceb');
+    expect(css).not.toContain('#cba6f7');
+    expect(css).toContain('.workspace-tab-indicator');
+    expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
   it('keeps light-theme spectral info text at WCAG AA contrast', () => {

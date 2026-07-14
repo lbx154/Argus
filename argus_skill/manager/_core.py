@@ -534,30 +534,31 @@ class Manager:
         task: str,
         *,
         root_task_id: str | None,
+        supported_levels: tuple[str, ...],
     ) -> str:
         """Decide the success bar when the operator fixed a research vertical."""
-        from ..core.research_contract import normalize_research_target_level
+        from ..core.research_contract import research_target_env_override
 
-        raw_override = os.environ.get(
-            "ARGUS_SKILL_RESEARCH_TARGET_LEVEL",
-            os.environ.get("ARGUS_SKILL_MATH_RESEARCH_TARGET_LEVEL"),
-        )
-        if raw_override is not None:
-            override = normalize_research_target_level(raw_override)
-            if override is None:
+        try:
+            override = research_target_env_override()
+        except ValueError as exc:
+            raise VerticalDecisionError(str(exc)) from exc
+        if override is not None:
+            if override not in supported_levels:
                 raise VerticalDecisionError(
-                    "ARGUS_SKILL_RESEARCH_TARGET_LEVEL must be one of "
-                    "exploratory, publishable, doctoral"
+                    f"research target {override!r} is not supported by this vertical"
                 )
             return override
         backend = self._session or self.runner
         if backend is None:
+            conservative_target = supported_levels[-1]
             log.warning(
                 "explicit research vertical has no Manager backend; defaulting "
-                "research_target_level to doctoral so enqueue remains available "
-                "without permitting an unclassified success"
+                "research_target_level to %s so enqueue remains available "
+                "without permitting an unclassified success",
+                conservative_target,
             )
-            return "doctoral"
+            return conservative_target
         from ..core.models import RunnerOptions
         from .domain_author import (
             build_research_target_prompt,
@@ -568,7 +569,10 @@ class Manager:
         with self._task_usage_scope(root_task_id):
             result = gateway_run_exec(
                 backend,
-                prompt=build_research_target_prompt(task),
+                prompt=build_research_target_prompt(
+                    task,
+                    supported_levels=supported_levels,
+                ),
                 options=RunnerOptions(
                     reasoning_effort=_manager_reasoning_effort(),
                     working_dir=str(self.project_root),
@@ -587,7 +591,10 @@ class Manager:
                 "Manager research-target backend failed"
                 + (f": {detail}" if detail else "")
             )
-        target_level = parse_research_target_level(extract_answer(result))
+        target_level = parse_research_target_level(
+            extract_answer(result),
+            supported_levels=supported_levels,
+        )
         if target_level is None:
             raise VerticalDecisionError(
                 "Manager did not produce a valid research_target_level"
@@ -617,6 +624,14 @@ class Manager:
         """
         explicit_builtin = vertical_select.explicit_builtin_vertical()
         if explicit_builtin is not None:
+            from ..verticals._base import (
+                load_vertical,
+                vertical_research_target_levels,
+            )
+
+            target_levels = vertical_research_target_levels(
+                load_vertical(explicit_builtin, project_root=self.project_root)
+            )
             return VerticalDecision(
                 choice="existing",
                 vertical=explicit_builtin,
@@ -625,8 +640,9 @@ class Manager:
                     self._decide_research_target(
                         task,
                         root_task_id=root_task_id,
+                        supported_levels=target_levels,
                     )
-                    if explicit_builtin == "math"
+                    if target_levels
                     else ""
                 ),
             )
@@ -645,10 +661,23 @@ class Manager:
         from .stage_decider import extract_answer
 
         existing = list_data_domains(self.project_root)
+        from ..verticals._base import (
+            load_vertical,
+            vertical_research_target_levels,
+        )
+
+        research_target_verticals = tuple(
+            name
+            for name in vertical_select.VERTICALS
+            if vertical_research_target_levels(
+                load_vertical(name, project_root=self.project_root)
+            )
+        )
         prompt = build_vertical_decision_prompt(
             task,
             verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
             existing_data_domains=existing,
+            research_target_verticals=research_target_verticals,
         )
         with self._task_usage_scope(root_task_id):
             result = gateway_run_exec(
@@ -677,6 +706,7 @@ class Manager:
             answer,
             known_verticals=list(vertical_select.VERTICALS),
             existing_data_domains=existing,
+            research_target_verticals=research_target_verticals,
         )
         if decision is None:
             raise VerticalDecisionError(
@@ -853,11 +883,7 @@ class Manager:
             persist_vertical(
                 self.project_root,
                 vertical,
-                research_target_level=(
-                    decision.research_target_level
-                    if vertical == "math"
-                    else None
-                ),
+                research_target_level=decision.research_target_level or None,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
@@ -1207,6 +1233,9 @@ class Manager:
             format_stage_checklist as _format_checklist,
         )
         from ..skills.stage_checklists import (
+            resolve_stage_checklist_contract as _resolve_checklist_contract,
+        )
+        from ..skills.stage_checklists import (
             rollback_stage as _rollback,
         )
         from .stage_decider import (
@@ -1226,6 +1255,26 @@ class Manager:
         except Exception:  # noqa: BLE001
             log.debug("manager stage-order lookup failed", exc_info=True)
             order = []
+        checklist_contract = _resolve_checklist_contract(
+            cur,
+            project_root=root,
+        )
+        checklist_state = str(
+            getattr(getattr(checklist_contract, "state", ""), "value", "")
+            or getattr(checklist_contract, "state", "")
+        )
+        if (
+            not checklist_contract.checklist_optional
+            and checklist_state != "loaded"
+        ):
+            return StageTransition(
+                "hold",
+                cur,
+                f"required checklist is {checklist_state or 'not_loaded'}",
+                current_stage=cur,
+                source="checklist_configuration_hold",
+                diagnostic=f"required_checklist_{checklist_state or 'not_loaded'}",
+            )
 
         artifact = _manager_blocked_rollback_artifact(
             root, current_stage=cur, stage_order=order
@@ -1435,6 +1484,7 @@ class Manager:
                     vertical=_completion_vertical,
                     mission_scope=mission_scope,
                     research_target_level=_research_target_level,
+                    checklist_contract=checklist_contract,
                     trigger_diagnostic=decision.diagnostic,
                     trigger_reason=decision.reason,
                 )

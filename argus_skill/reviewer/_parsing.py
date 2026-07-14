@@ -10,7 +10,7 @@ import json
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
-from ..core.research_contract import normalize_research_result
+from ..core.research_contract import adapt_legacy_research_result_payload
 
 _BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
 _RESEARCH_PAUSE_STATUSES = {
@@ -139,12 +139,7 @@ def _parse_progress_class(
 
 
 def _parse_research_result(parsed: dict[str, Any]) -> dict[str, Any] | None:
-    # ``math_result`` is accepted only as an on-read migration path for persisted
-    # pre-contract verdicts. New schemas and events emit ``research_result``.
-    raw = parsed.get("research_result")
-    if not isinstance(raw, dict):
-        raw = parsed.get("math_result")
-    return normalize_research_result(raw)
+    return adapt_legacy_research_result_payload(parsed)
 
 
 def _parse_achievement(

@@ -18,7 +18,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.reviewer import RESEARCH_SCHEMA_PATH, SCHEMA_PATH
+from argus_skill.reviewer import (
+    LEGACY_RESEARCH_SCHEMA_PATH,
+    RESEARCH_SCHEMA_PATH,
+    SCHEMA_PATH,
+)
 
 
 def _strict_violations(node, path="root"):
@@ -61,10 +65,10 @@ def test_research_reviewer_schema_is_strict_and_isolated() -> None:
     assert not list(_strict_violations(research))
 
 
-def test_legacy_math_schema_remains_compatible_with_pre_research_daemons() -> None:
-    research_path = Path(RESEARCH_SCHEMA_PATH)
-    legacy_path = research_path.with_name("reviewer_math_schema.json")
-    legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+def test_legacy_research_schema_remains_compatible_with_old_daemons() -> None:
+    legacy = json.loads(
+        Path(LEGACY_RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8")
+    )
 
     assert "research_result" not in legacy["properties"]
     assert "math_result" in legacy["properties"]

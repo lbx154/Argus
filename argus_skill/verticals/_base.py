@@ -145,6 +145,20 @@ def vertical_checklist_items(mod: VerticalDefinition) -> dict:
     return _research_defaults()[1]
 
 
+def vertical_checklist_optional_stages(
+    mod: VerticalDefinition,
+) -> frozenset[str]:
+    """Return stages whose checklist is explicitly declared optional."""
+    raw = getattr(mod, "CHECKLIST_OPTIONAL_STAGES", ())
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return frozenset()
+    return frozenset(
+        stage
+        for value in raw
+        if (stage := str(value or "").strip().lower())
+    )
+
+
 def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
     """Return ``mod.role_banner(role)`` or ``""``.
 

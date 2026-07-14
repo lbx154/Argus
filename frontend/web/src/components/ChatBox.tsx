@@ -63,7 +63,7 @@ export function ChatBox({
   };
 
   return (
-    <div className={`glass-card flex flex-col overflow-hidden rounded-2xl ${
+    <div className={`glass-card glass-panel--raised flex flex-col overflow-hidden rounded-2xl ${
       embedded ? 'shadow-[0_12px_36px_-22px_rgb(var(--spectral-violet)/0.7)] backdrop-blur-md' : ''
     }`}>
       {pending ? (
