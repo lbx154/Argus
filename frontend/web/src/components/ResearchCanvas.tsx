@@ -121,7 +121,7 @@ export function ResearchCanvas({
   }, [selected?.path, info?.kind]);
 
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden bg-panel ${embedded ? '' : 'rounded-lg border border-line/80'} ${className}`} aria-label="Manager live research canvas">
+    <section className={`glass-panel flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label="Manager live research canvas">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line/50 bg-panel px-4">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />

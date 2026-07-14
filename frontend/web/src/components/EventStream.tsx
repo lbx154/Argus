@@ -72,12 +72,12 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
     if (reduceMotion) return;
     gsap.fromTo(
       rowRef.current,
-      { autoAlpha: 0, x: operator ? 14 : 0, y: operator ? 0 : 9 },
+      { autoAlpha: 0, x: operator ? 12 : 0, y: operator ? 0 : 8 },
       {
         autoAlpha: 1,
         x: 0,
         y: 0,
-        duration: 0.32,
+        duration: 0.28,
         ease: 'power2.out',
         clearProps: 'transform,opacity,visibility',
       },

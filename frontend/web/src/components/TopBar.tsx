@@ -4,7 +4,7 @@ import { theme } from '../lib/theme';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
 
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
 
@@ -58,7 +58,7 @@ export function TopBar({
     : 'Reconnecting';
 
   return (
-    <header className="flex h-12 min-w-0 shrink-0 items-center gap-2 border-b border-line/50 bg-panel px-3 sm:gap-3 sm:px-4">
+    <header className="glass-panel flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
       {onOpenSessions ? (
         <button type="button" onClick={onOpenSessions} aria-label="Open sessions" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">
@@ -94,7 +94,7 @@ export function TopBar({
           onClick={onToggleMobileView}
           aria-label={mobileView === 'activity' ? 'Show preview' : 'Show activity'}
           title={mobileView === 'activity' ? 'Show preview' : 'Show activity'}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden"
+          className="icon-control flex h-8 w-8 shrink-0 items-center justify-center lg:hidden"
         >
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">
             {mobileView === 'activity'
@@ -111,7 +111,7 @@ export function TopBar({
             onClick={snap.daemon.alive ? onStop : onStart}
             aria-label={snap.daemon.alive ? 'Pause daemon' : 'Run daemon'}
             title={snap.daemon.alive ? 'Pause daemon' : 'Run daemon'}
-            className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-ink-faint hover:bg-bg hover:text-ink disabled:opacity-40"
+            className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
             <span className="hidden sm:inline">{snap.daemon.alive ? 'Pause' : 'Run'}</span>
@@ -121,7 +121,7 @@ export function TopBar({
             aria-label="Manage session"
             title="Manage session"
             onClick={onManage}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm tracking-widest text-ink-faint hover:bg-bg hover:text-ink"
+            className="icon-control flex h-8 w-8 shrink-0 items-center justify-center text-sm tracking-widest"
           >
             ···
           </button>

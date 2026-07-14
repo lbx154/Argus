@@ -27,6 +27,7 @@ htmlcov/
 # scratch
 benchmarks/results/
 .tmp_pytest/
+.worktrees/
 tmp-review-skills/
 tmp-skill-a/
 answer.txt

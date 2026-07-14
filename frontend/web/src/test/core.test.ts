@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   activeGuardianAlert,
   authoritativeSpend,
@@ -26,10 +28,11 @@ import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
-import { motionQueries } from '../lib/motion';
+import { motionDistance, motionDuration, motionQueries } from '../lib/motion';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
+import { Button } from '../components/primitives';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -43,6 +46,55 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('defines the public-brand workbench surface contract', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    for (const token of [
+      '--spectral-blue',
+      '--spectral-violet',
+      '--spectral-rose',
+      '--spectral-gold',
+      '--glass',
+      '--glass-raised',
+      '--glass-edge',
+    ]) {
+      expect(css).toContain(token);
+    }
+    expect(css).toContain('.workbench-shell');
+    expect(css).toContain('.glass-panel');
+    expect(css).toContain('.glass-card');
+    expect(css).toContain('.icon-control');
+    expect(css).toContain('.compact-control');
+    expect(css).toContain('.send-control');
+    expect(css).toContain('.session-card');
+  });
+
+  it('keeps light-theme spectral info text at WCAG AA contrast', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const root = css.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const channels = root.match(/--spectral-blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
+    expect(channels).not.toBeNull();
+    const relativeLuminance = (rgb: number[]) => {
+      const linear = rgb.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    };
+    const foreground = relativeLuminance(channels!.slice(1).map(Number));
+    const background = relativeLuminance([255, 255, 255]);
+    expect((background + 0.05) / (foreground + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('renders branded shared button variants without changing semantics', () => {
+    const primary = renderToStaticMarkup(createElement(Button, { variant: 'primary', children: 'Run' }));
+    const ghost = renderToStaticMarkup(createElement(Button, { variant: 'ghost', children: 'Cancel' }));
+    const danger = renderToStaticMarkup(createElement(Button, { variant: 'danger', children: 'Delete' }));
+    expect(primary).toContain('brand-button-primary');
+    expect(ghost).toContain('brand-button-ghost');
+    expect(danger).toContain('brand-button-danger');
+    expect(primary).toContain('type="button"');
+  });
+
   it('renders generated HTML only inside an opaque script sandbox', () => {
     const markup = renderToStaticMarkup(createElement(HtmlPreview, {
       html: '<button onclick="document.body.dataset.ok=1">Start</button>',
@@ -98,7 +150,7 @@ describe('shared frontend core', () => {
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
-    const html = renderToStaticMarkup(createElement(Sidebar, {
+    const props = {
       projects: [],
       activeId: null,
       localCwd: '/workspace',
@@ -109,14 +161,20 @@ describe('shared frontend core', () => {
       loading: false,
       collapsed: false,
       onToggleCollapse: () => undefined,
-      themeMode: 'light',
       onCycleTheme: () => undefined,
-    }));
-    expect(html).toContain('Settings');
-    expect(html).toContain('data-icon="gear"');
-    expect(html).toContain('data-icon="sun"');
-    expect(html).not.toContain('>Runtime<');
-    expect(html).not.toContain('>light<');
+    };
+    const light = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'light' }));
+    const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
+    expect(light).toContain('Settings');
+    expect(light).toContain('data-icon="gear"');
+    expect(light).toContain('data-icon="sun"');
+    expect(light).toContain('switch to dark');
+    expect(dark).toContain('data-icon="moon"');
+    expect(dark).toContain('switch to light');
+    expect(`${light}${dark}`).not.toContain('system');
+    expect(`${light}${dark}`).not.toContain('desktop');
+    expect(light).not.toContain('>Runtime<');
+    expect(light).not.toContain('>light<');
   });
 
   it('renders a readable backend handshake before GSAP loads', () => {
@@ -130,6 +188,13 @@ describe('shared frontend core', () => {
       all: '(min-width: 0px)',
       reduceMotion: '(prefers-reduced-motion: reduce)',
     });
+  });
+
+  it('keeps workbench motion bounded and accessible', () => {
+    expect(motionDuration.fast).toBeGreaterThanOrEqual(0.18);
+    expect(motionDuration.normal).toBeLessThanOrEqual(0.32);
+    expect(motionDistance.magnetic).toBeLessThanOrEqual(6);
+    expect(motionQueries.reduceMotion).toBe('(prefers-reduced-motion: reduce)');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {

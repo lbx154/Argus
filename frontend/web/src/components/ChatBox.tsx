@@ -63,8 +63,8 @@ export function ChatBox({
   };
 
   return (
-    <div className={`flex flex-col overflow-hidden rounded-2xl border ${
-      embedded ? 'border-line/40 bg-panel/90 shadow-[0_4px_24px_rgba(0,0,0,0.18)] backdrop-blur-md' : 'border-line/80 bg-panel'
+    <div className={`glass-card flex flex-col overflow-hidden rounded-2xl ${
+      embedded ? 'shadow-[0_12px_36px_-22px_rgb(var(--spectral-violet)/0.7)] backdrop-blur-md' : ''
     }`}>
       {pending ? (
         <div className="border-b border-line/40 px-3 py-2">
@@ -96,7 +96,7 @@ export function ChatBox({
           disabled={disabled || (!pending && !text.trim())}
           title={pending ? 'stop waiting for this reply; server-side work may continue' : undefined}
           aria-label={pending ? 'stop waiting' : 'send message'}
-          className={`h-9 w-9 shrink-0 rounded-full border text-sm font-medium transition-colors disabled:opacity-40 ${
+          className={`send-control h-9 w-9 shrink-0 rounded-full text-sm font-medium disabled:opacity-40 ${
             pending
               ? 'border-line text-warn hover:border-warn/60 hover:bg-warn/10'
               : 'border-blue/70 bg-blue/10 text-blue hover:border-blue hover:bg-blue/20'

@@ -127,7 +127,7 @@ describe('session rename', () => {
         onNew={() => undefined}
         loading={false}
         onToggleCollapse={() => undefined}
-        themeMode="system"
+        themeMode="light"
         onCycleTheme={() => undefined}
       />,
     );

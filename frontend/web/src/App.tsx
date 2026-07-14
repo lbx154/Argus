@@ -27,6 +27,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
+import { Button } from './components/primitives';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
@@ -110,18 +111,12 @@ function Landing({
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">
           {error ? (
-            <button type="button" onClick={onRetry} className="rounded border border-err/50 px-3 py-1.5 text-xs text-err hover:bg-err/10">
-              Retry
-            </button>
+            <Button onClick={onRetry} variant="danger">Retry</Button>
           ) : null}
           {hasProjects ? (
-            <button type="button" onClick={onChoose} className="rounded border border-line px-3 py-1.5 text-xs text-ink-dim hover:bg-panel">
-              Select session
-            </button>
+            <Button onClick={onChoose}>Select session</Button>
           ) : canCreate ? (
-            <button type="button" onClick={onNew} className="rounded border border-blue-deep bg-blue-deep px-3 py-1.5 text-xs text-ink hover:bg-blue-deep/80">
-              New session
-            </button>
+            <Button onClick={onNew} variant="primary">New session</Button>
           ) : null}
         </div>
       )}
@@ -160,9 +155,14 @@ export default function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
-  const [themeMode, setThemeMode] = useState<ThemeMode>(
-    () => (localStorage.getItem('argus.theme') as ThemeMode | null) ?? 'system',
+  const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
+    const stored = localStorage.getItem('argus.theme');
+    return stored === 'light' || stored === 'dark' ? stored : null;
+  });
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
+  const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
   const [composerFocus, setComposerFocus] = useState(0);
   const [chatPending, setChatPending] = useState(false);
   const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
@@ -199,15 +199,15 @@ export default function App() {
   }, [workspaceView]);
 
   useEffect(() => {
-    localStorage.setItem('argus.theme', themeMode);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const dark = themeMode === 'dark' || (themeMode === 'system' && media.matches);
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    };
-    apply();
-    media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
+    const syncSystemTheme = () => setSystemDark(media.matches);
+    syncSystemTheme();
+    media.addEventListener('change', syncSystemTheme);
+    return () => media.removeEventListener('change', syncSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
 
   const cancelActiveMessage = useCallback(() => {
@@ -505,7 +505,9 @@ export default function App() {
     );
   };
   const cycleTheme = () => {
-    setThemeMode((mode) => mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system');
+    const next = themeMode === 'light' ? 'dark' : 'light';
+    setManualTheme(next);
+    localStorage.setItem('argus.theme', next);
   };
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -789,7 +791,7 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting]);
 
   return (
-    <div ref={shellRef} className="flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden bg-bg text-ink">
+    <div ref={shellRef} className="workbench-shell flex h-screen h-[100dvh] w-screen max-w-full overflow-hidden text-ink">
       {!kiosk && sidebarOpen ? (
         <button
           type="button"
@@ -838,7 +840,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
-            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} h-full min-w-0 flex-1 flex-col bg-panel lg:flex`}>
+            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} glass-panel h-full min-w-0 flex-1 flex-col lg:flex`}>
               <TopBar
                 snap={snap}
                 streamOk={connected}

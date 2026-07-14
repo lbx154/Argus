@@ -101,14 +101,14 @@ export function Modal({
       className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center p-4`}
       onMouseDown={onClose}
     >
-      <div ref={backdropRef} className="absolute inset-0 bg-[rgba(0,0,0,0.68)]" />
+      <div ref={backdropRef} className="absolute inset-0 bg-[rgb(4_11_24_/_0.58)] backdrop-blur-md" />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={`relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-lg border border-line bg-panel shadow-glow scroll-thin sm:max-h-[88dvh]`}
+        className={`brand-modal glass-panel relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl border shadow-glow scroll-thin sm:max-h-[88dvh]`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}
