@@ -22,6 +22,29 @@
       "sidecar_path": "technical_report/figures/argus_architecture.png.json",
       "source": "raster",
       "width": 1536
+    },
+    {
+      "figure_id": "long-horizon-reliability",
+      "figure_studio_source": "paper-framework-figure-studio-pro-v3.1.4a",
+      "figure_studio_stage": "S5-CANDIDATE-IMAGE",
+      "figure_type": "reliability",
+      "generation_provenance_path": "technical_report/figures/long_horizon_reliability.png.provenance.json",
+      "generator": "codex-image2",
+      "generator_model": "gpt-image-2",
+      "height": 1024,
+      "inspect_path": "technical_report/figures/long_horizon_reliability.png.inspect.json",
+      "model": "gpt-image-2",
+      "output_path": "technical_report/figures/long_horizon_reliability.png",
+      "output_sha256": "6204edfca3e11cbf0615ef107aed0a2be25bb27c6effacaa4696f32fa86eb195",
+      "prompt_path": "technical_report/figures/long_horizon_reliability.prompt.txt",
+      "prompt_sha256": "531211ae5c3cdb830bce8041e13016e4b6d369f2d4517c2cce28de6aaae112a8",
+      "prompt_template_id": "argus-image2-paper-prompt-v1",
+      "requested_size": "1536x1024",
+      "review_path": "technical_report/figures/long_horizon_reliability.png.review.json",
+      "review_sha256": "1aa4b5e6206fb11b13015e7f71e0c2b15837e097e39c0e90fed49ab427db91ad",
+      "sidecar_path": "technical_report/figures/long_horizon_reliability.png.json",
+      "source": "raster",
+      "width": 1536
     }
   ]
 }
