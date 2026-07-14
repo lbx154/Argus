@@ -217,6 +217,11 @@ class LifeStderrSink:
         return
 
 
+def _should_run_stage_transition(status: object) -> bool:
+    normalized = str(status or "")
+    return normalized != "replan_requested" and not normalized.startswith("paused_")
+
+
 
 
 class _SkillLoopRunner(SelfReplyMixin):
@@ -942,10 +947,9 @@ class _SkillLoopRunner(SelfReplyMixin):
         effective_recoverable = bool(getattr(outcome, "recoverable", False))
         effective_reason = outcome.reason or ""
         stage_transition: dict = {}
-        paused_before_stage = effective_status.startswith("paused_")
         if (
             getattr(config, "workflow_mode", "staged") != "direct"
-            and not paused_before_stage
+            and _should_run_stage_transition(effective_status)
         ):
             stage_budget_exhausted = bool(
                 per_mission_budget is not None

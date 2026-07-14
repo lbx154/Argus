@@ -135,6 +135,8 @@ _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
 # does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
+_DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
+_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 # Coarse upper bound on the input-token size a single resumed thread may reach
@@ -328,19 +330,40 @@ def _review_event_payload(
     )
 
 
-def _plan_signal_event(review: ReviewDecision) -> dict[str, object] | None:
+def _normalize_dynamic_plan_mode(value: object) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in {"off", "shadow", "active"} else "off"
+
+
+def _plan_signal_event(
+    review: ReviewDecision,
+    *,
+    mode: str = "shadow",
+    streak: int = 1,
+    confirm_rounds: int = 2,
+) -> dict[str, object] | None:
     report = getattr(review, "planner_report", None)
-    if not isinstance(report, dict) or report.get("plan_signal") != "reconsider":
+    mode = _normalize_dynamic_plan_mode(mode)
+    if (
+        mode == "off"
+        or not isinstance(report, dict)
+        or report.get("plan_signal") != "reconsider"
+    ):
         return None
     reason = str(report.get("plan_signal_reason") or "").strip()
     if not reason:
         return None
+    streak = max(1, int(streak))
+    confirm_rounds = max(1, int(confirm_rounds))
     evidence_files = report.get("evidence_files")
     return {
         "type": EventType.LIFE_PLAN_SIGNAL,
-        "mode": "shadow",
+        "mode": mode,
         "signal": "reconsider",
         "reason": reason,
+        "streak": streak,
+        "confirm_rounds": confirm_rounds,
+        "confirmed": mode == "active" and streak >= confirm_rounds,
         "evidence_files": evidence_files if isinstance(evidence_files, list) else [],
     }
 
@@ -588,6 +611,17 @@ class SupervisedConfig:
     # artifact-sync-only, or no decision progress. The harness counts the
     # structured verdict; it never infers scientific progress from activity.
     stall_threshold: int = 2
+    # Dynamic Plan is observation-only by default. ``active`` lets two
+    # consecutive Reviewer-authored reconsider signals end the current mission
+    # cleanly so L4 can replace the remaining backlog plan.
+    dynamic_plan_mode: str = field(
+        default_factory=lambda: _normalize_dynamic_plan_mode(
+            os.environ.get(_DYNAMIC_PLAN_MODE_ENV, "off")
+        )
+    )
+    dynamic_plan_confirm_rounds: int = field(
+        default_factory=lambda: _env_int(_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV, 2)
+    )
     # Safe round-boundary budget since the last Reviewer-classified decision or
     # evidence increment. This never interrupts a live provider call.
     decision_progress_timeout_seconds: int = field(
@@ -1140,6 +1174,7 @@ class SupervisedEngineer:
         review_deferral_streak = 0
         no_progress_streak = 0
         semantic_stall_streak = 0
+        plan_reconsider_streak = 0
         last_decision_progress_at = time.monotonic()
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
@@ -2164,6 +2199,32 @@ class SupervisedEngineer:
                 review,
                 semantic_stall_streak,
             )
+            planner_report = getattr(review, "planner_report", None)
+            reconsidered = (
+                review.status == "continue"
+                and isinstance(planner_report, dict)
+                and planner_report.get("plan_signal") == "reconsider"
+                and bool(str(planner_report.get("plan_signal_reason") or "").strip())
+            )
+            plan_reconsider_streak = (
+                plan_reconsider_streak + 1 if reconsidered else 0
+            )
+            dynamic_plan_mode = _normalize_dynamic_plan_mode(
+                supervised_config.dynamic_plan_mode
+            )
+            confirm_rounds = max(
+                1, int(supervised_config.dynamic_plan_confirm_rounds or 1)
+            )
+            plan_signal_event = _plan_signal_event(
+                review,
+                mode=dynamic_plan_mode,
+                streak=max(1, plan_reconsider_streak),
+                confirm_rounds=confirm_rounds,
+            )
+            plan_reconsider_confirmed = bool(
+                plan_signal_event is not None
+                and plan_signal_event.get("confirmed") is True
+            )
             now_monotonic = time.monotonic()
             if progress_class in _DECISION_PROGRESS_CLASSES:
                 last_decision_progress_at = now_monotonic
@@ -2199,7 +2260,6 @@ class SupervisedEngineer:
                     round_max=supervised_config.max_rounds,
                     text=f"review: {review.status} — {review.reason}",
                 ))
-                plan_signal_event = _plan_signal_event(review)
                 if plan_signal_event is not None:
                     plan_signal_event["round_index"] = round_index
                     on_event(plan_signal_event)
@@ -2216,6 +2276,15 @@ class SupervisedEngineer:
                     review_completed_hook(record)
                 except Exception:  # noqa: BLE001 - memory capture never owns verdict
                     log.warning("review completion hook failed", exc_info=True)
+
+            if plan_reconsider_confirmed:
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    str(planner_report.get("plan_signal_reason") or "").strip(),
+                    None,
+                )
 
             terminal_status, reason = self._classify(
                 review=review,

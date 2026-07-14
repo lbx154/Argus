@@ -28,6 +28,55 @@ from ._helpers import (
 log = logging.getLogger(__name__)
 
 
+def _revision_context_refs(revision_request: dict[str, Any]) -> list[dict[str, str]]:
+    report = revision_request.get("planner_report")
+    report = report if isinstance(report, dict) else {}
+    raw_refs = report.get("evidence_files")
+    if not isinstance(raw_refs, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for raw in raw_refs[:8]:
+        if not isinstance(raw, dict):
+            continue
+        path = str(raw.get("path") or "").strip()
+        if not path:
+            continue
+        refs.append({
+            "kind": "artifact",
+            "ref": path[:400],
+            "why": str(raw.get("why") or "").strip()[:600],
+            "content_hash": str(raw.get("content_hash") or "").strip()[:128],
+        })
+    return refs
+
+
+def _render_revision_request(
+    revision_request: dict[str, Any],
+    active_items: list[BacklogItem],
+) -> str:
+    report = revision_request.get("planner_report")
+    report = report if isinstance(report, dict) else {}
+    lines = [
+        "DYNAMIC PLAN REVISION REQUEST (Reviewer-authored, L4 decides):",
+        f"- reason: {str(report.get('plan_signal_reason') or '').strip()}",
+        "- remaining active nodes:",
+    ]
+    lines.extend(
+        f"  - {item.node_key or item.id}: [{item.status}] {item.title}"
+        for item in active_items
+    )
+    refs = _revision_context_refs(revision_request)
+    if refs:
+        lines.append("- evidence files to open before replanning:")
+        lines.extend(f"  - {ref['ref']}: {ref['why']}" for ref in refs)
+    lines.append(
+        "Return a complete replacement batch for the remaining active nodes. "
+        "Completed nodes are immutable. Do not return project_done or waiting for "
+        "this revision request."
+    )
+    return "\n".join(lines)
+
+
 def _research_project_done_issue(
     project_root: object,
     journal_entries: list[Any],
@@ -203,7 +252,11 @@ class PlanningCycleMixin:
             division.vertical,
         )
 
-    def _plan_next_work(self) -> bool | None | str:
+    def _plan_next_work(
+        self,
+        *,
+        revision_request: dict[str, Any] | None = None,
+    ) -> bool | None | str:
         """Call the planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
@@ -211,9 +264,62 @@ class PlanningCycleMixin:
         ``"daemon_handoff"`` if the planner asked the host to restart,
         and ``None`` when the planner fails and should be retried later.
         """
-        retried, retry_outcome = self._retry_pending_planner_verdict()
-        if retried:
-            return retry_outcome
+        revision_request = (
+            dict(revision_request) if isinstance(revision_request, dict) else None
+        )
+        revision_active_items: list[BacklogItem] = []
+        expected_plan_id = ""
+        expected_plan_version = 0
+        if revision_request is not None:
+            expected_plan_id = str(
+                revision_request.get("expected_plan_id") or ""
+            )
+            expected_plan_version = int(
+                revision_request.get("expected_plan_version") or 0
+            )
+            try:
+                revision_active_items = [
+                    item
+                    for item in self.memory.backlog.all()
+                    if item.plan_id == expected_plan_id
+                    and item.plan_version == expected_plan_version
+                    and item.status not in {"done", "failed", "skipped", "superseded"}
+                ]
+            except Exception as exc:  # noqa: BLE001
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": f"cannot inspect active plan: {type(exc).__name__}: {exc}",
+                })
+                return PLAN_ERROR
+            requested_item_id = str(revision_request.get("item_id") or "")
+            if not revision_active_items or requested_item_id not in {
+                item.id for item in revision_active_items
+            }:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "plan revision conflict: active revision changed",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
+                return PLAN_ERROR
+            self._emit({
+                "type": EventType.LIFE_PLAN_REVISION_PROPOSED,
+                "expected_plan_id": expected_plan_id,
+                "expected_plan_version": expected_plan_version,
+                "active_item_ids": [item.id for item in revision_active_items],
+                "reason": str(
+                    revision_request.get("planner_report", {}).get(
+                        "plan_signal_reason", ""
+                    )
+                    if isinstance(revision_request.get("planner_report"), dict)
+                    else ""
+                ),
+            })
+
+        if revision_request is None:
+            retried, retry_outcome = self._retry_pending_planner_verdict()
+            if retried:
+                return retry_outcome
         terminal_idle = self._maybe_idle_after_unchanged_open_ended_done()
         if terminal_idle is not None:
             return terminal_idle
@@ -227,7 +333,11 @@ class PlanningCycleMixin:
             "manager_intent": manager_intent,
         })
 
-        wiki_collect_task = self._wiki_collect_task_if_due_under_blocker()
+        wiki_collect_task = (
+            None
+            if revision_request is not None
+            else self._wiki_collect_task_if_due_under_blocker()
+        )
         if wiki_collect_task is not None:
             return self._enqueue_wiki_collect_task(wiki_collect_task)
 
@@ -274,6 +384,8 @@ class PlanningCycleMixin:
 
         vertical = resolve_vertical(artifact_root)
         if (
+            revision_request is None
+            and
             not getattr(self.config, "open_ended", False)
             and not self._effective_full_paper_gate(artifact_root)
             and vertical_reached_own_terminal_stage(artifact_root, vertical)
@@ -311,6 +423,11 @@ class PlanningCycleMixin:
         journal_tail = self._render_journal_for_planner()
 
         runtime_note = self._planner_runtime_with_idle_note()
+        revision_note = (
+            _render_revision_request(revision_request, revision_active_items)
+            if revision_request is not None
+            else ""
+        )
 
         subagent_family_failures = self._recent_subagent_family_failures()
         stuck_families_note = self._stuck_subagent_families_note(subagent_family_failures)
@@ -335,6 +452,7 @@ class PlanningCycleMixin:
                             self._manager_intent_prompt_block(manager_intent),
                             stuck_families_note,
                             runtime_note,
+                            revision_note,
                         ) if part
                     ),
                     config=self._planner_config(),
@@ -361,6 +479,13 @@ class PlanningCycleMixin:
         ) + copilot_usd_for_premium_requests(verdict.premium_requests)
 
         if verdict.error:
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": verdict.error,
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             if self._reconcile_open_ended_terminal_stage(verdict):
                 return PLAN_RETRY
             self._emit({
@@ -382,6 +507,13 @@ class PlanningCycleMixin:
         # is no new high-impact work. NOT an error, NOT make-work — record a
         # lightweight waiting entry and back off (escalating) before re-checking.
         if verdict.waiting:
+            if revision_request is not None:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "replacement planner returned waiting",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
             record = self._record_planner_waiting(
                 verdict,
                 planner_cost_usd=planner_cost_usd,
@@ -459,6 +591,15 @@ class PlanningCycleMixin:
                     ),
                     new_tasks=[],
                 )
+
+        if revision_request is not None and verdict.project_done:
+            self._emit({
+                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                "reason": "replacement planner cannot declare project_done",
+                "expected_plan_id": expected_plan_id,
+                "expected_plan_version": expected_plan_version,
+            })
+            return PLAN_ERROR
 
         if verdict.project_done and self.config.open_ended:
             self._enter_idle_backoff()
@@ -574,7 +715,10 @@ class PlanningCycleMixin:
             existing_items = []
 
         seen_signatures: dict[tuple[str, str], BacklogItem] = {}
+        revision_active_ids = {item.id for item in revision_active_items}
         for existing in existing_items:
+            if existing.id in revision_active_ids:
+                continue
             if existing.status not in PLANNER_DEDUP_STATUSES:
                 continue
             signature = _planner_task_signature(existing.title, existing.objective)
@@ -589,6 +733,15 @@ class PlanningCycleMixin:
         skipped_recent_failure_titles: list[str] = []
         skipped_subagent_family_failure_titles: list[str] = []
         added_impact_scores: list[int] = []
+        new_plan_id = f"plan-{BacklogItem.new_id()}"
+        new_plan_version = (
+            expected_plan_version + 1 if revision_request is not None else 1
+        )
+        context_refs = (
+            _revision_context_refs(revision_request)
+            if revision_request is not None
+            else []
+        )
 
         # Add new tasks to the backlog.
         #
@@ -697,7 +850,9 @@ class PlanningCycleMixin:
                 })
                 continue
             item_budget = self._item_iteration_budget()
+            item_id = BacklogItem.new_id()
             item = BacklogItem.new(
+                item_id=item_id,
                 title=task.title,
                 objective=task.objective,
                 priority=100,
@@ -706,6 +861,10 @@ class PlanningCycleMixin:
                 iterate=True,
                 iteration_max_cycles=self._item_iteration_cycles(),
                 iteration_budget_usd=item_budget,
+                plan_id=new_plan_id,
+                plan_version=new_plan_version,
+                node_key=str(getattr(task, "key", "") or item_id),
+                context_refs=context_refs,
             )
             # Reserve the signature now so a later sibling in the SAME batch
             # with an identical title/objective still de-dupes against this
@@ -735,21 +894,105 @@ class PlanningCycleMixin:
                         unresolved_keys,
                         item.title,
                     )
-            self.memory.backlog.add(item)
-            added_titles.append(item.title)
-            added_impact_scores.append(task.impact_score)
+            if revision_request is None:
+                self.memory.backlog.add(item)
+                added_titles.append(item.title)
+                added_impact_scores.append(task.impact_score)
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_TASK_ADDED,
+                    "item_id": item.id,
+                    "title": item.title,
+                    "objective": item.objective,
+                    "deps": list(item.deps),
+                    "priority": item.priority,
+                    "branch_id": item.id,
+                    "parent_branch_id": item.deps[0] if item.deps else None,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "manager_intent": manager_intent,
+                    "plan_id": item.plan_id,
+                    "plan_version": item.plan_version,
+                    "node_key": item.node_key,
+                })
+
+        if revision_request is not None and pending_items:
+            replacement_items = [item for _task, item in pending_items]
+            try:
+                revision_result = self.memory.backlog.apply_plan_revision(
+                    expected_plan_id=expected_plan_id,
+                    expected_version=expected_plan_version,
+                    new_plan_id=new_plan_id,
+                    new_version=new_plan_version,
+                    supersede_item_ids=[
+                        item.id for item in revision_active_items
+                    ],
+                    new_items=replacement_items,
+                    reason=str(
+                        revision_request.get("planner_report", {}).get(
+                            "plan_signal_reason", ""
+                        )
+                        if isinstance(revision_request.get("planner_report"), dict)
+                        else ""
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                })
+                return PLAN_ERROR
+            for item_id in revision_result.superseded_ids:
+                self._emit({
+                    "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                    "item_id": item_id,
+                    "plan_id": expected_plan_id,
+                    "plan_version": expected_plan_version,
+                    "superseded_by_plan_id": new_plan_id,
+                    "reason": str(
+                        revision_request.get("planner_report", {}).get(
+                            "plan_signal_reason", ""
+                        )
+                        if isinstance(revision_request.get("planner_report"), dict)
+                        else ""
+                    ),
+                })
+            for task, item in pending_items:
+                added_titles.append(item.title)
+                added_impact_scores.append(task.impact_score)
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_TASK_ADDED,
+                    "item_id": item.id,
+                    "title": item.title,
+                    "objective": item.objective,
+                    "deps": list(item.deps),
+                    "priority": item.priority,
+                    "branch_id": item.id,
+                    "parent_branch_id": item.deps[0] if item.deps else None,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "manager_intent": manager_intent,
+                    "plan_id": item.plan_id,
+                    "plan_version": item.plan_version,
+                    "node_key": item.node_key,
+                })
             self._emit({
-                "type": EventType.LIFE_PLANNER_TASK_ADDED,
-                "item_id": item.id,
-                "title": item.title,
-                "objective": item.objective,
-                "deps": list(item.deps),
-                "priority": item.priority,
-                "branch_id": item.id,
-                "parent_branch_id": item.deps[0] if item.deps else None,
-                "impact_score": task.impact_score,
-                "impact_area": task.impact_area,
-                "manager_intent": manager_intent,
+                "type": EventType.LIFE_PLAN_REVISION_COMMITTED,
+                "old_plan_id": expected_plan_id,
+                "old_plan_version": expected_plan_version,
+                "new_plan_id": new_plan_id,
+                "new_plan_version": new_plan_version,
+                "superseded_item_ids": list(revision_result.superseded_ids),
+                "added_item_ids": list(revision_result.added_ids),
+            })
+
+        if revision_request is not None and not pending_items:
+            self._emit({
+                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                "reason": "all replacement tasks were filtered",
+                "expected_plan_id": expected_plan_id,
+                "expected_plan_version": expected_plan_version,
             })
 
         delivered = self._emit_planner_verdict(

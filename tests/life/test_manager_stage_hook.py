@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from argus_skill.apps import _runtime
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
@@ -240,6 +241,12 @@ def _stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["current_stage"]
+
+
+def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
+    assert _runtime._should_run_stage_transition("replan_requested") is False
+    assert _runtime._should_run_stage_transition("paused_budget") is False
+    assert _runtime._should_run_stage_transition("done") is True
 
 
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(

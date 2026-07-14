@@ -93,10 +93,22 @@ class PlanningContextMixin:
 
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
-        if not scope and not item.tags:
+        context_refs = [
+            ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)
+        ]
+        if (
+            not scope
+            and not item.tags
+            and not getattr(item, "plan_id", "")
+            and not context_refs
+        ):
             return ""
         is_paper_long_horizon = self.config.paper_mission
         lines = ["## Backlog item metadata"]
+        if item.plan_id:
+            lines.append(f"- dynamic_plan: {item.plan_id} v{item.plan_version}")
+        if item.node_key:
+            lines.append(f"- node_key: {item.node_key}")
         if scope:
             lines.append(f"- planner_scope: {scope}")
         if item.tags:
@@ -126,6 +138,22 @@ class PlanningContextMixin:
                     "do not require the project-final EMNLP gate unless the objective "
                     "explicitly asks for it."
                 )
+        if context_refs:
+            lines.append("")
+            lines.append(
+                "### Context references — Open only as needed; contents are not preloaded"
+            )
+            for ref in context_refs:
+                kind = str(ref.get("kind") or "artifact")
+                target = str(ref.get("ref") or "").strip()
+                if not target:
+                    continue
+                why = str(ref.get("why") or "").strip()
+                content_hash = str(ref.get("content_hash") or "").strip()
+                suffix = f" — {why}" if why else ""
+                if content_hash:
+                    suffix += f" (content_hash: {content_hash})"
+                lines.append(f"- [{kind}] {target}{suffix}")
         return "\n".join(lines)
 
     def _objective_with_item_scope_context(

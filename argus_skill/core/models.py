@@ -36,6 +36,7 @@ LoopStatus = Literal[
     "paused_provider_cooldown",
     "paused_provider_fence",
     "infra_blocked",
+    "replan_requested",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",

@@ -89,6 +89,10 @@ class EventType(StrEnum):
     LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
     LIFE_PLANNER_ERROR = "life.planner.error"
     LIFE_PLAN_SIGNAL = "life.plan.signal"
+    LIFE_PLAN_REVISION_PROPOSED = "life.plan.revision.proposed"
+    LIFE_PLAN_REVISION_REJECTED = "life.plan.revision.rejected"
+    LIFE_PLAN_REVISION_COMMITTED = "life.plan.revision.committed"
+    LIFE_PLAN_NODE_SUPERSEDED = "life.plan.node.superseded"
     LIFE_BUDGET_PAUSE = "life.budget.pause"
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
@@ -220,6 +224,10 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
     EventType.LIFE_PLANNER_STALL_ESCALATION,
     EventType.LIFE_PLAN_SIGNAL,
+    EventType.LIFE_PLAN_REVISION_PROPOSED,
+    EventType.LIFE_PLAN_REVISION_REJECTED,
+    EventType.LIFE_PLAN_REVISION_COMMITTED,
+    EventType.LIFE_PLAN_NODE_SUPERSEDED,
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,

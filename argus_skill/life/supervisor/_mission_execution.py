@@ -337,12 +337,21 @@ class MissionExecutionMixin:
             "exhausted_current_methods",
             "infra_blocked",
         }
+        replan_requested = status == "replan_requested"
         err = exc_str or stop_reason or "unspecified failure"
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success:
             self.memory.backlog.mark_done(item.id)
+        elif replan_requested:
+            self.memory.backlog.update(
+                item.id,
+                status="pending",
+                started_ts=None,
+                finished_ts=None,
+                last_error=stop_reason,
+            )
         elif research_pause:
             self.memory.backlog.update(
                 item.id,
@@ -377,7 +386,13 @@ class MissionExecutionMixin:
                         "life supervisor: failed to persist pending_question"
                     )
 
-        kind = "mission_complete" if success else "mission_failed"
+        kind = (
+            "mission_complete"
+            if success
+            else "mission_replan_requested"
+            if replan_requested
+            else "mission_failed"
+        )
         final_submission_certified = bool(
             kind == "mission_complete"
             and self._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION
@@ -499,6 +514,9 @@ class MissionExecutionMixin:
             "pricing_status": usage_summary.pricing_status,
             "iteration": None,
             "auth_failure": auth_failure,
+            "planner_report": planner_report,
+            "expected_plan_id": item.plan_id,
+            "expected_plan_version": item.plan_version,
         }
 
     # ------------------------------------------------------------------

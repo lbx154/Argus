@@ -176,6 +176,10 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert c.deps == [a.id, b.id]
     # The local keys themselves never leak into the backlog.
     assert "a" not in c.deps and "b" not in c.deps
+    assert len({item.plan_id for item in items.values()}) == 1
+    assert all(item.plan_id.startswith("plan-") for item in items.values())
+    assert {item.plan_version for item in items.values()} == {1}
+    assert {item.node_key for item in items.values()} == {"a", "b", "c"}
     assert all(item.max_cost_usd == 123.0 for item in items.values())
     assert all(item.iteration_budget_usd == 123.0 for item in items.values())
 

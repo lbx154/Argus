@@ -594,6 +594,11 @@ class EventJournal(Journal):
             kind: str | None = "budget_pause"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
+            and str(row.get("status") or "") == "replan_requested"
+        ):
+            kind = "mission_replan_requested"
+        elif (
+            etype == EventType.LIFE_MISSION_COMPLETED
             and str(row.get("status") or "") in {
                 "paused_provider_cooldown",
                 "paused_provider_fence",

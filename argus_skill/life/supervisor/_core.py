@@ -600,6 +600,31 @@ class LifeSupervisor(
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
                 break
+            if outcome.get("status") == "replan_requested":
+                gate_reason = self._planner_cycle_gate_reason()
+                if gate_reason:
+                    self._emit({
+                        "type": "life.planner.deferred",
+                        "reason": gate_reason,
+                        "agent_layer": "planner",
+                    })
+                    self._emit_status(gate_reason)
+                    stopped_by = gate_reason
+                    break
+                planned = self._plan_next_work(revision_request=outcome)
+                if planned is True:
+                    continue
+                if planned == "daemon_handoff":
+                    stopped_by = "daemon_handoff"
+                elif planned == "planner_retry":
+                    stopped_by = "planner_retry"
+                elif planned == _PLAN_AWAITING:
+                    stopped_by = _PLAN_AWAITING
+                elif planned == _PLAN_TERMINAL_IDLE:
+                    stopped_by = _PLAN_TERMINAL_IDLE
+                else:
+                    stopped_by = "planner_error"
+                break
             manager_rollback = (
                 self._consume_manager_blocked_rollback_before_planner()
             )
