@@ -125,6 +125,32 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
 
 
+def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        extra_guidance_provider=lambda: [
+            "[MANAGER STEERING] invent a mathematical tool before more checking"
+        ],
+    )
+    loop.run("say hi to the user", workdir=tmp_path)
+
+    prompt = next(
+        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
+    )
+    assert "LIVE MANAGER / OPERATOR DIRECTIVES" in prompt
+    assert "invent a mathematical tool" in prompt
+
+
 def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))

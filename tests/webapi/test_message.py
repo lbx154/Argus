@@ -102,6 +102,41 @@ def test_pure_social_fast_reply_skips_second_manager_call(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_manager_steer_persists_high_priority_live_directive(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-manager-steer"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, "steer", "simple"),
+    )
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("structured steering must not run a second model turn")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "停止形式检查，优先发明新的数学工具",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "control"
+    assert result["control"] == "steer"
+    inbox = [
+        json.loads(line)
+        for line in (life / "inbox.jsonl").read_text().splitlines()
+    ]
+    assert "MANAGER STEERING" in inbox[-1]["text"]
+    assert "发明新的数学工具" in inbox[-1]["text"]
+
+
 def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.webapi.manager_bridge.manager_message",

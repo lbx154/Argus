@@ -432,6 +432,39 @@ def manager_message(
             )
             return {"kind": "chat", "reply": fast_reply}
 
+        if control == "steer":
+            from ..apps._inbox import queue_inbox_message
+
+            directive = (
+                "[MANAGER STEERING — highest priority for the current mission] "
+                + body
+            )
+            queue_inbox_message(
+                life_dir,
+                directive,
+                source="manager.steer",
+            )
+            reply = (
+                "已向当前 Engineer/Planner 写入最高优先级 steering 指令；"
+                "下一轮必须先处理这条方向调整。"
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {
+                "kind": "control",
+                "control": "steer",
+                "reply": reply,
+            }
+
         if (active_mission or mission_is_running(mem)) and control != "abort":
             _phase("Manager · responding while the current mission continues")
             route = "simple"

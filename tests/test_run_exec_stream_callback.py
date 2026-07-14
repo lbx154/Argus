@@ -13,7 +13,11 @@ import json
 import pytest
 
 from argus_skill.agent_cli import agent_cli_runner as runner_mod
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus_skill.agent_cli.agent_cli_runner import (
+    AgentCliRunner,
+    RunnerOptions,
+    _turn_wall_clock_seconds,
+)
 from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
 
 
@@ -195,3 +199,13 @@ def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:
         "type": "assistant.message_delta",
         "data": {"deltaContent": "x"},
     }) is False
+
+
+def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", raising=False)
+    assert _turn_wall_clock_seconds("engineer-r1") == 300
+    assert _turn_wall_clock_seconds("reviewer") == 0
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "90")
+    assert _turn_wall_clock_seconds("engineer-r7") == 90
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0")
+    assert _turn_wall_clock_seconds("engineer-r7") == 0
