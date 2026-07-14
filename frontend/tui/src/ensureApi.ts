@@ -97,6 +97,7 @@ export async function ensureApi(opts: {
     readOwnedApi?: () => Promise<ApiOwnershipRecord | null>;
     signal?: (pid: number, signal: NodeJS.Signals) => void;
     spawnApi?: () => Promise<{ pid: number }>;
+    writeOwnershipRecord?: (path: string, record: ApiOwnershipRecord) => Promise<void>;
     sleep?: (ms: number) => Promise<void>;
   };
 }): Promise<EnsureResult> {
@@ -118,6 +119,16 @@ export async function ensureApi(opts: {
       };
     }
 
+    // Guard: only recover for local hosts — never inspect, signal, or spawn for a remote endpoint.
+    const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    if (!isLocal) {
+      return {
+        reachable: false,
+        spawned: false,
+        message: `incompatible Argus API at ${host}:${port}: ${initial.message}. Stop that WebAPI or choose another port.`,
+      };
+    }
+
     // Recovery: verify ownership then replace the stale API.
     const bin = resolveBin();
     const doReadOwned = deps?.readOwnedApi ?? (() =>
@@ -125,6 +136,8 @@ export async function ensureApi(opts: {
     const doSignal = deps?.signal ?? ((pid: number, sig: NodeJS.Signals) => {
       process.kill(pid, sig);
     });
+    const doWriteOwnership = deps?.writeOwnershipRecord ??
+      ((p: string, r: ApiOwnershipRecord) => writeOwnershipRecordImpl(p, r));
 
     const record = await doReadOwned();
     if (!record) {
@@ -171,15 +184,27 @@ export async function ensureApi(opts: {
     onStatus?.('starting backend api…');
     const spawned = await doSpawn();
 
-    // Write new ownership record.
-    await writeOwnershipRecordImpl(ownerFile, {
-      schema: 1,
-      pid: spawned.pid,
-      host,
-      port,
-      backendBin: bin,
-      startedAt: new Date().toISOString(),
-    });
+    // Write new ownership record atomically. If this fails, stop the just-spawned child
+    // with SIGTERM so it does not run as a silent unowned process.
+    try {
+      await doWriteOwnership(ownerFile, {
+        schema: 1,
+        pid: spawned.pid,
+        host,
+        port,
+        backendBin: bin,
+        startedAt: new Date().toISOString(),
+      });
+    } catch (writeErr) {
+      try { doSignal(spawned.pid, 'SIGTERM'); } catch { /* ignore */ }
+      return {
+        reachable: false,
+        spawned: false,
+        message:
+          `incompatible Argus API at ${host}:${port}: ownership write failed after spawn` +
+          ` (${(writeErr as Error).message}); sent SIGTERM to pid ${spawned.pid}`,
+      };
+    }
 
     // Poll for the new backend to come online.
     for (let i = 0; i < 20; i++) {

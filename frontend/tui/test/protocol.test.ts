@@ -11,6 +11,7 @@ import {
 import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
 import { ensureApi, probeApi, type ApiProbeResult } from '../src/ensureApi.js';
+import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
 
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -146,6 +147,7 @@ const ownedRecord = {
 
 test('replaces a proven owned stale API with SIGTERM only', async () => {
   const signals: Array<[number, NodeJS.Signals]> = [];
+  const ownerWrites: Array<[string, ApiOwnershipRecord]> = [];
   const result = await ensureApi({
     host: '127.0.0.1',
     port: 8899,
@@ -155,11 +157,23 @@ test('replaces a proven owned stale API with SIGTERM only', async () => {
       readOwnedApi: async () => ownedRecord,
       signal: (pid, signal) => signals.push([pid, signal]),
       spawnApi: async () => ({ pid: 9876 }),
+      writeOwnershipRecord: async (path, record) => { ownerWrites.push([path, record]); },
       sleep: async () => undefined,
     },
   });
   assert.deepEqual(signals, [[4321, 'SIGTERM']]);
   assert.equal(result.reachable, true);
+  // Assert exact ownership record written to the correct path.
+  assert.equal(ownerWrites.length, 1);
+  assert.equal(ownerWrites[0][0], '/tmp/argus-owner.json');
+  const rec = ownerWrites[0][1];
+  assert.equal(rec.schema, 1);
+  assert.equal(rec.pid, 9876);
+  assert.equal(rec.host, '127.0.0.1');
+  assert.equal(rec.port, 8899);
+  // backendBin resolves to 'argus-skill' (no ARGUS_SKILL_BIN env, no .venv in test env).
+  assert.equal(rec.backendBin, 'argus-skill');
+  assert.equal(typeof rec.startedAt, 'string');
 });
 
 test('never signals an incompatible unowned listener', async () => {
@@ -197,6 +211,47 @@ test('does not spawn when graceful shutdown times out', async () => {
   assert.equal(spawnApi.mock.callCount(), 0);
   assert.equal(result.reachable, false);
   assert.match(result.message, /graceful shutdown timed out/);
+});
+
+test('refuses ownership recovery for a remote host even when ownerFile is set', async () => {
+  const signal = mock.fn();
+  const readOwnedApi = mock.fn(async () => ownedRecord);
+  const result = await ensureApi({
+    host: '10.0.0.5',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: async () => staleProbe,
+      readOwnedApi,
+      signal,
+    },
+  });
+  assert.equal(signal.mock.callCount(), 0, 'must not signal a remote process');
+  assert.equal(readOwnedApi.mock.callCount(), 0, 'must not inspect remote ownership file');
+  assert.equal(result.reachable, false);
+  assert.match(result.message, /incompatible Argus API/);
+});
+
+test('SIGTERMs the just-spawned child when ownership write fails', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence(staleProbe, downProbe),
+      readOwnedApi: async () => ownedRecord,
+      signal: (pid, sig) => signals.push([pid, sig]),
+      spawnApi: async () => ({ pid: 9876 }),
+      writeOwnershipRecord: async () => { throw new Error('disk full'); },
+      sleep: async () => undefined,
+    },
+  });
+  // SIGTERM to the old process (4321), then SIGTERM to the just-spawned process (9876).
+  assert.deepEqual(signals, [[4321, 'SIGTERM'], [9876, 'SIGTERM']]);
+  assert.equal(result.reachable, false);
+  assert.equal(result.spawned, false);
+  assert.match(result.message, /ownership write failed/);
 });
 
 test('ApiClient validates snapshot schema after the one-time handshake', async () => {
