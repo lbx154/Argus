@@ -21,9 +21,9 @@
     },
     "system_planes": {
       "pdf": "system_planes.pdf",
-      "pdf_sha256": "393b35890fee8706a1aaad2bf5c2d98914176dd82e4ca3118d4d0b83e6f4ce6b",
+      "pdf_sha256": "f38a691bd8bb23c54b0428220daed855070d24405e1f649839008cf0344a96ec",
       "png": "system_planes.png",
-      "png_sha256": "e2bb173fdaaee2c33d7e5c68b34b4917dd2a5b295302ed1c4f366ca51e76f6ce"
+      "png_sha256": "ace8a0de319f15a9f9a9373bedcb04cf34c5ec43112b4bcc230e7447d6c9a35d"
     }
   },
   "generator": "technical_report/figures/build_report_figures.py",

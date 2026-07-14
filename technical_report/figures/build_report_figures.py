@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -35,6 +36,12 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from argus_skill.core.event_catalog import EventType
 
 # --------------------------------------------------------------------------- #
 # Determinism: no embedded timestamps, fixed fonts, no user-config interference.
@@ -185,7 +192,7 @@ def build_system_planes() -> dict:
             GRAPHITE_SOFT,
             [
                 ("SkillLoop", "match / distill skill\nbuild prompt"),
-                ("Engineer (L1)", "round of real work\nfresh session"),
+                ("Engineer (L1)", "round of real work\nbounded session"),
                 ("Reviewer (L2)", "structured verdict\ndone / continue / blocked"),
                 ("Run gateway", "codex / claude / copilot\ncall-id \u00b7 quota \u00b7 price"),
             ],
@@ -198,7 +205,7 @@ def build_system_planes() -> dict:
             EVIDENCE_FILL,
             EVIDENCE_LINE,
             [
-                ("Event tape", "events.jsonl\n107 typed events"),
+                ("Event tape", f"events.jsonl\n{len(EventType)} typed events"),
                 ("Usage ledger", "tokens \u00b7 premium\ncost \u00b7 budget"),
                 ("Secret guard", "credential redaction\npre-persist"),
                 ("Provenance", "artifact SHA-256\nproject wiki"),
