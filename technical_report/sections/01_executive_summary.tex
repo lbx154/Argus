@@ -72,8 +72,8 @@ explicitly blocked or paused, or is certified complete by the Reviewer against a
 structured checklist --- it is never left to spin indefinitely and never silently
 ``finished'' without evidence. Sections~\ref{sec:reliability}
 and~\ref{sec:evidence} document the recovery model and the measurement-integrity
-architecture that support this posture: fresh-per-round sessions with a shared
-working-memory note, structured decision-progress accounting, first-class paused
+architecture that support this posture: bounded, role-separated provider sessions
+with checkpoint-based rollover, structured decision-progress accounting, first-class paused
 and blocked statuses, an append-only event tape, credential redaction before
 persistence, and provenance hashing of published artifacts.
 

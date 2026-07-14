@@ -20,8 +20,8 @@ work is as harmful as no guard at all.
 \includegraphics[width=0.6\textwidth]{figures/long_horizon_reliability.png}
 \caption{System schematic (not a measured performance plot) of the long-running
 reliability cycle: Planner, Engineer, and Reviewer run one loop; the Reviewer
-maintains a bounded shared note and a decision-progress class that reseeds a fresh
-Engineer thread; supervised background jobs run alongside; and a safe round
+maintains a bounded shared note and a decision-progress class that guides the next
+Engineer round; supervised background jobs run alongside; and a safe round
 boundary returns a stalled or budget-exhausted mission to the Planner, over a
 persistent budget, event-log, and artifact rail.}
 \label{fig:reliability}
@@ -33,8 +33,9 @@ Argus recognizes six recurring fault classes and routes each to a first-class
 outcome rather than an unbounded spin. A \emph{provider error or outage} triggers a
 bounded backoff and, if it persists, ends the mission as an error (a quota denial
 ends it as a paused status, Section~\ref{sec:execution}). \emph{Context pressure} is
-defused by fresh-per-round sessions (Section~\ref{sec:state}), with an in-round
-compaction guard for the rare repeatedly-compacting round. \emph{Stale or
+bounded by short-window session reuse plus proactive round- and token-triggered
+rollover (Section~\ref{sec:state}), with an in-round compaction guard for the rare
+repeatedly-compacting round. \emph{Stale or
 self-watched jobs} are handled by the background-subagent cadence wait; \emph{no-decision
 loops} by counting the Reviewer's \code{progress\_class}; a \emph{reviewer or backend
 failure} is treated as infrastructure, never a \code{continue}; and \emph{process

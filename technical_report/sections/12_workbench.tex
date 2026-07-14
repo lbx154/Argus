@@ -36,11 +36,12 @@ Python REPL.
 
 \subsection{The API surface}
 
-Table~\ref{tab:api} summarizes the API. The read surface is unauthenticated
-inspection; the command surface mutates state and, when an auth token is
-configured, requires an \code{Authorization} header on every request and on the
-WebSocket handshake (\srcpath{webapi/server.py}). The design is read-open,
-command-closed: observing a run is friction-free, but changing one is gated.
+Table~\ref{tab:api} summarizes the API. Most project inspection endpoints are
+unauthenticated; commands, the live WebSocket, and global metrics and trash views
+pass through the authentication dependency and require an \code{Authorization}
+header when a token is configured (\srcpath{webapi/server.py}). Routine run
+inspection therefore remains friction-free while mutation and sensitive
+operational views are gated.
 
 \begin{table}[h]
 \centering
@@ -49,7 +50,8 @@ command-closed: observing a run is friction-free, but changing one is gated.
 \toprule
 \textbf{Method} & \textbf{Representative endpoints} & \textbf{Auth} \\
 \midrule
-GET   & \code{/api/projects}, \code{.../snapshot}, \code{.../events}, \code{.../status}, \code{.../journal}, \code{.../transcript}, \code{.../doctor}, \code{/api/meta}, \code{/api/metrics}, \code{/metrics}, \code{/api/trash} & open (read) \\
+GET   & \code{/api/projects}, \code{.../snapshot}, \code{.../events}, \code{.../status}, \code{.../journal}, \code{.../transcript}, \code{.../doctor}, \code{/api/meta} & open (read) \\
+GET   & \code{/api/metrics}, \code{/metrics}, \code{/api/trash} & token \\
 POST  & \code{.../tasks}, \code{.../message}, \code{.../nudge}, \code{.../plan}, \code{.../mission/abort}, \code{.../reset}, \code{.../skills}, \code{.../config/set}, \code{.../continuous} & token \\
 POST  & \code{.../daemon/start}, \code{.../daemon/stop}, \code{.../daemon/replace}, \code{.../daemon/upgrade}, \code{/api/daemons} & token \\
 POST  & \code{.../backlog/\{item\}/stop}, \code{.../backlog/\{item\}/dispose}, \code{.../identity}, \code{.../launch-cwd}, \code{.../note} & token \\
@@ -57,9 +59,9 @@ PATCH / DELETE & \code{/api/projects/\{sid\}} (rename / trash-restore lifecycle)
 WS    & \code{/api/projects/\{sid\}/stream} (live event stream) & token \\
 \bottomrule
 \end{tabularx}
-\caption{Cockpit API surface (representative; \code{webapi/server.py}). Read
-endpoints are open inspection; every command endpoint is authentication-gated when
-a token is configured.}
+\caption{Cockpit API surface (representative; \code{webapi/server.py}). Most
+project inspection is open; commands, streams, metrics, and trash views are
+authentication-gated when a token is configured.}
 \label{tab:api}
 \end{table}
 

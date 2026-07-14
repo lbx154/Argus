@@ -2,15 +2,15 @@
 \label{sec:state}
 
 \begin{designbox}
-Persist every mission-relevant fact on disk so that the runtime is stateless
-between rounds and restartable at any boundary. Working memory is a small, shared,
-rewritable note; long-term knowledge is a set of reusable skills and an immutable,
-evidence-cited wiki. Nothing important lives only inside a provider session.
+Persist every mission-relevant fact on disk so that the runtime can recover at
+round and mission boundaries. Working memory is a small, shared, rewritable note;
+long-term knowledge is a set of reusable skills and an immutable, evidence-cited
+wiki. Provider sessions are bounded execution caches, not the sole system of record.
 \end{designbox}
 
 Long-horizon autonomy fails when state is trapped in a growing model context. The
 Argus answer is to keep the durable truth on disk and to treat each provider
-session as disposable. This section describes the on-disk layout, the working-memory
+session as bounded and disposable. This section describes the on-disk layout, the working-memory
 model, the session model, and the two long-term knowledge systems.
 
 \subsection{On-disk layout}
@@ -54,28 +54,31 @@ $^\dagger$ under the global root \code{\textasciitilde/.argus-skill/}.}
 \label{tab:persist}
 \end{table}
 
-\subsection{Working memory: fresh sessions over a shared note}
+\subsection{Working memory and bounded provider sessions}
 
-Argus does \emph{not} carry a mission forward by resuming one ever-growing
-provider session. Each Engineer round and each Reviewer round runs in a
-\textbf{fresh provider session}; cross-round state is carried by an ordinary
-Markdown note in the project root, \code{CHECKPOINT.md}
-(\srcpath{engineer/checkpoint.py}). The note has fixed sections --- Goal, Current
-State, Verified Done, Failed / Dead Ends, Open Questions / Blockers, Next Action,
-Relevant Files and Evidence --- and a strict edit protocol: the Engineer reads the
-version the previous Reviewer left, does its work, and updates the note; the
-Reviewer then reads the Engineer's edit against the real artifacts and is the
-\emph{final} editor of the round. The next round's fresh Engineer starts from the
-Reviewer's version.
+Argus does \emph{not} depend on one unbounded provider transcript. Engineer and
+Reviewer use separate resumable sessions so recent context and provider prefix
+caches remain useful, while an ordinary Markdown note in the project root,
+\code{CHECKPOINT.md} (\srcpath{engineer/checkpoint.py}), carries the curated
+cross-round state. The note has fixed sections --- Goal, Current State, Verified
+Done, Failed / Dead Ends, Open Questions / Blockers, Next Action, Relevant Files
+and Evidence --- and a strict edit protocol: the Engineer reads the current
+version and updates it; when independent review runs, the Reviewer checks that
+edit against the real artifacts and is the final editor of the reviewed
+transition. One bounded review deferral is permitted by default when the Engineer
+returns an explicit next execution step; the accumulated work is then reviewed.
 
-This design directly addresses the context-degradation failure mode
-(Section~\ref{sec:problem}). Because no session is resumed, there is no
-unbounded context to compact lossily; because the note is a \emph{current-state}
-scratchpad rather than an append-only log, stale detail is deleted rather than
-accumulated; and because the ground truth always remains in the on-disk
-artifacts, the note can be small without losing information. It replaces an
-earlier structured-JSON checkpoint field, which is retained only for backward
-compatibility.
+The resume window is explicitly bounded. By default, the runtime rolls each role's
+thread after three rounds on that thread, or when the preceding call reports at
+least 1.5 million input tokens; the next call opens a new session and the Engineer
+is reseeded from the checkpoint (\srcpath{engineer/runner.py},
+\srcpath{core/knobs.py}). If provider-side compaction occurs before a roll, the
+next round resends the full static preamble. This combines short-window context
+reuse with a structural limit on transcript growth. The note remains a
+\emph{current-state} scratchpad rather than an append-only log, stale detail can
+be deleted rather than accumulated, and the ground truth remains in on-disk
+artifacts. It replaces an earlier structured-JSON checkpoint field retained only
+for backward compatibility.
 
 \subsection{Session model and recency memory}
 
