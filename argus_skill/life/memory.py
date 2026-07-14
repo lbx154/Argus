@@ -7,7 +7,7 @@ Three storage shapes:
   on POSIX so concurrent writers don't interleave.
 - ``Backlog``: ordered ``backlog.jsonl`` of pending mission objectives.
   Status field on each row toggles ``pending`` → ``running`` → ``done``
-  / ``failed`` / ``skipped``. We rewrite the whole file on status
+  / ``failed`` / ``skipped`` / ``superseded``. We rewrite the whole file on status
   changes; the file is small (tens-to-hundreds of items).
 - ``IdentityCard``: a single ``identity.md`` markdown file the user
   edits freely. We just read it.
@@ -745,6 +745,12 @@ class IllegalStateTransition(RuntimeError):
     """
 
 
+@dataclass(frozen=True)
+class PlanRevisionResult:
+    superseded_ids: tuple[str, ...]
+    added_ids: tuple[str, ...]
+
+
 @dataclass
 class BacklogItem:
     id: str
@@ -1027,6 +1033,91 @@ class Backlog:
             items.append(item)
             self._save(items)
         return item
+
+    def apply_plan_revision(
+        self,
+        *,
+        expected_plan_id: str,
+        expected_version: int,
+        new_plan_id: str,
+        new_version: int,
+        supersede_item_ids: Iterable[str],
+        new_items: Iterable[BacklogItem],
+        reason: str,
+    ) -> PlanRevisionResult:
+        """Atomically replace every active item in one plan revision."""
+        expected_version = int(expected_version)
+        new_version = int(new_version)
+        reason = str(reason).strip()
+        supersede_ids = tuple(dict.fromkeys(str(item_id) for item_id in supersede_item_ids))
+        replacements = list(new_items)
+        if not reason:
+            raise ValueError("plan revision reason must not be empty")
+        if not new_plan_id or new_plan_id == expected_plan_id:
+            raise ValueError("replacement plan id must be new and non-empty")
+        if new_version != expected_version + 1:
+            raise ValueError("replacement plan version must increment by one")
+        if not replacements:
+            raise ValueError("replacement plan must contain at least one item")
+
+        replacement_ids = [item.id for item in replacements]
+        if len(replacement_ids) != len(set(replacement_ids)):
+            raise ValueError("replacement plan contains duplicate item ids")
+        replacement_keys = [item.node_key for item in replacements]
+        if any(not key for key in replacement_keys):
+            raise ValueError("replacement plan node keys must not be empty")
+        if len(replacement_keys) != len(set(replacement_keys)):
+            raise ValueError("replacement plan contains duplicate node keys")
+        replacement_id_set = set(replacement_ids)
+
+        with self._locked():
+            items = self._load()
+            active_ids = {
+                item.id
+                for item in items
+                if item.plan_id == expected_plan_id
+                and item.plan_version == expected_version
+                and item.status not in _TERMINAL_STATUSES
+            }
+            if not active_ids:
+                raise RuntimeError(
+                    "plan revision conflict: expected active plan revision not found"
+                )
+            existing_ids = {item.id for item in items}
+            if replacement_id_set & existing_ids:
+                raise ValueError("replacement plan reuses an existing backlog item id")
+            for item in replacements:
+                if item.status != "pending":
+                    raise ValueError("replacement plan items must start pending")
+                if item.plan_id != new_plan_id or item.plan_version != new_version:
+                    raise ValueError(
+                        "replacement item plan identity does not match revision"
+                    )
+                outside = [dep for dep in item.deps if dep not in replacement_id_set]
+                if outside:
+                    raise ValueError(
+                        "replacement item dependency points outside the replacement batch"
+                    )
+            if set(supersede_ids) != active_ids:
+                raise ValueError(
+                    "plan revision must supersede every active item in the expected plan"
+                )
+
+            now = time.time()
+            for item in items:
+                if item.id not in active_ids:
+                    continue
+                item.status = "superseded"
+                item.finished_ts = now
+                item.superseded_by_plan_id = new_plan_id
+                item.superseded_reason = reason
+            items.extend(replacements)
+            self._save(items)
+
+        return PlanRevisionResult(
+            superseded_ids=supersede_ids,
+            added_ids=tuple(replacement_ids),
+        )
 
     def update(self, item_id: str, **fields: Any) -> BacklogItem | None:
         with self._locked():
