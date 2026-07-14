@@ -635,7 +635,7 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
     assert cont.get("enabled") is True
     assert "recursive kernel" in cont.get("objective", "")
     assert spawned == {
-        "continuous": True,
+        "continuous": False,
         "continuous_objective": "reproduce the recursive kernel task",
         "resume_continuous": True,
     }

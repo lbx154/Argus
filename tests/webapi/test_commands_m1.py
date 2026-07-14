@@ -371,7 +371,7 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
     cfg = json.loads((life / "continuous.json").read_text())
     assert cfg["enabled"] is True and cfg["objective"] == "keep improving X"
     assert spawned == {
-        "continuous": True,
+        "continuous": False,
         "objective": "keep improving X",
         "resume_continuous": True,
     }

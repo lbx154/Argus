@@ -1329,6 +1329,152 @@ def test_life_worker_retries_planning_after_planner_error(
     assert state.done_reason == ""
 
 
+def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="manager-clean execution objective",
+    )
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.manager.intent.completed",
+            "intent_id": "intent-original",
+            "continuous_generation": 1,
+            "execution_task": "manager-clean execution objective",
+            "vertical": "research",
+        }) + "\n")
+    (tmp_path / "manager-handoff.json").write_text(
+        json.dumps({
+            "version": 1,
+            "objective_sha256": "stale",
+            "vertical": "research",
+            "continuous_generation": 0,
+            "intent_id": "intent-stale",
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("persisted resume must not call Manager")
+        ),
+    )
+    seen: dict[str, object] = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["continuous"] = self.config.continuous
+            seen["objective"] = self.config.continuous_objective
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert seen == {
+        "continuous": True,
+        "objective": "manager-clean execution objective",
+    }
+    assert read_continuous_state(tmp_path).enabled is True
+    identity = json.loads((tmp_path / "manager-handoff.json").read_text())
+    assert identity["intent_id"] == "intent-original"
+
+
+def test_resume_with_explicit_new_objective_runs_manager_handoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="old execution objective",
+    )
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.manager.intent.completed",
+            "intent_id": "intent-old",
+            "continuous_generation": 1,
+            "execution_task": "old execution objective",
+            "vertical": "research",
+        }) + "\n")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    calls: list[str] = []
+
+    def decide_vertical(_self, task, **_kwargs):
+        calls.append(task)
+        return SimpleNamespace(
+            execution_task="new manager-clean objective",
+            choice="existing",
+            vertical="research",
+        )
+
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        decide_vertical,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        lambda self, task, decision, **kwargs: SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        ),
+    )
+    seen: dict[str, object] = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["objective"] = self.config.continuous_objective
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        continuous=True,
+        continuous_objective="new raw objective",
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert calls == ["new raw objective"]
+    assert seen["objective"] == "new manager-clean objective"
+    assert read_continuous_state(tmp_path).objective == "new manager-clean objective"
+
+
 def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

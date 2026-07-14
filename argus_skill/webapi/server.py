@@ -510,7 +510,6 @@ def start_project_daemon(
     if resume_continuous:
         continuous = read_continuous_state(life_dir)
         if continuous.enabled:
-            config.continuous = True
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
     daemon_limit = _max_active_daemons(config)

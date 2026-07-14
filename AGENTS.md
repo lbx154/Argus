@@ -45,6 +45,9 @@ argus-skill / python -m argus_skill
 - Manager front-door 的一次模型调用同时输出 `CONFIG` / `CONTROL` / `ROUTE` 三个结构化轴。`CONTROL: NO_DISPATCH` 是 Manager 对 operator 明确“只读 / 不派任务 / 不启动 daemon”约束的权威裁决：bridge 强制走 SELF，inline 回复失败也 fail-closed，不得入 backlog。harness 不扫 operator prose 关键词来改判。SELF 回合用 read-only sandbox；session 的 `launch_cwd` 仅作为 grounding workspace/cwd 注入，pipeline/artifact/session state 仍留在 project state root，不能混为一处。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。只有 operator 通过 Manager front-door 发送的自由文本才会被分类；planner / backlog / daemon 的任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
+  - `--resume-continuous` 只采用与 Manager handoff identity（objective hash +
+    vertical + lineage generation）匹配的持久化 campaign；升级/崩溃恢复不得重新调用
+    Manager。缺失或不匹配 identity 的 legacy/raw objective 仍须走真实 Manager divide。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
 常见状态文件：
