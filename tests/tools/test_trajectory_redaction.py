@@ -22,6 +22,12 @@ def test_redacts_bearer_and_kv_secrets():
     assert redact_text("the token was rejected") == "the token was rejected"
 
 
+def test_redacts_sensitive_http_headers():
+    out = redact_text("x-api-key: response-secret-value\nstatus: 200")
+    assert "response-secret-value" not in out
+    assert "status: 200" in out
+
+
 def test_redacts_url_credentials_and_email():
     assert "<REDACTED:creds>@" in redact_text("clone https://user:pa55w0rd@github.com/x/y.git")
     assert "<REDACTED:email>" in redact_text("author me@example.com wrote it")

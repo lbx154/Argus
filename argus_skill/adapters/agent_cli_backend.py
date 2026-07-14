@@ -56,6 +56,11 @@ from ..core.metrics import metrics_root_for_project, record_metric
 from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.runner_errors import result_has_pre_provider_refusal
+from ..core.secret_guard import (
+    known_secret_values,
+    redact_secrets_record,
+    redact_secrets_text,
+)
 from ..core.stop_kinds import StopKind, normalize_stop_kind
 
 log = logging.getLogger(__name__)
@@ -543,6 +548,7 @@ class AgentCliBackend:
         self._usage_context_lock = threading.Lock()
         self._usage_project_root: Path | None = None
         self._usage_mission_id: str | None = None
+        self._known_secret_values = known_secret_values()
 
     def set_budget_reason_provider(self, provider) -> None:
         """Install (or clear with ``None``) the per-mission budget guard.
@@ -630,6 +636,7 @@ class AgentCliBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
+        self._known_secret_values = known_secret_values()
         # Pin Codex's implicit config model before any accounting or execution.
         # The generated command, reservation, and settled usage record therefore
         # share one model id instead of independently guessing after the call.
@@ -660,6 +667,35 @@ class AgentCliBackend:
             premium_requests: float | None = None,
             error: str = "",
         ) -> RunnerResult:
+            persisted_error = redact_secrets_text(
+                error or str(result.fatal_error or ""),
+                known_values=self._known_secret_values,
+            )
+            result.fatal_error = redact_secrets_text(
+                str(result.fatal_error or ""),
+                known_values=self._known_secret_values,
+            ) or None
+            result.agent_messages = [
+                redact_secrets_text(
+                    message,
+                    known_values=self._known_secret_values,
+                )
+                for message in result.agent_messages
+            ]
+            result.stdout_lines = [
+                redact_secrets_text(
+                    line,
+                    known_values=self._known_secret_values,
+                )
+                for line in result.stdout_lines
+            ]
+            result.stderr_lines = [
+                redact_secrets_text(
+                    line,
+                    known_values=self._known_secret_values,
+                )
+                for line in result.stderr_lines
+            ]
             completed_at = time.time()
             usage_record = None
             reservation_overrun_usd: float | None = None
@@ -739,7 +775,7 @@ class AgentCliBackend:
                         total_nano_aiu=result.total_nano_aiu,
                         thread_id=result.thread_id,
                         model_usage=result.model_usage,
-                        error=error or str(result.fatal_error or ""),
+                        error=persisted_error,
                     )
                     appended = UsageLedger(
                         usage_project_root,
@@ -756,14 +792,14 @@ class AgentCliBackend:
                 try:
                     if status == "denied":
                         cost_reservation.release(
-                            reason=error or str(result.fatal_error or "not_started")
+                            reason=persisted_error or "not_started"
                         )
                         self._log_agent_io(log_path, {
                             "type": EventType.BUDGET_RESERVATION_RELEASED,
                             "reservation_id": cost_reservation.reservation_id,
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
-                            "reason": error or str(result.fatal_error or "not_started"),
+                            "reason": persisted_error or "not_started",
                         })
                     elif usage_record is not None:
                         reservation_overrun_usd = (
@@ -790,9 +826,7 @@ class AgentCliBackend:
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
-                        reason = error or str(
-                            result.fatal_error or "usage record was not persisted"
-                        )
+                        reason = persisted_error or "usage record was not persisted"
                         cost_reservation.settle_unknown(reason=reason)
                         self._log_agent_io(log_path, {
                             "type": EventType.BUDGET_RESERVATION_SETTLED,
@@ -1074,14 +1108,18 @@ class AgentCliBackend:
             error_text: str = "",
             premium_requests: float = 0.0,
         ) -> None:
+            safe_error_text = redact_secrets_text(
+                error_text,
+                known_values=self._known_secret_values,
+            )
             if copilot_permit is not None:
                 copilot_permit.finish(
                     premium_requests=premium_requests,
-                    error_text=error_text,
+                    error_text=safe_error_text,
                     success=success,
                 )
             if codex_permit is not None:
-                codex_permit.finish(success=success, error_text=error_text)
+                codex_permit.finish(success=success, error_text=safe_error_text)
             if event_permit is not None:
                 self._log_agent_io(log_path, {
                     "type": EventType.PROVIDER_REQUEST_COMPLETED,
@@ -1089,7 +1127,7 @@ class AgentCliBackend:
                     "call_id": call_id,
                     "run_label": run_label,
                     "success": bool(success),
-                    "error": (error_text or "")[:500],
+                    "error": (safe_error_text or "")[:500],
                     "daily_calls": int(getattr(event_permit, "daily_calls", 0) or 0),
                     "daily_cap": int(getattr(event_permit, "daily_cap", 0) or 0),
                     "premium_requests": float(premium_requests or 0.0),
@@ -1229,6 +1267,10 @@ class AgentCliBackend:
         stderr_lines = list(getattr(argus_result, "stderr_lines", None) or [])
         fatal_error = str(getattr(argus_result, "fatal_error", "") or "")
         failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+        safe_failure_text = redact_secrets_text(
+            failure_text,
+            known_values=self._known_secret_values,
+        )
         pre_provider_refusal = bool(
             result_has_pre_provider_refusal(argus_result)
             and translated.total_nano_aiu is None
@@ -1257,7 +1299,7 @@ class AgentCliBackend:
 
         _finish_quota(
             premium_requests=translated.premium_requests,
-            error_text=failure_text,
+            error_text=safe_failure_text,
             success=not failed,
         )
 
@@ -1272,7 +1314,10 @@ class AgentCliBackend:
             "thread_id": getattr(argus_result, "thread_id", None),
             "turn_completed": getattr(argus_result, "turn_completed", None),
             "turn_failed": getattr(argus_result, "turn_failed", None),
-            "fatal_error": getattr(argus_result, "fatal_error", None),
+            "fatal_error": redact_secrets_text(
+                str(getattr(argus_result, "fatal_error", "") or ""),
+                known_values=self._known_secret_values,
+            ) or None,
             "tool_activity_observed": bool(
                 getattr(argus_result, "tool_activity_observed", False)
             ),
@@ -1311,7 +1356,7 @@ class AgentCliBackend:
                 if failed
                 else "completed"
             ),
-            error=failure_text,
+            error=safe_failure_text,
         )
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
@@ -1337,7 +1382,11 @@ class AgentCliBackend:
     def _log_agent_io(self, path: Path | None, row: dict[str, Any]) -> None:
         if path is None:
             return
-        _jsonl_append(path, normalize_event_envelope(row), self._io_log_lock)
+        safe_row = redact_secrets_record(
+            normalize_event_envelope(row),
+            known_values=self._known_secret_values,
+        )
+        _jsonl_append(path, safe_row, self._io_log_lock)
 
     def _stream_event_callback(self, stream: str, line: str) -> None:
         ctx = getattr(self._io_context, "current", None) or {}
@@ -1345,6 +1394,10 @@ class AgentCliBackend:
         canonical_stream = stream.rsplit(".", 1)[-1]
         if canonical_stream not in {"stdout", "stderr"}:
             canonical_stream = "stdout"
+        safe_line = redact_secrets_text(
+            line,
+            known_values=self._known_secret_values,
+        )
         if log_path and not bool(ctx.get("compact_io")):
             self._log_agent_io(Path(log_path), {
                 "type": EventType.AGENT_IO_STREAM,
@@ -1354,11 +1407,11 @@ class AgentCliBackend:
                 "backend": getattr(self._argus_runner, "backend", ""),
                 "model": ctx.get("model"),
                 "stream": canonical_stream,
-                "line": line,
+                "line": safe_line,
                 "ts": time.time(),
             })
         if self._external_event_callback is not None:
-            self._external_event_callback(stream, line)
+            self._external_event_callback(stream, safe_line)
 
     # --- helpers ----------------------------------------------------------
 

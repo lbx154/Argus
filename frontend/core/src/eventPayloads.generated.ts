@@ -256,6 +256,19 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "achievement"?: Record<string, unknown> | null;
 }
 
+export interface RoundSecretRedactedEvent extends EventMsg {
+  type: "round.secret_redacted";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "redacted_paths": Array<string>;
+  "replacement_count": number;
+  "scanned_files"?: number;
+  "scan_errors"?: Array<string>;
+  "truncated"?: boolean;
+  "operator_alert"?: boolean;
+}
+
 export interface LifePlannerStartEvent extends EventMsg {
   type: "life.planner.start";
   payload_schema_version?: 1;
@@ -856,6 +869,7 @@ export interface EventPayloadByType {
   "round.review.started": RoundReviewStartedEvent;
   "round.review.deferred": RoundReviewDeferredEvent;
   "round.review.completed": RoundReviewCompletedEvent;
+  "round.secret_redacted": RoundSecretRedactedEvent;
   "life.planner.start": LifePlannerStartEvent;
   "life.planner.verdict": LifePlannerVerdictEvent;
   "life.planner.error": LifePlannerErrorEvent;

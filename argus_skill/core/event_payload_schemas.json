@@ -319,6 +319,26 @@
         "achievement": {"type": ["object", "null"]}
       }
     },
+    "round.secret_redacted": {
+      "version": 1,
+      "required": ["round_index", "redacted_paths", "replacement_count"],
+      "properties": {
+        "round_index": {"type": "integer", "minimum": 0},
+        "round_max": {"type": "integer", "minimum": 0},
+        "redacted_paths": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "replacement_count": {"type": "integer", "minimum": 0},
+        "scanned_files": {"type": "integer", "minimum": 0},
+        "scan_errors": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "truncated": {"type": "boolean"},
+        "operator_alert": {"type": "boolean"}
+      }
+    },
     "life.planner.start": {
       "version": 1,
       "required": [],

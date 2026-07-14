@@ -43,6 +43,13 @@ from ..core.models import (
 )
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.secret_guard import (
+    SecretScrubReport,
+    known_secret_values,
+    redact_secrets_record,
+    redact_secrets_text,
+    scrub_recent_text_artifacts,
+)
 from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
@@ -308,12 +315,70 @@ def _review_event_payload(
     on top of the canonical reviewer payload. The reviewer JSON schema's
     full field set lives in ``ReviewDecision.to_event_payload``; this
     keeps engineer-runner and mission-engine emit sites consistent."""
-    return review.to_event_payload(
-        round_index=round_index,
-        round_max=round_max,
-        text=text,
-        review_skipped=review_skipped,
+    return redact_secrets_record(
+        review.to_event_payload(
+            round_index=round_index,
+            round_max=round_max,
+            text=text,
+            review_skipped=review_skipped,
+        ),
+        known_values=known_secret_values(),
     )
+
+
+def _apply_round_secret_guard(
+    *,
+    workdir: Path,
+    modified_since: float,
+    round_index: int,
+    round_max: int,
+    on_event: Callable[[dict], None] | None,
+) -> tuple[SecretScrubReport, str]:
+    report = scrub_recent_text_artifacts(
+        workdir,
+        modified_since=modified_since,
+        known_values=known_secret_values(),
+    )
+    if not report.changed and not report.errors and not report.truncated:
+        return report, ""
+    if on_event:
+        on_event({
+            "type": EventType.ROUND_SECRET_REDACTED,
+            "round_index": round_index,
+            "round_max": round_max,
+            "redacted_paths": list(report.redacted_paths),
+            "replacement_count": report.replacement_count,
+            "scanned_files": report.scanned_files,
+            "scan_errors": list(report.errors),
+            "truncated": report.truncated,
+            "operator_alert": bool(report.errors or report.truncated),
+        })
+    if not report.changed and not report.truncated and not report.errors:
+        return report, ""
+    lines = [
+        "SECURITY GUARD (authoritative artifact hygiene):",
+    ]
+    if report.changed:
+        lines.extend((
+            f"- Redacted {report.replacement_count} credential occurrence(s) "
+            f"from {len(report.redacted_paths)} changed file(s) before review.",
+            "- Files: " + ", ".join(report.redacted_paths),
+            "- Revalidate any dependent hashes/provenance; this round is not "
+            "complete until the scrubbed artifacts are internally consistent.",
+        ))
+    if report.truncated:
+        lines.append(
+            "- Coverage incomplete: at least one recently modified text artifact "
+            "exceeded the live-scan size limit. Do not certify completion until "
+            "the credential exposure risk is checked."
+        )
+    if report.errors:
+        lines.append(
+            "- Coverage incomplete: secret scan errors occurred for "
+            + "; ".join(report.errors)
+            + ". Do not certify completion until those files are checked."
+        )
+    return report, "\n".join(lines)
 
 
 def should_clear_thread_id_after_outcome(
@@ -1001,6 +1066,18 @@ class SupervisedEngineer:
 
         Returns ``(status, rounds, final_message, reason, last_thread_id)``.
         """
+        if on_event is not None:
+            raw_on_event = on_event
+
+            def _redacted_on_event(event: dict) -> None:
+                raw_on_event(
+                    redact_secrets_record(
+                        event,
+                        known_values=known_secret_values(),
+                    )
+                )
+
+            on_event = _redacted_on_event
         rounds: list[RoundRecord] = []
         last_engineer_message = ""
         last_next_action: str | None = None
@@ -1010,6 +1087,7 @@ class SupervisedEngineer:
         semantic_stall_streak = 0
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
+        pending_secret_guard_notes: list[str] = []
         # F7: the reviewer resumes its OWN persisted codex thread across rounds so
         # it re-sends only the per-round DELTA (not the ~50KB static rubric) each
         # round. Mirrors the engineer thread state below and REUSES the same
@@ -1205,6 +1283,7 @@ class SupervisedEngineer:
                     "text": f"engineer round {round_index}"
                             + (" (resuming codex session)" if current_thread_id else ""),
                 })
+            round_started_at = time.time()
             engineer_result, round_compactions = self._run_engineer(
                 prompt=engineer_prompt,
                 workdir=workdir,
@@ -1220,11 +1299,32 @@ class SupervisedEngineer:
             # via the return value) can resume the same codex session.
             new_tid = getattr(engineer_result, "thread_id", None)
             fatal_error = getattr(engineer_result, "fatal_error", None)
+            safe_fatal_error = redact_secrets_text(
+                str(fatal_error or ""),
+                known_values=known_secret_values(),
+            ) or None
             stop_kind = normalize_stop_kind(
                 getattr(engineer_result, "stop_kind", None)
             )
             round_thread_id = new_tid or current_thread_id
-            engineer_message = engineer_result.last_agent_message or ""
+            raw_engineer_message = engineer_result.last_agent_message or ""
+            engineer_message = redact_secrets_text(
+                raw_engineer_message,
+                known_values=known_secret_values(),
+            )
+            _secret_report, secret_guard_reviewer_note = _apply_round_secret_guard(
+                workdir=workdir,
+                modified_since=round_started_at,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                on_event=on_event,
+            )
+            if (
+                secret_guard_reviewer_note
+                and secret_guard_reviewer_note not in pending_secret_guard_notes
+            ):
+                pending_secret_guard_notes.append(secret_guard_reviewer_note)
+                del pending_secret_guard_notes[:-8]
             last_engineer_message = engineer_message or last_engineer_message
             # Feed the token-size session roll at the top of the next round.
             last_input_tokens = int(getattr(engineer_result, "input_tokens", 0) or 0)
@@ -1242,7 +1342,7 @@ class SupervisedEngineer:
                     "round_max": supervised_config.max_rounds,
                     "session_id": round_thread_id,
                     "exit_code": getattr(engineer_result, "exit_code", 0),
-                    "fatal_error": getattr(engineer_result, "fatal_error", None),
+                    "fatal_error": safe_fatal_error,
                     "stop_kind": stop_kind,
                     "last_message": engineer_message,
                     "input_tokens": int(getattr(engineer_result, "input_tokens", 0) or 0),
@@ -1491,7 +1591,7 @@ class SupervisedEngineer:
             # naming an unknown / not-self-watched job is ignored (falls through to
             # a normal reviewed round) so a stale request can never hang the loop.
             if supervised_config.background_subagent_advisory:
-                wait_task_id = parse_wait_sentinel(engineer_message)
+                wait_task_id = parse_wait_sentinel(raw_engineer_message)
                 if wait_task_id and find_waitable_subagent(workdir, wait_task_id) is not None:
                     if on_event:
                         on_event({
@@ -1523,7 +1623,7 @@ class SupervisedEngineer:
                     last_next_action = None
                     continue
 
-            requested_next_step = parse_continue_work_request(engineer_message)
+            requested_next_step = parse_continue_work_request(raw_engineer_message)
             deferral_limit = min(
                 1,
                 max(
@@ -1696,8 +1796,17 @@ class SupervisedEngineer:
                         original_objective=original_objective or objective,
                         round_index=round_index,
                         session_id=supervised_config.session_id,
-                        main_summary=engineer_message or "(no message)",
-                        main_error=engineer_result.fatal_error,
+                        main_summary=(
+                            "\n\n".join(
+                                part
+                                for part in (
+                                    engineer_message or "(no message)",
+                                    *pending_secret_guard_notes,
+                                )
+                                if part
+                            )
+                        ),
+                        main_error=safe_fatal_error,
                         config=replace(
                             self.reviewer_config,
                             working_dir=str(workdir),
@@ -1978,6 +2087,7 @@ class SupervisedEngineer:
             # A real reviewer verdict arrived — reset the reviewer-backend streak.
             reviewer_backend_failure_streak = 0
             review_deferral_streak = 0
+            pending_secret_guard_notes.clear()
             # SEMANTIC stall tracking: the engineer can stay busy (non-empty
             # messages, so ``no_progress_streak`` keeps resetting) yet make no
             # real advance round after round. The reviewer reports this via

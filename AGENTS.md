@@ -144,6 +144,16 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
 - `done` 仍只能由 Reviewer 裁决。harness 不从 prose 猜是否该跳过，只响应这个显式请求。
 - 相关实现：`engineer/runner.py`、`loop.py`；事件：`round.review.deferred`。
 
+### Live credential guard
+
+- `core/secret_guard.py` 在所有 `JsonlEventSink` / Agent CLI 持久化与下游事件前做
+  领域无关凭据脱敏，并在每个 Engineer 回合后、Reviewer 读取前清理本轮新写的小型
+  文本 artifact。
+- 脱敏不裁决科研质量；若改写了 artifact，会通过 `round.secret_redacted` 告知
+  Reviewer 重建相关 hash/provenance。扫描错误或大文本未覆盖也会显式阻止无条件认证。
+- raw Engineer 文本只保留给 `WAIT_FOR_SUBAGENT` / `CONTINUE_WORK` 控制解析；进入事件、
+  usage、Reviewer prompt 的副本必须已脱敏。
+
 ### Background-subagent cadence wait（别空转盯长实验）
 
 背景：mission 用 subagent 工具 `--mode supervised` 起一个长跑（如 veRL GRPO

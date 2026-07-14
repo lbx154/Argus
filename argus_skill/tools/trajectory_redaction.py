@@ -16,10 +16,26 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..core.secret_guard import redact_secrets_text as _redact_live_secrets_text
+
 # High-risk secret patterns → a TYPED placeholder, so a downstream reader still
 # sees "a token was here" without the value. Ordered specific → generic.
 # 高危密钥模式 → 带类型的占位符；读者知道"这里有个 token"但看不到值；由具体到通用。
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(
+            r"(?im)^([^\S\r\n]*(?:authorization|proxy-authorization)"
+            r"[^\S\r\n]*:)(?![^\S\r\n]*<REDACTED:)[^\r\n]+(\r?)$"
+        ),
+        r"\1 <REDACTED:token>\2",
+    ),
+    (
+        re.compile(
+            r"(?im)^([^\S\r\n]*(?:x-api-key|api-key|cookie|set-cookie)"
+            r"[^\S\r\n]*:)(?![^\S\r\n]*<REDACTED:)[^\r\n]+(\r?)$"
+        ),
+        r"\1 <REDACTED:secret>\2",
+    ),
     (re.compile(r"sk-[A-Za-z0-9_\-]{16,}"), "<REDACTED:openai-key>"),
     (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "<REDACTED:github-token>"),
     (re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"), "<REDACTED:slack-token>"),
@@ -31,9 +47,11 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"(?i)\b(api[_-]?key|secret|token|password|passwd|auth)\b"
-            r"\s*[=:]\s*['\"]?([A-Za-z0-9._\-]{8,})['\"]?"
+            r"(['\"]?)([^\S\r\n]*[=:])"
+            r"(?![^\S\r\n]*['\"]?<REDACTED:)"
+            r"[^\S\r\n]*['\"]?([A-Za-z0-9._\-]{8,})['\"]?"
         ),
-        r"\1=<REDACTED:secret>",
+        r"\1\2\3 <REDACTED:secret>",
     ),
     # URL credentials: scheme://user:pass@host → strip the user:pass.
     (
@@ -57,9 +75,7 @@ def redact_text(text: str, *, home: str | None = None) -> str:
     if not isinstance(text, str) or not text:
         return text
     try:
-        out = text
-        for pat, repl in _SECRET_PATTERNS:
-            out = pat.sub(repl, out)
+        out = _redact_live_secrets_text(text)
         out = _EMAIL.sub("<REDACTED:email>", out)
         h = home if home is not None else str(Path.home())
         if h and h != "/":

@@ -36,6 +36,11 @@ from ..core.event_catalog import (
     EventType,
     normalize_event_envelope,
 )
+from ..core.secret_guard import (
+    known_secret_values,
+    redact_secrets_record,
+    redact_secrets_text,
+)
 
 ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
 EVENT_FILE = "events.jsonl"
@@ -130,25 +135,30 @@ class JsonlEventSink:
     # --- Sink protocol -----------------------------------------------
 
     def handle_event(self, event: dict[str, Any]) -> None:
+        safe_event = self._normalize(event)
         if self._downstream is not None:
             try:
-                self._downstream.handle_event(event)
+                self._downstream.handle_event(safe_event)
             except Exception:  # noqa: BLE001
                 # Never let downstream failure break disk-logging path.
                 pass
-        if self._is_idle_chatter(event):
+        if self._is_idle_chatter(safe_event):
             return
-        if not _should_persist_for_verbosity(event, self._verbosity):
+        if not _should_persist_for_verbosity(safe_event, self._verbosity):
             return
-        self._append(event)
+        self._append(safe_event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
         """Accept stream progress so the sink satisfies EventSink."""
+        safe_line = redact_secrets_text(
+            line,
+            known_values=known_secret_values(),
+        )
         if self._downstream is not None:
             try:
                 handler = getattr(self._downstream, "handle_stream_line", None)
                 if handler is not None:
-                    handler(stream, line)
+                    handler(stream, safe_line)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -238,7 +248,10 @@ class JsonlEventSink:
                 json.dumps(v)
             except Exception:  # noqa: BLE001
                 out[k] = repr(v)  # full repr — events.jsonl is the ground-truth replay; don't clip diagnostics
-        return out
+        return redact_secrets_record(
+            out,
+            known_values=known_secret_values(),
+        )
 
     def _maybe_roll(self) -> None:
         try:
