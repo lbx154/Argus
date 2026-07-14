@@ -35,12 +35,21 @@ from ..life.memory import LifeMemory
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
 DAEMON_ADMISSION_FILE = "daemon.admission.json"
+_PROJECT_INDEX_LABEL_CHARS = 180
+_PROJECT_INDEX_OBJECTIVE_CHARS = 1_000
 
 _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 5.0
+
+
+def _project_index_text(value: Any, limit: int, *, single_line: bool = False) -> str:
+    text = str(value or "")[:limit]
+    if single_line:
+        text = " ".join(text.splitlines()).strip()
+    return text
 
 
 def resolve_global_root(value: Path | str | None) -> Path:
@@ -479,10 +488,27 @@ def list_projects(
             campaign_objective = str(continuous.objective or "").strip()
         except Exception:  # noqa: BLE001
             campaign_objective = ""
-        if not item.get("objective") and campaign_objective:
-            item["objective"] = campaign_objective
-        label = item.get("display_name") or item.get("objective") or ""
-        item["label"] = label or meta.id
+        raw_objective = item.get("objective") or campaign_objective
+        display_name = _project_index_text(
+            item.get("display_name"),
+            _PROJECT_INDEX_LABEL_CHARS,
+            single_line=True,
+        )
+        objective = _project_index_text(
+            raw_objective,
+            _PROJECT_INDEX_OBJECTIVE_CHARS,
+        )
+        item["display_name"] = display_name
+        item["objective"] = objective
+        item["label"] = (
+            display_name
+            or _project_index_text(
+                objective,
+                _PROJECT_INDEX_LABEL_CHARS,
+                single_line=True,
+            )
+            or _project_index_text(meta.id, _PROJECT_INDEX_LABEL_CHARS)
+        )
         out.append(item)
         if limit and len(out) >= limit:
             break
