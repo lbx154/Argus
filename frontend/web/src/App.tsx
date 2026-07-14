@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useProjects, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api } from './api';
 import { TopBar, type ThemeMode } from './components/TopBar';
@@ -34,6 +34,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { parseEventViewArgs } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
+import { eventViewReducer, initialEventViewState } from './lib/eventView';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -184,10 +185,9 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
-  const [reconnectKey, setReconnectKey] = useState(0);
+  const [eventView, dispatchEventView] = useReducer(eventViewReducer, initialEventViewState);
   const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
   const [eventQuery, setEventQuery] = useState('');
-  const [eventViewFrom, setEventViewFrom] = useState(0);
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
@@ -366,7 +366,7 @@ export default function App() {
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
-  const { events, connected } = useEventStream(loadedSid, reconnectKey);
+  const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
@@ -436,7 +436,7 @@ export default function App() {
   useEffect(() => {
     setEventFilter('all');
     setEventQuery('');
-    setEventViewFrom(0);
+    dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
   const daemonBusy = actions.startDaemon.isPending
@@ -569,7 +569,7 @@ export default function App() {
       setWorkspaceView('activity');
       setEventFilter('all');
       setEventQuery('');
-      setEventViewFrom(activityEventsRef.current.length);
+      dispatchEventView({ kind: 'clear', offset: activityEventsRef.current.length });
     },
     cancel: async () => stopWaiting(),
     task: async (rest) => {
@@ -641,13 +641,13 @@ export default function App() {
       const text = await api.skills(activeSid, rest || 'ls');
       notify('info', text.slice(0, 400));
     },
-    reconnect: async () => setReconnectKey((k) => k + 1),
+    reconnect: async () => dispatchEventView({ kind: 'reconnect' }),
     help: async () => setOverlay('help'),
     quit: async () => notify('info', 'Background work continues; close this browser tab when ready.'),
   }), [
     activeSid, actions, notify, requestDispose, requestStopIteration,
     selectProject, snapQ, stopWaiting,
-    setEventFilter, setEventQuery, setEventViewFrom,
+    dispatchEventView, setEventFilter, setEventQuery,
   ]);
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -1007,7 +1007,7 @@ export default function App() {
                   embedded
                   filter={eventFilter}
                   query={eventQuery}
-                  skipFirst={eventViewFrom}
+                  skipFirst={eventView.skipFirst}
                 />
               )}
               {!kiosk ? (
