@@ -3,7 +3,7 @@
 These tests cover invariants that prevent the entire class of
 "already-completed missions accidentally re-execute" bugs:
 
-1. Terminal states (``done`` / ``failed`` / ``skipped``) cannot
+1. Terminal states (``done`` / ``failed`` / ``skipped`` / ``superseded``) cannot
    transition back to ``pending`` or ``running``.
 2. ``claim_next()`` is atomic — it cannot return the same item twice.
 3. ``reap_orphans()`` rescues crashed ``running`` items into
@@ -31,7 +31,7 @@ def mem(tmp_path: Path) -> LifeMemory:
 # Terminal-state seal: done/failed/skipped cannot resurrect
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("terminal", ["done", "failed", "skipped"])
+@pytest.mark.parametrize("terminal", ["done", "failed", "skipped", "superseded"])
 @pytest.mark.parametrize("attempt", ["pending", "running"])
 def test_terminal_status_cannot_transition_back(
     mem: LifeMemory, terminal: str, attempt: str
@@ -41,8 +41,15 @@ def test_terminal_status_cannot_transition_back(
         mem.backlog.mark_done(item.id)
     elif terminal == "failed":
         mem.backlog.mark_failed(item.id, error="boom")
-    else:
+    elif terminal == "skipped":
         mem.backlog.update(item.id, status="skipped")
+    else:
+        mem.backlog.update(
+            item.id,
+            status="superseded",
+            superseded_by_plan_id="plan-2",
+            superseded_reason="replacement plan",
+        )
 
     with pytest.raises(IllegalStateTransition):
         mem.backlog.update(item.id, status=attempt)

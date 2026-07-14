@@ -719,8 +719,9 @@ _BACKLOG_STATUSES = {
     "done",
     "failed",
     "skipped",
+    "superseded",
 }
-_TERMINAL_STATUSES = {"done", "failed", "skipped"}
+_TERMINAL_STATUSES = {"done", "failed", "skipped", "superseded"}
 _RECOVERABLE_PAUSE_STATUSES = {
     "paused",
     "paused_budget",
@@ -737,8 +738,8 @@ class IllegalStateTransition(RuntimeError):
     """Raised when a status update would resurrect a terminal item.
 
     Defensive against the entire class of bugs where a code path
-    accidentally re-runs an already-completed mission. ``done``,
-    ``failed``, and ``skipped`` are sinks: the only way to get a
+    accidentally re-runs an already-completed mission. ``done``, ``failed``,
+    ``skipped``, and ``superseded`` are sinks: the only way to get a
     new attempt at the same work is to enqueue a fresh
     :class:`BacklogItem` (so it gets a new id and audit trail).
     """
@@ -794,6 +795,15 @@ class BacklogItem:
     # always ready and the legacy flat-backlog behaviour is preserved
     # bit-for-bit.
     deps: list[str] = field(default_factory=list)
+    # --- dynamic plan identity and progressive context -----------------
+    # The supervisor assigns opaque plan identity/version values; the Planner
+    # authors only node_key, dependencies, and context references.
+    plan_id: str = ""
+    plan_version: int = 0
+    node_key: str = ""
+    context_refs: list[dict[str, str]] = field(default_factory=list)
+    superseded_by_plan_id: str = ""
+    superseded_reason: str = ""
 
     @classmethod
     def new_id(cls) -> str:
@@ -814,6 +824,10 @@ class BacklogItem:
         iteration_max_cycles: int = 6,
         iteration_budget_usd: float = 30.0,
         deps: list[str] | None = None,
+        plan_id: str = "",
+        plan_version: int = 0,
+        node_key: str = "",
+        context_refs: list[dict[str, str]] | None = None,
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
@@ -830,6 +844,14 @@ class BacklogItem:
             iteration_budget_usd=float(iteration_budget_usd),
             original_objective=objective,
             deps=list(deps or []),
+            plan_id=str(plan_id),
+            plan_version=max(0, int(plan_version)),
+            node_key=str(node_key),
+            context_refs=[
+                {str(key): str(value) for key, value in ref.items()}
+                for ref in (context_refs or [])
+                if isinstance(ref, dict)
+            ],
         )
 
     def to_jsonable(self) -> dict[str, Any]:
@@ -867,6 +889,16 @@ class BacklogItem:
             # means "always ready", so old backlogs schedule exactly as
             # they did before the DAG upgrade.
             deps=list(row.get("deps", [])),
+            plan_id=str(row.get("plan_id", "")),
+            plan_version=max(0, int(row.get("plan_version", 0) or 0)),
+            node_key=str(row.get("node_key", "")),
+            context_refs=[
+                {str(key): str(value) for key, value in ref.items()}
+                for ref in (row.get("context_refs", []) or [])
+                if isinstance(ref, dict)
+            ],
+            superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
+            superseded_reason=str(row.get("superseded_reason", "")),
         )
 
 
@@ -879,7 +911,8 @@ class Backlog:
     dep has reached ``done``. Items with no deps are always ready, so a
     flat (dep-less) backlog behaves exactly as it did before the DAG
     upgrade. A pending item whose dependency reaches a terminal-non-done
-    state (``failed`` / ``skipped`` / missing) is cascade-skipped on the
+    state (``failed`` / ``skipped`` / ``superseded`` / missing) is
+    cascade-skipped on the
     next ``claim_next`` so a dead dependency can't wedge the queue.
     """
 
@@ -919,7 +952,8 @@ class Backlog:
         """Skip pending items whose deps can never all become ``done``.
 
         A pending item that lists a dep already in a terminal-but-not-done
-        state (``failed`` / ``skipped``) can never satisfy its dependency
+        state (``failed`` / ``skipped`` / ``superseded``) can never satisfy its
+        dependency
         set, so it would wait forever and look like permanently-blocked
         work to the supervisor. We mark such items ``skipped`` with an
         explanatory ``last_error`` so the dead dependency clears itself
