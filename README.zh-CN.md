@@ -419,8 +419,8 @@ pytest -q
 
 ## 技术报告
 
-完整的架构与实证细节技术报告将发布于
-[`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf)（尚未生成，链接为占位，稍后随该文档产出而生效）。
+完整的架构、可靠性机制与证据方法论技术报告见
+[`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf)（技术报告 0.1）。LaTeX 源码位于 `technical_report/`，可用 `make -C technical_report clean all` 重新构建。
 
 ## 局限与现状
 
