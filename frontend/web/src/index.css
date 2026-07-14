@@ -482,12 +482,10 @@ body {
   color: transparent;
   background: linear-gradient(
     90deg,
-    #3b6fd4,
-    #72b4f0,
-    #89dceb,
-    #cba6f7,
-    #e6b450,
-    #3b6fd4
+    rgb(var(--spectral-blue)),
+    rgb(var(--blue-sky)),
+    rgb(var(--spectral-gold)),
+    rgb(var(--spectral-blue))
   );
   background-size: 180% 100%;
   background-clip: text;
