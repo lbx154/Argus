@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal';
+import { commandNeedsArgument, type SlashCommand } from '../../../core/src/commands';
 
 export interface PaletteItem {
   id: string;
@@ -8,6 +9,26 @@ export interface PaletteItem {
   group: string;
   keywords?: string;
   run: () => void;
+}
+
+/** Generate one `PaletteItem` per shared slash command.
+ * Commands that require an argument prefill/focus the composer; all others are
+ * executed directly (dispatched through the web command pipeline). */
+export function commandPaletteRows(
+  commands: readonly SlashCommand[],
+  execute: (name: string) => void,
+  prefill: (text: string) => void,
+): PaletteItem[] {
+  return commands.map((command) => ({
+    id: `command-${command.id}`,
+    label: command.desc,
+    hint: `${command.name}${command.arg ? ` ${command.arg}` : ''}`,
+    group: command.group,
+    keywords: [command.name, ...(command.aliases ?? [])].join(' '),
+    run: () => commandNeedsArgument(command)
+      ? prefill(`${command.name} `)
+      : execute(command.name),
+  }));
 }
 
 export function filterPaletteItems(items: PaletteItem[], query: string): PaletteItem[] {

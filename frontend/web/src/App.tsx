@@ -4,7 +4,7 @@ import { api } from './api';
 import { TopBar, type ThemeMode } from './components/TopBar';
 import { EventStream } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
-import { CommandPalette, type PaletteItem } from './components/CommandPalette';
+import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
@@ -32,7 +32,7 @@ import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
-import { parseEventViewArgs } from '../../core/src/commands';
+import { COMMANDS, parseEventViewArgs } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 
@@ -871,13 +871,19 @@ export default function App() {
     }
   };
 
+  // Stable ref so commandPaletteRows closures always call the latest sendMessage
+  // without re-creating all 34 command items on every render.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+
   const paletteItems: PaletteItem[] = useMemo(() => {
+    const commandRows = commandPaletteRows(
+      COMMANDS,
+      (name) => { void sendMessageRef.current(name); },
+      (text) => { setComposerDraft(text); setComposerFocus((x) => x + 1); },
+    );
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: 'New daemon', hint: '+', group: 'View', run: () => setNewDaemonOpen(true) }]),
-      { id: 'doctor', label: 'Open Doctor', hint: '/doctor', group: 'View', run: () => setOverlay('doctor') },
-      { id: 'config', label: 'Open Config', hint: '/config', group: 'View', run: () => setOverlay('config') },
-      { id: 'identity', label: 'Open Identity', hint: '/identity', group: 'View', run: () => setOverlay('identity') },
-      { id: 'transcript', label: 'Open Transcript', hint: '/transcript', group: 'View', run: () => setOverlay('transcript') },
       { id: 'inspector', label: 'Open Project', hint: 'work · memory · agents', group: 'View', run: () => setOverlay('inspector') },
       { id: 'operations', label: 'Open Operations', hint: 'backend controls', group: 'View', run: () => setOverlay('operations') },
       { id: 'help', label: 'Keyboard shortcuts', hint: '?', group: 'View', run: () => setOverlay('help') },
@@ -925,7 +931,7 @@ export default function App() {
       group: 'Project',
       run: () => selectProject(p.id),
     }));
-    return [...nav, ...acts, ...proj];
+    return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting]);
 

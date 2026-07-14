@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
@@ -19,8 +19,9 @@ import {
   responseError,
   visibleBacklogItems,
 } from '../../../core/src';
+import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes } from '../lib/format';
-import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
+import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
 import {
   selectPreferredLiveArtifact,
@@ -426,5 +427,12 @@ describe('shared frontend core', () => {
     ];
     expect(visibleBacklogItems(items, false).map((item) => item.id)).toEqual(['run']);
     expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done']);
+  });
+
+  it('builds one palette row for every shared slash command', () => {
+    const rows = commandPaletteRows(COMMANDS, vi.fn(), vi.fn());
+    expect(rows).toHaveLength(34);
+    expect(rows.map((row) => row.hint)).toContain('/status');
+    expect(rows.map((row) => row.hint)).toContain('/quit');
   });
 });
