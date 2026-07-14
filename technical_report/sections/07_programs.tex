@@ -1,0 +1,98 @@
+\section{Research Programs and Workbench}
+\label{sec:programs}
+
+Argus's day-to-day product is a benchmark-reproduction agent that drives real
+public benchmarks toward a target under Reviewer judgment. This section surveys
+the programs it runs and the workbench an operator uses to watch and steer them.
+Every program below is described with its \emph{status}, and that status is
+conservative on purpose.
+
+\subsection{Programs and their status}
+
+\paragraph{KernelBench on B200.} A program to write efficient GPU kernels and
+measure them against a public kernel benchmark~\cite{ouyang2025kernelbench},
+including the anti-cheat construction that randomizes evaluation inputs so a
+kernel cannot hardcode statistics of a known input distribution. Status:
+\textbf{ongoing}; no certified reproducible Argus score is claimed in this
+release.
+
+\paragraph{nanoGPT speedrun on 8$\times$H100.} A program to reproduce a fast
+GPT-training loop~\cite{karpathy_nanogpt} on the same hardware and harness as the
+baseline, so any wall-clock comparison is like-for-like. Status:
+\textbf{ongoing}.
+
+\paragraph{nanochat on B200.} A program to reproduce a small end-to-end
+ChatGPT-style training pipeline~\cite{karpathy_nanochat} and its validation
+metric. Status: \textbf{ongoing}.
+
+\paragraph{Research-paper pipeline.} An optional \code{research} vertical that
+drives an idea-to-submission academic pipeline through per-stage checklists and a
+Reviewer peer-review gate. It is not the default identity of the project, and it
+is lazy-loaded only when a project's vertical is \code{research}. Status:
+\textbf{ongoing}; Argus does \emph{not} claim to have produced an accepted paper
+through its autonomous pipeline.
+
+\paragraph{Math research.} An exploratory program applying the same harness to
+open mathematical questions. Status: \textbf{ongoing}; exploratory.
+
+\subsection{External reference targets}
+
+The following third-party numbers are sometimes used as comparison targets in
+program documentation. They are \textbf{external reference targets from other
+work}, listed here only to name the bar; they are \emph{not} Argus results and
+this release makes no claim of having matched them.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{@{}p{4.2cm} p{3.0cm} X@{}}
+\toprule
+\textbf{Program (target metric)} & \textbf{External target} & \textbf{Argus claim in this release} \\
+\midrule
+KernelBench-style speed-of-light fraction & \code{0.547 SOL} & None; program ongoing. \\
+nanoGPT speedrun wall-clock             & \code{77.3 s}    & None; program ongoing. \\
+nanochat validation bits-per-byte       & \code{0.9109 val\_bpb} & None; program ongoing. \\
+\bottomrule
+\end{tabularx}
+\caption{Named external/reference targets. These are third-party bars used for
+comparison, tier ``external baseline'' in Table~\ref{tab:tiers}; none is an Argus
+measured result.}
+\label{tab:external}
+\end{table}
+
+\begin{callout}[What this release does not claim]
+This release does not claim clean, publishable Argus scores for the KernelBench,
+nanoGPT speedrun, or nanochat programs, and it does not claim an accepted
+autonomous paper. Where a reproducible in-repository artifact exists for a
+specific run, that artifact --- not this report --- is the authority for that
+run's number.
+\end{callout}
+
+\subsection{The operator workbench}
+
+Argus is not only a daemon; it is a live workbench. An operator configures the
+machine's policy once --- author identity, per-role backend and model access, GPU
+allocation --- and then works through a cockpit.
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[Cockpit.] An Ink terminal UI (and a web surface) is the front door. Free
+    text is routed by the Manager; an operator can say ``switch to the copilot
+    backend'' in plain language and it takes effect without editing a config
+    file.
+  \item[Mission view.] The four roles --- Manager, Planner, Engineer, Reviewer ---
+    are shown as peers, and the operator can follow a mission round by round via
+    \code{--status}, \code{--watch}, and \code{--follow}, backed by a structured
+    event stream (\code{round.main.completed}, \code{round.review.completed},
+    \code{session.roll}, and others).
+  \item[Inspectable artifacts.] Because the Engineer and Reviewer share a
+    work-tree and every round's evidence and verdict are persisted, the operator
+    can open exactly what was produced and read the Reviewer's reasoning, rather
+    than trusting a summary.
+  \item[Operator intervention.] The operator can abort a single mission or drain
+    and stop the daemon at a clean boundary; a stop-and-resume preserves the
+    campaign identity so an upgrade does not silently re-plan from a stale state.
+  \item[Persistence.] Per-project state --- backlog, event log, journal, and
+    continuous-mode configuration --- lives on disk under a global root, so a run
+    survives restarts and can be audited after the fact.
+\end{description}

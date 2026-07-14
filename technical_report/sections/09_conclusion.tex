@@ -1,0 +1,52 @@
+\section{Conclusion and Roadmap}
+\label{sec:conclusion}
+
+Argus is an attempt to make long-horizon autonomous research \emph{reliable}
+rather than merely possible. Its wager is that the hard part of unattended
+autonomy is not reasoning but the execution substrate: sessions that lose memory,
+rounds that burn budget without deciding anything, background jobs that block the
+main line of work, and self-reported ``completion'' that no independent authority
+ever checked. Argus addresses each of these structurally, in a harness that is
+deliberately dumber than the agent it serves --- a domain-agnostic pipe for
+budget, persistence, scheduling, structured I/O, and anti-cheat --- while every
+scientific judgment stays with the four roles.
+
+The result is a system with a narrow, honest promise. Argus does not guarantee a
+state-of-the-art number or an accepted paper; it guarantees that a run is bounded
+in cost, resistant to silent degradation, honest about which tier its evidence
+belongs to, and completed only when a Reviewer certifies it against a checklist.
+That is a smaller claim than ``autonomous science works,'' and it is the claim we
+are willing to stand behind at this maturity.
+
+\subsection{Roadmap}
+
+Several directions follow directly from the limitations in
+Section~\ref{sec:limitations}:
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[From ongoing to reproducible.] Convert the KernelBench, nanoGPT speedrun,
+    and nanochat programs from ongoing status into reproducible in-repository
+    evidence artifacts --- raw rows, logs, manifests, and build scripts tied to a
+    named commit --- so that a specific run can make a specific, auditable Argus
+    claim on stated hardware.
+  \item[Stronger integrity coverage.] Extend the anti-cheat guardrails as each new
+    benchmark reveals its own exploit surface, and grow the structured stage
+    checklists the Reviewer verifies against, keeping machine checks in the
+    checklist the Reviewer reads rather than in a separate validator that could
+    become the single point of dishonesty.
+  \item[Reviewer robustness.] Reduce Reviewer error through better execution-log
+    auditing and evidence-grounded verdicts, without ever introducing a hardcoded
+    completion gate behind it.
+  \item[Cost and observability.] Tighten budget accounting and the operator
+    cockpit so that a 7$\times$24 campaign is cheaper to run and easier to steer at
+    a glance.
+  \item[Richer reporting figures.] Replace the LaTeX-native schematic panels in
+    this report with rendered architecture and lifecycle figures in a later
+    revision, once the corresponding assets are available.
+\end{description}
+
+Argus today is an engineering substrate for reliable, auditable autonomy, offered
+honestly at version 0.1. The roadmap above is the path from a trustworthy harness
+to trustworthy \emph{results} --- and the discipline that got us here, refusing to
+let the harness pretend it is smarter than the agent or that a number is better
+than its evidence, is the discipline we intend to keep.

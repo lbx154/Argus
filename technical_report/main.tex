@@ -1,0 +1,157 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------------------
+% Argus: A Reliable Harness for Long-Horizon Autonomous Research
+% Technical Report 0.1
+% Single-column professional technical-report layout.
+% Standard, widely available TeX Live packages only.
+% ---------------------------------------------------------------------------
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage[a4paper,margin=1in,headheight=14pt]{geometry}
+\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage[htt]{hyphenat}
+
+\tcbuselibrary{skins,breakable}
+
+% ---- Precision Atlas palette: bone-white page, graphite ink, Argus indigo ---
+\definecolor{bonewhite}{HTML}{FBFAF6}
+\definecolor{graphite}{HTML}{24272B}
+\definecolor{graphitesoft}{HTML}{4A4F55}
+\definecolor{argusindigo}{HTML}{3B3D6E}
+\definecolor{indigosoft}{HTML}{6C6EA0}
+\definecolor{panelfill}{HTML}{F2F1EC}
+\definecolor{panelline}{HTML}{D8D6CE}
+\definecolor{calloutfill}{HTML}{EEF0F6}
+
+\pagecolor{bonewhite}
+\color{graphite}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=argusindigo,
+  urlcolor=argusindigo,
+  citecolor=argusindigo,
+  pdftitle={Argus: A Reliable Harness for Long-Horizon Autonomous Research},
+  pdfauthor={Argus Team}
+}
+
+% ---- Section styling: graphite headings with a restrained indigo rule -------
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{argusindigo}}
+  {\thesection}{0.7em}{}[{\color{panelline}\titlerule[0.8pt]}]
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{graphite}}
+  {\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{graphitesoft}}
+  {\thesubsubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.2em}{0.55em}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.35em}
+
+% ---- Header / footer --------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[L]{\footnotesize\color{graphitesoft}Argus}
+\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.1}
+\fancyfoot[C]{\footnotesize\color{graphitesoft}\thepage}
+
+% ---- Callout box style ------------------------------------------------------
+\newtcolorbox{callout}[1][Note]{
+  enhanced, breakable,
+  colback=calloutfill, colframe=argusindigo,
+  boxrule=0.4pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  arc=1.5pt,
+  fonttitle=\bfseries\small\color{argusindigo},
+  coltitle=argusindigo,
+  title={#1}
+}
+
+\newtcolorbox{schematicpanel}[1]{
+  enhanced, breakable=false,
+  colback=panelfill, colframe=panelline,
+  boxrule=0.6pt, left=10pt, right=10pt, top=8pt, bottom=8pt,
+  arc=2pt,
+  title={\small\bfseries\color{graphitesoft}#1}
+}
+
+% Line spacing / paragraphs: short paragraphs, generous white space.
+\setlength{\parskip}{0.42em}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.25}
+\setlist{itemsep=1.5pt,topsep=2pt,parsep=0pt}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\setlength{\emergencystretch}{3em}
+\tolerance=800
+\hyphenpenalty=400
+
+% ---------------------------------------------------------------------------
+\begin{document}
+
+\thispagestyle{empty}
+
+\begin{center}
+  \vspace*{0.6cm}
+  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}\\[0.9cm]
+  {\Huge\bfseries\color{argusindigo} Argus}\\[0.35cm]
+  {\LARGE\bfseries\color{graphite} A Reliable Harness for\\[0.15cm] Long-Horizon Autonomous Research}\\[0.9cm]
+  {\large\color{graphitesoft} Argus Team}\\[0.25cm]
+  {\normalsize\color{graphitesoft} July 2026 \quad\textbullet\quad Technical Report 0.1}\\[0.7cm]
+  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}
+\end{center}
+
+\vspace{0.6cm}
+
+\begin{quote}
+\small\color{graphitesoft}
+This report describes an engineering system for reliable, auditable, long-horizon
+autonomous research. It documents design intent, architecture, and reliability
+mechanisms, and it states the current evidence status honestly. It is not a
+results paper and does not claim state-of-the-art performance, a finished
+research program, or an accepted autonomous publication.
+\end{quote}
+
+\vspace{0.4cm}
+{\small\color{argusindigo}\hrulefill}\\[0.2cm]
+{\footnotesize\color{graphitesoft}\textbf{Contents}}
+\vspace{-0.4cm}
+\begingroup
+\hypersetup{linkcolor=graphite}
+\renewcommand{\contentsname}{}
+\setcounter{tocdepth}{1}
+\tableofcontents
+\endgroup
+{\small\color{argusindigo}\hrulefill}
+
+\clearpage
+
+\input{sections/01_abstract}
+\input{sections/02_introduction}
+\input{sections/03_design}
+\input{sections/04_architecture}
+\input{sections/05_reliability}
+\input{sections/06_evaluation}
+\input{sections/07_programs}
+\input{sections/08_limitations}
+\input{sections/09_conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

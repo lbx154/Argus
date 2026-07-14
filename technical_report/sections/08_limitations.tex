@@ -1,0 +1,65 @@
+\section{Limitations and Responsible Operation}
+\label{sec:limitations}
+
+Argus is a harness that gives an agent real judgment, real tool access, and real
+persistence. It is not a system that guarantees good science. This section states
+the limitations plainly, because a report that documents reliability mechanisms
+without documenting their boundaries would itself be misleading.
+
+\subsection{Limitations}
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[Provider dependence.] Argus drives an external agent CLI (Codex, Claude
+    Code, or GitHub Copilot CLI) and inherits that provider's capability,
+    availability, latency, and pricing. A provider outage, a model regression, or
+    a rate limit is felt directly, and the quality ceiling of any run is the
+    quality ceiling of the underlying model.
+  \item[Objective quality is the operator's.] The system optimizes the objective
+    it is given. A vague, ill-posed, or trivially gameable objective yields vague
+    or gamed work; Argus enforces integrity of \emph{measurement}, not wisdom of
+    \emph{goal}.
+  \item[No guarantee of novelty, correctness, or SOTA.] Nothing in the harness
+    guarantees that an idea is novel, that a proof or result is correct, or that a
+    number is state-of-the-art. Those are properties of the agent's judgment and
+    the problem's difficulty, and the harness deliberately does not fake them.
+  \item[Reviewer fallibility.] The Reviewer is the sole completion authority, and
+    it is a model. A wrong Reviewer can accept an incomplete result or reject a
+    finished one. Argus reduces this risk by giving the Reviewer the shared
+    work-tree, the execution log, and a structured checklist --- but it cannot
+    eliminate model error, and there is no independent oracle behind the Reviewer.
+  \item[Benchmark-specific integrity.] The anti-cheat guardrails are
+    domain-agnostic, but a determined agent optimizing a metric explores the
+    exploit surface of each specific benchmark. New benchmarks can present new
+    exploits (a leaked test set, an unrandomized input, a side channel) that the
+    current guardrails were not written for; integrity is an ongoing engineering
+    obligation, not a solved problem.
+  \item[Cost.] Long-horizon autonomy consumes provider tokens continuously.
+    Budgets and rate limits bound spend, but 7$\times$24 operation is not free, and
+    a poorly bounded campaign can be expensive.
+  \item[Secret handling.] The credential guard scrubs artifacts before they are
+    recorded, but it is a domain-agnostic scanner, not a proof. Operators remain
+    responsible for how secrets enter the working environment, and a scan gap or
+    an oversized artifact deliberately blocks unconditional certification rather
+    than guaranteeing zero leakage.
+\end{description}
+
+\subsection{Responsible operation}
+
+Given these limitations, Argus is meant to be operated, not fired and forgotten.
+Responsible use means: give it well-posed objectives and honest benchmarks; set
+budgets deliberately; read the Reviewer's reasoning rather than trusting a headline;
+treat every number according to its evidence tier (Table~\ref{tab:tiers}); and
+publish only what a reproducible in-repository artifact supports. The system is
+built to make this easy --- persisted artifacts, an auditable round-by-round trail,
+and a single, inspectable completion authority --- but the discipline of honest
+reporting ultimately rests with the operator.
+
+\begin{callout}[Maturity]
+Argus is under active development at Technical Report 0.1. The architecture and
+reliability mechanisms described here are implemented and grounded in the current
+source tree; the benchmark-reproduction programs are ongoing and make no certified
+public Argus claims in this release. Treat any performance number in this
+repository's documentation as either an explicitly labeled external/reference
+baseline or a reproducible in-repository artifact for a specific run --- never as a
+general guarantee of capability.
+\end{callout}

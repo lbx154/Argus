@@ -1,0 +1,13 @@
+# LaTeX build artifacts (keep only source and the final report PDF).
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+sections/*.aux
+# Intermediate PDF produced by pdflatex before the named copy.
+main.pdf
