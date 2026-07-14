@@ -74,6 +74,7 @@
 | telemetry | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_SHOW_REASONING` | `0` | default | `0` |
+| telemetry | `ARGUS_SKILL_AGENT_IO_MODE` | `full` | default | `full` |
 
 ## Change From Argus
 

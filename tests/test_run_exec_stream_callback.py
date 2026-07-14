@@ -129,3 +129,69 @@ def test_callback_exception_never_breaks_the_turn(_fake_copilot, monkeypatch) ->
     )
     assert result.agent_messages == ["block one", "block two"]
     assert result.exit_code == 0
+
+
+def test_runner_retains_bounded_stream_tail_with_exact_counts(monkeypatch) -> None:
+    lines = [
+        json.dumps({
+            "type": "assistant.message_delta",
+            "data": {"messageId": "m1", "deltaContent": str(index)},
+        })
+        for index in range(20)
+    ]
+    lines.extend([
+        json.dumps({
+            "type": "assistant.message",
+            "data": {"messageId": "m1", "content": "final"},
+        }),
+        json.dumps({"type": "result", "sessionId": "sess-1", "exitCode": 0}),
+    ])
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_STDOUT_LINES", "3")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_JSON_EVENTS", "4")
+    monkeypatch.setattr(
+        runner_mod.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _FakeProc(lines),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_resolve_executable",
+        staticmethod(lambda value: value),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **kwargs: ["copilot", "-p", "x"],
+    )
+
+    result = AgentCliRunner(
+        agent_bin="copilot",
+        backend=BACKEND_COPILOT,
+    ).run_exec(
+        prompt="bounded",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="stream-test",
+    )
+
+    assert result.stdout_line_count == len(lines)
+    assert result.json_event_count == len(lines)
+    assert len(result.stdout_lines) == 3
+    assert [event["type"] for event in result.json_events] == [
+        "assistant.message",
+        "result",
+    ]
+    assert result.last_agent_message == "final"
+    assert result.thread_id == "sess-1"
+
+
+def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:
+    assert AgentCliRunner._retain_json_event({
+        "type": "assistant.message_delta",
+        "data": {"deltaContent": "x", "inputTokens": 17},
+    }) is True
+    assert AgentCliRunner._retain_json_event({
+        "type": "assistant.message_delta",
+        "data": {"deltaContent": "x"},
+    }) is False
