@@ -61,8 +61,13 @@ export function useMagneticMotion(
     ) return;
     const xTo = gsap.quickTo(element, 'x', { duration: motionDuration.fast, ease: 'power2.out' });
     const yTo = gsap.quickTo(element, 'y', { duration: motionDuration.fast, ease: 'power2.out' });
+    let rect: DOMRect | null = null;
+    const measure = () => {
+      rect = element.getBoundingClientRect();
+    };
     const move = (event: PointerEvent) => {
-      const rect = element.getBoundingClientRect();
+      if (!rect) measure();
+      if (!rect) return;
       const x = ((event.clientX - rect.left) / rect.width - 0.5) * motionDistance.magnetic * 2;
       const y = ((event.clientY - rect.top) / rect.height - 0.5) * motionDistance.magnetic * 2;
       xTo(x);
@@ -72,11 +77,15 @@ export function useMagneticMotion(
       xTo(0);
       yTo(0);
     };
+    element.addEventListener('pointerenter', measure);
     element.addEventListener('pointermove', move, { passive: true });
     element.addEventListener('pointerleave', leave);
+    window.addEventListener('resize', measure);
     return () => {
+      element.removeEventListener('pointerenter', measure);
       element.removeEventListener('pointermove', move);
       element.removeEventListener('pointerleave', leave);
+      window.removeEventListener('resize', measure);
     };
   }, [enabled]);
 }
