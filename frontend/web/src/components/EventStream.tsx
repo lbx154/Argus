@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { EventMsg } from '../api';
 import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
+import { eventMatchesView, type EventViewFilter } from '../../../core/src/events';
 import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { rotate, IDLE_LINES } from '../lib/soul';
@@ -275,12 +276,18 @@ export function EventStream({
   showReasoning,
   onToggleReasoning,
   embedded = false,
+  filter = 'all',
+  query = '',
+  skipFirst = 0,
 }: {
   events: EventMsg[];
   connected: boolean;
   showReasoning: boolean;
   onToggleReasoning: () => void;
   embedded?: boolean;
+  filter?: EventViewFilter;
+  query?: string;
+  skipFirst?: number;
 }) {
   const [following, setFollowing] = useState(true);
   const [earlierOpen, setEarlierOpen] = useState(true);
@@ -306,13 +313,15 @@ export function EventStream({
     const out: { ev: EventMsg; r: Rendered; key: string }[] = [];
     const msgRow = new Map<string, number>(); // message_id → index in out
     let hiddenReasoning = 0;
-    events.forEach((ev, i) => {
+    const displayEvents = skipFirst > 0 ? events.slice(skipFirst) : events;
+    displayEvents.forEach((ev, i) => {
       const r = renderEvent(ev);
       if (!r) return; // non-whitelisted → hidden
       if (r.reasoning && !showReasoning) {
         hiddenReasoning++;
         return;
       }
+      if (!eventMatchesView(ev, r, filter, query)) return;
       const rec = ev as Record<string, unknown>;
       const mid = String(rec.message_id ?? '');
       const isMsg =
@@ -331,7 +340,7 @@ export function EventStream({
       out.push(entry);
     });
     return { list: out, hiddenReasoning };
-  }, [events, showReasoning]);
+  }, [events, showReasoning, filter, query, skipFirst]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {

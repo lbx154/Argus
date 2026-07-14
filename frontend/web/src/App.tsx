@@ -33,6 +33,7 @@ import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { parseEventViewArgs } from '../../core/src/commands';
+import { type EventViewFilter } from '../../core/src/events';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -184,6 +185,9 @@ export default function App() {
   const resizeFrameRef = useRef<number | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const [reconnectKey, setReconnectKey] = useState(0);
+  const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
+  const [eventQuery, setEventQuery] = useState('');
+  const [eventViewFrom, setEventViewFrom] = useState(0);
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
@@ -424,6 +428,16 @@ export default function App() {
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
   );
+  // Keep a ref so the /clear handler can read the current length without being
+  // listed as a reactive dependency of commandHandlers.
+  const activityEventsRef = useRef(activityEvents);
+  activityEventsRef.current = activityEvents;
+  // Reset event view state (filter, query, clear mark) when the active project changes.
+  useEffect(() => {
+    setEventFilter('all');
+    setEventQuery('');
+    setEventViewFrom(0);
+  }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
   const daemonBusy = actions.startDaemon.isPending
     || actions.stopDaemon.isPending
@@ -500,13 +514,23 @@ export default function App() {
     setManageTargetSid(null);
     setDaemonManageOpen(true);
   }, [activeSid, manageTargetSid, snap?.session.id]);
-  const requestDispose = (id: string, op: 'done' | 'skip' | 'rm') =>
+  const requestDispose = useCallback((id: string, op: 'done' | 'skip' | 'rm') =>
     actions.disposeBacklog.mutate(
       { id, op },
-      actionFeedback(op === 'done' ? 'Work marked done.' : 'Work removed.'),
-    );
-  const requestStopIteration = (id: string) =>
-    actions.stopBacklog.mutate(id, actionFeedback('Iteration stopped.'));
+      {
+        onSuccess: () => notify('success', op === 'done' ? 'Work marked done.' : 'Work removed.'),
+        onError: (error: Error) => notify('error', errorText(error)),
+      },
+    ),
+    [actions, notify],
+  );
+  const requestStopIteration = useCallback((id: string) =>
+    actions.stopBacklog.mutate(id, {
+      onSuccess: () => notify('success', 'Iteration stopped.'),
+      onError: (error: Error) => notify('error', errorText(error)),
+    }),
+    [actions, notify],
+  );
   const toggleContinuous = () => {
     if (!continuous) return;
     const enabled = !continuous.enabled;
@@ -531,17 +555,22 @@ export default function App() {
     artifact: async (rest) => { if (rest) setArtifactPath(rest); },
     events: async (rest) => {
       setWorkspaceView('activity');
-      if (rest) {
-        const { filter, query } = parseEventViewArgs(rest);
-        notify('info', `Event filter: ${filter}${query ? ` · "${query}"` : ''}`);
-      }
+      const { filter, query } = parseEventViewArgs(rest);
+      setEventFilter(filter);
+      setEventQuery(query);
     },
     find: async (rest) => {
       setWorkspaceView('activity');
-      if (rest) notify('info', `Searching activity for: ${rest}`);
+      setEventFilter('all');
+      setEventQuery(rest);
     },
     run: async () => setWorkspaceView('activity'),
-    clear: async () => setWorkspaceView('activity'),
+    clear: async () => {
+      setWorkspaceView('activity');
+      setEventFilter('all');
+      setEventQuery('');
+      setEventViewFrom(activityEventsRef.current.length);
+    },
     cancel: async () => stopWaiting(),
     task: async (rest) => {
       if (!activeSid) return;
@@ -616,8 +645,9 @@ export default function App() {
     help: async () => setOverlay('help'),
     quit: async () => notify('info', 'Background work continues; close this browser tab when ready.'),
   }), [
-    activeSid, actions, api, notify, parseEventViewArgs, requestDispose,
-    requestStopIteration, selectProject, snapQ, stopWaiting,
+    activeSid, actions, notify, requestDispose, requestStopIteration,
+    selectProject, snapQ, stopWaiting,
+    setEventFilter, setEventQuery, setEventViewFrom,
   ]);
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -975,6 +1005,9 @@ export default function App() {
                   showReasoning={showReasoning}
                   onToggleReasoning={() => setShowReasoning((value) => !value)}
                   embedded
+                  filter={eventFilter}
+                  query={eventQuery}
+                  skipFirst={eventViewFrom}
                 />
               )}
               {!kiosk ? (

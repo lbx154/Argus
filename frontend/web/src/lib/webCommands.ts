@@ -33,6 +33,13 @@ export async function dispatchWebCommand(
       message: `Usage: ${parsed.cmd.name}${parsed.cmd.arg ? ` ${parsed.cmd.arg}` : ''}`,
     };
   }
-  await handlers[parsed.cmd.id](parsed.rest);
+  try {
+    await handlers[parsed.cmd.id](parsed.rest);
+  } catch (error) {
+    return {
+      kind: 'error',
+      message: error instanceof Error ? error.message : String(error ?? 'Command failed'),
+    };
+  }
   return { kind: 'handled' };
 }
