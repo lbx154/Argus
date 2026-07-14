@@ -26,14 +26,15 @@ the reliability mechanisms that keep a long-running session from degrading
 (a reviewer-curated working-memory checkpoint, bounded session rolls, structured
 decision-progress classification with a safe round-boundary budget, and
 supervised background waits); and an evidence methodology that separates
-reproducible in-repository artifacts from operator-observed preliminary
+reproducible in-repository artifacts from public website snapshots, preliminary
 observations, external baselines, and ongoing programs with no public claim.
 
-We are deliberate about what this release does \emph{not} assert. Argus does not
-claim clean, publishable Argus scores on the benchmark-reproduction programs it
-is actively running (KernelBench, nanoGPT speedrun, nanochat), and it does not
-claim to have produced an accepted paper through its autonomous pipeline. External
-reference numbers appear only as named third-party targets for comparison, never
-as Argus's own measured results. The contribution here is an engineering
+We are deliberate about what this release does and does not assert. It reports a
+compact table of selected public results --- SOL-ExecBench, nanochat, nanoGPT
+speedrun, AARRI-Bench, and Arbor --- and a 41-paper research collection, each as a
+scoped claim under its stated protocol and evidence tier, compared human-first
+(human SOTA, same-device public human record, or paper-reported best). It does
+\emph{not} claim universal state-of-the-art, an accepted autonomous paper, or
+correctness outside those protocols. The contribution here is an engineering
 substrate for reliable long-horizon autonomy, presented honestly at
 \textbf{Technical Report 0.1} maturity.

@@ -3,96 +3,109 @@
 
 Argus's day-to-day product is a benchmark-reproduction agent that drives real
 public benchmarks toward a target under Reviewer judgment. This section surveys
-the programs it runs and the workbench an operator uses to watch and steer them.
-Every program below is described with its \emph{status}, and that status is
-conservative on purpose.
+the programs it runs, the public results they have produced, and the workbench an
+operator uses to watch and steer them. Every program is described with its
+\emph{status}, and that status is conservative on purpose.
 
 \subsection{Programs and their status}
 
-\paragraph{KernelBench on B200.} A program to write efficient GPU kernels and
-measure them against a public kernel benchmark~\cite{ouyang2025kernelbench},
-including the anti-cheat construction that randomizes evaluation inputs so a
-kernel cannot hardcode statistics of a known input distribution. Status:
-\textbf{ongoing}; no certified reproducible Argus score is claimed in this
-release.
+Five programs are active, each \textbf{ongoing} and each contributing a row to the
+public record (Section~\ref{sec:results}). \textbf{GPU kernels (KernelBench /
+SOL-ExecBench)} writes efficient GPU kernels against public
+benchmarks~\cite{ouyang2025kernelbench}, including the anti-cheat construction
+that randomizes evaluation inputs so a kernel cannot hardcode statistics of a
+known distribution. The \textbf{nanoGPT speedrun on 8$\times$H100} reproduces a
+fast GPT-training loop~\cite{karpathy_nanogpt} on the same hardware and harness as
+the baseline, so any wall-clock comparison is like-for-like. \textbf{nanochat on
+B200 and H100} reproduces a small end-to-end ChatGPT-style training
+pipeline~\cite{karpathy_nanochat} and its validation metric. The optional
+\textbf{research-paper pipeline} (a \code{research} vertical, lazy-loaded only when
+a project's vertical is \code{research}) drives an idea-to-submission pipeline
+through per-stage checklists and a Reviewer peer-review gate, and has produced a
+public 41-paper collection; Argus does \emph{not} claim to have produced an
+accepted paper through it. A \textbf{math-research} program applies the same
+harness to open mathematical questions and remains exploratory.
 
-\paragraph{nanoGPT speedrun on 8$\times$H100.} A program to reproduce a fast
-GPT-training loop~\cite{karpathy_nanogpt} on the same hardware and harness as the
-baseline, so any wall-clock comparison is like-for-like. Status:
-\textbf{ongoing}.
+\subsection{Selected public results}
+\label{sec:results}
 
-\paragraph{nanochat on B200.} A program to reproduce a small end-to-end
-ChatGPT-style training pipeline~\cite{karpathy_nanochat} and its validation
-metric. Status: \textbf{ongoing}.
-
-\paragraph{Research-paper pipeline.} An optional \code{research} vertical that
-drives an idea-to-submission academic pipeline through per-stage checklists and a
-Reviewer peer-review gate. It is not the default identity of the project, and it
-is lazy-loaded only when a project's vertical is \code{research}. Status:
-\textbf{ongoing}; Argus does \emph{not} claim to have produced an accepted paper
-through its autonomous pipeline.
-
-\paragraph{Math research.} An exploratory program applying the same harness to
-open mathematical questions. Status: \textbf{ongoing}; exploratory.
-
-\subsection{External reference targets}
-
-The following third-party numbers are sometimes used as comparison targets in
-program documentation. They are \textbf{external reference targets from other
-work}, listed here only to name the bar; they are \emph{not} Argus results and
-this release makes no claim of having matched them.
+Argus publishes a live public record~\cite{argus_results}. Table~\ref{tab:results}
+reproduces its current arena cards, each with the exact protocol it was measured
+under and a \emph{human-first} comparison --- human SOTA, the same-device public
+human record, or the paper-reported best. The SOL-ExecBench headline is its
+\emph{global rank} against all entrants; the two head-to-head wins over
+Recursive~\cite{recursive2026firststeps} are only the site note below, not the
+framing. Each number means exactly what its protocol row says and nothing more.
 
 \begin{table}[h]
 \centering
 \small
-\renewcommand{\arraystretch}{1.35}
-\begin{tabularx}{\linewidth}{@{}p{4.2cm} p{3.0cm} X@{}}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{@{}p{2.6cm} p{2.9cm} p{2.35cm} X@{}}
 \toprule
-\textbf{Program (target metric)} & \textbf{External target} & \textbf{Argus claim in this release} \\
+\textbf{Arena} & \textbf{Protocol} & \textbf{Argus result} & \textbf{Human-first comparison} \\
 \midrule
-KernelBench-style speed-of-light fraction & \code{0.547 SOL} & None; program ongoing. \\
-nanoGPT speedrun wall-clock             & \code{77.3 s}    & None; program ongoing. \\
-nanochat validation bits-per-byte       & \code{0.9109 val\_bpb} & None; program ongoing. \\
+NVIDIA SOL-ExecBench & B200; 101 kernels & Global \#6; 2$\times$ \#1; 7 top-3 & Global rank vs.\ all entrants (headline). \\
+nanochat (B200) & 5\,min; 1$\times$B200; 426 attempts & 0.9636 BPB & Human SOTA 0.9646. \\
+nanochat (H100) & 5\,min; 1$\times$H100; 37 mechanisms & 0.9855 BPB & Human SOTA 0.9879. \\
+nanoGPT speedrun & 8$\times$H100; $N{=}10$ & 79.77\,s & Same-device human \#83: 80.18\,s. \\
+AARRI-Bench & 82 research-intern tasks & 63/82 (76.8\%) & Paper-reported best 68.3\%. \\
+Arbor (RUC NLPIR) & Math-reasoning data & 28.0 gap & Arbor 20.83 (primary). \\
 \bottomrule
 \end{tabularx}
-\caption{Named external/reference targets. These are third-party bars used for
-comparison, tier ``external baseline'' in Table~\ref{tab:tiers}; none is an Argus
-measured result.}
-\label{tab:external}
+\caption{Selected public results from the live record~\cite{argus_results}.
+Comparisons are human-first; the SOL-ExecBench headline is its global rank. Site
+note: SOL-ExecBench includes two head-to-head wins over
+Recursive~\cite{recursive2026firststeps}.}
+\label{tab:results}
 \end{table}
 
-\begin{callout}[What this release does not claim]
-This release does not claim clean, publishable Argus scores for the KernelBench,
-nanoGPT speedrun, or nanochat programs, and it does not claim an accepted
-autonomous paper. Where a reproducible in-repository artifact exists for a
-specific run, that artifact --- not this report --- is the authority for that
-run's number.
-\end{callout}
+\paragraph{Protocol and evidence for the table.} The rows do not all carry the
+same evidence tier, and the difference is stated rather than smoothed over. The
+nanoGPT 79.77\,s row is \textbf{locally corroborated} by an $N{=}10$
+verifier-certified artifact (\code{SCORE valid=true n=10 \ldots{} seal=ok}) in the
+\code{nanogpt-speedrun-h100} project; the nanochat B200 0.9636\,BPB row has
+\textbf{local frozen-scorer, one-seed evidence} of 0.963634 in
+\code{nanochat-mission-b200}. The other four rows --- SOL-ExecBench, nanochat
+H100, AARRI-Bench, and Arbor --- are \textbf{public website
+snapshots}~\cite{argus_results} with no in-repository reproduction artifact yet,
+tier ``public website snapshot'' in Table~\ref{tab:tiers}, linked to the bundle
+\code{technical\_report/evidence/website\_results.json}. Each row is a real,
+scoped claim under its stated protocol, not a claim of universal state-of-the-art
+or correctness outside it.
+
+\paragraph{Research-paper collection.} The public research
+page~\cite{argus_research} lists \textbf{41 papers} across six programs ---
+Cognitive Bias in LLMs (9), Multimodal \& Vision-Language Models (16), LLM Agent
+Methods (5), Efficiency/Compression/Decoding (7), World Models (2), and State
+Trace \& Auditability (2) --- as 35 manuscripts and 6 drafts with duplicate
+versions removed. It is compared \emph{only} with human-authored literature and
+baselines, never with another agent's paper count or quality, and 41 is a
+de-duplicated inventory of runs, \emph{not} 41 acceptances. The machine-readable
+inventory is \code{technical\_report/evidence/paper\_inventory.json}.
 
 \subsection{The operator workbench}
 
 Argus is not only a daemon; it is a live workbench. An operator configures the
 machine's policy once --- author identity, per-role backend and model access, GPU
-allocation --- and then works through a cockpit.
+allocation --- and then works through a cockpit with four surfaces.
 
 \begin{description}[leftmargin=1.4em, style=nextline]
   \item[Cockpit.] An Ink terminal UI (and a web surface) is the front door. Free
     text is routed by the Manager; an operator can say ``switch to the copilot
-    backend'' in plain language and it takes effect without editing a config
-    file.
+    backend'' in plain language and it takes effect without editing a config file.
   \item[Mission view.] The four roles --- Manager, Planner, Engineer, Reviewer ---
-    are shown as peers, and the operator can follow a mission round by round via
+    are shown as peers, and the operator follows a mission round by round via
     \code{--status}, \code{--watch}, and \code{--follow}, backed by a structured
     event stream (\code{round.main.completed}, \code{round.review.completed},
     \code{session.roll}, and others).
   \item[Inspectable artifacts.] Because the Engineer and Reviewer share a
     work-tree and every round's evidence and verdict are persisted, the operator
-    can open exactly what was produced and read the Reviewer's reasoning, rather
+    can open exactly what was produced and read the Reviewer's reasoning rather
     than trusting a summary.
-  \item[Operator intervention.] The operator can abort a single mission or drain
-    and stop the daemon at a clean boundary; a stop-and-resume preserves the
-    campaign identity so an upgrade does not silently re-plan from a stale state.
-  \item[Persistence.] Per-project state --- backlog, event log, journal, and
-    continuous-mode configuration --- lives on disk under a global root, so a run
-    survives restarts and can be audited after the fact.
+  \item[Intervention and persistence.] The operator can abort a mission or drain
+    the daemon at a clean boundary; a stop-and-resume preserves campaign identity
+    so an upgrade does not silently re-plan from a stale state. Per-project state
+    --- backlog, event log, journal, and continuous-mode configuration --- lives on
+    disk under a global root, so a run survives restarts and can be audited later.
 \end{description}

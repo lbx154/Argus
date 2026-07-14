@@ -24,22 +24,20 @@ Several directions follow directly from the limitations in
 Section~\ref{sec:limitations}:
 
 \begin{description}[leftmargin=1.4em, style=nextline]
-  \item[From ongoing to reproducible.] Convert the KernelBench, nanoGPT speedrun,
-    and nanochat programs from ongoing status into reproducible in-repository
-    evidence artifacts --- raw rows, logs, manifests, and build scripts tied to a
-    named commit --- so that a specific run can make a specific, auditable Argus
-    claim on stated hardware.
+  \item[From snapshot to reproducible.] Convert the public website-snapshot rows
+    of Table~\ref{tab:results} (SOL-ExecBench, nanochat H100, AARRI-Bench, Arbor)
+    into reproducible in-repository evidence artifacts tied to a named commit,
+    matching the nanoGPT and nanochat-B200 rows that already carry local
+    corroboration, so each run can make a specific, auditable claim on stated
+    hardware.
   \item[Stronger integrity coverage.] Extend the anti-cheat guardrails as each new
     benchmark reveals its own exploit surface, and grow the structured stage
-    checklists the Reviewer verifies against, keeping machine checks in the
-    checklist the Reviewer reads rather than in a separate validator that could
-    become the single point of dishonesty.
-  \item[Reviewer robustness.] Reduce Reviewer error through better execution-log
-    auditing and evidence-grounded verdicts, without ever introducing a hardcoded
-    completion gate behind it.
-  \item[Cost and observability.] Tighten budget accounting and the operator
-    cockpit so that a 7$\times$24 campaign is cheaper to run and easier to steer at
-    a glance.
+    checklists the Reviewer verifies against, rather than adding a separate
+    validator that could become the single point of dishonesty.
+  \item[Reviewer robustness and cost.] Reduce Reviewer error through better
+    execution-log auditing and evidence-grounded verdicts, without a hardcoded
+    completion gate; and tighten budget accounting and the cockpit so a
+    7$\times$24 campaign is cheaper to run and easier to steer.
 \end{description}
 
 Argus today is an engineering substrate for reliable, auditable autonomy, offered

@@ -143,6 +143,14 @@ research program, or an accepted autonomous publication.
 \input{sections/09_conclusion}
 
 \bibliographystyle{plain}
+\let\OLDthebibliography\thebibliography
+\renewcommand\thebibliography[1]{%
+  \small
+  \OLDthebibliography{#1}%
+  \setlength{\itemsep}{0pt}%
+  \setlength{\parsep}{0pt}%
+  \setlength{\topsep}{0pt}%
+}
 \bibliography{references}
 
 \end{document}

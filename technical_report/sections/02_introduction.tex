@@ -47,23 +47,23 @@ An autonomous research system that cannot resist this is not merely unreliable;
 it is actively misleading.
 
 None of these five problems is solved by making the model smarter or the prompt
-longer. They live in the substrate, so they must be fixed in the substrate. But
-the substrate must fix them \emph{without} pretending to know better than the
-agent about the research. A harness that starts guessing --- via keywords or
-regexes --- whether an objective is ``really'' a paper task, whether an idea is
-good enough, or whether a result should count, has simply moved the unreliability
-somewhere harder to see. Argus's guiding constraint is therefore narrow and
-strict: the harness may only enforce domain-agnostic invariants (budgets,
-persistence, scheduling, structured I/O, and anti-cheat), and every scientific
-judgment must be returned to the agent.
+longer. They live in the substrate, so they must be fixed in the substrate --- but
+\emph{without} pretending to know better than the agent about the research. A
+harness that starts guessing, via keywords or regexes, whether an objective is
+``really'' a paper task or whether a result should count has simply moved the
+unreliability somewhere harder to see. Argus's guiding constraint is therefore
+narrow and strict: the harness may only enforce domain-agnostic invariants
+(budgets, persistence, scheduling, structured I/O, and anti-cheat), and every
+scientific judgment must be returned to the agent.
 
 \begin{callout}[Scope of this report]
 This is an engineering and design report at version 0.1. It documents what Argus
 is built to do and how, grounded in the current source tree of the
-\code{argus-skill} repository~\cite{argus_repo}. It reports evidence status
-honestly and conservatively; where a program is ongoing, it says so, and it does
-not convert an external baseline or a preliminary observation into an Argus
-result.
+\code{argus-skill} repository~\cite{argus_repo}. It reports selected public
+results with explicit protocol and evidence-tier labels
+(Section~\ref{sec:results}), and it reports evidence status honestly: where a
+program is ongoing, it says so, and it does not convert an external baseline or a
+preliminary observation into an Argus result.
 \end{callout}
 
 The remainder of the report proceeds as follows.

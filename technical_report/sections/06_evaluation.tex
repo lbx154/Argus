@@ -1,16 +1,15 @@
 \section{Evaluation Methodology}
 \label{sec:evaluation}
 
-This report does not present a results table of Argus scores, because doing so
-honestly would require reproducible, audited evidence that the current release
-does not yet have for its ongoing programs. Instead, this section documents the
-\emph{methodology} --- how Argus separates kinds of evidence, and what measurement
-discipline it applies --- so that any number a reader later encounters can be
-placed in the correct tier.
+This report presents a compact table of selected public results
+(Section~\ref{sec:results}, Table~\ref{tab:results}), each labeled with its
+protocol and evidence tier. This section documents the \emph{methodology} behind
+those labels --- how Argus separates kinds of evidence, and what measurement
+discipline it applies --- so that every number can be placed in the correct tier.
 
 \subsection{Evidence tiers}
 
-Argus classifies every quantitative statement into one of four tiers. The tier,
+Argus classifies every quantitative statement into one of five tiers. The tier,
 not the magnitude, determines what the number is allowed to claim.
 
 \begin{table}[h]
@@ -25,22 +24,23 @@ Reproducible release evidence &
 An in-repository artifact --- raw scored rows, logs, manifests, and a build script ---
 that a third party can regenerate from a named commit. &
 An Argus result for that specific run, on stated hardware. \\
-\addlinespace
+Public website snapshot &
+A published result card on the live public record~\cite{argus_results}, quoted
+verbatim with its protocol, without an in-repository reproduction artifact yet. &
+A scoped public claim under its stated protocol; linked to the evidence bundle. \\
 Operator-observed preliminary &
 A number seen during a live run but not yet packaged as a reproducible artifact
 (e.g.\ a mid-run log). &
 A preliminary observation only; not a result, not a claim. \\
-\addlinespace
 External baseline &
 A published third-party target from other work, used for comparison. &
 A reference target; explicitly \emph{not} an Argus achievement. \\
-\addlinespace
 Ongoing / no public claim &
 A program actively running without certified, reproducible completion. &
 Status ``ongoing''; no numeric Argus claim. \\
 \bottomrule
 \end{tabularx}
-\caption{The four evidence tiers. A number's tier is fixed by its provenance, and
+\caption{The five evidence tiers. A number's tier is fixed by its provenance, and
 labels travel with the number wherever it appears.}
 \label{tab:tiers}
 \end{table}
@@ -51,19 +51,19 @@ Three rules govern how measurements are produced and reported.
 
 \begin{description}[leftmargin=1.4em, style=nextline]
   \item[Same-hardware, same-harness baselines.] A comparison is only fair when the
-    baseline is reproduced on the same hardware and through the same measurement
-    harness as the Argus run, with hardware and metric caveats stated explicitly.
-    Cross-hardware numbers are labeled, not silently compared.
+    baseline is reproduced on the same hardware and measurement harness as the
+    Argus run, with caveats stated explicitly; cross-hardware numbers are labeled,
+    not silently compared.
   \item[Anti-cheat by construction.] Evaluation uses real public benchmark data.
     Where a metric could be gamed by memorizing a fixed evaluation input
-    distribution, the input is randomized per evaluation so a solution cannot hard
-    code statistics of a known distribution --- a fast-because-faked kernel is
+    distribution, the input is randomized per evaluation so a solution cannot
+    hardcode statistics of a known distribution --- a fast-because-faked kernel is
     designed to be impossible to pass off as genuinely fast. Every round's
     evidence, verdict, and skill update is persisted for audit.
   \item[Reviewer-certified completion.] A program is ``complete'' only when the
     Reviewer certifies it against the full-pipeline stage checklist. There is no
-    hardcoded completion gate and no independent validator that can mark a program
-    done; the structured verdict is the single source of truth.
+    hardcoded completion gate and no independent validator; the structured verdict
+    is the single source of truth.
 \end{description}
 
 \subsection{Evidence map}
@@ -71,17 +71,15 @@ Three rules govern how measurements are produced and reported.
 The claims in this report are grounded in the current \code{argus-skill}
 repository~\cite{argus_repo} rather than in ephemeral run directories. Readers who
 want to verify the mechanisms can consult stable in-repository sources: the
-architecture map in \code{docs/ARCHITECTURE.md}; the maintainer guide in
+architecture map in \code{docs/ARCHITECTURE.md} and maintainer guide in
 \code{AGENTS.md}; the Engineer round loop, session-roll, and stall guards in
-\code{argus\_skill/engineer/runner.py} and \code{argus\_skill/engineer/checkpoint.py};
-the completion authority and progress classes in
+\code{argus\_skill/engineer/}; the completion authority and progress classes in
 \code{argus\_skill/reviewer/\_core.py} and its \code{reviewer\_schema.json}; the
-Manager front door and stage authority in \code{argus\_skill/manager/}; the
-7$\times$24 scheduler in \code{argus\_skill/life/supervisor/}; and the control-plane
-reliability record in
+Manager front door in \code{argus\_skill/manager/}; the 7$\times$24 scheduler in
+\code{argus\_skill/life/supervisor/}; and the control-plane reliability record in
 \code{docs/experiment/2026-07-12-completion-livelock/}, whose experiments verify
 that four control-plane omissions no longer cause a stuck stage or a repeated
-planning loop, with the repaired suite reported as passing in that document's
-ledger. The release lineage for these paths is the repository's committed history
-on \code{main}; this report deliberately cites repository paths and commit
-lineage rather than any transient local filesystem location.
+planning loop. The selected public results carry their own machine-readable
+evidence bundles, \code{technical\_report/evidence/website\_results.json} and
+\code{paper\_inventory.json}. This report cites repository paths and commit
+lineage on \code{main} rather than any transient local filesystem location.
