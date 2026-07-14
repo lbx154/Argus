@@ -2,7 +2,9 @@
 
 ## Status: ✅ COMPLETE
 
-**Commit:** `4607c70 feat(web): expose shared commands in palette and help`
+**Commits:**
+- `4607c70 feat(web): expose shared commands in palette and help`
+- `31168f8 fix(web): restore transcript palette entry — no slash command counterpart`
 
 ---
 
@@ -57,7 +59,7 @@ cd frontend/web && npm run typecheck --silent
 
 ## Design decisions
 
-- **`commandPaletteRows` takes commands as a parameter** (not imported internally) so the test can pass any slice of `COMMANDS` and the function stays pure/testable without module-level side effects.
+- **Restored `/transcript` in nav** (self-review catch): `/transcript` has no COMMANDS entry so removing it made `TranscriptModal` permanently unreachable. Only `/doctor`, `/config`, and `/identity` were true duplicates (they exist in COMMANDS and are now covered by `commandPaletteRows`). `/transcript` is web-only and kept in the nav.
 - **`sendMessageRef`** in App.tsx keeps the 34 generated `run` closures stable — `commandRows` is computed once inside `useMemo` and the ref always points at the latest `sendMessage` when a button is clicked.
 - **Removed exactly 4 duplicates** (`/doctor`, `/config`, `/identity`, `/transcript`) as specified. `inspector`, `operations`, `help` (keyboard shortcut, `?`), `reasoning`, and `kiosk` toggles are preserved as Web-only UI items.
 - **`KeybindingHelp` uses the same `helpGroups()` as the TUI** — labels, aliases, and grouping are identical; no duplication of text.
