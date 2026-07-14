@@ -68,6 +68,23 @@ describe('shared frontend core', () => {
     expect(css).toContain('.session-card');
   });
 
+  it('keeps light-theme spectral info text at WCAG AA contrast', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const root = css.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const channels = root.match(/--spectral-blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
+    expect(channels).not.toBeNull();
+    const relativeLuminance = (rgb: number[]) => {
+      const linear = rgb.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    };
+    const foreground = relativeLuminance(channels!.slice(1).map(Number));
+    const background = relativeLuminance([255, 255, 255]);
+    expect((background + 0.05) / (foreground + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('renders branded shared button variants without changing semantics', () => {
     const primary = renderToStaticMarkup(createElement(Button, { variant: 'primary', children: 'Run' }));
     const ghost = renderToStaticMarkup(createElement(Button, { variant: 'ghost', children: 'Cancel' }));
