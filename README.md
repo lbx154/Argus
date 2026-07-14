@@ -1,251 +1,257 @@
-<h1 align="center">Argus</h1>
+<h1 align="center">Argus: Autonomous Research Generation and Understanding System</h1>
 
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center"><strong>One goal in.<br>An autonomous AI research team wakes up.</strong></p>
-<p align="center"><em>Configure the machine policy once. Manager, Planner, Engineer, and Reviewer take it from there.</em></p>
-
 <p align="center">
-  <img src="technical_report/figures/argus_architecture.png" alt="Argus architecture schematic: an operator objective enters a persistent harness where Manager, Planner, Engineer, and Reviewer make every research judgment" width="100%">
+  <strong>Persistent research infrastructure for planning, executing, validating, and operating long-horizon empirical programs.</strong>
 </p>
 
----
+<p align="center">
+  <img src="technical_report/figures/argus_architecture.png" alt="Argus system architecture: an operator objective enters a persistent research runtime in which Manager, Planner, Engineer, and Reviewer coordinate execution and evidence" width="100%">
+</p>
 
-## What Argus is
+## Overview
 
-Argus is a **7×24 harness for long-horizon autonomous research**, not a
-polish-your-paper assistant or a fixed prompt chain. You give it an
-**objective** and a **special prompt** describing this machine's operating
-rules (GPU allocation, working paths, scheduling constraints), and four
-persistent roles — Manager, Planner, Engineer, and Reviewer — take it from
-there: proposing work, executing it on real hardware, and deciding whether it
-is actually done. It is a reliable harness and a live workbench, not a
-guaranteed path to state-of-the-art results or paper acceptance.
+Argus is an autonomous-research runtime designed to turn a high-level objective
+into a sustained program of literature study, implementation, experimentation,
+evaluation, and technical communication. It operates continuously, uses real
+tools and hardware, persists state across process restarts, and exposes its work
+through an inspectable operator cockpit.
 
-The day-to-day product is a **benchmark-reproduction agent** across metric
-verticals such as nanochat, nanoGPT speedrun, and KernelBench; a separate
-optional `research` vertical drives an idea-to-submission paper pipeline, not
-the project's default identity.
+The system is built around four role-specific agents. A **Manager** interprets
+operator intent and owns lifecycle transitions; a **Planner** organizes the next
+units of work; an **Engineer** performs experiments and produces artifacts; and
+a **Reviewer** evaluates evidence and is the sole authority on whether a mission
+is complete. The runtime provides scheduling, state management, resource
+governance, fault recovery, and evidence provenance without attempting to make
+the scientific decisions assigned to those roles.
 
-## Results
+The primary operating mode is benchmark-driven empirical research across
+verticals such as KernelBench, nanochat, and nanoGPT speedrun. An optional
+`research` vertical extends the same runtime through an idea-to-submission
+manuscript workflow. Argus does not guarantee state-of-the-art results or paper
+acceptance; it provides the infrastructure needed to run, measure, inspect, and
+continue difficult research programs over long horizons.
 
-Argus's public results, published live on
+## Public results
+
+Results are published at
 [argusbot.cn/results.html](https://argusbot.cn/results.html) and
-[/research.html](https://argusbot.cn/research.html), are compared **against
-human SOTA, human-authored public records, or paper-reported bests first** —
-never against another agent as the headline. Machine-readable evidence for
-every row below: [`technical_report/evidence/website_results.json`](technical_report/evidence/website_results.json)
-and [`technical_report/evidence/paper_inventory.json`](technical_report/evidence/paper_inventory.json).
+[argusbot.cn/research.html](https://argusbot.cn/research.html). Human records,
+human-authored baselines, and paper-reported best results are the primary
+references. The corresponding machine-readable snapshots are committed in
+[`technical_report/evidence/website_results.json`](technical_report/evidence/website_results.json)
+and
+[`technical_report/evidence/paper_inventory.json`](technical_report/evidence/paper_inventory.json).
 
-| Arena | Protocol | Result | Human comparison |
-|---|---|---|---|
-| NVIDIA SOL-ExecBench | B200 · 101 kernels | Global #6 · 2× #1 · 7 top-3 | Two head-to-head wins over Recursive |
-| nanochat · B200 | 5 min · 1×B200 · 426 attempts | 0.9636 BPB | Human SOTA: 0.9646 |
-| nanochat · H100 | 5 min · 1×H100 · 37 mechanisms | 0.9855 BPB | Human SOTA: 0.9879 |
-| nanoGPT speedrun | 8×H100 · N=10 | 79.77 seconds | Same-device human #83: 80.18s |
-| AARRI-Bench | 82 research-intern tasks | 63/82 · 76.8% | Paper-reported best: 68.3% |
-| Arbor · RUC NLPIR | Math-Reasoning Data | 28.0 gap | Arbor 20.83 · Claude Code 8.33 · Codex 6.25 |
+| Arena | Protocol | Argus result | Primary reference | Evidence tier |
+|---|---|---:|---|---|
+| NVIDIA SOL-ExecBench | B200 · 101 kernels | Global #6 · 2× #1 · 7 top-3 | Public leaderboard rank | Website snapshot |
+| nanochat · B200 | 5 min · 1×B200 · 426 attempts | **0.9636 BPB** | Human SOTA: 0.9646 | Local artifact |
+| nanochat · H100 | 5 min · 1×H100 · 37 mechanisms | **0.9855 BPB** | Human SOTA: 0.9879 | Website snapshot |
+| nanoGPT speedrun | 8×H100 · N=10 | **79.77 s** | Same-device human #83: 80.18 s | Local artifact |
+| AARRI-Bench | 82 research-intern tasks | **63/82 · 76.8%** | Paper-reported best: 68.3% | Website snapshot |
+| Arbor · RUC NLPIR | Math-Reasoning Data | **28.0 gap** | Arbor: 20.83 | Website snapshot |
 
-Plus a **41-paper research collection** spanning six programs — Cognitive Bias
-in LLMs (9), Multimodal & Vision-Language Models (16), LLM Agent Methods (5),
-Efficiency/Compression/Decoding (7), World Models (2), and State Trace &
-Auditability (2) — 35 manuscripts and 6 drafts, duplicates removed. The
-collection is judged only against human-authored literature and human-SOTA or
-strong-human baselines, never against another agent's paper count or quality.
+The public research portfolio contains **41 de-duplicated papers across six
+programs**: 35 manuscripts and 6 drafts. The programs cover cognitive bias in
+LLMs (9), multimodal and vision-language models (16), LLM agent methods (5),
+efficiency/compression/decoding (7), world models (2), and state trace and
+auditability (2). This is an output inventory, not an acceptance count; Argus
+makes no claim that 41 papers have been accepted.
 
-Read every number with its qualifier, not in isolation: 79.77 s is **N=10,
-verifier-certified** (`SCORE valid=true n=10 ... seal=ok`, corroborated
-on-disk in `nanogpt-speedrun-h100`); 0.9636 BPB is the published website
-result and matches the local one-seed, frozen-scorer floor of 0.963634 in
-`nanochat-mission-b200`; the 426/37 attempt/mechanism counts are the website's
-own published snapshot; and 41 is a de-duplicated paper-run inventory, not 41
-acceptances — Argus makes **no paper-acceptance claim**. Four of the six arena
-rows (SOL-ExecBench, nanochat H100, AARRI-Bench, Arbor) currently carry
-website-snapshot evidence only, with no local reproduction artifact yet; that
-is stated here plainly rather than hidden. The Arbor row is reported as
-published on the site and is not elevated into an agent-vs-agent headline.
+Two arena results currently have in-repository corroboration. The nanoGPT result
+is verifier-certified over ten runs (`valid=true`, `p=0.004007`,
+`79.77±0.06 s`, `seal=ok`). The nanochat B200 result matches a frozen-scorer,
+one-seed artifact with `MEAN_VAL_BPB=0.963634`. The other four rows are public
+website snapshots and are labeled accordingly rather than presented as locally
+reproduced measurements.
 
-## Why long-horizon autonomy fails without a harness
+## System architecture
 
-Give a capable model a single hard objective and enough time, and it fails not
-from a lack of intelligence but because the *execution substrate* degrades:
-sessions get resumed until lossy compaction erases working memory, idle rounds
-burn budget with no forward motion, a background experiment silently blocks
-the main thread, and reviewer/engineer drift out of sync on what "done"
-means. None of this is a reasoning problem, so it has to be fixed
-structurally, in the harness — without the harness pretending it knows better
-than the agent about the actual research.
+Argus separates the runtime into three cooperating planes:
 
-## Four roles, one dumb pipe
+| Plane | Responsibilities | Principal components |
+|---|---|---|
+| **Control plane** | Intent interpretation, mission planning, stage transitions, scheduling, budgets, and daemon lifecycle | Manager, Planner, `LifeSupervisor`, backlog, project configuration |
+| **Execution plane** | Literature search, code changes, experiments, manuscript work, independent review, and background jobs | Engineer, Reviewer, agent-CLI backends, tool adapters, GPU utilities |
+| **Evidence plane** | Durable state, typed events, artifacts, usage accounting, measurement records, and publication provenance | `events.jsonl`, `CHECKPOINT.md`, journal, evidence bundles, figure manifests |
 
-Argus keeps a strict separation: **research judgment belongs to the agent**
-(is this idea novel enough, is this baseline strong enough, is the experiment
-finished, should we submit); **domain-agnostic plumbing belongs to the
-harness** (budget and rate limits, disk persistence and memory, scheduling and
-daemon lifecycle, structured I/O, anti-cheat guardrails). The harness is a
-thick, dumb pipe — it feeds tasks to the agent, stores artifacts, and paces
-work against budget, never using keyword or regex heuristics to second-guess
-whether something is a paper task, whether an objective should run forever, or
-whether an idea is good enough. Every temptation to let the harness quietly
-override an agent's judgment has been replaced with either an explicit
-structured signal or a decision handed back to the agent.
+The four roles communicate through explicit interfaces:
 
-The four roles:
+| Role | System responsibility | Decision boundary |
+|---|---|---|
+| **Manager** | Front door for operator requests; selects lifetime and vertical; owns pipeline-stage transitions | Other roles may recommend a stage change but cannot apply it |
+| **Planner (L4)** | Builds and revises the work backlog; schedules certification work when required | Produces structured tasks and project-level planning verdicts |
+| **Engineer (L1)** | Executes one bounded round of research using real files, tools, searches, and hardware | Produces artifacts and a concrete continuation request |
+| **Reviewer (L2)** | Inspects artifacts and logs against the active checklist | Returns `done`, `continue`, or `blocked`; completion has no second authority |
 
-- **Manager** is the single entry point for the operator. Free-form text is
-  routed to chat or task by a model call, not a keyword match, and it is the
-  sole authority for pipeline-stage transitions — the other three roles can
-  only recommend a stage change.
-- **Planner (L4)** queues the next unit of work once the backlog is empty in
-  continuous mode, and redirects a premature "done" verdict into a
-  certification task when full-pipeline completion has not yet been proven.
-- **Engineer (L1)** executes a single round of real work: literature search,
-  code, experiments, or manuscript writing, sharing a working directory with
-  the Reviewer.
-- **Reviewer (L2)** is the **sole authority on completion**. Each round it
-  checks the Engineer's output against a stage checklist and returns `done`,
-  `continue` (with a concrete next step), or `blocked` — there is no separate
-  hardcoded completion gate.
+An optional Curator maintains shared skill collections in team/subagent modes.
+The historical L3 critic layer has been removed; acceptance is consolidated in
+the Reviewer rather than duplicated across overlapping evaluators.
 
-A retired L3 "critic" round-polishing layer no longer exists; all acceptance
-runs through the Reviewer. An optional Curator role handles skill-pool
-maintenance in team/subagent modes but does not participate in the default
-single-mission pipeline.
+## Mission runtime and state
 
-## Reliability mechanisms
+A mission moves through a durable lifecycle: an operator request is interpreted,
+planned into backlog items, atomically claimed, executed through
+Engineer–Reviewer rounds, and returned as complete, blocked, paused, or ready for
+additional planning. The daemon can resume the same campaign after a controlled
+restart only when its persisted identity matches the current objective,
+vertical, and lineage.
 
-The biggest risk in long-horizon runs is execution drift, not weak reasoning,
-so Argus ships several domain-agnostic guards that never make a scientific
-judgment call themselves:
+Mission-relevant state is stored outside provider conversations. The append-only
+event tape is the canonical timeline; backlog, journal, daemon status, project
+configuration, and artifacts provide inspectable working state. Engineer and
+Reviewer maintain separate resumable provider sessions for short-window context
+reuse. By default, each role's thread is rolled after three rounds or when the
+preceding call reports at least 1.5 million input tokens. A curated
+`CHECKPOINT.md` carries current goals, verified work, failed approaches,
+blockers, evidence, and the next action across those rolls.
 
-- **Curated working-memory checkpoint and session-roll.** A mission's session
-  gets resumed repeatedly and, left unchecked, accumulates lossy compaction
-  that erases working memory. The Reviewer audits and rewrites a small,
-  hard-capped checkpoint (goal, done items, tried-and-failed attempts, open
-  blocker, next step) every round. The engineer session rolls over to a fresh
-  session, reseeded from that checkpoint, after **3 consecutive rounds** or
-  once the prior round's input reaches **1.5M tokens** — both configurable,
-  either can be disabled — instead of letting a single thread compact without
-  bound.
-- **Structured decision-progress classification.** The Reviewer labels each
-  round's `progress_class` (`decision`, `evidence`, `setup_only`,
-  `artifact_sync_only`, or `none`). Two consecutive nondecision rounds trip a
-  stall counter, paired with a safe, round-boundary **1,800-second** budget
-  measured from the last decision/evidence increment — this never interrupts
-  an in-flight model call and never lets a mission spin indefinitely.
-- **Dynamic review cadence.** An Engineer that has landed a real increment and
-  has an unambiguous next step can request one deferred Reviewer round; it can
-  only defer once in a row, and `done` can still only ever come from the
-  Reviewer.
-- **Background-subagent cadence wait.** An Engineer running a self-monitored
-  long job (for example, GPU training) can wait on that job's own monitoring
-  cadence instead of polling a healthy run every round.
-- **Live credential guard.** Newly written artifacts are scrubbed for
-  credentials, domain-agnostically, before they reach the event log or the
-  Reviewer's prompt.
+The skill system distills reusable procedures from completed work and stores
+them in project or shared layers. Skills are versioned and can be updated,
+split, merged, archived, or retired based on later evidence. A separate
+evidence-cited wiki preserves stable knowledge without turning the event stream
+into an unbounded prompt.
 
-## Auditable research programs
+## Reliability and resource governance
 
-Argus's benchmark-reproduction verticals (KernelBench, nanoGPT speedrun,
-nanochat, and similar) run against real public benchmarks with an auditable
-trail: real benchmark data, no reward hacking against a known evaluation input
-distribution, and a persisted record of every round's evidence, verdict, and
-skill update. Structured stage checklists — not keyword-matched validators —
-are what the Reviewer checks against, and the Reviewer is the only authority
-that can certify a research program complete. Beyond the evidence-linked
-Results above, any external reference numbers in project documentation (for
-example, published SOL/timing/loss baselines from other work) are external
-comparison baselines, not Argus's own achieved results, and are labeled as
-such wherever they appear.
+Long-running research fails as often from execution drift as from weak ideas.
+Argus therefore treats recovery and observability as runtime concerns:
+
+- Reviewer decisions classify each round as `decision`, `evidence`,
+  `setup_only`, `artifact_sync_only`, or `none`. Two consecutive nondecision
+  rounds end the current mission rather than allowing a busy loop to continue.
+- A 1,800-second decision-progress budget is enforced only at a safe round
+  boundary. Background jobs under independent supervision pause this clock.
+- Effective-progress and runner-idle limits detect an unresponsive subprocess;
+  backend failures use bounded retry and backoff rather than being converted
+  into a successful-looking result.
+- Supervised background jobs persist their own status and monitoring cadence, so
+  multi-hour training or evaluation can continue without repeated foreground
+  polling.
+- Per-mission, daily, provider-call, and host-concurrency budgets are reserved
+  before execution and reconciled from reported usage afterward.
+- Credentials are redacted before events and newly written text artifacts enter
+  downstream review or persistent logs.
+
+These mechanisms control execution; they do not score novelty, choose research
+ideas, or infer completion from keywords. Scientific quality remains a
+structured agent decision grounded in the artifacts of the run.
+
+## Measurement and evidence
+
+Benchmark claims are treated as protocol-scoped measurements. Each program is
+expected to retain the benchmark version, hardware and software environment,
+baseline definition, commands, exit status, repeated-run statistics where
+applicable, and hashes of the artifacts used to support the claim. Evaluation
+inputs may be randomized when a fixed known input distribution would permit
+hard-coded optimization. Negative results and formal NO-GO decisions are valid
+research outcomes when their evidence is reproducible.
+
+The event catalog currently spans 107 event types in 11 categories with 75
+payload schemas. The same typed stream powers live cockpit updates and later
+audit, so the operator can move from a published number to its mission, round,
+review verdict, command record, and artifact set without relying on a prose
+summary alone.
+
+## Operator workbench and deployment
+
+The TUI and Web cockpit are operational views over the same persisted project
+state. They expose role activity, backlog state, the current stage, budget
+consumption, recent events, unresolved operator questions, and links to the
+artifacts produced by each round. Live updates and retrospective inspection use
+the same event records, which prevents the UI from becoming a separate source of
+truth. Operators can submit work, answer a blocking question, inspect a
+transcript, nudge or abort a mission, and drain a daemon at a clean mission
+boundary.
+
+Argus can run interactively, as a detached project daemon, or under a user-level
+service manager for persistent operation. Controlled replacement preserves the
+campaign identity and resumes only from compatible state; it does not silently
+re-plan an active objective during an upgrade. The Web command surface and live
+stream are authenticated when a token is configured, while routine project
+inspection remains available through read endpoints. Provider credentials and
+machine policy stay in local configuration rather than being copied into
+research artifacts.
 
 ## Quick start
+
+Argus requires Python 3.11 or newer and one supported agent CLI.
 
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
 cd argus-skill
-python -m venv .venv && . .venv/bin/activate
+python -m venv .venv
+. .venv/bin/activate
 pip install -e .
-```
-
-Run the interactive setup wizard once, to configure author identity,
-per-role API access, GPU allocation, and optional GPU keep-alive:
-
-```bash
 argus-skill --setup
 ```
 
-Starting the daemon requires at least one trusted special prompt describing
-this machine's operating rules:
+Before starting a daemon, configure at least one trusted machine-policy prompt:
 
 ```bash
 mkdir -p ~/.argus-skill/special_prompts
-printf 'Operational house rules for this box.\n' > ~/.argus-skill/special_prompts/10-house-rules.md
-chmod 0644 ~/.argus-skill/special_prompts/10-house-rules.md
+printf 'Operational policy for this machine.\n' \
+  > ~/.argus-skill/special_prompts/10-machine-policy.md
+chmod 0644 ~/.argus-skill/special_prompts/10-machine-policy.md
 ```
 
-Then start a project from within its working directory:
+Start a continuous project from its working directory:
 
 ```bash
-mkdir -p ~/research/world-models && cd ~/research/world-models
+mkdir -p ~/research/world-models
+cd ~/research/world-models
 argus-skill --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-For everyday interactive use, run `argus` to enter the Ink TUI cockpit; the
-Manager will classify the first real task and decide whether it runs as a
-standing (continuous) or bounded (one-shot) objective. Monitor with
-`argus-skill --status`, `--watch`, or `--follow`.
+Use `argus` for the interactive TUI cockpit, or inspect a running project with
+`argus-skill --status`, `--watch`, and `--follow`.
 
 ## Supported backends
 
-Argus drives one of three supported agent CLIs, selected with
-`ARGUS_SKILL_RUNNER_BACKEND`. Python **>= 3.11** is required.
-
-| Backend | Value | Install | Auth |
+| Backend | Configuration value | Installation | Authentication |
 |---|---|---|---|
-| GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` (Node.js >= 22) | First run of `copilot` does an interactive device authorization against your GitHub Copilot subscription — no separate API key or Azure/OpenAI vault needed |
-| OpenAI Codex CLI | `codex` (the default when the variable is unset) | `npm install -g @openai/codex` | Verify with `codex --version`; API key configuration is in `docs/API_CONFIG.md` |
-| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | First run of `claude` does an interactive login |
+| GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` (Node.js ≥ 22) | Interactive GitHub device authorization |
+| OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex` | See [`docs/API_CONFIG.md`](docs/API_CONFIG.md) |
+| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Interactive login |
 
-```bash
-export ARGUS_SKILL_RUNNER_BACKEND=copilot
-copilot --version
-```
-
-The backend and model do not need to be decided up front — from within the
-cockpit you can say "switch to the copilot backend" and it takes effect
-without editing a config file.
+Set `ARGUS_SKILL_RUNNER_BACKEND`, or change the backend and model from the
+cockpit without restarting the project.
 
 ## Technical report
 
-A full technical report on the architecture, reliability mechanisms, and
-evidence methodology behind Argus is available at
-[`technical_report/argus-technical-report.pdf`](technical_report/argus-technical-report.pdf)
-(Technical Report 0.1). The LaTeX source lives under `technical_report/` and
-rebuilds with `make -C technical_report clean all`.
+The architecture, role interfaces, mission state machine, deployment model,
+evidence methodology, six public result arenas, and 41-paper portfolio are
+documented in:
 
-## Limitations and status
+**[Argus: Autonomous Research Generation and Understanding System — Technical
+Report 0.2](technical_report/argus-technical-report.pdf)**
 
-Argus is under active development. It is a harness that gives an agent real
-judgment, real tool access, and real persistence over long-horizon research
-work — it is not a system that guarantees state-of-the-art results, a
-guaranteed paper acceptance, or a finished, audited research program on every
-vertical today. Treat any specific performance numbers you encounter in this
-repository's documentation as either an explicitly labeled external/reference
-baseline, or as a reproducible, in-repo evidence artifact for a specific run —
-never as a general claim about Argus's guaranteed capability.
+The LaTeX source is under [`technical_report/`](technical_report/) and rebuilds
+with `make -C technical_report clean all`.
+
+## Limitations and project status
+
+Argus is under active development. Research quality remains bounded by the
+underlying models, tools, data, and compute. The Reviewer is a single fallible
+completion authority, four of the six public arena results do not yet have
+in-repository reproduction artifacts, and continuous operation has real compute
+and provider cost. Benchmark integrity must be engineered separately for each
+evaluation protocol. The current evidence system provides content hashes and
+provenance manifests, not cryptographic result signing.
+
+Treat every performance number as a scoped result under its stated protocol,
+not as a universal capability guarantee.
 
 ## License and provenance
 
-Argus is MIT-licensed, as declared in `pyproject.toml`'s package metadata
-(`license = { text = "MIT" }`). This repository does not currently check in a
-root `LICENSE` file, so this section does not link one.
+Package metadata declares the project under the MIT license. This repository
+builds on:
 
-- [skill-agent](https://github.com/lbx154/skill-agent): skill matching and
-  distillation.
-- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT): the reviewer loop
-  and CLI runner. Its `codex_autoloop` module is vendored into
-  `argus_skill/agent_cli/`, including the upstream
-  [LICENSE](argus_skill/agent_cli/LICENSE) and `_VENDORED.md` provenance note.
-- New code in this repository: the auto-research pipeline, stage checklists,
-  built-in skills, and the image-2 figure integration.
+- [skill-agent](https://github.com/lbx154/skill-agent) for skill matching and
+  distillation;
+- [ArgusBot](https://github.com/waltstephen/ArgusBot) for the reviewer loop and
+  CLI runner, with vendored provenance and license material under
+  [`argus_skill/agent_cli/`](argus_skill/agent_cli/).
