@@ -20,7 +20,7 @@ export function ArgusMark({ size, className = 'text-ink' }: { size: number; clas
   );
 }
 
-function RoundedLockup({ size }: { size: number }) {
+export function RoundedLockup({ size }: { size: number }) {
   const id = useGradientId('argus-rounded-horizontal');
   return (
     <svg data-logo="rounded-horizontal" viewBox="150 40 1160 390" role="img" aria-label="Argus" style={{ width: size * 2.75, height: size }} className="shrink-0">

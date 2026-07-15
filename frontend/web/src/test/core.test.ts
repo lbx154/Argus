@@ -353,12 +353,26 @@ describe('shared frontend core', () => {
   });
 
   it('keeps the opening animation lightweight and bounded', () => {
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
+  });
+
+  it('uses Rounded 02 SVGs for both boot splash widths', () => {
     const html = renderToStaticMarkup(
       createElement(BootSplash, { onDone: () => undefined }),
     );
-    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
-    expect((html.match(/<pre/g) ?? []).length).toBe(2);
-    expect(html).not.toContain('<span');
+    expect(html).toContain('data-logo="rounded-horizontal"');
+    expect(html).toContain('data-logo="rounded-mark"');
+    expect(html).not.toContain('<pre');
+    expect(html).not.toContain('ARGUS-SKILL');
+  });
+
+  it('favicon uses Rounded 02 geometry with fixed blue-gold gradient', () => {
+    const svg = fs.readFileSync(path.resolve('public/favicon.svg'), 'utf8');
+    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
+    expect(svg).toContain('#075fe4');
+    expect(svg).toContain('#d99a16');
+    expect(svg).toMatch(/A\s*42\s+42/);
+    expect(svg).not.toContain('<rect');
   });
 
   it('lets the Manager choose the live canvas and prefers its rendered output', () => {
