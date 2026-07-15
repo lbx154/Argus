@@ -4,9 +4,11 @@
 \begin{designbox}
 Let each mission update the operating state \emph{around} a fixed model --- memory,
 skills, tools, verifiers, routing, and evaluations --- rather than the model's
-weights. Make every update attributable: one role proposes it, a distinct owner
-accepts it, and it lands on a named persistence surface. Not every component moves
-every run, and none of it is a gradient step on the base model.
+weights. Make every update attributable: each change names its \emph{source} and
+the \emph{authoritative owner} that commits it to a named persistence surface. That
+owner is often a role distinct from the one that did the work, but not always ---
+some components are owner-complete by design. Not every component moves every run,
+and none of it is a gradient step on the base model.
 \end{designbox}
 
 Act~II showed the machine that turns one mission into an audited increment. Act~III
@@ -44,30 +46,46 @@ changes is the operating state the fixed model reads and writes.
 Runtime evolution is not one mechanism but a family, already introduced as four
 ownership paths --- automatic, model-proposed, Reviewer-authored, and
 operator-invoked (Section~\ref{sec:life}). Table~\ref{tab:evolution} resolves that
-per component: which role \emph{proposes} a change to $H$, which distinct owner
-\emph{accepts} it, and the named surface where it persists. This is the same
-separation that governs completion --- the role that does the work never certifies
-its own output --- extended to every part of the state.
+per component: the \emph{source} of a change to $H$, the \emph{authoritative owner}
+that commits it, and the named surface where it persists. For the two components the
+system \emph{earns} during a mission --- memory ($M$) and skills ($S$) --- the owner
+is deliberately a role other than the one that produced the work: the Reviewer
+certifies a checkpoint and skill edits it did not author itself, the same
+work-versus-certification separation that governs completion. The remaining
+components are owner-complete by design and honestly labeled as such. Verifiers
+($V$) --- the per-stage checklist --- are \textbf{Planner-owned}: the Planner both
+authors and applies \code{checklist\_ops} (\srcpath{planner/planner.py}), and the
+Reviewer is \textbf{feedback-only}, reporting a wrong checklist through its
+\code{checklist\_feedback} channel (\srcpath{reviewer/\_core.py}) rather than editing
+it; the external check on a Planner-authored checklist is that feedback plus the
+Reviewer's independent completion authority, not an accept/commit gate. Tools and
+procedures ($A$) are \textbf{operator-owned} --- a human outside the four-role loop
+installs and retires them. Routing ($R$) is operator-sourced and Manager-committed;
+evaluations ($Q$) are Planner-authored and scheduler-committed.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabularx}{\linewidth}{@{}p{3.05cm} p{2.35cm} p{2.15cm} X@{}}
+\begin{tabularx}{\linewidth}{@{}p{3.0cm} p{2.3cm} p{2.45cm} X@{}}
 \toprule
-\textbf{State component} & \textbf{Proposing role} & \textbf{Accepting owner} & \textbf{Persistence surface} \\
+\textbf{State component} & \textbf{Change source} & \textbf{Authoritative owner} & \textbf{Persistence surface} \\
 \midrule
 $M$ --- memory & Engineer & Reviewer & \code{checkpoint.json}; event-tape journal \\
 $S$ --- skills & Engineer / Scientist & Reviewer & \code{skills/} versioned Markdown (\code{skill\_ops}) \\
 $A$ --- tools / procedures & operator / vertical & operator & installed tool surface; vertical stages \\
-$V$ --- verifiers & Planner & Reviewer & per-stage checklist (\code{checklist\_ops}) \\
+$V$ --- verifiers & Planner & Planner & per-stage checklist (\code{checklist\_ops}); Reviewer \code{checklist\_feedback} \\
 $R$ --- routing / roles & operator & Manager & \code{continuous.json}; knob store (\code{CONFIG}) \\
 $Q$ --- evaluations / tasks & Planner & scheduler & \code{backlog.jsonl} (\code{TaskSpec}) \\
 \bottomrule
 \end{tabularx}
-\caption{The runtime-state components of $H$ and their ownership. Each update has a
-proposing role, a distinct accepting owner, and one persistence surface (with the
-interface object that lands there); no role both proposes and certifies the same
-change. Sources: Sections~\ref{sec:rolesplanes} and \ref{sec:lifecycle}.}
+\caption{The runtime-state components of $H$: the source of each change, the
+authoritative owner that commits it, and the one persistence surface where it lands
+(with the interface object that carries it). For $M$ and $S$ the owner is a role
+distinct from the one that did the work, so the Reviewer certifies output it did not
+produce; $V$ is Planner-owned (the Planner authors and applies \code{checklist\_ops};
+the Reviewer's \code{checklist\_feedback} is an external report, not a commit gate),
+and $A$ is operator-owned. Sources: Sections~\ref{sec:rolesplanes} and
+\ref{sec:lifecycle}.}
 \label{tab:evolution}
 \end{table}
 

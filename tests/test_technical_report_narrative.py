@@ -140,6 +140,55 @@ def test_runtime_evolution_formula_fixes_model_parameters() -> None:
     assert "online parameter training" in source
 
 
+def test_runtime_evolution_ownership_is_source_accurate() -> None:
+    source = _read("technical_report/sections/09_runtime_evolution.tex")
+
+    # Prefer honest "change source / authoritative owner" columns over a false
+    # proposer/accepter abstraction.
+    assert "Change source" in source
+    assert "Authoritative owner" in source
+    assert "Proposing role" not in source
+    assert "Accepting owner" not in source
+
+    # The Planner is the SOLE owner of the per-stage checklist: it authors and
+    # applies checklist_ops. The Reviewer is feedback-only via checklist_feedback.
+    assert "authors and applies" in source
+    assert r"checklist\_ops" in source
+    assert r"checklist\_feedback" in source
+    assert "Planner-owned" in source
+    assert "feedback-only" in source
+
+    # The A row is honestly operator-owned, not part of a self-certification split.
+    assert "operator-owned" in source
+
+    # No false universal "every update has a distinct accepting owner /
+    # proposer never certifies" claim.
+    assert "no role both proposes and certifies" not in source
+    assert "distinct accepting owner" not in source
+    assert "never certifies its own output" not in source
+
+    # M/S/R/Q persistence facts preserved.
+    for fact in ("checkpoint.json", r"skill\_ops", "backlog.jsonl", "continuous.json"):
+        assert fact in source
+
+
+def test_reliability_global_daily_cap_default_is_source_accurate() -> None:
+    source = _read("technical_report/sections/08_reliability_resources.tex")
+
+    # Canonical resolver default is $30, disabled at 0 — not "off unless set".
+    assert "off unless set" not in source
+    assert r"global daily cap of \$30" in source
+    assert r"resolve\_budget\_caps" in source
+    assert r"\srcpath{core/knobs.py}" in source
+    assert "disables it" in source
+
+    # Preserve the other live defaults.
+    assert r"per-mission preflight cap of \$30" in source
+    assert r"daily cap of \$180" in source
+    assert "two active" in source
+    assert "daemons across projects" in source
+
+
 def test_process_data_strictly_contains_final_artifact() -> None:
     source = _read("technical_report/sections/10_process_data.tex")
 

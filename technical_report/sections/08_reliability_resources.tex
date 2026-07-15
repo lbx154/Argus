@@ -100,9 +100,12 @@ reservation-then-reconciliation cycle --- settle on completion, release on abort
 keeps the ledger honest, and the provider-side spend fences on a call
 (\code{max\_budget\_usd}, \code{max\_ai\_credits}) are injected from the reservation,
 not from role configuration, so a role cannot raise its own ceiling. The principal
-live defaults are a per-mission preflight cap of \$30, a daily cap of \$180, an
-optional global daily cap (off unless set), and at most two active daemons across
-projects. Beyond dollars, a provider quota permit (\srcpath{core/provider\_quota.py})
+live defaults, resolved once for the CLI, daemon, and Web launch paths by the
+canonical \code{resolve\_budget\_caps} knob resolver (\srcpath{core/knobs.py}), are a
+per-mission preflight cap of \$30, a daily cap of \$180, a global daily cap of \$30
+(enforced for any value above zero, so \$0 disables it; some secondary
+\code{--once}/config-dataclass paths default it off instead), and at most two active
+daemons across projects. Beyond dollars, a provider quota permit (\srcpath{core/provider\_quota.py})
 turns a quota denial into a paused status rather than an error.
 
 \subsection{Background jobs and the cadence wait}
