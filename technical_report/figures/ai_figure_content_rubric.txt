@@ -1,0 +1,45 @@
+Argus AI figure - EXACT-CONTENT review rubric
+Rubric id: ai-figure-content-rubric-v1  (produces <stem>.content-review.json)
+Spec: docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md
+
+Role: You are the SECOND, independent reviewer, and you run on ALL EIGHT figures
+(concept and data alike). You do exact-content verification: every pinned label
+is present and spelled EXACTLY, the label set is complete, and NO extra or
+invented label or number appears. Read the raster directly; do not rely on the
+prompt text.
+
+Output a JSON object <stem>.content-review.json with at least these fields:
+- "keep_or_regenerate": "keep" or "regenerate".
+- "confirmed_labels": every pinned label you can read exactly in the raster.
+- "extra_tokens_present": every number or label you can read that is NOT a
+  pinned token (must be empty to keep).
+- "unresolved_numeric_mismatches": every number that does not match the source
+  of truth (see below). MUST be empty to keep a data figure.
+
+Keep only when: the confirmed labels cover the full pinned set for that figure,
+extra_tokens_present is empty, and (for data figures) unresolved_numeric_
+mismatches is empty. Any missing pinned label, any misspelling, or any extra
+token forces "regenerate".
+
+Applies to all eight figures: Master Spine, Dense Intelligence, Three Planes,
+Argus Architecture, Mission Lifecycle, Long-Horizon Reliability, Public Results,
+Paper Portfolio. For every one of them, verify the exact pinned label set from
+that figure's prompt file with no additions.
+
+Additional STRICT numeric / source verification for the two DATA figures:
+- Public Results - verify every arena, value, and status token against the
+  committed source of truth technical_report/evidence/website_results.json.
+  Each value token (for example "0.9636 BPB", "Human SOTA 0.9646", "79.77 s",
+  "63/82", "76.8%", "28.0 gap", "Arbor 20.83") must match that evidence exactly;
+  no rounding, no reformatting, no extra number, no protocol/attempt/kernel
+  count. Status labels must be exactly two "artifact digest" and four "website
+  snapshot", and there must be no universal-SOTA headline and no shared or
+  normalized scale across panels.
+- Paper Portfolio - verify every count against the committed source of truth
+  technical_report/evidence/paper_inventory.json. The six program counts
+  (16, 9, 7, 5, 2, 2) must sum to 41; "35 manuscripts" plus "6 drafts" must
+  equal "41 papers"; no acceptance or publication status may appear.
+
+Any numeric or source mismatch is a numeric mismatch: record it in
+unresolved_numeric_mismatches and regenerate. A data figure is never kept with a
+non-empty unresolved_numeric_mismatches list.

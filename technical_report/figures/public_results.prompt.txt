@@ -1,0 +1,144 @@
+Argus Technical Report figure prompt - Public Results
+Prompt template: argus-precision-atlas-v2 (Blue-Gold)
+Prompt source spec: docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md
+Figure id: public-results   Generator: gpt-image-2   Output: technical_report/figures/public_results.png (1536x1024 PNG)
+
+Purpose: present six public arenas as exact, scoped proof points. ALL visible
+content is AI-generated; no deterministic bars, labels, axes, or overlays.
+
+=== BEGIN SHARED STYLE BLOCK: Blue-Gold Precision Atlas ===
+Art direction: Blue-Gold Precision Atlas. Render one museum-grade editorial
+technical-atlas plate at the quality bar of a first-party frontier research-lab
+report: fine precise linework, generous negative space, calm balanced
+composition, restrained blue-and-gold accents, tactile matte print texture, and
+plate-like framing. It must read as a printed scientific atlas plate, never a
+marketing graphic, SaaS dashboard, stock 3D render, whiteboard sketch, or Figma
+wireframe.
+
+Palette (use only these five colours; any sixth colour or off-palette hue is a
+reject):
+- bone white #FBFAF6 - paper field / background
+- system blue #315BCE - primary runtime structure, modules, and connectors
+- deep blue #214884 - secondary structure, framing, and deeper accents
+- frontier / evidence gold #C38A20 - reserved SOLELY for the evidence, decision,
+  or verified-progress accent; never the default structure colour
+- graphite #24272B - labels, hairlines, and subordinate machinery
+
+Composition and linework:
+- Hairline strokes about 1 to 1.5 px, precise geometry, measured spacing,
+  delicate connectors and arrows whose arrowheads land exactly on their named
+  destination.
+- Generous negative space and confident restraint; legible in GitHub light and
+  dark contexts and when printed to PDF.
+
+Typography (OCR-critical):
+- Set EVERY label horizontally, left-to-right, on a level baseline, in a clean
+  humanist sans-serif.
+- NO vertical text, NO stacked text, NO rotated text, NO curved or
+  path-following text, NO character-by-character vertical stacking.
+- Keep high figure-to-ground contrast so each label is OCR-legible.
+- SPELL EXACTLY every pinned label as quoted; do not invent, translate,
+  abbreviate, renumber, reorder, or duplicate any label, and add no label that
+  is not pinned.
+
+Canvas:
+- 1536 x 1024 pixels, landscape 3:2 (1536x1024). One flat raster plate, no
+  border bleed, and no multi-panel montage unless the figure body explicitly
+  asks for panels.
+
+Shared negative prompt (reject the raster if any of these appear):
+- no cyberpunk, neon, glow, holograms, glassmorphism, or decorative gradients
+- no robots, brains, eyes, faces, photoreal people, or anthropomorphic mascots
+- no fake 3D dashboards, stock 3D icons, emoji, glossy web badges, gauges, or
+  vendor / brand logos
+- no watermarks, marketing badges, trophies, medals, ribbons, or success stamps
+- no Figma / SaaS / dashboard look, no rounded pastel card grid, no whiteboard
+  or Excalidraw sketch
+- no code snippets, raw file paths, tiny unreadable text, vertical or curved
+  text, or dense paragraphs
+- no colour outside the five pinned palette colours
+=== END SHARED STYLE BLOCK: Blue-Gold Precision Atlas ===
+
+Subject: six public benchmark arenas as exact, scoped, panel-local proof points.
+
+=== BEGIN PINNED LABELS ===
+Render each pinned label below EXACTLY as quoted, once each unless a
+placement note says otherwise. Do not invent, translate, abbreviate,
+renumber, reorder, or duplicate any label:
+- "NVIDIA SOL-ExecBench"
+- "Global #6"
+- "2× #1"
+- "7 top-3"
+- "nanochat · B200"
+- "0.9636 BPB"
+- "Human SOTA 0.9646"
+- "nanochat · H100"
+- "0.9855 BPB"
+- "Human SOTA 0.9879"
+- "nanoGPT speedrun"
+- "79.77 s"
+- "Human #83 80.18 s"
+- "AARRI-Bench"
+- "63/82"
+- "76.8%"
+- "Paper best 68.3%"
+- "Arbor · RUC NLPIR"
+- "28.0 gap"
+- "Arbor 20.83"
+- "Claude Code 8.33"
+- "Codex 6.25"
+=== END PINNED LABELS ===
+
+Required relationships / layout (honour every one):
+- Six separated panels, one arena each; panel-local units; no shared scale; no
+  universal-SOTA headline (see the data-figure section below for the exact
+  per-panel token assignment and evidence grounding).
+
+Data-figure structure and evidence grounding:
+- Lay out SIX clearly separated small-multiple panels, one per arena, in a calm
+  grid; each panel is self-contained.
+- Units stay panel-local. No shared, normalized, or cross-panel scale of any
+  kind: no normalized scale, no shared axis, no common baseline; keep every
+  panel panel-local. Add NO universal-SOTA headline.
+- In each panel, render the arena name in graphite, the Argus measured value
+  token(s) in gold, and the human/paper comparison token in deep blue.
+- Panel token assignment (render only these pinned tokens in each panel):
+    - NVIDIA SOL-ExecBench: "Global #6", "2× #1", "7 top-3".
+    - nanochat · B200: "0.9636 BPB", "Human SOTA 0.9646".
+    - nanochat · H100: "0.9855 BPB", "Human SOTA 0.9879".
+    - nanoGPT speedrun: "79.77 s", "Human #83 80.18 s".
+    - AARRI-Bench: "63/82", "76.8%", "Paper best 68.3%".
+    - Arbor · RUC NLPIR: "28.0 gap", "Arbor 20.83", "Claude Code 8.33",
+      "Codex 6.25".
+
+Evidence source of truth: technical_report/evidence/website_results.json
+(public snapshot of argusbot.cn/results.html, retrieved 2026-07-14T12:29:51Z).
+Every numeric token above is copied verbatim from that file; no value is
+computed, rounded, normalized, or invented.
+
+Panel evidence status (render these two status labels as flat horizontal text,
+never as badges):
+- "artifact digest" appears on exactly two panels: the nanochat · B200 panel
+  and the nanoGPT speedrun panel (the two locally reproduced, artifact-checked
+  results).
+- "website snapshot" appears on exactly four panels: NVIDIA SOL-ExecBench,
+  nanochat · H100, AARRI-Bench, and Arbor · RUC NLPIR.
+
+PROHIBIT EXTRAS: render ONLY the pinned tokens above. Do not render any number,
+percentage, ranking, score, protocol detail, attempt / kernel / device count,
+date, axis tick, or label that is not pinned; any number that is not pinned is a
+reject.
+
+Figure-specific negative prompt (reject the raster if any appears):
+- no shared, normalized, or cross-panel scale and no universal-SOTA headline
+- no invented or extra numbers, protocols, dates, or axis ticks; only pinned
+  tokens appear
+- no deterministic-looking bar/line chart overlays; all content is drawn AI
+  content, not a plotted chart
+
+Semantic contract (the finished plate must read as):
+Six independent public arenas, each shown on its own panel-local scale as a
+scoped proof point compared to the human or paper-reported reference it actually
+has. Two panels carry an artifact-digest status (locally reproduced), four carry
+a website-snapshot status. The figure makes no universal or aggregate SOTA
+claim.

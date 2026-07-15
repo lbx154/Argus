@@ -9,8 +9,10 @@ requires.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import re
 import struct
 import subprocess
 import sys
@@ -1191,3 +1193,359 @@ def test_module_does_not_import_drawing_or_generation_libraries() -> None:
 def test_module_has_no_image_generation_function() -> None:
     assert not hasattr(vaf, "generate")
     assert not hasattr(vaf, "draw")
+
+
+# ===========================================================================
+# Task 2: eight complete Blue-Gold Precision Atlas prompts + two review
+# rubrics. These tests are the prompt-authoring contract: they assert every
+# prompt is independently complete (shared style block + exact pinned
+# labels/relationships + OCR-friendly horizontal typography + negative
+# prompt), that the two data prompts derive every numeric token from the
+# committed evidence JSON and prohibit extras, and they pin each prompt/rubric
+# file's bytes to a recorded SHA-256 so the eventual IMAGE2_FIGURES.json
+# prompt-hash provenance has a test-enforced anchor.
+# ===========================================================================
+
+_FIGURES_DIR = _REPO_ROOT / "technical_report" / "figures"
+_EVIDENCE_DIR = _REPO_ROOT / "technical_report" / "evidence"
+
+_ALL_STEMS: tuple[str, ...] = tuple(vaf.FIGURE_CONTRACTS)
+_DATA_STEMS: tuple[str, ...] = tuple(
+    stem for stem, c in vaf.FIGURE_CONTRACTS.items() if c.data_figure
+)
+_CONCEPT_STEMS: tuple[str, ...] = tuple(
+    stem for stem, c in vaf.FIGURE_CONTRACTS.items() if not c.data_figure
+)
+
+# Verbatim delimiters that must bracket, byte-for-byte, the one shared style
+# block copied into every prompt, and the exact-token region of each prompt.
+_STYLE_BEGIN = "=== BEGIN SHARED STYLE BLOCK: Blue-Gold Precision Atlas ==="
+_STYLE_END = "=== END SHARED STYLE BLOCK: Blue-Gold Precision Atlas ==="
+_PINNED_BEGIN = "=== BEGIN PINNED LABELS ==="
+_PINNED_END = "=== END PINNED LABELS ==="
+
+_PALETTE_HEXES = ("#FBFAF6", "#315BCE", "#214884", "#C38A20", "#24272B")
+
+_REVIEW_RUBRIC = "ai_figure_review_rubric.txt"
+_CONTENT_RUBRIC = "ai_figure_content_rubric.txt"
+
+# Byte-for-byte SHA-256 pins. Placeholder during RED; filled with the real
+# digests once the prompt/rubric bytes are authored (GREEN). Any later edit to
+# a prompt must deliberately update its pin (and regenerate the figure).
+_PROMPT_SHA256: dict[str, str] = {
+    "master_spine": "b740535eb054fbf76a6cbb9da31655d70bddd521cf19bc4a7df620344ea1d8a9",
+    "dense_intelligence": "57346912336050548a3eb1cb81155c07fcf42a3791c4f6a0d13282484a8d582a",
+    "system_planes": "8e6e52237aed476b10aa2d10ff1c2ef6784d55d0f6c6c94ace43c2ef053e813d",
+    "argus_architecture": "732e1bb9d00ecc0cb131c8347ea9c26590758d62cd0a6b16128f90d90066e1f7",
+    "mission_lifecycle": "c087d16de9546dff53999e14892f735cf4c94d91eefc80ae04652a60c15d7974",
+    "long_horizon_reliability": "b573d9501910a9768a4177d0d728c1cd1beb4266efb4ffacfea8e47138a1e4fc",
+    "public_results": "03dcbb9679f79c8e217207c7c311f6be18e62f229fcde7ff3eea009b76a3185e",
+    "paper_portfolio": "a584596ee35115223e17c2b7472d3204b61b0010b4088201f4d01f235d60f6e9",
+}
+_RUBRIC_SHA256: dict[str, str] = {
+    _REVIEW_RUBRIC: "b0d3ba5b528df9a13ad6cd8e578e9567b73b1066d39d81fcff6478985c266fc5",
+    _CONTENT_RUBRIC: "944d90d8d492eeadf0c5b54a9b0b7a977c6aa4c6ed6c9c9e385524799e04174c",
+}
+
+
+def _read_prompt(stem: str) -> str:
+    return (_FIGURES_DIR / f"{stem}.prompt.txt").read_text(encoding="utf-8")
+
+
+def _extract_block(text: str, begin: str, end: str) -> str:
+    assert begin in text, f"missing block-begin marker {begin!r}"
+    assert end in text, f"missing block-end marker {end!r}"
+    return text.split(begin, 1)[1].split(end, 1)[0]
+
+
+def _numbers_in(text: str) -> set[str]:
+    """Every standalone integer/decimal numeric run in ``text``."""
+    return set(re.findall(r"\d+(?:\.\d+)?", text))
+
+
+# --- every prompt exists and is independently complete --------------------
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_file_exists(stem: str) -> None:
+    assert (_FIGURES_DIR / f"{stem}.prompt.txt").is_file()
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_contains_every_required_label_verbatim(stem: str) -> None:
+    text = _read_prompt(stem)
+    missing = [
+        label
+        for label in vaf.FIGURE_CONTRACTS[stem].required_labels
+        if label not in text
+    ]
+    assert not missing, f"{stem} prompt missing pinned labels: {missing}"
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_pins_every_label_in_dedicated_block(stem: str) -> None:
+    block = _extract_block(_read_prompt(stem), _PINNED_BEGIN, _PINNED_END)
+    missing = [
+        label
+        for label in vaf.FIGURE_CONTRACTS[stem].required_labels
+        if label not in block
+    ]
+    assert not missing, f"{stem} pinned-labels block missing: {missing}"
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_declares_spell_exactly_and_no_invented_labels(stem: str) -> None:
+    text = _read_prompt(stem).lower()
+    assert "spell" in text and "exactly" in text
+    assert "invent" in text  # "do not invent ... labels"
+
+
+# --- one shared style block, copied byte-for-byte into all eight ----------
+
+
+def test_shared_style_block_is_byte_identical_across_all_prompts() -> None:
+    blocks = {
+        stem: _extract_block(_read_prompt(stem), _STYLE_BEGIN, _STYLE_END)
+        for stem in _ALL_STEMS
+    }
+    reference = blocks[_ALL_STEMS[0]]
+    for stem, block in blocks.items():
+        assert block == reference, f"shared style block differs in {stem}"
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_shared_style_block_declares_full_palette(stem: str) -> None:
+    block = _extract_block(_read_prompt(stem), _STYLE_BEGIN, _STYLE_END)
+    assert "Blue-Gold Precision Atlas" in block
+    for hexcode in _PALETTE_HEXES:
+        assert hexcode in block, f"{stem} style block missing palette {hexcode}"
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_shared_style_block_declares_canvas_1536x1024(stem: str) -> None:
+    block = _extract_block(_read_prompt(stem), _STYLE_BEGIN, _STYLE_END)
+    assert "1536" in block and "1024" in block
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_shared_style_block_requires_ocr_friendly_horizontal_typography(
+    stem: str,
+) -> None:
+    block = _extract_block(_read_prompt(stem), _STYLE_BEGIN, _STYLE_END).lower()
+    assert "ocr" in block
+    assert "horizontal" in block
+    assert "no vertical" in block
+    assert "no curved" in block or "no rotated" in block
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_has_negative_prompt_with_spec_prohibitions(stem: str) -> None:
+    text = _read_prompt(stem).lower()
+    assert "negative prompt" in text
+    for banned in (
+        "cyberpunk",
+        "neon",
+        "robot",
+        "brain",
+        "face",
+        "dashboard",
+        "logo",
+        "watermark",
+        "badge",
+    ):
+        assert banned in text, f"{stem} negative prompt missing {banned!r}"
+
+
+# --- data prompts: evidence-derived numbers, extras prohibited ------------
+
+
+@pytest.mark.parametrize("stem", _DATA_STEMS)
+def test_data_prompt_cites_its_committed_evidence_source(stem: str) -> None:
+    text = _read_prompt(stem)
+    for src in vaf.FIGURE_CONTRACTS[stem].source_evidence:
+        assert src in text, f"{stem} prompt does not cite evidence source {src}"
+
+
+@pytest.mark.parametrize("stem", _DATA_STEMS)
+def test_data_prompt_prohibits_extra_numbers_and_labels(stem: str) -> None:
+    text = _read_prompt(stem)
+    lower = text.lower()
+    assert "PROHIBIT EXTRAS" in text
+    assert "not pinned" in lower
+    assert "no other number" in lower or "any number" in lower
+
+
+def test_public_results_prohibits_shared_or_normalized_scale() -> None:
+    lower = _read_prompt("public_results").lower()
+    assert "normalized scale" in lower or "shared scale" in lower
+    assert "panel-local" in lower
+
+
+@pytest.mark.parametrize("stem", _DATA_STEMS)
+def test_data_prompt_pinned_numbers_are_exactly_contract_numbers(
+    stem: str,
+) -> None:
+    block = _extract_block(_read_prompt(stem), _PINNED_BEGIN, _PINNED_END)
+    contract = vaf.FIGURE_CONTRACTS[stem]
+    expected: set[str] = set()
+    for label in contract.required_labels:
+        expected |= _numbers_in(label)
+    assert _numbers_in(block) == expected, (
+        f"{stem} pinned block has numeric tokens beyond its frozen contract"
+    )
+
+
+@pytest.mark.parametrize("stem", _DATA_STEMS)
+def test_data_prompt_numbers_appear_in_evidence_json(stem: str) -> None:
+    contract = vaf.FIGURE_CONTRACTS[stem]
+    blob = json.dumps(
+        json.loads(
+            (_REPO_ROOT / contract.source_evidence[0]).read_text(encoding="utf-8")
+        )
+    )
+    for label in contract.required_labels:
+        for num in _numbers_in(label):
+            assert num in blob, f"{stem} token {label!r} number {num} not in evidence"
+
+
+def test_public_results_numbers_derive_from_website_evidence() -> None:
+    site = json.loads(
+        (_EVIDENCE_DIR / "website_results.json").read_text(encoding="utf-8")
+    )
+    results = {r["arena"]: r for r in site["results"]}
+    # Each pinned value token is the literal published website value.
+    assert results["nanochat \u00b7 B200"]["result"] == "0.9636 BPB"
+    assert "0.9646" in results["nanochat \u00b7 B200"]["human_comparison"]
+    assert results["nanochat \u00b7 H100"]["result"] == "0.9855 BPB"
+    assert "0.9879" in results["nanochat \u00b7 H100"]["human_comparison"]
+    assert "79.77" in results["nanoGPT speedrun"]["result"]
+    assert "80.18" in results["nanoGPT speedrun"]["human_comparison"]
+    assert results["AARRI-Bench"]["result"] == "63/82 \u00b7 76.8%"
+    assert "68.3%" in results["AARRI-Bench"]["human_comparison"]
+    assert results["Arbor \u00b7 RUC NLPIR"]["result"] == "28.0 gap"
+    for token in ("Arbor 20.83", "Claude Code 8.33", "Codex 6.25"):
+        assert token in results["Arbor \u00b7 RUC NLPIR"]["human_comparison"]
+    assert results["NVIDIA SOL-ExecBench"]["result"] == "Global #6 \u00b7 2\u00d7 #1 \u00b7 7 top-3"
+
+
+def test_public_results_status_counts_derive_from_corroboration_evidence() -> None:
+    site = json.loads(
+        (_EVIDENCE_DIR / "website_results.json").read_text(encoding="utf-8")
+    )
+    results = {r["arena"]: r for r in site["results"]}
+    digest = sorted(
+        a for a, r in results.items() if r["corroboration"] == "local_artifact"
+    )
+    snapshot = sorted(
+        a for a, r in results.items() if r["corroboration"] == "website_snapshot"
+    )
+    assert digest == sorted(["nanochat \u00b7 B200", "nanoGPT speedrun"])
+    assert len(snapshot) == 4
+    counts = vaf.FIGURE_CONTRACTS["public_results"].status_counts
+    assert counts == {"artifact digest": 2, "website snapshot": 4}
+    assert len(digest) == counts["artifact digest"]
+    assert len(snapshot) == counts["website snapshot"]
+
+
+def test_public_results_prompt_assigns_status_to_correct_panels() -> None:
+    text = _read_prompt("public_results")
+    assert '"artifact digest" appears on exactly two panels' in text
+    assert '"website snapshot" appears on exactly four panels' in text
+    # the two digest panels are the two local-artifact arenas
+    digest_section = text.split('"artifact digest" appears on exactly two panels', 1)[1]
+    digest_section = digest_section.split('"website snapshot"', 1)[0]
+    assert "nanochat \u00b7 B200" in digest_section
+    assert "nanoGPT speedrun" in digest_section
+
+
+def test_paper_portfolio_numbers_derive_from_inventory_evidence() -> None:
+    inv = json.loads(
+        (_EVIDENCE_DIR / "paper_inventory.json").read_text(encoding="utf-8")
+    )
+    assert inv["totals"]["papers"] == 41
+    assert inv["totals"]["manuscript"] == 35
+    assert inv["totals"]["draft"] == 6
+    assert inv["totals"]["manuscript"] + inv["totals"]["draft"] == 41
+    program_counts = inv["program_counts"]
+    assert sum(program_counts.values()) == 41
+    expected = {
+        "Multimodal & Vision-Language Models": 16,
+        "Cognitive Bias in LLMs": 9,
+        "Efficiency, Compression & Decoding": 7,
+        "LLM Agent Methods": 5,
+        "World Models": 2,
+        "State Trace & Auditability": 2,
+    }
+    assert program_counts == expected
+
+
+def test_paper_portfolio_prompt_forbids_acceptance_status() -> None:
+    text = _read_prompt("paper_portfolio")
+    assert "output inventory \u00b7 not accepted papers" in text
+    lower = text.lower()
+    assert "accept" in lower  # must speak to (and forbid) acceptance framing
+
+
+# --- concept prompts: relationships present -------------------------------
+
+
+@pytest.mark.parametrize("stem", _CONCEPT_STEMS)
+def test_concept_prompt_states_required_relationships(stem: str) -> None:
+    text = _read_prompt(stem)
+    assert "Required relationships" in text or "RELATIONSHIPS" in text
+
+
+# --- byte-for-byte SHA-256 pins (provenance anchor) -----------------------
+
+
+@pytest.mark.parametrize("stem", _ALL_STEMS)
+def test_prompt_bytes_match_pinned_sha256(stem: str) -> None:
+    actual = hashlib.sha256(
+        (_FIGURES_DIR / f"{stem}.prompt.txt").read_bytes()
+    ).hexdigest()
+    assert actual == _PROMPT_SHA256[stem], (
+        f"{stem}.prompt.txt bytes changed; update its pinned hash and regenerate"
+    )
+
+
+@pytest.mark.parametrize("name", [_REVIEW_RUBRIC, _CONTENT_RUBRIC])
+def test_rubric_bytes_match_pinned_sha256(name: str) -> None:
+    actual = hashlib.sha256((_FIGURES_DIR / name).read_bytes()).hexdigest()
+    assert actual == _RUBRIC_SHA256[name], (
+        f"{name} bytes changed; update its pinned hash"
+    )
+
+
+# --- the two review rubrics ------------------------------------------------
+
+
+def test_review_rubric_is_semantic_and_covers_every_figure() -> None:
+    text = (_FIGURES_DIR / _REVIEW_RUBRIC).read_text(encoding="utf-8")
+    assert "keep_or_regenerate" in text
+    assert "confirmed_labels" in text
+    lower = text.lower()
+    assert "semantic" in lower
+    for banned in ("robot", "brain", "watermark"):
+        assert banned in lower
+    for contract in vaf.FIGURE_CONTRACTS.values():
+        assert contract.title in text, f"review rubric omits {contract.title}"
+
+
+def test_content_rubric_is_exact_content_and_covers_every_figure() -> None:
+    text = (_FIGURES_DIR / _CONTENT_RUBRIC).read_text(encoding="utf-8")
+    assert "keep_or_regenerate" in text
+    assert "confirmed_labels" in text
+    assert "unresolved_numeric_mismatches" in text
+    for contract in vaf.FIGURE_CONTRACTS.values():
+        assert contract.title in text, f"content rubric omits {contract.title}"
+
+
+def test_content_rubric_adds_strict_numeric_source_for_data_figures() -> None:
+    text = (_FIGURES_DIR / _CONTENT_RUBRIC).read_text(encoding="utf-8")
+    assert "technical_report/evidence/website_results.json" in text
+    assert "technical_report/evidence/paper_inventory.json" in text
+    lower = text.lower()
+    assert "numeric" in lower and ("source" in lower or "evidence" in lower)
+    # the two data-figure titles must be named as the stricter cases
+    assert "Public Results" in text
+    assert "Paper Portfolio" in text

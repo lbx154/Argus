@@ -1,10 +1,11 @@
-Argus Technical Report figure prompt - Long-Horizon Reliability
+Argus Technical Report figure prompt - Master Spine
 Prompt template: argus-precision-atlas-v2 (Blue-Gold)
 Prompt source spec: docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md
-Figure id: long-horizon-reliability   Generator: gpt-image-2   Output: technical_report/figures/long_horizon_reliability.png (1536x1024 PNG)
+Figure id: master-spine   Generator: gpt-image-2   Output: technical_report/figures/master_spine.png (1536x1024 PNG)
 
-Purpose: explain liveness, decision progress, and safe exit across a long
-horizon of unattended work.
+Purpose: the report's primary causal story - one unknown objective is driven
+through dense intelligence and an evidence gate into runtime evolution and an
+expanded frontier, then loops back.
 
 === BEGIN SHARED STYLE BLOCK: Blue-Gold Precision Atlas ===
 Art direction: Blue-Gold Precision Atlas. Render one museum-grade editorial
@@ -59,62 +60,59 @@ Shared negative prompt (reject the raster if any of these appear):
 - no colour outside the five pinned palette colours
 === END SHARED STYLE BLOCK: Blue-Gold Precision Atlas ===
 
-Subject: how the Argus loop stays reliable over a long horizon: liveness vs decision progress, with a safe exit.
+Subject: the Argus causal spine, drawn as one left-to-right pipeline that expands the frontier every run.
 
 === BEGIN PINNED LABELS ===
 Render each pinned label below EXACTLY as quoted, once each unless a
 placement note says otherwise. Do not invent, translate, abbreviate,
 renumber, reorder, or duplicate any label:
-- "Argus long-horizon cycle"
+- "Every run expands the frontier."
+- "Unknown objective"
+- "Dense Intelligence Runtime"
+- "Evidence Gate"
+- "Runtime Evolution"
+- "Expanded OOD Frontier"
+- "Manager"
 - "Planner"
 - "Engineer"
 - "Reviewer"
-- "Checkpoint"
-- "Decision progress"
-- "Supervised background jobs"
-- "run independently"
-- "Safe round boundary"
-- "No new decision"
-- "1,800 s decision budget"
-- "Return to Planner"
-- "Budget"
-- "Event log"
-- "Artifacts"
-- "Process liveness"
+- "Memory"
+- "Skills"
+- "Tools"
+- "Verifiers"
+- "Routing"
+- "Evaluations"
+- "model parameters remain fixed"
+- "capability is not guaranteed to grow every run"
 === END PINNED LABELS ===
 
 Required relationships / layout (honour every one):
-- Draw one continuous cycle "Planner" -> "Engineer" -> "Reviewer" under the
-  title "Argus long-horizon cycle".
-- The Reviewer emits exactly one "Checkpoint" card and one "Decision progress"
-  tag (the verified-progress state).
-- Draw a separate, clearly subordinate lane "Supervised background jobs" that
-  "run independently" on their own supervisor; it never joins or controls the
-  main loop (one thin dashed advisory tick only).
-- The two triggers "No new decision" and "1,800 s decision budget" each point
-  INTO the "Safe round boundary" gate.
-- Exactly one graphite arrow LEAVES the gate labelled "Return to Planner" and
-  lands on the Planner.
-- Draw one persistence rail with three ticks "Budget", "Event log", "Artifacts"
-  spanning the plate, implying they persist across the whole cycle.
-- Add a two-swatch legend distinguishing "Process liveness" (graphite) from
-  "Decision progress" (gold).
-- Reserve gold strictly for the Decision-progress path and its legend swatch;
-  liveness and all machinery stay graphite, structure blue.
+- Draw ONE left-to-right causal path across five stages in this order:
+  "Unknown objective" -> "Dense Intelligence Runtime" -> "Evidence Gate" ->
+  "Runtime Evolution" -> "Expanded OOD Frontier".
+- Place the four roles "Manager", "Planner", "Engineer", "Reviewer" INSIDE the
+  "Dense Intelligence Runtime" stage.
+- Place the six capability-state components "Memory", "Skills", "Tools",
+  "Verifiers", "Routing", "Evaluations" INSIDE the "Runtime Evolution" stage.
+- Draw ONE return path from "Expanded OOD Frontier" back to the next
+  "Unknown objective".
+- "Evidence Gate" is the ONLY gold element (the single decision point); every
+  other stage and all runtime structure is system/deep blue, labels graphite.
+- Set the banner headline "Every run expands the frontier." across the top, and
+  keep the two graphite caveats "model parameters remain fixed" and
+  "capability is not guaranteed to grow every run" clearly visible.
 
 Figure-specific negative prompt (reject the raster if any appears):
-- background jobs never enter, cross, or control the main loop, the safe
-  boundary, or the return path
-- no trophy, medal, checkmark, or "passed" stamp; gold marks decision progress,
-  not a guarantee of correctness
-- do not let a live provider/process or a running background job read as
-  scientific decision progress
+- no performance numbers, plotted curves, axes, or benchmark scores; this is a
+  causal schematic, not a measured plot
+- do not gold-highlight anything except the single Evidence Gate
+- do not imply guaranteed capability growth; keep both caveats legible
 
 Semantic contract (the finished plate must read as):
-One unattended research cycle runs Planner to Engineer to Reviewer. The Reviewer
-emits one bounded checkpoint and a decision-progress class, so a fresh Engineer
-thread can reseed from finite state. Supervised background jobs run independently.
-If work only repeats setup with no new decision, or the 1,800-second decision
-budget is spent, the loop ends only at a safe round boundary and returns to the
-Planner. Budget, event log, and artifacts persist throughout. Process liveness
-(graphite) is never mistaken for scientific decision progress (gold).
+One unknown, out-of-distribution objective enters a dense-intelligence runtime
+where four roles carry the reasoning, passes a single evidence gate, evolves the
+runtime's capability state (memory, skills, tools, verifiers, routing,
+evaluations), and expands the frontier - which then poses the next unknown
+objective. The model parameters remain fixed and capability is not guaranteed to
+grow on every run; the gold evidence gate, not optimism, is what advances the
+frontier.
