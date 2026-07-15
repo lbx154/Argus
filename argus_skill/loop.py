@@ -132,6 +132,13 @@ class SkillLoopConfig:
     # audit). Empty = legacy behaviour (no audit section in the reviewer prompt);
     # the life runner fills it from the per-project state dir.
     engineer_log_path: str = ""
+    # Campaign lifetime metadata threaded from the daemon's LifeWorkerConfig via
+    # the argparse namespace so _SkillLoopRunner.execute can forward them to
+    # _decide_stage_transition.  open_ended=True tells the Manager stage hook to
+    # skip final_stage_completion_decision (which would otherwise overwrite the
+    # Manager's own structured rollback verdict with a bounded completion).
+    open_ended: bool = False
+    continuous_objective: str = ""
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model

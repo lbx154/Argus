@@ -692,6 +692,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         config_kwargs["engineer_log_path"] = (
             str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
         )
+        # Campaign lifetime metadata forwarded from the daemon namespace so the
+        # Manager stage hook receives open_ended=True for daemon-created open-ended
+        # campaigns, preventing final_stage_completion_decision from overwriting a
+        # structured Manager rollback verdict with a bounded completion.
+        config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
+        config_kwargs["continuous_objective"] = str(
+            getattr(args, "continuous_objective", "") or ""
+        )
         # A paper contract is enabled only by a positively resolved
         # ``full_paper`` vertical.  An explicit False from a specialized caller
         # may still opt out; True cannot turn a non-paper vertical into a paper.

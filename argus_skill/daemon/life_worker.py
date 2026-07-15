@@ -1578,6 +1578,13 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.color = None
     ns.verbose = False
     ns.quiet = True
+    # Propagate campaign lifetime metadata so execute() can pass open_ended and
+    # continuous_objective to _decide_stage_transition via SkillLoopConfig.
+    # Without this the Manager stage hook defaults to open_ended=False, which
+    # causes final_stage_completion_decision to overwrite the Manager's own
+    # structured rollback verdict with a bounded completion.
+    ns.open_ended = cfg.continuous_open_ended
+    ns.continuous_objective = cfg.continuous_objective
     return ns
 
 
