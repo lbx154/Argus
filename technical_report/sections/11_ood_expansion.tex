@@ -1,0 +1,53 @@
+\section{Evidence-Gated Expansion of the Frontier}
+\label{sec:ood}\label{sec:frontier}
+
+\begin{designbox}
+Model capability growth as evidence-gated, not automatic. A candidate joins the
+retained set only when it verifies against accepted evidence; the union notation
+captures that intent, not a promise. In practice the set is revisable and not
+empirically monotone, and a run that adds no capability can still add durable value
+by recording what not to repeat.
+\end{designbox}
+
+The two preceding sections give a fixed-model state $H$ that missions update
+(Section~\ref{sec:evolution}) and a retained process that outlives each artifact
+(Section~\ref{sec:process}). Their intended effect on the outermost spine stage ---
+the expanded out-of-distribution frontier --- is an evidence-gated capability set.
+Let $C_t$ be the capabilities the system can bring to a new, out-of-distribution task
+at time $t$, and $\epsilon$ the acceptance threshold of the evidence gate.
+
+\begin{equation}
+C_{t+1}
+= C_t \cup
+\{c:\operatorname{Verify}(c,E_t)\ge\epsilon\}.
+\end{equation}
+
+Read precisely, the equation models one thing: the \emph{retained verified additions}.
+A candidate capability $c$ --- a new skill, a synthesized wiki technique, a validated
+procedure --- enters the set only when $\operatorname{Verify}(c,E_t)$ clears the gate
+that the Reviewer owns (Section~\ref{sec:rolesplanes}). The union is deliberately
+conservative about \emph{intent}: the frontier is meant to grow by verified increments
+rather than by unchecked accumulation.
+
+\subsection{What the notation does not claim}
+
+The set notation is an idealization, and the report is explicit about its limits, in
+line with the master spine's own caption that capability is not guaranteed to grow
+every run. It \textbf{does not guarantee} that any given mission succeeds, that
+practical capability is empirically \textbf{monotone}, or that an admitted capability
+is retained forever. Real $C_t$ is revisable: skills and wiki pages can be revised,
+archived, or retired through the ordinary lifecycle (reinforce, distill, revise,
+retire), so an entry can leave the effective set, and a capability verified once can
+regress on a harder instance. The clean union is a statement of design intent, not an
+empirical monotonicity claim.
+
+Expansion also has a mode that adds no new $c$ at all. A mission that reaches a
+\textbf{negative result} or a \textsc{no-go} decision still writes durable evidence
+about what does not work; recorded in the process (Section~\ref{sec:process}), it can
+reduce the repeated search cost of later missions, which is real progress even when
+$C_{t+1}=C_t$. Finally, two expansion directions are distinct and should not be
+conflated: \emph{breadth} across domains --- taking on a new arena or vertical --- and
+\emph{depth} within a domain --- solving harder instances of a problem already in
+range. The public results and portfolio that follow are read against this qualified
+frontier, not against a promise of universal or monotone improvement
+(Sections~\ref{sec:results}, \ref{sec:portfolio}, \ref{sec:limitations}).

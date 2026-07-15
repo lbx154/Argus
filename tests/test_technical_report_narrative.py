@@ -127,3 +127,32 @@ def test_result_signing_is_stated_as_optional_and_unused_not_absent() -> None:
         assert required in evidence, f"missing required concept: {required!r}"
 
     assert "no cryptographic result-signing component exists" not in evidence
+
+
+def test_runtime_evolution_formula_fixes_model_parameters() -> None:
+    source = _read("technical_report/sections/09_runtime_evolution.tex")
+
+    assert r"H_{t+1}" in source
+    assert r"U(H_t,\tau_t,E_t)" in source
+    assert r"\theta_{t+1}=\theta_t" in source
+    for symbol in ("M_t", "S_t", "A_t", "V_t", "R_t", "Q_t"):
+        assert symbol in source
+    assert "online parameter training" in source
+
+
+def test_process_data_strictly_contains_final_artifact() -> None:
+    source = _read("technical_report/sections/10_process_data.tex")
+
+    assert r"D_{\mathrm{process}}" in source
+    assert r"D_{\mathrm{final}}" in source
+    assert "states, actions, evidence, feedback" in source
+
+
+def test_ood_expansion_has_non_monotone_caveat() -> None:
+    source = _read("technical_report/sections/11_ood_expansion.tex")
+
+    assert r"C_{t+1}" in source
+    assert r"\operatorname{Verify}(c,E_t)" in source
+    assert "does not guarantee" in source
+    assert "monotone" in source
+    assert "negative result" in source
