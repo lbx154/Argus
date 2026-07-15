@@ -1,0 +1,39 @@
+finite residual-completion audit
+q_range=2..11 (inclusive)
+classification=finite verification only
+A=(0, 1, 3, 11)
+q= 2 v=  7 base_sidon=no
+q= 3 v= 13 base_sidon=no
+q= 4 v= 21 base_sidon=no
+q= 5 v= 31 base_sidon=yes |X_A|=  4 edges=    0 residual_target= 2 completion=none
+  target_clique=none first_collision=None
+q= 6 v= 43 base_sidon=yes |X_A|= 14 edges=   16 residual_target= 3 completion=none
+  target_clique=(16, 25, 37) first_collision=(22, (16, 37), (25, 3))
+q= 7 v= 57 base_sidon=yes |X_A|= 27 edges=  130 residual_target= 4 completion=none
+  target_clique=(15, 24, 38, 51) first_collision=(34, (1, 24), (15, 38))
+q= 8 v= 73 base_sidon=yes |X_A|= 43 edges=  453 residual_target= 5 completion=none
+  target_clique=(15, 20, 32, 36, 50) first_collision=(56, (3, 20), (15, 32))
+q= 9 v= 91 base_sidon=yes |X_A|= 61 edges= 1117 residual_target= 6 completion=none
+  target_clique=(15, 20, 24, 33, 38, 42) first_collision=(82, (11, 20), (15, 24))
+q=10 v=111 base_sidon=yes |X_A|= 81 edges= 2229 residual_target= 7 completion=none
+  target_clique=(15, 20, 24, 33, 38, 42, 51) first_collision=(102, (11, 20), (15, 24))
+q=11 v=133 base_sidon=yes |X_A|=103 edges= 3910 residual_target= 8 completion=none
+  target_clique=(15, 20, 24, 33, 38, 42, 51, 56) first_collision=(124, (11, 20), (15, 24))
+A=(0, 1, 4, 11)
+q= 2 v=  7 base_sidon=no
+q= 3 v= 13 base_sidon=no
+q= 4 v= 21 base_sidon=no
+q= 5 v= 31 base_sidon=yes |X_A|=  5 edges=    0 residual_target= 2 completion=none
+  target_clique=none first_collision=None
+q= 6 v= 43 base_sidon=yes |X_A|= 14 edges=   16 residual_target= 3 completion=none
+  target_clique=(9, 25, 31) first_collision=(21, (9, 31), (25, 4))
+q= 7 v= 57 base_sidon=yes |X_A|= 27 edges=  137 residual_target= 4 completion=none
+  target_clique=(9, 23, 32, 41) first_collision=(34, (0, 23), (9, 32))
+q= 8 v= 73 base_sidon=yes |X_A|= 43 edges=  465 residual_target= 5 completion=none
+  target_clique=(9, 23, 25, 31, 40) first_collision=(51, (1, 23), (9, 31))
+q= 9 v= 91 base_sidon=yes |X_A|= 61 edges= 1130 residual_target= 6 completion=none
+  target_clique=(9, 23, 25, 31, 37, 43) first_collision=(69, (1, 23), (9, 31))
+q=10 v=111 base_sidon=yes |X_A|= 81 edges= 2242 residual_target= 7 completion=none
+  target_clique=(9, 23, 25, 31, 37, 43, 52) first_collision=(89, (1, 23), (9, 31))
+q=11 v=133 base_sidon=yes |X_A|=103 edges= 3923 residual_target= 8 completion=none
+  target_clique=(9, 23, 25, 31, 37, 43, 52, 57) first_collision=(111, (1, 23), (9, 31))

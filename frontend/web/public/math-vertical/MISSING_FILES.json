@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "missing": [
+    {
+      "requested_or_reference": "existing literary vertical demo.html",
+      "status": "not_found",
+      "searched": [
+        "<WORKSPACE_ROOT>",
+        "recent session file index (90 days)",
+        "recent session summaries (90 days)"
+      ],
+      "handling": "No literary prose or visual copy was reused; this export uses an original Math-specific layout."
+    },
+    {
+      "requested_or_reference": "Lean quartet from the live Erdős #707 project",
+      "status": "not_present_in_case",
+      "handling": "Substituted a fresh real compile of the checked-in Math smoke fixture, as allowed. The quartet is in lean_demo/."
+    },
+    {
+      "requested_or_reference": "proof that Erdős #707 is solved",
+      "status": "intentionally_absent",
+      "handling": "The case study explicitly reports the open objective and bounded-result limitations."
+    }
+  ],
+  "privacy_exclusions": [
+    "API keys and tokens",
+    "full events.jsonl",
+    "databases",
+    "core dumps",
+    "venv and caches",
+    "Mathlib workspace",
+    "full paper/PDF corpus"
+  ]
+}

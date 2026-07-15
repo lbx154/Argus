@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+  "generated_at": "2026-07-15T14:35:46.448134+00:00",
+  "runs": [
+    {
+      "id": "math_routing",
+      "command": "pytest -q --disable-warnings tests/manager/test_domain_author.py tests/manager/test_manager_new_domain.py tests/skills/test_verticals.py",
+      "paths": [
+        "tests/manager/test_domain_author.py",
+        "tests/manager/test_manager_new_domain.py",
+        "tests/skills/test_verticals.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:28.843505+00:00",
+      "finished_at": "2026-07-15T14:35:29.238974+00:00",
+      "duration_seconds": 0.395,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 41,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/math_routing.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "math_vertical",
+      "command": "pytest -q --disable-warnings tests/skills/test_math_vertical.py tests/test_research_target_reviewer.py",
+      "paths": [
+        "tests/skills/test_math_vertical.py",
+        "tests/test_research_target_reviewer.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:29.239211+00:00",
+      "finished_at": "2026-07-15T14:35:29.653069+00:00",
+      "duration_seconds": 0.414,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 37,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/math_vertical.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "checklist_harness",
+      "command": "pytest -q --disable-warnings tests/skills/test_checklist_store.py tests/manager/test_stage_decider.py tests/life/test_manager_stage_hook.py",
+      "paths": [
+        "tests/skills/test_checklist_store.py",
+        "tests/manager/test_stage_decider.py",
+        "tests/life/test_manager_stage_hook.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:29.653308+00:00",
+      "finished_at": "2026-07-15T14:35:30.233006+00:00",
+      "duration_seconds": 0.58,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 94,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/checklist_harness.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "lean_checker",
+      "command": "pytest -q --disable-warnings tests/tools/test_lean_check.py",
+      "paths": [
+        "tests/tools/test_lean_check.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:30.233214+00:00",
+      "finished_at": "2026-07-15T14:35:35.548595+00:00",
+      "duration_seconds": 5.315,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 33,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/lean_checker.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "budget_pause_resume",
+      "command": "pytest -q --disable-warnings tests/life/test_paused_budget_lifecycle.py tests/test_runner_budget.py",
+      "paths": [
+        "tests/life/test_paused_budget_lifecycle.py",
+        "tests/test_runner_budget.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:35.548848+00:00",
+      "finished_at": "2026-07-15T14:35:35.942913+00:00",
+      "duration_seconds": 0.394,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 6,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/budget_pause_resume.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "lifecycle",
+      "command": "pytest -q --disable-warnings tests/life/test_lifecycle_supervisor_integration.py tests/daemon/test_life_worker.py",
+      "paths": [
+        "tests/life/test_lifecycle_supervisor_integration.py",
+        "tests/daemon/test_life_worker.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:35.943147+00:00",
+      "finished_at": "2026-07-15T14:35:46.096701+00:00",
+      "duration_seconds": 10.154,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 95,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/lifecycle.log",
+      "source": "fresh local pytest run"
+    },
+    {
+      "id": "non_math_regression",
+      "command": "pytest -q --disable-warnings tests/skills/test_physics_vertical.py tests/skills/test_direct_vertical.py",
+      "paths": [
+        "tests/skills/test_physics_vertical.py",
+        "tests/skills/test_direct_vertical.py"
+      ],
+      "revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+      "started_at": "2026-07-15T14:35:46.096942+00:00",
+      "finished_at": "2026-07-15T14:35:46.447931+00:00",
+      "duration_seconds": 0.351,
+      "exit_code": 0,
+      "status": "passed",
+      "counts": {
+        "passed": 15,
+        "skipped": 0,
+        "failed": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "errors": 0
+      },
+      "log": "evidence/test_logs/non_math_regression.log",
+      "source": "fresh local pytest run"
+    }
+  ],
+  "totals": {
+    "passed": 321,
+    "skipped": 0,
+    "failed": 0,
+    "errors": 0
+  },
+  "data_source": "Fresh pytest executions; counts parsed from retained pytest progress logs.",
+  "no_accuracy_claim": true
+}

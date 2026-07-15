@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "route": "/math-vertical/",
+  "entry": "frontend/web/public/math-vertical/index.html",
+  "integration_revision": "c22c6cdf88c422e290526cf503606f5ebc21446b",
+  "demo_source_revision": "fc51a09cf796eacfa0f729521192107faa51976b",
+  "generated_at": "2026-07-15T15:58:46.490728+00:00",
+  "asset_count_excluding_manifest": 24,
+  "assets": [
+    {
+      "path": "CASE_STUDY.json",
+      "bytes": 15910,
+      "sha256": "f66713e86ccdbd19be6fad2d046f50d170e173969f3326d142ab94cd4457f6fc"
+    },
+    {
+      "path": "CODE_SNIPPETS.json",
+      "bytes": 21583,
+      "sha256": "c9e44bdf5a9c16c3c3069d1bf3313a9db4a73235f82fb1d1a2bb52262ad58b37"
+    },
+    {
+      "path": "MISSING_FILES.json",
+      "bytes": 1111,
+      "sha256": "2aeab2ecacbb27261b801917496f2c48da18f12725f56f2bf1b5216a5b72706d"
+    },
+    {
+      "path": "TEST_RESULTS.json",
+      "bytes": 6015,
+      "sha256": "cdf9ca870d1747a97bcb6704006d501182d463963efedfe04a96bf9312904da4"
+    },
+    {
+      "path": "case_study/check_completion_conditions.py",
+      "bytes": 5493,
+      "sha256": "bcf0d254d105ea56204555f12e143a9831275f7d0bf430afd48459e9e85278ae"
+    },
+    {
+      "path": "case_study/completion_conditions.txt",
+      "bytes": 2469,
+      "sha256": "d8916efcd3c7a40966f01ff98e2738e6ced0ce9fc02ce2ffb58035baee5e2a48"
+    },
+    {
+      "path": "diagrams/case-timeline.svg",
+      "bytes": 2680,
+      "sha256": "690a93b5bafad8455d2a18db715055a9d00395ba95c35417f16179b9692d54b8"
+    },
+    {
+      "path": "diagrams/checklist-review-flow.svg",
+      "bytes": 3463,
+      "sha256": "96380bb6994b021d61d1f6560a12703b7c0ae563a9ec442414503a9f0cb3a241"
+    },
+    {
+      "path": "diagrams/lean-exact-dual-verification.svg",
+      "bytes": 2884,
+      "sha256": "11c7493867aaecab0b5eb541b9cf2fe1e5cc656b33531517a1ec6a23c055ea24"
+    },
+    {
+      "path": "diagrams/math-vertical-architecture.svg",
+      "bytes": 3403,
+      "sha256": "b193fa5b9c21b94b5a025c33b65e15f147658caefc67ef4d0fb8ffae89d76dec"
+    },
+    {
+      "path": "diagrams/role-skill-loading.svg",
+      "bytes": 3211,
+      "sha256": "b150b791cc6592009bd9b1e25b58cc6243de70b7e5bdad7f3656f8a370f375b6"
+    },
+    {
+      "path": "diagrams/stages-flow.svg",
+      "bytes": 2873,
+      "sha256": "ca43f781cb318a0f820a9b19149894557b0232348bc2dd6ba423c3c9f63936d2"
+    },
+    {
+      "path": "evidence/test_logs/budget_pause_resume.log",
+      "bytes": 80,
+      "sha256": "700bc0322b00f8e8db3ce495047983b54ab27ab59ed1fedac05f3aeba47dae24"
+    },
+    {
+      "path": "evidence/test_logs/checklist_harness.log",
+      "bytes": 160,
+      "sha256": "1482c412af7ca7ec55670b6807842ce239a7580855527c91d32357b21d8fae19"
+    },
+    {
+      "path": "evidence/test_logs/lean_checker.log",
+      "bytes": 80,
+      "sha256": "cb27fd7f42b6d224dfa05db3fc71777af0a383bcb32d6cfe1be44ebfcab22739"
+    },
+    {
+      "path": "evidence/test_logs/lifecycle.log",
+      "bytes": 160,
+      "sha256": "1b94a2cdcd14923adbd3ce9a3c8ce47994166473e280ad29621b23ff863c34e5"
+    },
+    {
+      "path": "evidence/test_logs/math_routing.log",
+      "bytes": 80,
+      "sha256": "8876c9830608f9c64826246c16b2934e04138061819f176caaad11a1cf8ba140"
+    },
+    {
+      "path": "evidence/test_logs/math_vertical.log",
+      "bytes": 80,
+      "sha256": "498e6947c683cfc4d9d8dd6500f7bced1426c92501b2b6f938049aa6eb2024c6"
+    },
+    {
+      "path": "evidence/test_logs/non_math_regression.log",
+      "bytes": 80,
+      "sha256": "511fb971caf59261241ec2a3919d9d10c7dcb9ec044ee07d50b2db465184f057"
+    },
+    {
+      "path": "index.html",
+      "bytes": 20737,
+      "sha256": "73260c3d39d85bcb245405374e2f218ab9dc4b7515af3a235949729d31ba7f00"
+    },
+    {
+      "path": "lean_demo/Main.lean",
+      "bytes": 241,
+      "sha256": "0445687f66e0654019450198814b944f741ce81812a07d7a4f3da9c6ef817f0f"
+    },
+    {
+      "path": "lean_demo/compile.log",
+      "bytes": 786,
+      "sha256": "3dceceab805eda1f49648f6ecb8bc5adaaf702fb9189f2183c862bebe3982c06"
+    },
+    {
+      "path": "lean_demo/lean_check.json",
+      "bytes": 1646,
+      "sha256": "6395a5f093a4544b3b52ddfafdfc7e54ef76668916458cbf8a6c298d9530f51a"
+    },
+    {
+      "path": "lean_demo/statement_fidelity.md",
+      "bytes": 279,
+      "sha256": "a040067075ffce1f6ff71b74e2061754d6fe06b1c9d0f2158be261c09795ccd7"
+    }
+  ],
+  "notes": [
+    "CSS is inline.",
+    "No JavaScript or external font/network dependency.",
+    "Vite copies this directory verbatim to dist/math-vertical/."
+  ]
+}

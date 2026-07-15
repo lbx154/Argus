@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Argus Math Vertical · Mechanism Demo</title>
+<style>
+:root{--bg:#06101f;--panel:#0c1b2d;--panel2:#10243c;--line:#244965;--text:#edf7ff;--muted:#94abc0;--cyan:#49ddff;--violet:#8075ff;--amber:#ffc262;--good:#68e0a5}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 85% 5%,#172650 0,transparent 28%),linear-gradient(145deg,#050c18,#0a1730 55%,#07101e);color:var(--text);font:16px/1.65 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.15;background-image:linear-gradient(#55cfff22 1px,transparent 1px),linear-gradient(90deg,#55cfff22 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,#000,transparent 75%)}
+a{color:var(--cyan)}code{font-family:ui-monospace,SFMono-Regular,monospace;color:#92ecff}.wrap{width:min(1180px,calc(100% - 40px));margin:auto}nav{position:sticky;top:0;z-index:5;background:#06101fdd;backdrop-filter:blur(18px);border-bottom:1px solid #1d3c55}nav .wrap{display:flex;gap:24px;align-items:center;height:64px}nav b{margin-right:auto;letter-spacing:.08em}nav a{text-decoration:none;color:var(--muted);font-size:14px}
+header{padding:110px 0 72px}.kicker,.eyebrow{color:var(--cyan);font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:800}h1{font-size:clamp(46px,8vw,94px);line-height:.95;margin:18px 0;letter-spacing:-.055em;max-width:950px}h1 span{background:linear-gradient(100deg,var(--cyan),#b4a9ff);-webkit-background-clip:text;color:transparent}.lede{max-width:790px;font-size:20px;color:#bdcddd}.equation{margin-top:40px;padding:22px 28px;border:1px solid #32627f;border-radius:18px;background:#0c2135aa;font:700 clamp(18px,3vw,28px) ui-monospace,monospace;box-shadow:0 22px 60px #0005}
+.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:34px}.metric{padding:18px;border:1px solid var(--line);background:#0b1a2ad9;border-radius:14px}.metric strong{display:block;font-size:27px;color:var(--cyan)}.metric span{font-size:12px;color:var(--muted)}
+section{padding:76px 0;border-top:1px solid #193650}h2{font-size:clamp(32px,5vw,54px);line-height:1.05;margin:10px 0 26px;letter-spacing:-.035em}.section-intro{color:var(--muted);max-width:760px;margin-bottom:32px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card,.stage-card{background:linear-gradient(160deg,#10243ce8,#0a1728e8);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 16px 50px #0003}.card h3,.stage-card h3{font-size:23px;margin:8px 0}.card p,.stage-card p{color:#b6c9d9}.value{font:800 34px ui-monospace;color:var(--cyan)}.diagram{display:block;width:100%;border:1px solid var(--line);border-radius:22px;background:#081426;margin:28px 0}
+.role-flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.role-node{position:relative;padding:22px 16px;background:#10243c;border:1px solid #2f607e;border-radius:16px;min-height:145px}.role-node:not(:last-child):after{content:"→";position:absolute;right:-16px;top:52px;color:var(--cyan);font-size:22px;z-index:2}.role-node strong,.role-node span{display:block}.role-node span{color:var(--muted);font-size:13px;margin-top:9px}
+.stages{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.stage-no{font:800 48px ui-monospace;color:#4c708a}.artifact{font:600 12px ui-monospace;color:var(--cyan);margin:20px 0}.stage-card>span{font-size:12px;color:var(--amber)}.capabilities{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.capability .case{border-top:1px solid var(--line);padding-top:14px;color:#9fb5c7;font-size:13px}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:18px}table{border-collapse:collapse;width:100%;min-width:900px;background:#091727}th,td{padding:15px;text-align:left;border-bottom:1px solid #1e3e56;vertical-align:top}th{position:sticky;top:0;background:#10243c;color:var(--cyan)}td{font-size:14px;color:#bcd0df}.dual{display:grid;grid-template-columns:1fr 1fr;gap:18px}.status{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border:1px solid #2c765a;border-radius:999px;color:var(--good);font:700 12px ui-monospace}.warning{padding:18px 22px;background:#2c2210;border:1px solid #765f2c;border-radius:16px;color:#f6dba9}.footer{padding:60px 0 90px;color:var(--muted)}.links{display:flex;flex-wrap:wrap;gap:10px}.links a{padding:8px 12px;border:1px solid var(--line);border-radius:10px;text-decoration:none;background:#0b1a2a}
+@media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}.grid3,.stages,.capabilities,.dual{grid-template-columns:1fr}.role-flow{grid-template-columns:1fr 1fr}.role-node:after{display:none}nav a{display:none}}
+@media(max-width:560px){.metrics{grid-template-columns:1fr 1fr}.role-flow{grid-template-columns:1fr}h1{font-size:48px}}
+</style></head>
+<body><nav><div class="wrap"><b>ARGUS / MATH VERTICAL</b><a href="#architecture">架构</a><a href="#stages">Stages</a><a href="#skills">Skills</a><a href="#harness">Harness</a><a href="#verification">验证</a><a href="#case">案例</a></div></nav>
+<header><div class="wrap"><div class="kicker">Mechanism demo · evidence-backed</div><h1>数学研究，不是换一套角色。<br><span>是给通用团队加载数学能力。</span></h1>
+<p class="lede">这个 Demo 展示 Argus 如何用专属 Skills、专属 Checklist / Review Harness 和专属 Stages 处理数学研究；它不宣称任何开放问题已经解决。</p>
+<div class="equation">Math Vertical = Skills + Checklist / Review Harness + Stages</div>
+<div class="metrics">
+<div class="metric"><strong>3</strong><span>stages</span></div><div class="metric"><strong>5</strong><span>core role skills</span></div>
+<div class="metric"><strong>14</strong><span>required checklist items</span></div><div class="metric"><strong>9</strong><span>capability cards</span></div>
+<div class="metric"><strong>321</strong><span>fresh tests passed</span></div><div class="metric"><strong>Lean ✓</strong><span>real compile + audit</span></div>
+</div></div></header>
+<main>
+<section id="architecture"><div class="wrap"><div class="eyebrow">01 · architecture</div><h2>三种专属机制，一套通用生命周期</h2>
+<p class="section-intro">Math Vertical 只拥有领域上下文和审查契约。预算、checkpoint、pause/resume、Planner/Engineer round loop 都留在通用层。</p>
+<div class="grid3"><article class="card"><div class="value">5</div><h3>Role Skills</h3><p>五个 Markdown context 分别加载到 Manager、Planner、Scientist、Engineer、Reviewer。</p></article>
+<article class="card"><div class="value">14</div><h3>Checklist items</h3><p>从量词和反例前提，到有限计算边界、novelty、Lean proof-hole / axiom audit。</p></article>
+<article class="card"><div class="value">3</div><h3>Coarse stages</h3><p>scope、solve、review。检索、计算、证明、Lean 是动态方法，不是固定子流水线。</p></article></div>
+<img class="diagram" src="diagrams/math-vertical-architecture.svg" alt="Math Vertical architecture"></div></section>
+<section><div class="wrap"><div class="eyebrow">02 · shared roles</div><h2>角色不复制，只加载 Vertical context</h2><div class="role-flow"><div class="role-node"><strong>Manager</strong><span>Select/persist Math Vertical; sole stage authority.</span></div>
+<div class="role-node"><strong>Planner</strong><span>Choose dynamic mathematical work; no Math-owned scheduler.</span></div>
+<div class="role-node"><strong>Scientist</strong><span>Optional on skill miss/failure; creates a reusable replacement, not a one-off answer.</span></div>
+<div class="role-node"><strong>Engineer</strong><span>Persist and verify mathematical increments.</span></div>
+<div class="role-node"><strong>Reviewer</strong><span>Independent correctness/fidelity/novelty/significance verdict.</span></div></div>
+<img class="diagram" src="diagrams/role-skill-loading.svg" alt="Generic roles load Math context"></div></section>
+<section id="stages"><div class="wrap"><div class="eyebrow">03 · stage mechanism</div><h2>从问题忠实度，到证据，再到独立审查</h2><div class="stages"><article class="stage-card"><div class="stage-no">01</div><h3>scope</h3>
+<p>Fix the exact problem, objects, domains, quantifiers, definitions, success bar, known boundary, and problem-specific route.</p><div class="artifact">research/PIPELINE_STATE.json · research/SCOPE.md</div>
+<span>3 required checks</span></article>
+<article class="stage-card"><div class="stage-no">02</div><h3>solve</h3>
+<p>Produce checkable mathematical evidence: proof, construction, valid counterexample, exact reduction, or explicitly bounded computation.</p><div class="artifact">research/SOLVE.md · research/CLAIM_LEDGER.md</div>
+<span>5 required checks</span></article>
+<article class="stage-card"><div class="stage-no">03</div><h3>review</h3>
+<p>Independently audit statement fidelity, correctness, novelty, significance, hidden assumptions, and formal/computational evidence.</p><div class="artifact">research/REVIEW.md · structured research_result</div>
+<span>6 required checks</span></article></div>
+<img class="diagram" src="diagrams/stages-flow.svg" alt="scope solve review flow"></div></section>
+<section id="skills"><div class="wrap"><div class="eyebrow">04 · capabilities</div><h2>五个核心 Skill 组合出九类数学能力</h2><p class="section-intro">下面是机制卡，不是假装存在九个独立角色文件。每张卡都对应真实 Skill、Checklist 或通用 tool。</p><div class="capabilities"><article class="card capability"><span class="eyebrow">problem scoping</span>
+<h3>Problem scoping</h3><p>Ambiguous objects, quantifiers, embedding semantics, and success criteria.</p>
+<div class="case"><strong>Case:</strong> #707 distinguished prime/Singer claims from arbitrary cyclic PDS completion.</div></article>
+<article class="card capability"><span class="eyebrow">proof strategy</span>
+<h3>Proof strategy</h3><p>Selects algebraic, combinatorial, Fourier, group-action, or formal routes dynamically.</p>
+<div class="case"><strong>Case:</strong> #707 explored group-ring, character, multiplier, quotient, and lifting routes without treating them as mandatory stages.</div></article>
+<article class="card capability"><span class="eyebrow">counterexample search</span>
+<h3>Counterexample search</h3><p>Tests candidate witnesses against every premise before claiming disproof.</p>
+<div class="case"><strong>Case:</strong> {0,1,3,11} remains a candidate for arbitrary PDS completion; Singer-only obstruction is not promoted to a universal counterexample.</div></article>
+<article class="card capability"><span class="eyebrow">exact computation</span>
+<h3>Exact computation</h3><p>Produces reproducible finite evidence without converting it into a general proof.</p>
+<div class="case"><strong>Case:</strong> check_completion_conditions.py and literal output cover only their printed finite range.</div></article>
+<article class="card capability"><span class="eyebrow">symmetry reduction</span>
+<h3>Symmetry reduction</h3><p>Reduces exact constraints using group actions, quotient fibers, stabilizers, or orbit structure.</p>
+<div class="case"><strong>Case:</strong> Current #707 review audits L35&#x27;s C7 fiber-bound method and explicitly checks its lifting boundary.</div></article>
+<article class="card capability"><span class="eyebrow">literature novelty</span>
+<h3>Literature / novelty review</h3><p>Separates known correctness from verified-new novelty and significance.</p>
+<div class="case"><strong>Case:</strong> Hall 1947 forced several #707 quotient observations to remain known or novelty-unverified.</div></article>
+<article class="card capability"><span class="eyebrow">statement fidelity</span>
+<h3>Statement fidelity</h3><p>Detects hidden assumptions, domain restriction, weakened conclusions, and encoding drift.</p>
+<div class="case"><strong>Case:</strong> #707 review keeps Singer assumptions separate from arbitrary cyclic PDS claims.</div></article>
+<article class="card capability"><span class="eyebrow">lean formalization</span>
+<h3>Lean formalization</h3><p>Compiles one encoded theorem and audits source holes and environment axioms.</p>
+<div class="case"><strong>Case:</strong> Export uses the checked-in divisibility smoke theorem; it is not evidence for #707.</div></article>
+<article class="card capability"><span class="eyebrow">method failure adaptation</span>
+<h3>Method failure / skill adaptation</h3><p>Turns Reviewer-certified method failure into a structurally different reusable playbook.</p>
+<div class="case"><strong>Case:</strong> #707 persistence failures produced a generic artifact-first execution improvement rather than a mathematical answer injection.</div></article></div></div></section>
+<section id="harness"><div class="wrap"><div class="eyebrow">05 · checklist / harness</div><h2>Reviewer 看证据，不看“像不像完成”</h2>
+<p class="section-intro">14 项全部来自 <code>verticals/math/stages.py</code>。Math 文件没有 per-item blocking 枚举；required contract 未满足就不能由 Reviewer 支持 stage advance。</p>
+<div class="table-wrap"><table><thead><tr><th>ID</th><th>Required statement</th><th>Evidence hint</th></tr></thead><tbody><tr><td><code>scope.problem-explicit</code></td><td>The original mathematical problem is stated precisely: all objects, domains, quantifiers, definitions, and hypotheses are explicit.</td><td>a faithful problem statement with no implicit variables or assumptions</td></tr>
+<tr><td><code>scope.success-criterion</code></td><td>The problem type and success criterion are explicit: prove, disprove, construct, classify, estimate, or make bounded progress on an open problem.</td><td>a declared problem type and an honest criterion for completion</td></tr>
+<tr><td><code>scope.dynamic-route</code></td><td>The chosen research route matches this problem. Background retrieval, counterexample search, computation, proof construction, and Lean are selected only when useful rather than forced as a fixed pipeline.</td><td>a problem-specific route with reasons for included and skipped methods</td></tr>
+<tr><td><code>solve.checkable-evidence</code></td><td>Every key mathematical conclusion has checkable supporting evidence: a complete argument, a valid construction or counterexample, or clearly bounded computational evidence.</td><td>explicit derivations, witnesses, checked cases, or reproducible outputs</td></tr>
+<tr><td><code>solve.counterexample-valid</code></td><td>Any claimed counterexample satisfies every original definition and hypothesis before violating the claimed conclusion.</td><td>premise-by-premise verification of each counterexample</td></tr>
+<tr><td><code>solve.computation-bounded</code></td><td>Finite computation or numerical experimentation is not presented as a proof of an infinite or universal statement.</td><td>the tested range and the precise evidentiary limit are stated</td></tr>
+<tr><td><code>solve.lean-compiled</code></td><td>When Lean is used, the submitted source has fresh successful compilation evidence, contains no `sorry`, `admit`, or equivalent proof hole, and the canonical artifacts `Main.lean`, `compile.log`, `lean_check.json`, and `statement_fidelity.md` are present.</td><td>the four canonical Lean artifacts, including exact commands, versions, exit status, axiom audit, and a side-by-side statement audit</td></tr>
+<tr><td><code>solve.result-classified</code></td><td>Each material result is classified as known, finite verification, counterexample, partial progress, new candidate, novelty-unverified, or verified new result; its mathematical scope is not overstated.</td><td>a claim ledger with result class, correctness, novelty, and limitations</td></tr>
+<tr><td><code>review.statement-fidelity</code></td><td>The natural-language problem and every formal statement are faithfully equivalent in objects, quantifiers, hypotheses, and conclusion.</td><td>side-by-side audit of the original and formalized statements</td></tr>
+<tr><td><code>review.no-goal-drift</code></td><td>The solution did not silently add assumptions, restrict the domain, weaken the conclusion, or replace the original problem with an easier one.</td><td>an explicit premise-and-conclusion comparison</td></tr>
+<tr><td><code>review.lean-not-sufficient</code></td><td>Lean compilation is treated only as evidence about the encoded theorem; it is not treated as sufficient evidence that the encoding faithfully represents the original problem.</td><td>independent semantic review of definitions and theorem statement</td></tr>
+<tr><td><code>review.open-problem-honesty</code></td><td>For an open or unresolved problem, the conclusion distinguishes proved results, disproofs, experiments, conjectures, partial progress, and unknowns without exaggeration.</td><td>claim-by-claim status labels and stated remaining gaps</td></tr>
+<tr><td><code>review.correctness-novelty-separated</code></td><td>Mathematical correctness and research novelty have independent verdicts with concrete evidence; a correct known result is not presented as a new contribution.</td><td>separate correctness and novelty findings for the strongest claim</td></tr>
+<tr><td><code>review.novelty-gate</code></td><td>A result is called verified-new only after primary-source novelty review; finite verification, partial work, and unverified candidates remain non-terminal.</td><td>novelty audit or an explicit non-terminal classification</td></tr></tbody></table></div>
+<img class="diagram" src="diagrams/checklist-review-flow.svg" alt="Checklist and review harness flow"></div></section>
+<section id="verification"><div class="wrap"><div class="eyebrow">06 · deterministic verification</div><h2>Lean 和精确 verifier 是两条不同证据链</h2>
+<div class="dual"><article class="card"><span class="status">REAL COMPILE · SUCCESS</span><h3>Lean lane</h3><p>真实 Mathlib 编译，source hole scan，环境 axiom audit；再与 statement fidelity 分开核对。</p><div class="links"><a href="lean_demo/Main.lean">Main.lean</a><a href="lean_demo/compile.log">compile.log</a><a href="lean_demo/lean_check.json">lean_check.json</a><a href="lean_demo/statement_fidelity.md">fidelity</a></div></article>
+<article class="card"><span class="status">FINITE · REPRODUCIBLE</span><h3>Exact verifier lane</h3><p>保留脚本、literal output、参数范围和限制。有限搜索永远不会自动升级成一般证明。</p><div class="links"><a href="case_study/check_completion_conditions.py">verifier.py</a><a href="case_study/completion_conditions.txt">output</a></div></article></div>
+<img class="diagram" src="diagrams/lean-exact-dual-verification.svg" alt="Lean and exact verifier flow"></div></section>
+<section id="case"><div class="wrap"><div class="eyebrow">07 · actual case snapshot</div><h2>Erdős #707：展示机制，不冒充解题成功</h2>
+<div class="warning"><strong>Honest boundary:</strong> 当前案例处于 <code>review</code>，选定子问题为“独立审计 L35 的 C7 方法边界”。开放目标仍由 publishable research contract 独立约束。</div>
+<div class="grid3" style="margin-top:18px"><article class="card"><h3>Problem</h3><p>Study whether every four-element integer Sidon set embeds in some cyclic perfect difference set, with {0,1,3,11} as a central candidate.</p></article>
+<article class="card"><h3>Structured result</h3><p>correctness: <code>verified</code><br>novelty: <code>unverified</code><br>significance: <code>exploratory</code></p></article>
+<article class="card"><h3>Artifacts</h3><p>SCOPE / SOLVE / CLAIM_LEDGER / REVIEW + bounded verifier evidence. Full event tape and PDFs are intentionally excluded.</p></article></div>
+<img class="diagram" src="diagrams/case-timeline.svg" alt="Erdos 707 mechanism timeline"></div></section>
+<section><div class="wrap"><div class="eyebrow">08 · evidence package</div><h2>每个数字都能回到文件和测试</h2><p class="section-intro">Revision <code>fc51a09cf796</code>。新跑 7 组测试：321 passed / 0 skipped / 0 failed。未生成“准确率”等不存在的指标。</p>
+<div class="links"><a href="TEST_RESULTS.json">TEST_RESULTS.json</a><a href="CODE_SNIPPETS.json">CODE_SNIPPETS.json</a><a href="CASE_STUDY.json">CASE_STUDY.json</a><a href="MANIFEST.json">MANIFEST.json</a><a href="MISSING_FILES.json">MISSING_FILES.json</a></div></div></section>
+</main><footer class="footer"><div class="wrap">Argus Math Vertical · read-only export · generated 2026-07-15T14:43:42.659752+00:00</div></footer></body></html>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">Math stage flow</title>
+<desc id="desc">Argus Math Vertical diagram. Schematic unless explicitly marked actual.</desc>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071426"/><stop offset="1" stop-color="#101b38"/></linearGradient>
+  <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#38d8ff"/><stop offset="1" stop-color="#776dff"/></linearGradient>
+  <filter id="shadow"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".35"/></filter>
+  <style>
+    .title{font:700 30px ui-sans-serif,system-ui;fill:#eef7ff} .sub{font:500 15px ui-sans-serif,system-ui;fill:#90a8c2}
+    .h{font:700 20px ui-sans-serif,system-ui;fill:#fff} .t{font:500 14px ui-sans-serif,system-ui;fill:#c8d8e8}
+    .mono{font:600 13px ui-monospace,SFMono-Regular,monospace;fill:#7ee8ff} .box{fill:#10233b;stroke:#2d5875;stroke-width:1.5;rx:18}
+    .accent{fill:url(#cyan);rx:18} .line{stroke:#50c9f5;stroke-width:3;fill:none;marker-end:url(#arrow)} .dash{stroke:#7187a0;stroke-width:2;stroke-dasharray:7 7;fill:none}
+  </style>
+  <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#50c9f5"/></marker>
+</defs>
+<rect width="1200" height="680" fill="url(#bg)"/>
+
+<text x="60" y="70" class="title">scope → solve → review</text><text x="60" y="102" class="sub">SCHEMATIC · Manager-controlled stage transitions</text>
+<rect x="70" y="180" width="290" height="270" class="box"/><text x="100" y="225" class="h">01 · scope</text>
+<text x="100" y="260" class="t">exact problem + quantifiers</text><text x="100" y="290" class="t">success criterion + route</text>
+<text x="100" y="345" class="mono">SCOPE.md</text><text x="100" y="380" class="t">3 checklist items</text>
+<rect x="455" y="180" width="290" height="270" class="box"/><text x="485" y="225" class="h">02 · solve</text>
+<text x="485" y="260" class="t">proof / witness / reduction</text><text x="485" y="290" class="t">bounded computation / Lean</text>
+<text x="485" y="345" class="mono">SOLVE.md · CLAIM_LEDGER.md</text><text x="485" y="380" class="t">5 checklist items</text>
+<rect x="840" y="180" width="290" height="270" class="box"/><text x="870" y="225" class="h">03 · review</text>
+<text x="870" y="260" class="t">correctness + fidelity</text><text x="870" y="290" class="t">novelty + significance</text>
+<text x="870" y="345" class="mono">REVIEW.md · research_result</text><text x="870" y="380" class="t">6 checklist items</text>
+<path d="M360 315 H455" class="line"/><path d="M745 315 H840" class="line"/>
+<path d="M985 470 C985 590 600 590 600 470" class="dash"/><text x="790" y="575" class="sub">unresolved open campaign may roll back to solve</text>
+
+</svg>
