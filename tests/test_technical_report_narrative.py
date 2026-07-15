@@ -69,3 +69,46 @@ def test_no_banned_rhetoric_in_report_source() -> None:
     )
     assert len(re.findall(r"\bguardrails?\b", source, flags=re.IGNORECASE)) <= 2
     assert not re.search(r"\bdumb pipe\b|\bplumbing\b|not smarter than", source, flags=re.IGNORECASE)
+
+
+def test_act_two_sections_are_wired() -> None:
+    main = _read("technical_report/main.tex")
+    for section in (
+        "04_argus_life",
+        "05_roles_planes",
+        "06_lifecycle_state",
+        "07_evidence_review",
+        "08_reliability_resources",
+    ):
+        assert rf"\input{{sections/{section}}}" in main
+
+
+def test_act_two_preserves_committed_runtime_facts() -> None:
+    source = "\n".join(
+        _read(f"technical_report/sections/{name}.tex")
+        for name in (
+            "04_argus_life",
+            "05_roles_planes",
+            "06_lifecycle_state",
+            "07_evidence_review",
+            "08_reliability_resources",
+        )
+    )
+    for required in (
+        "Manager",
+        "Planner",
+        "Engineer",
+        "Reviewer",
+        "control plane",
+        "execution plane",
+        "evidence plane",
+        "checkpoint.json",
+        "1.5 million",
+        "1,800",
+        "112",
+        "75",
+        "artifact-digest",
+    ):
+        assert required in source
+    assert "CHECKPOINT.md" not in source
+    assert "fresh session every round" not in source

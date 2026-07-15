@@ -1,0 +1,113 @@
+\section{Argus Life and the Technical Spine}
+\label{sec:life}
+
+\begin{designbox}
+Turn the report's master spine --- an unknown objective entering a
+dense-intelligence runtime, passing an evidence gate, updating durable runtime
+state, and meeting the next task from a higher floor --- into named, source-grounded
+components. Argus Life keeps the lifetime objective moving; each mission is a
+bounded unit with a first-class outcome.
+\end{designbox}
+
+Act~I (Section~\ref{sec:episodic}) derived five requirements for a compounding
+research system: a persistent objective, role separation, bounded context,
+independent evidence, and reusable runtime state. Act~II is the running system that
+meets them. This section is the map from the expanding-frontier spine
+(Figure~\ref{fig:spine}) to the implementation --- which component owns each stage
+and what durable artifact it leaves behind --- and the sections that follow expand
+each stage: the four roles and three planes (Section~\ref{sec:rolesplanes}), the
+mission lifecycle and durable state (Section~\ref{sec:lifecycle}), the evidence and
+review architecture (Section~\ref{sec:evidence}), and the reliability and resource
+machinery (Section~\ref{sec:operations}).
+
+\subsection{Life keeps the objective moving; missions stay bounded}
+
+\emph{Argus Life} is the persistent context of a campaign: a durable,
+operator-anchored objective and its committed configuration, held on disk and
+recovered across restarts and upgrades. A \code{STANDING} objective is persisted
+atomically to \code{continuous.json} and is never silently re-decided
+(Section~\ref{sec:lifecycle}). Life itself issues no provider work; it exists so a
+long campaign has a stable identity. The unit of \emph{work} is a mission: one
+bounded Engineer$\leftrightarrow$Reviewer run that always ends in a first-class
+terminal or paused status, never an unbounded spin. Life supplies continuity;
+missions supply bounded, auditable progress. That division is what lets the system
+run for days while every increment stays a discrete, inspectable event.
+
+\subsection{The spine, mapped to owners and durable outputs}
+
+Table~\ref{tab:spine} maps each stage of the master spine to the component that
+implements it and the durable artifact it writes. The mapping is deliberately
+one-to-one: every conceptual stage has exactly one implemented owner and one place
+its result is persisted, so a reader can move from the figure to the code without
+guessing.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{3.1cm} p{4.7cm} X@{}}
+\toprule
+\textbf{Master-spine concept} & \textbf{Implemented owner} & \textbf{Durable output} \\
+\midrule
+Unknown / OOD objective enters &
+Manager front door + division (\code{manager/\_core.py}) &
+committed vertical + lifetime in \code{continuous.json} \\
+Dense-intelligence runtime &
+\code{LifeSupervisor} outer loop (\code{life/supervisor/\_core.py}) + \code{SkillLoop} per mission (\code{loop.py}) &
+\code{events.jsonl} tape + project journal \\
+Four persistent roles &
+Manager, Planner, Engineer, Reviewer &
+typed role verdicts on the tape \\
+Evidence gate &
+Reviewer completion authority (\code{reviewer/\_core.py}) &
+\code{research.achievement.certified} \\
+Runtime evolution &
+Reviewer \code{skill\_ops}/\code{wiki\_ops}; Scientist distill-on-miss (\code{skills/}, \code{wiki/}) &
+versioned skills + immutable wiki sources \\
+Expanded frontier / next task &
+\code{LifeSupervisor} next claim; Planner refill (\code{planner/planner.py}) &
+refilled \code{backlog.jsonl} inherited by the next mission \\
+\bottomrule
+\end{tabularx}
+\caption{The master spine (Figure~\ref{fig:spine}) mapped to implemented owners and
+their durable outputs. Each stage has one owner and one persistence point.}
+\label{tab:spine}
+\end{table}
+
+Two properties of the mapping matter. First, the \emph{evidence gate} is a single
+role --- the Reviewer --- not a hardcoded check (Section~\ref{sec:rolesplanes}); the
+authoritative record of a verified achievement is exactly one event on the tape,
+\code{research.achievement.certified} (Section~\ref{sec:evidence}). Second,
+\emph{runtime evolution} is not one mechanism but several, and the report is
+careful not to flatten them into a single arrow.
+
+\subsection{Runtime evolution has four distinct owners}
+
+The spine's runtime-evolution step --- the update
+$H(t{+}1)=U(H(t),\text{trajectory},\text{evidence})$ with the model's parameters
+held fixed --- is realized by four ownership paths, each carrying a different
+authority.
+
+\begin{description}[leftmargin=1.4em, style=nextline]
+  \item[Automatic.] Some updates are mechanical. On a matcher miss a Scientist
+    distills an immediately usable project-layer skill; after every real Reviewer
+    verdict a \emph{source} wiki RoundCard is written verbatim from the verdict; and
+    a recency memory preamble is rendered before each mission. None requires further
+    judgment (Section~\ref{sec:lifecycle}).
+  \item[Model-proposed.] The Engineer \emph{proposes} --- it drafts new skill
+    content and, at a turn boundary, emits a curated working-memory handoff. A
+    proposal is a candidate, not yet a committed change.
+  \item[Reviewer-authored.] Durable knowledge is \emph{committed} by the Reviewer,
+    the sole author of \code{skill\_ops} and \code{wiki\_ops} and the validator of
+    the canonical \code{checkpoint.json}. A synthesized wiki page is admitted only
+    when its evidence spans verify verbatim against a source
+    (Section~\ref{sec:evidence}).
+  \item[Operator-invoked.] Some evolution is human. An operator edits the machine
+    identity, exports or overwrites skills, sets configuration knobs, switches a
+    role's backend through the Manager, or leases GPUs --- explicit actions, never
+    inferred by the runtime (Section~\ref{sec:operations}).
+\end{description}
+
+Keeping these four distinct is a design commitment: the system never presents an
+automatic distillation as if a human authorized it, nor a Reviewer-certified skill
+as if it were an unchecked model suggestion. Authority over the runtime is always
+attributable.
