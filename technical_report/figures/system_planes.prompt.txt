@@ -1,6 +1,6 @@
 Argus Technical Report figure prompt - Three Planes
 Prompt template: argus-precision-atlas-v2 (Blue-Gold)
-Prompt source spec: docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md
+Prompt source spec: docs/superpowers/specs/2026-07-15-ai-redraw-structural-report-figures-design.md
 Figure id: system-planes   Generator: gpt-image-2   Output: technical_report/figures/system_planes.png (1536x1024 PNG)
 
 Purpose: explain implementation ownership across the three planes of the

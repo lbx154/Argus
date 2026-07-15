@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Content-contract, OCR, and validation for the eight AI-redrawn report figures.
+"""Content-contract, OCR, and validation for the six AI-redrawn structural figures.
 
 This module defines the exact per-figure semantic contracts approved in
-``docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md``
-and validates already-generated figures against them. It intentionally does
-**not** draw, render, or generate any image: it only reads committed PNG
-bytes and their sidecar evidence files (prompt, generation sidecar, inspect,
-provenance, review, content-review, and OCR sidecars) and reports pass/fail.
+``docs/superpowers/specs/2026-07-15-ai-redraw-structural-report-figures-design.md``
+and validates already-generated figures against them. It covers only the six
+structural/concept figures that are regenerated with an image model; the two
+data figures (``public_results``, ``paper_portfolio``) remain deterministically
+drawn and are validated by ``build_report_figures.py`` and the deterministic
+figure tests, not here. It intentionally does **not** draw, render, or generate
+any image: it only reads committed PNG bytes and their sidecar evidence files
+(prompt, generation sidecar, inspect, provenance, review, content-review, and
+OCR sidecars) and reports pass/fail.
 
 Public surface:
 
-- ``FIGURE_CONTRACTS``: the exact eight figure contracts, keyed by stem.
+- ``FIGURE_CONTRACTS``: the exact six structural figure contracts, keyed by
+  stem.
 - ``normalize_ocr(text)``: whitespace + multiplication/dash Unicode
   normalization only. Digits and decimal points are never altered.
 - ``normalize_ocr_for_matching(text)``: a *separate*, more tolerant
@@ -23,7 +28,7 @@ Public surface:
 - ``run_tesseract(image)``: runs Tesseract with ``--psm 6``, ``11``, and
   ``12`` and returns every raw and normalized transcript.
 - ``validate_figure(root, figure_id)``: validates one figure's dimensions,
-  sidecars, review acceptance, and OCR/data-token coverage. ``review.json``
+  sidecars, review acceptance, and OCR/label coverage. ``review.json``
   and ``content-review.json`` are parsed as the real vision-review tool's
   ``review_image(..., out=...)`` wrapper: the
   verdict JSON (``keep_or_regenerate``, ``confirmed_labels``, ...) lives
@@ -31,7 +36,7 @@ Public surface:
   ```` ```json ... ``` ````), not at the sidecar's top level. A missing,
   non-string, or malformed ``"review"`` field fails closed (recorded as an
   error; never silently treated as an accepting review).
-- ``write_validation_manifest(root)``: validates all eight figures and writes
+- ``write_validation_manifest(root)``: validates all six figures and writes
   ``technical_report/figures/AI_FIGURE_VALIDATION.json``.
 
 CLI:
@@ -49,14 +54,13 @@ import re
 import struct
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 FIGURES_DIR_NAME = "technical_report/figures"
-EVIDENCE_DIR_NAME = "technical_report/evidence"
 
 TESSERACT_BIN = "tesseract"
 PSM_MODES: tuple[int, ...] = (6, 11, 12)
@@ -64,12 +68,10 @@ PSM_MODES: tuple[int, ...] = (6, 11, 12)
 REQUIRED_WIDTH = 1536
 REQUIRED_HEIGHT = 1024
 
-# Sidecar suffixes required for every one of the eight figures. Per the
-# approved Generation Workflow, every figure gets a second independent
-# exact-content vision review (``content-review.json``); data figures
-# additionally hold that review to a stricter numeric/source standard (see
-# ``validate_figure``), but the sidecar itself is not data-figure-only.
-# Order matters only for readability; the CLI/tests treat this as a set.
+# Sidecar suffixes required for every one of the six structural figures. Per
+# the approved Generation Workflow, every structural figure gets a second
+# independent exact-content vision review (``content-review.json``). Order
+# matters only for readability; the CLI/tests treat this as a set.
 _COMMON_SIDECAR_SUFFIXES: tuple[str, ...] = (
     "prompt.txt",
     "png.json",
@@ -80,7 +82,6 @@ _COMMON_SIDECAR_SUFFIXES: tuple[str, ...] = (
     "ocr.txt",
     "ocr.json",
 )
-_DATA_FIGURE_SIDECAR_SUFFIXES: tuple[str, ...] = _COMMON_SIDECAR_SUFFIXES
 
 # Unicode code points that Tesseract (or a font) may render in place of a
 # plain multiplication sign. Normalized to ascii "x" so contract tokens and
@@ -237,20 +238,15 @@ def _extract_review_verdict(
 
 @dataclass(frozen=True)
 class FigureContract:
-    """The exact content contract for one of the eight visible figures."""
+    """The exact content contract for one of the six structural figures."""
 
     stem: str
     figure_id: str
     title: str
-    data_figure: bool
     required_labels: tuple[str, ...]
-    status_counts: dict[str, int] | None = None
-    source_evidence: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def sidecar_suffixes(self) -> tuple[str, ...]:
-        if self.data_figure:
-            return _DATA_FIGURE_SIDECAR_SUFFIXES
         return _COMMON_SIDECAR_SUFFIXES
 
 
@@ -258,16 +254,17 @@ def _contract(**kwargs: Any) -> FigureContract:
     return FigureContract(**kwargs)
 
 
-# The exact eight visible figures from the approved design spec, in the order
+# The exact six structural figures from the approved design spec, in the order
 # they are enumerated there. Keys are the snake_case file stem (matching
 # "<stem>.png"); ``figure_id`` is the kebab-case id used in provenance
-# manifests such as IMAGE2_FIGURES.json.
+# manifests such as IMAGE2_FIGURES.json. The two data figures
+# (public_results, paper_portfolio) are intentionally absent: they remain
+# deterministically drawn and are validated elsewhere.
 FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "master_spine": _contract(
         stem="master_spine",
         figure_id="master-spine",
         title="Master Spine",
-        data_figure=False,
         required_labels=(
             "Every run expands the frontier.",
             "Unknown objective",
@@ -293,7 +290,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
         stem="dense_intelligence",
         figure_id="dense-intelligence",
         title="Dense Intelligence",
-        data_figure=False,
         required_labels=(
             "Dense Intelligence",
             "Episodic research",
@@ -309,7 +305,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
         stem="system_planes",
         figure_id="system-planes",
         title="Three Planes",
-        data_figure=False,
         required_labels=(
             "Control Plane",
             "Execution Plane",
@@ -332,7 +327,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
         stem="argus_architecture",
         figure_id="argus-architecture",
         title="Argus Architecture",
-        data_figure=False,
         required_labels=(
             "Argus",
             "Operator objective",
@@ -350,7 +344,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
         stem="mission_lifecycle",
         figure_id="mission-lifecycle",
         title="Mission Lifecycle",
-        data_figure=False,
         required_labels=(
             "Claim backlog item",
             "pending \u2192 running",
@@ -372,7 +365,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
         stem="long_horizon_reliability",
         figure_id="long-horizon-reliability",
         title="Long-Horizon Reliability",
-        data_figure=False,
         required_labels=(
             "Argus long-horizon cycle",
             "Planner",
@@ -391,58 +383,6 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
             "Artifacts",
             "Process liveness",
         ),
-    ),
-    "public_results": _contract(
-        stem="public_results",
-        figure_id="public-results",
-        title="Public Results",
-        data_figure=True,
-        required_labels=(
-            "NVIDIA SOL-ExecBench",
-            "Global #6",
-            "2\u00d7 #1",
-            "7 top-3",
-            "nanochat \u00b7 B200",
-            "0.9636 BPB",
-            "Human SOTA 0.9646",
-            "nanochat \u00b7 H100",
-            "0.9855 BPB",
-            "Human SOTA 0.9879",
-            "nanoGPT speedrun",
-            "79.77 s",
-            "Human #83 80.18 s",
-            "AARRI-Bench",
-            "63/82",
-            "76.8%",
-            "Paper best 68.3%",
-            "Arbor \u00b7 RUC NLPIR",
-            "28.0 gap",
-            "Arbor 20.83",
-            "Claude Code 8.33",
-            "Codex 6.25",
-        ),
-        status_counts={"artifact digest": 2, "website snapshot": 4},
-        source_evidence=(f"{EVIDENCE_DIR_NAME}/website_results.json",),
-    ),
-    "paper_portfolio": _contract(
-        stem="paper_portfolio",
-        figure_id="paper-portfolio",
-        title="Paper Portfolio",
-        data_figure=True,
-        required_labels=(
-            "Research Portfolio",
-            "41 papers",
-            "35 manuscripts",
-            "6 drafts",
-            "Multimodal & Vision-Language Models 16",
-            "Cognitive Bias in LLMs 9",
-            "Efficiency, Compression & Decoding 7",
-            "LLM Agent Methods 5",
-            "World Models 2",
-            "State Trace & Auditability 2",
-            "output inventory \u00b7 not accepted papers",
-        ),
-        source_evidence=(f"{EVIDENCE_DIR_NAME}/paper_inventory.json",),
     ),
 }
 
@@ -619,7 +559,6 @@ def validate_figure(
     result: dict[str, Any] = {
         "stem": stem,
         "figure_id": contract.figure_id,
-        "data_figure": contract.data_figure,
         "image_path": str(image_path),
     }
 
@@ -659,10 +598,8 @@ def validate_figure(
             f"{review.get('keep_or_regenerate')!r})"
         )
 
-    # Every figure -- concept or data -- gets a second independent
-    # exact-content vision review; it must independently accept the figure.
-    # Data figures additionally hold that review to a stricter
-    # numeric/source standard (zero unresolved numeric mismatches).
+    # Every structural figure gets a second independent exact-content vision
+    # review; it must independently accept the figure.
     content_review_wrapper = sidecar_json.get("content-review.json")
     content_review = _extract_review_verdict(
         content_review_wrapper, "content-review.json", errors
@@ -673,13 +610,6 @@ def validate_figure(
                 "content-review.json does not accept the figure "
                 f"(keep_or_regenerate={content_review.get('keep_or_regenerate')!r})"
             )
-        if contract.data_figure:
-            unresolved = content_review.get("unresolved_numeric_mismatches") or []
-            if unresolved:
-                errors.append(
-                    "content-review.json reports unresolved numeric mismatches: "
-                    f"{unresolved}"
-                )
 
     ocr_result = ocr_runner(image_path)
     combined_normalized = ocr_result.get("combined_normalized", "")
@@ -706,9 +636,9 @@ def validate_figure(
         raw_per_psm = [combined_normalized]
     per_psm_matching = [normalize_ocr_for_matching(text) for text in raw_per_psm]
 
-    # A required label absent from OCR may still pass for concept figures,
-    # but only when BOTH independent vision reviews confirm it -- one review
-    # confirming it alone (in either sidecar) must never bypass OCR.
+    # A required label absent from OCR may still pass, but only when BOTH
+    # independent vision reviews confirm it -- one review confirming it alone
+    # (in either sidecar) must never bypass OCR.
     review_confirmed = {
         normalize_ocr(label)
         for label in (review.get("confirmed_labels") or [])
@@ -727,16 +657,14 @@ def validate_figure(
             continue
 
         # Separator-tolerant fallback: OCR may have lost or substituted a
-        # "\u00b7" between two label halves (e.g. "nanochat \u00b7 B200"
-        # OCR-reading as "nanochat B200"). This never widens digit/decimal/
-        # percent/slash/sign matching (``normalize_ocr_for_matching`` never
-        # touches those), applies to data figures too (unlike the concept-
-        # only vision bypass below), but only counts as found when BOTH
-        # independent vision reviews confirm the label's EXACT original
-        # spelling/glyph (matched via the strict, non-tolerant
-        # ``normalize_ocr``) -- a data label whose words/numbers are wholly
-        # absent from OCR can never be rescued by vision alone, because the
-        # tolerant text still would not contain it.
+        # "\u00b7" between two label halves (e.g. "Backlog \u00b7 continuous"
+        # OCR-reading as "Backlog continuous"). This never widens digit/
+        # decimal/percent/slash/sign matching (``normalize_ocr_for_matching``
+        # never touches those), but only counts as found when BOTH independent
+        # vision reviews confirm the label's EXACT original spelling/glyph
+        # (matched via the strict, non-tolerant ``normalize_ocr``) -- a label
+        # whose words/numbers are wholly absent from OCR can never be rescued
+        # by vision alone, because the tolerant text still would not contain it.
         matching_label = normalize_ocr_for_matching(label)
         found_via_separator_tolerant_ocr = matching_label != normalized_label and any(
             matching_label in text for text in per_psm_matching
@@ -744,34 +672,15 @@ def validate_figure(
         if found_via_separator_tolerant_ocr and normalized_label in normalized_confirmed:
             continue
 
-        if not contract.data_figure and normalized_label in normalized_confirmed:
+        if normalized_label in normalized_confirmed:
             continue
         missing_labels.append(label)
 
     if missing_labels:
-        if contract.data_figure:
-            errors.append(
-                "required data tokens missing from OCR evidence: "
-                + ", ".join(missing_labels)
-            )
-        else:
-            errors.append(
-                "required labels missing from OCR evidence and vision "
-                "review confirmation: " + ", ".join(missing_labels)
-            )
-
-    status_count_errors: list[str] = []
-    if contract.status_counts:
-        for label, expected_count in contract.status_counts.items():
-            normalized_label = normalize_ocr(label)
-            counts = [text.count(normalized_label) for text in per_psm_normalized]
-            if expected_count not in counts:
-                status_count_errors.append(
-                    f"{label!r} expected {expected_count}x, found {counts} "
-                    "across psm modes"
-                )
-    if status_count_errors:
-        errors.append("status label count mismatch: " + "; ".join(status_count_errors))
+        errors.append(
+            "required labels missing from OCR evidence and vision "
+            "review confirmation: " + ", ".join(missing_labels)
+        )
 
     result["ocr"] = {
         "psm_modes": ocr_result.get("psm_modes", list(PSM_MODES)),
@@ -787,7 +696,7 @@ def validate_figure(
 def write_validation_manifest(
     root: Path, *, ocr_runner: OcrRunner = run_tesseract
 ) -> dict[str, Any]:
-    """Validate all eight figures and write ``AI_FIGURE_VALIDATION.json``."""
+    """Validate all six figures and write ``AI_FIGURE_VALIDATION.json``."""
     root = Path(root)
     figures = [
         validate_figure(root, stem, ocr_runner=ocr_runner)
@@ -878,9 +787,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="validate_ai_figures",
         description=(
-            "Content-contract, OCR, and validation for the eight AI-redrawn "
-            "report figures. Reads committed PNG/sidecar evidence only; "
-            "never draws or generates images."
+            "Content-contract, OCR, and validation for the six AI-redrawn "
+            "structural report figures. Reads committed PNG/sidecar evidence "
+            "only; never draws or generates images."
         ),
     )
     parser.add_argument(
@@ -904,7 +813,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     validate_parser.set_defaults(handler=_cmd_validate)
 
     validate_all_parser = subparsers.add_parser(
-        "validate-all", help="Validate all eight figures."
+        "validate-all", help="Validate all six structural figures."
     )
     validate_all_parser.add_argument(
         "--write-manifest",

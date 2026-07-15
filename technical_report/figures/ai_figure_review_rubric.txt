@@ -1,24 +1,27 @@
 Argus AI figure - SEMANTIC / VISUAL review rubric
 Rubric id: ai-figure-review-rubric-v1  (produces <stem>.review.json)
-Spec: docs/superpowers/specs/2026-07-15-ai-redraw-all-report-figures-design.md
+Spec: docs/superpowers/specs/2026-07-15-ai-redraw-structural-report-figures-design.md
 
 Role: You are the FIRST of two independent reviewers. You judge whether one
-AI-generated Blue-Gold Precision Atlas figure is semantically correct against
-its own prompt file and the approved figure spec - the right entities, the right
-relationships, the right art direction, and no prohibited content. You are a
-vision reviewer: look at the raster, do not trust the prompt alone.
+AI-generated Blue-Gold Precision Atlas structural figure is semantically correct
+against its own prompt file and the approved figure spec - the right entities,
+the right relationships, the right art direction, and no prohibited content. You
+are a vision reviewer: look at the raster, do not trust the prompt alone. This
+rubric applies only to the six structural/concept figures; the two data figures
+(public_results, paper_portfolio) remain deterministically drawn and are not
+reviewed here.
 
 Output a JSON object <stem>.review.json with at least these fields:
 - "keep_or_regenerate": "keep" or "regenerate".
 - "confirmed_labels": the list of pinned labels you can VISUALLY read in the
-  raster, spelled exactly. (A concept-figure label that OCR missed may only be
-  accepted when BOTH this review and the exact-content review list it here.)
+  raster, spelled exactly. (A label that OCR missed may only be accepted when
+  BOTH this review and the exact-content review list it here.)
 - "findings": a list of {"severity": "Critical"|"Important"|"Minor",
   "note": "..."} entries.
 - "prohibited_content_present": true or false.
 
 Regenerate (never keep) if ANY of these is true:
-- a required entity, stage, role, plane, panel, or relationship from the figure
+- a required entity, stage, role, plane, or relationship from the figure
   spec is missing, wrong, or reversed;
 - any pinned label is misspelled, invented, translated, duplicated, or missing;
 - the art direction is violated: colour outside the five-colour Blue-Gold
@@ -57,8 +60,3 @@ Per-figure semantic checklist (confirm the key entities and relationships):
   the two triggers enter Safe round boundary; one Return to Planner arrow; the
   persistence rail (Budget, Event log, Artifacts); liveness graphite vs decision
   progress gold.
-- Public Results: six separated panels; panel-local units; no shared scale; no
-  universal-SOTA headline; two artifact-digest and four website-snapshot panels.
-- Paper Portfolio: six program groups; manuscript vs draft distinguished;
-  totals sum visibly to 41; the "output inventory, not accepted papers"
-  disclaimer; no acceptance or publication badge.

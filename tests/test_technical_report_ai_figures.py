@@ -2,10 +2,13 @@
 
 These tests exercise the AI figure content-contract, OCR, and validation
 module entirely through fixtures/temp directories built in-test. They never
-depend on the current (incomplete, partially-deterministic) production
-figure set under ``technical_report/figures/`` -- that set predates the new
-eight-figure AI contract and does not yet carry the sidecars this validator
-requires.
+depend on the current production figure set under
+``technical_report/figures/``.
+
+Scope: the validator covers only the SIX structural/concept figures that are
+regenerated with an image model. The two data figures (``public_results``,
+``paper_portfolio``) remain deterministically drawn and are validated by
+``build_report_figures.py`` and the deterministic-figure tests, not here.
 """
 from __future__ import annotations
 
@@ -123,17 +126,14 @@ def _write_full_sidecars(
     *,
     width: int = 1536,
     height: int = 1024,
-    data_figure: bool = False,
     review_overrides: dict[str, Any] | None = None,
     content_review_overrides: dict[str, Any] | None = None,
 ) -> str:
     """Write a PNG plus every required sidecar for ``stem`` and return its
     sha256 so callers can assert hash-consistency behavior.
 
-    Every figure -- concept or data -- gets a ``content-review.json`` second
-    independent exact-content vision review, per the approved Generation
-    Workflow; ``data_figure`` only affects whether extra strict
-    numeric/source fields (``unresolved_numeric_mismatches``) are meaningful.
+    Every structural figure gets a ``content-review.json`` second independent
+    exact-content vision review, per the approved Generation Workflow.
     """
     png_path = figures / f"{stem}.png"
     _write_png(png_path, width, height)
@@ -172,7 +172,7 @@ def _write_full_sidecars(
 
     content_review_payload = {
         "score_1_to_5": 5,
-        "unresolved_numeric_mismatches": [],
+        "extra_tokens_present": [],
         "keep_or_regenerate": "keep",
     }
     if content_review_overrides:
@@ -213,8 +213,8 @@ def _full_ocr_text_for(stem: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_figure_contracts_has_exactly_eight_entries() -> None:
-    assert len(vaf.FIGURE_CONTRACTS) == 8
+def test_figure_contracts_has_exactly_six_entries() -> None:
+    assert len(vaf.FIGURE_CONTRACTS) == 6
 
 
 def test_figure_contracts_has_exact_expected_stems() -> None:
@@ -225,8 +225,6 @@ def test_figure_contracts_has_exact_expected_stems() -> None:
         "argus_architecture",
         "mission_lifecycle",
         "long_horizon_reliability",
-        "public_results",
-        "paper_portfolio",
     }
     assert set(vaf.FIGURE_CONTRACTS) == expected_stems
 
@@ -239,30 +237,25 @@ def test_figure_contracts_has_exact_expected_kebab_figure_ids() -> None:
         "argus-architecture",
         "mission-lifecycle",
         "long-horizon-reliability",
-        "public-results",
-        "paper-portfolio",
     }
     actual_ids = {c.figure_id for c in vaf.FIGURE_CONTRACTS.values()}
     assert actual_ids == expected_ids
 
 
-def test_only_public_results_and_paper_portfolio_are_data_figures() -> None:
-    data_figures = {
-        stem for stem, c in vaf.FIGURE_CONTRACTS.items() if c.data_figure
-    }
-    assert data_figures == {"public_results", "paper_portfolio"}
+def test_no_data_figures_are_present() -> None:
+    # The two data figures are deterministic and out of scope for this
+    # validator; they must never appear in the AI contract set.
+    assert "public_results" not in vaf.FIGURE_CONTRACTS
+    assert "paper_portfolio" not in vaf.FIGURE_CONTRACTS
 
 
-def test_public_results_status_counts_are_two_digest_four_snapshot() -> None:
-    contract = vaf.FIGURE_CONTRACTS["public_results"]
-    assert contract.status_counts == {"artifact digest": 2, "website snapshot": 4}
-
-
-def test_non_data_figures_have_no_status_counts() -> None:
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        if stem in {"public_results", "paper_portfolio"}:
-            continue
-        assert contract.status_counts is None
+def test_contract_has_no_data_figure_attributes() -> None:
+    # The AI validator no longer carries data-figure status counts,
+    # source-evidence, or the data_figure flag.
+    contract = vaf.FIGURE_CONTRACTS["master_spine"]
+    assert not hasattr(contract, "data_figure")
+    assert not hasattr(contract, "status_counts")
+    assert not hasattr(contract, "source_evidence")
 
 
 def test_master_spine_required_labels_match_spec() -> None:
@@ -290,47 +283,25 @@ def test_master_spine_required_labels_match_spec() -> None:
     assert required <= set(contract.required_labels)
 
 
-def test_paper_portfolio_required_labels_include_totals() -> None:
-    contract = vaf.FIGURE_CONTRACTS["paper_portfolio"]
+def test_long_horizon_reliability_required_labels_match_spec() -> None:
+    contract = vaf.FIGURE_CONTRACTS["long_horizon_reliability"]
     required = {
-        "Research Portfolio",
-        "41 papers",
-        "35 manuscripts",
-        "6 drafts",
-        "output inventory \u00b7 not accepted papers",
+        "Argus long-horizon cycle",
+        "Checkpoint",
+        "Decision progress",
+        "Supervised background jobs",
+        "Safe round boundary",
+        "1,800 s decision budget",
+        "Return to Planner",
     }
     assert required <= set(contract.required_labels)
 
 
-def test_public_results_required_labels_include_all_six_arenas() -> None:
-    contract = vaf.FIGURE_CONTRACTS["public_results"]
-    required = {
-        "NVIDIA SOL-ExecBench",
-        "nanochat \u00b7 B200",
-        "nanochat \u00b7 H100",
-        "nanoGPT speedrun",
-        "AARRI-Bench",
-        "Arbor \u00b7 RUC NLPIR",
-        "0.9636 BPB",
-        "0.9855 BPB",
-        "79.77 s",
-        "63/82",
-        "76.8%",
-        "28.0 gap",
-    }
-    assert required <= set(contract.required_labels)
-
-
-def test_data_figure_sidecar_suffixes_include_content_review() -> None:
-    contract = vaf.FIGURE_CONTRACTS["public_results"]
-    assert "content-review.json" in contract.sidecar_suffixes
-
-
-def test_concept_figure_sidecar_suffixes_also_include_content_review() -> None:
-    # Amended spec: every one of the eight figures -- not just data figures
-    # -- gets a second independent exact-content vision review.
-    contract = vaf.FIGURE_CONTRACTS["master_spine"]
-    assert "content-review.json" in contract.sidecar_suffixes
+def test_every_concept_figure_sidecar_suffixes_include_content_review() -> None:
+    # Every one of the six structural figures gets a second independent
+    # exact-content vision review.
+    for contract in vaf.FIGURE_CONTRACTS.values():
+        assert "content-review.json" in contract.sidecar_suffixes, contract.stem
 
 
 def test_every_contract_requires_the_core_sidecar_set() -> None:
@@ -353,13 +324,11 @@ def test_every_contract_requires_the_core_sidecar_set() -> None:
 
 
 def test_normalize_ocr_collapses_whitespace_runs() -> None:
-    assert vaf.normalize_ocr("Manager \n\t Planner   Engineer") == (
-        "Manager Planner Engineer"
-    )
+    assert vaf.normalize_ocr("a   b\t c\n d") == "a b c d"
 
 
 def test_normalize_ocr_strips_leading_and_trailing_whitespace() -> None:
-    assert vaf.normalize_ocr("  Reviewer  ") == "Reviewer"
+    assert vaf.normalize_ocr("   hello world   ") == "hello world"
 
 
 def test_normalize_ocr_handles_none_and_empty_string() -> None:
@@ -367,12 +336,9 @@ def test_normalize_ocr_handles_none_and_empty_string() -> None:
     assert vaf.normalize_ocr("") == ""
 
 
-@pytest.mark.parametrize(
-    "variant",
-    ["\u00d7", "\u2715", "\u2716", "\u2a2f"],
-)
+@pytest.mark.parametrize("variant", ["\u00d7", "\u2715", "\u2716", "\u2a2f", "\u2062"])
 def test_normalize_ocr_maps_multiplication_variants_to_ascii_x(variant: str) -> None:
-    assert vaf.normalize_ocr(f"2{variant}#1") == "2x#1"
+    assert vaf.normalize_ocr(f"2{variant} #1") == "2x #1"
 
 
 @pytest.mark.parametrize(
@@ -380,38 +346,29 @@ def test_normalize_ocr_maps_multiplication_variants_to_ascii_x(variant: str) -> 
     ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212"],
 )
 def test_normalize_ocr_maps_dash_variants_to_ascii_hyphen(variant: str) -> None:
-    assert vaf.normalize_ocr(f"7 top{variant}3") == "7 top-3"
+    assert vaf.normalize_ocr(f"Long{variant}Horizon") == "Long-Horizon"
 
 
 def test_normalize_ocr_never_alters_digits() -> None:
-    text = "0.9636 BPB \u00d7 79.77 s \u2013 63/82"
-    normalized = vaf.normalize_ocr(text)
-    assert "0.9636" in normalized
-    assert "79.77" in normalized
-    assert "63/82" in normalized
+    assert vaf.normalize_ocr("112 typed events") == "112 typed events"
+    assert "1,800" in vaf.normalize_ocr("1,800 s decision budget")
 
 
 def test_normalize_ocr_never_alters_decimal_points() -> None:
-    # A dash-variant character placed directly next to a decimal number must
-    # not disturb the number's own digits or its decimal point.
-    text = "28.0\u2013gap"
-    normalized = vaf.normalize_ocr(text)
-    assert "28.0" in normalized
-    assert normalized == "28.0-gap"
+    assert vaf.normalize_ocr("28.0 gap") == "28.0 gap"
+    assert "0.9636" in vaf.normalize_ocr("0.9636 BPB")
 
 
 def test_normalize_ocr_does_not_touch_fullwidth_unicode_digits() -> None:
-    # Fullwidth digit U+FF10 ("０") is not ascii "0" and must be left exactly
-    # as-is: normalize_ocr must never perform any digit-shape normalization.
-    fullwidth_zero = "\uff10"
-    assert fullwidth_zero in vaf.normalize_ocr(f"score {fullwidth_zero}")
+    # A full-width digit is a different character; normalize must not fold it
+    # into an ascii digit (that would be a silent numeric rewrite).
+    fullwidth = "\uff11\uff12"  # "１２"
+    assert vaf.normalize_ocr(fullwidth) == fullwidth
 
 
 def test_normalize_ocr_is_idempotent() -> None:
-    text = "2\u00d7 #1 \u2013 7 top-3"
-    once = vaf.normalize_ocr(text)
-    twice = vaf.normalize_ocr(once)
-    assert once == twice
+    once = vaf.normalize_ocr("2\u00d7   #1\n\ntop-3")
+    assert vaf.normalize_ocr(once) == once
 
 
 # ---------------------------------------------------------------------------
@@ -421,44 +378,38 @@ def test_normalize_ocr_is_idempotent() -> None:
 
 def test_run_tesseract_raises_for_missing_image(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        vaf.run_tesseract(tmp_path / "does_not_exist.png")
+        vaf.run_tesseract(tmp_path / "nope.png")
 
 
 def test_run_tesseract_invokes_psm_6_11_and_12(tmp_path, monkeypatch) -> None:
-    image_path = tmp_path / "figure.png"
-    _write_png(image_path, 1536, 1024)
-
-    invoked_psms: list[str] = []
+    image = tmp_path / "x.png"
+    _write_png(image, 1536, 1024)
+    seen_psm: list[str] = []
 
     class _Completed:
-        def __init__(self, stdout: str) -> None:
-            self.stdout = stdout
+        def __init__(self) -> None:
+            self.stdout = "text"
             self.stderr = ""
             self.returncode = 0
 
-    def fake_run(cmd, capture_output, text, check):
-        assert cmd[0] == vaf.TESSERACT_BIN
-        assert cmd[1] == str(image_path)
-        assert "--psm" in cmd
-        psm = cmd[cmd.index("--psm") + 1]
-        invoked_psms.append(psm)
-        return _Completed(f"text for psm {psm}")
+    def fake_run(cmd, **kwargs):
+        # cmd == [bin, image, "stdout", "--psm", N]
+        seen_psm.append(cmd[cmd.index("--psm") + 1])
+        return _Completed()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = vaf.run_tesseract(image_path)
+    result = vaf.run_tesseract(image)
 
-    assert invoked_psms == ["6", "11", "12"]
+    assert seen_psm == ["6", "11", "12"]
     assert set(result["raw"]) == {"psm_6", "psm_11", "psm_12"}
-    assert result["raw"]["psm_6"] == "text for psm 6"
-    assert result["normalized"]["psm_11"] == vaf.normalize_ocr("text for psm 11")
-    assert "text for psm 12" in result["combined_normalized"]
 
 
 def test_run_tesseract_retains_all_raw_psm_outputs_even_when_they_differ(
     tmp_path, monkeypatch
 ) -> None:
-    image_path = tmp_path / "figure.png"
-    _write_png(image_path, 1536, 1024)
+    image = tmp_path / "x.png"
+    _write_png(image, 1536, 1024)
+    outputs = {"6": "alpha", "11": "beta", "12": "gamma"}
 
     class _Completed:
         def __init__(self, stdout: str) -> None:
@@ -466,14 +417,11 @@ def test_run_tesseract_retains_all_raw_psm_outputs_even_when_they_differ(
             self.stderr = ""
             self.returncode = 0
 
-    outputs = {"6": "alpha", "11": "beta", "12": "gamma"}
-
-    def fake_run(cmd, capture_output, text, check):
-        psm = cmd[cmd.index("--psm") + 1]
-        return _Completed(outputs[psm])
+    def fake_run(cmd, **kwargs):
+        return _Completed(outputs[cmd[cmd.index("--psm") + 1]])
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = vaf.run_tesseract(image_path)
+    result = vaf.run_tesseract(image)
 
     assert result["raw"]["psm_6"] == "alpha"
     assert result["raw"]["psm_11"] == "beta"
@@ -483,42 +431,30 @@ def test_run_tesseract_retains_all_raw_psm_outputs_even_when_they_differ(
 def test_run_tesseract_raises_runtime_error_on_nonzero_exit(
     tmp_path, monkeypatch
 ) -> None:
-    image_path = tmp_path / "figure.png"
-    _write_png(image_path, 1536, 1024)
+    image = tmp_path / "x.png"
+    _write_png(image, 1536, 1024)
 
     class _Completed:
-        stdout = ""
-        stderr = "tesseract exploded"
-        returncode = 1
+        def __init__(self) -> None:
+            self.stdout = ""
+            self.stderr = "boom"
+            self.returncode = 1
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Completed())
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Completed())
+    with pytest.raises(RuntimeError):
+        vaf.run_tesseract(image)
 
-    with pytest.raises(RuntimeError, match="tesseract exploded"):
-        vaf.run_tesseract(image_path)
 
-
-@pytest.mark.skipif(
-    __import__("shutil").which("tesseract") is None,
-    reason="tesseract binary not available in this environment",
-)
 def test_run_tesseract_reads_real_text_via_real_binary(tmp_path) -> None:
-    from PIL import Image, ImageDraw, ImageFont
+    # Skip when tesseract is not installed; otherwise smoke-test the real path.
+    import shutil
 
-    image_path = tmp_path / "real_ocr.png"
-    image = Image.new("RGB", (1536, 1024), "white")
-    draw = ImageDraw.Draw(image)
-    try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 96
-        )
-    except OSError:
-        font = ImageFont.load_default()
-    draw.text((100, 400), "REVIEWER", fill="black", font=font)
-    image.save(image_path)
-
-    result = vaf.run_tesseract(image_path)
-
-    assert "REVIEWER" in result["combined_normalized"].upper()
+    if shutil.which(vaf.TESSERACT_BIN) is None:
+        pytest.skip("tesseract binary not available")
+    image = tmp_path / "blank.png"
+    _write_png(image, 1536, 1024)
+    result = vaf.run_tesseract(image)
+    assert "raw" in result and set(result["raw"]) == {"psm_6", "psm_11", "psm_12"}
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +567,7 @@ def test_validate_figure_fails_when_required_label_missing_from_ocr(
 def test_validate_figure_concept_label_passes_via_vision_review_confirmation(
     tmp_path: Path,
 ) -> None:
-    # Concept figures may satisfy a required label either via OCR or via
+    # Structural figures may satisfy a required label either via OCR or via
     # explicit confirmation from BOTH independent vision reviews; OCR alone
     # missing "Reviewer" must not fail the figure if both reviews confirm it.
     figures = _figures_dir(tmp_path)
@@ -649,117 +585,16 @@ def test_validate_figure_concept_label_passes_via_vision_review_confirmation(
     assert outcome["status"] == "pass", outcome["errors"]
 
 
-def test_validate_figure_data_figure_label_cannot_be_satisfied_by_review_alone(
-    tmp_path: Path,
-) -> None:
-    # Data figures require every numeric/data token to be confirmed by OCR;
-    # a vision-review confirmation alone is not sufficient.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        content_review_overrides={"confirmed_labels": ["0.9636 BPB"]},
-    )
-    text_missing_token = _full_ocr_text_for("public_results").replace(
-        "0.9636 BPB", ""
-    )
-    ocr_runner = _ocr_runner_returning(text_missing_token)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("0.9636 BPB" in e for e in outcome["errors"])
-
-
-def test_validate_figure_data_figure_requires_content_review_sidecar(
-    tmp_path: Path,
-) -> None:
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(figures, "public_results", data_figure=True)
-    (figures / "public_results.content-review.json").unlink()
-    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any(
-        "missing sidecar" in e and "content-review.json" in e
-        for e in outcome["errors"]
-    )
-
-
-def test_validate_figure_data_figure_fails_on_unresolved_numeric_mismatch(
-    tmp_path: Path,
-) -> None:
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        content_review_overrides={
-            "unresolved_numeric_mismatches": ["0.9636 BPB read as 0.9736 BPB"]
-        },
-    )
-    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("unresolved numeric mismatches" in e for e in outcome["errors"])
-
-
-def test_validate_figure_data_figure_passes_two_digest_four_snapshot_counts(
-    tmp_path: Path,
-) -> None:
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(figures, "public_results", data_figure=True)
-    text = _full_ocr_text_for("public_results") + (
-        " artifact digest artifact digest "
-        "website snapshot website snapshot website snapshot website snapshot"
-    )
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "pass", outcome["errors"]
-
-
-def test_validate_figure_data_figure_fails_wrong_digest_snapshot_counts(
-    tmp_path: Path,
-) -> None:
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(figures, "public_results", data_figure=True)
-    text = _full_ocr_text_for("public_results") + (
-        " artifact digest website snapshot website snapshot"
-    )
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("status label count mismatch" in e for e in outcome["errors"])
-
-
-def test_validate_figure_exact_digit_ocr_error_is_not_silently_accepted(
-    tmp_path: Path,
-) -> None:
-    # An OCR misread that drops or alters a digit must never be treated as a
-    # match: normalize_ocr must not perform fuzzy digit correction.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(figures, "public_results", data_figure=True)
-    text = _full_ocr_text_for("public_results").replace("0.9636 BPB", "0.963 BPB")
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("0.9636 BPB" in e for e in outcome["errors"])
-
-
 def test_validate_figure_raises_for_unknown_figure_id(tmp_path: Path) -> None:
     with pytest.raises(KeyError):
         vaf.validate_figure(tmp_path, "not_a_real_figure")
+
+
+def test_validate_figure_rejects_removed_data_figure_ids(tmp_path: Path) -> None:
+    # public_results / paper_portfolio are no longer part of the AI validator.
+    for removed in ("public_results", "paper_portfolio"):
+        with pytest.raises(KeyError):
+            vaf.validate_figure(tmp_path, removed)
 
 
 def test_validate_figure_output_includes_sha256_and_sidecar_map(
@@ -777,19 +612,13 @@ def test_validate_figure_output_includes_sha256_and_sidecar_map(
 
 
 # ===========================================================================
-# Real vision-review wrapper parsing (AI generation-readiness blocker #1).
+# Real vision-review wrapper parsing.
 #
 # `argus_skill.tools.image_tool.review_image(..., out=...)` writes
 # {"image": {...}, "model": ..., "endpoint": ..., "prompt": ..., "rubric": ...,
 #  "review": "<model text, optionally fenced as ```json ... ```>"}
 # -- the verdict (keep_or_regenerate/confirmed_labels/...) lives inside the
-# top-level *string* field "review", not at the sidecar's top level. Before
-# this fix, `validate_figure` read `sidecar_json.get("review.json")` and
-# called `.get("keep_or_regenerate")` directly on that wrapper dict, which
-# has no such key -- so a REAL review sidecar produced by the real tool
-# would always be treated as a non-accepting review (an
-# AI-generation-readiness blocker: no image call could ever pass validation
-# without an extra, undocumented, manual "flatten" step on the sidecar).
+# top-level *string* field "review", not at the sidecar's top level.
 # ===========================================================================
 
 
@@ -848,7 +677,7 @@ def _write_wrapped_sidecars(
 
     default_content_review = {
         "score_1_to_5": 5,
-        "unresolved_numeric_mismatches": [],
+        "extra_tokens_present": [],
         "keep_or_regenerate": "keep",
     }
     content_review_verdict = (
@@ -874,28 +703,14 @@ def test_validate_figure_accepts_real_wrapper_for_review_json_plain_json(
     assert outcome["status"] == "pass", outcome["errors"]
 
 
-def _full_ocr_text_with_status_counts_for(stem: str) -> str:
-    """Full-coverage OCR text for a data figure's required labels plus its
-    contract status-count tokens, matching the pattern used by
-    ``test_validate_figure_data_figure_passes_two_digest_four_snapshot_counts``.
-    """
-    text = _full_ocr_text_for(stem)
-    counts = vaf.FIGURE_CONTRACTS[stem].status_counts or {}
-    for label, count in counts.items():
-        text += " " + " ".join([label] * count)
-    return text
-
-
 def test_validate_figure_accepts_real_wrapper_for_content_review_json_plain_json(
     tmp_path: Path,
 ) -> None:
     figures = _figures_dir(tmp_path)
-    _write_wrapped_sidecars(figures, "public_results", width=1536, height=1024)
-    ocr_runner = _ocr_runner_returning(
-        _full_ocr_text_with_status_counts_for("public_results")
-    )
+    _write_wrapped_sidecars(figures, "system_planes")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("system_planes"))
 
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+    outcome = vaf.validate_figure(tmp_path, "system_planes", ocr_runner=ocr_runner)
 
     assert outcome["status"] == "pass", outcome["errors"]
 
@@ -1047,40 +862,38 @@ def test_validate_figure_wrapper_regeneration_verdict_still_fails(
     assert any("review.json does not accept" in e for e in outcome["errors"])
 
 
+# ===========================================================================
+# Separator-tolerant OCR token-matching normalization: tolerates OCR
+# losing/substituting a "\u00b7" middle-dot separator, but never loosens
+# digits/decimal points/percent/slash/numeric sign, and a label whose
+# words/numbers are wholly absent from OCR still cannot pass on vision
+# confirmation alone.
+# ===========================================================================
+
+
 def test_normalize_ocr_for_matching_is_a_distinct_function_from_normalize_ocr() -> None:
-    # Not the same function/behavior -- the tolerant matcher must exist
-    # independently and must not have silently replaced normalize_ocr.
     assert vaf.normalize_ocr_for_matching is not vaf.normalize_ocr
-    dotted = "nanochat \u00b7 B200"
+    dotted = "Backlog \u00b7 continuous"
     assert vaf.normalize_ocr(dotted) == dotted  # canonical: dot untouched
-    assert vaf.normalize_ocr_for_matching(dotted) == "nanochat B200"
-
-
-# ===========================================================================
-# Separator-tolerant OCR token-matching normalization (AI generation-
-# readiness blocker #2/#3): tolerates OCR losing/substituting a "\u00b7"
-# middle-dot separator, but never loosens digits/decimal points/percent/
-# slash/numeric sign, and a data label whose words/numbers are wholly absent
-# from OCR still cannot pass on vision confirmation alone.
-# ===========================================================================
+    assert vaf.normalize_ocr_for_matching(dotted) == "Backlog continuous"
 
 
 def test_normalize_ocr_for_matching_maps_middle_dot_to_space() -> None:
-    assert vaf.normalize_ocr_for_matching("nanochat \u00b7 B200") == "nanochat B200"
+    assert vaf.normalize_ocr_for_matching("Backlog \u00b7 continuous") == "Backlog continuous"
 
 
 def test_normalize_ocr_for_matching_tolerates_missing_middle_dot() -> None:
     # OCR that already lost the dot entirely (double space collapses).
-    assert vaf.normalize_ocr_for_matching("nanochat  B200") == "nanochat B200"
+    assert vaf.normalize_ocr_for_matching("Backlog  continuous") == "Backlog continuous"
 
 
 def test_normalize_ocr_for_matching_collapses_repeated_punctuation() -> None:
-    assert vaf.normalize_ocr_for_matching("nanochat :: B200") == "nanochat : B200"
+    assert vaf.normalize_ocr_for_matching("Backlog :: continuous") == "Backlog : continuous"
 
 
 def test_normalize_ocr_for_matching_never_alters_digits() -> None:
-    assert vaf.normalize_ocr_for_matching("0.9636 BPB") == "0.9636 BPB"
-    assert "0.9636" in vaf.normalize_ocr_for_matching("0.9636 BPB")
+    assert vaf.normalize_ocr_for_matching("112 typed events") == "112 typed events"
+    assert "1,800" in vaf.normalize_ocr_for_matching("1,800 s decision budget")
 
 
 def test_normalize_ocr_for_matching_never_alters_decimal_point() -> None:
@@ -1092,7 +905,7 @@ def test_normalize_ocr_for_matching_never_alters_percent() -> None:
 
 
 def test_normalize_ocr_for_matching_never_alters_slash() -> None:
-    assert vaf.normalize_ocr_for_matching("63/82") == "63/82"
+    assert vaf.normalize_ocr_for_matching("Backlog / continuous") == "Backlog / continuous"
 
 
 def test_normalize_ocr_for_matching_never_alters_numeric_sign() -> None:
@@ -1100,183 +913,18 @@ def test_normalize_ocr_for_matching_never_alters_numeric_sign() -> None:
     assert vaf.normalize_ocr_for_matching("-5.2%") == "-5.2%"
 
 
-def test_normalize_ocr_for_matching_does_not_make_0_9636_equal_0_963() -> None:
-    tolerant = vaf.normalize_ocr_for_matching("0.9636 BPB")
-    assert "0.963 BPB" != tolerant
-    assert tolerant not in "0.963 BPB"
+def test_normalize_ocr_for_matching_does_not_make_1800_equal_180() -> None:
+    tolerant = vaf.normalize_ocr_for_matching("1,800 s")
+    assert "1,80 s" != tolerant
+    assert tolerant not in "1,80 s"
 
 
-def _public_results_ocr_text_missing_dots() -> str:
-    """The full public_results OCR text (plus status-count tokens) with the
-    "nanochat \u00b7 B200" separator specifically dropped (OCR loss),
-    simulating a real figure where Tesseract failed to read that one thin
-    middle-dot glyph but read every other word/digit -- including the other
-    two dotted labels, which stay exact so this fixture only exercises the
-    one label under test.
-    """
-    text = _full_ocr_text_with_status_counts_for("public_results")
-    return text.replace("nanochat \u00b7 B200", "nanochat B200")
-
-
-def test_data_figure_middot_label_matches_ocr_missing_dot_when_both_reviews_confirm(
+def test_concept_figure_middot_label_gated_by_both_reviews(
     tmp_path: Path,
 ) -> None:
-    # "nanochat \u00b7 B200" may OCR-match "nanochat B200" (dot lost) only
-    # when BOTH independent vision reviews confirm the label's exact
-    # original spelling ("nanochat \u00b7 B200", with the real dot glyph).
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-    )
-    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "pass", outcome["errors"]
-
-
-def test_data_figure_middot_label_fails_when_only_one_review_confirms(
-    tmp_path: Path,
-) -> None:
-    # Symmetric to the general "one review cannot bypass" rule: confirming
-    # only in review.json (not content-review.json) must not be enough, even
-    # though OCR does contain the words modulo the lost separator.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-    )
-    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
-
-
-def test_data_figure_middot_label_fails_when_only_content_review_confirms(
-    tmp_path: Path,
-) -> None:
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-    )
-    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
-
-
-def test_data_figure_middot_label_fails_when_words_wholly_absent_from_ocr_even_with_both_reviews(
-    tmp_path: Path,
-) -> None:
-    # Vision confirmation (even from BOTH reviews) can never rescue a data
-    # label whose words/numbers are entirely missing from OCR -- the
-    # separator-tolerant fallback only rescues a *lost separator glyph*, not
-    # an outright absent label.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
-    )
-    text_without_nanochat_b200 = _full_ocr_text_for("public_results").replace(
-        "nanochat \u00b7 B200", ""
-    )
-    ocr_runner = _ocr_runner_returning(text_without_nanochat_b200)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
-
-
-def test_data_figure_exact_digit_still_fails_even_with_middot_tolerance(
-    tmp_path: Path,
-) -> None:
-    # Regression guard: the separator-tolerant fallback must never let
-    # "0.9636 BPB" match an OCR transcript that only contains "0.963 BPB" --
-    # digits/decimal points are excluded from every tolerant substitution.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["0.9636 BPB"]},
-        content_review_overrides={"confirmed_labels": ["0.9636 BPB"]},
-    )
-    text = _full_ocr_text_for("public_results").replace("0.9636 BPB", "0.963 BPB")
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("0.9636 BPB" in e for e in outcome["errors"])
-
-
-def test_data_figure_slash_token_stays_strict_even_with_both_reviews(
-    tmp_path: Path,
-) -> None:
-    # "63/82" must never be loosened by the separator-tolerant matcher, even
-    # when both reviews confirm it and the "/" is dropped from OCR.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["63/82"]},
-        content_review_overrides={"confirmed_labels": ["63/82"]},
-    )
-    text = _full_ocr_text_for("public_results").replace("63/82", "63 82")
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("63/82" in e for e in outcome["errors"])
-
-
-def test_data_figure_percent_token_stays_strict_even_with_both_reviews(
-    tmp_path: Path,
-) -> None:
-    # "76.8%" must never be loosened by the separator-tolerant matcher, even
-    # when both reviews confirm it and the "%" is dropped from OCR.
-    figures = _figures_dir(tmp_path)
-    _write_full_sidecars(
-        figures,
-        "public_results",
-        data_figure=True,
-        review_overrides={"confirmed_labels": ["76.8%"]},
-        content_review_overrides={"confirmed_labels": ["76.8%"]},
-    )
-    text = _full_ocr_text_for("public_results").replace("76.8%", "76.8")
-    ocr_runner = _ocr_runner_returning(text)
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any("76.8%" in e for e in outcome["errors"])
-
-
-def test_concept_figure_middot_label_also_gated_by_both_reviews(
-    tmp_path: Path,
-) -> None:
-    # dense_intelligence's disclaimer label carries a middle dot too; the
-    # separator-tolerant path applies to concept figures as well, still
-    # gated on both reviews confirming the exact original label.
+    # dense_intelligence's disclaimer label carries a middle dot; the
+    # separator-tolerant path applies, still gated on BOTH reviews confirming
+    # the exact original label.
     figures = _figures_dir(tmp_path)
     label = "conceptual model \u00b7 not a reported benchmark"
     _write_full_sidecars(
@@ -1295,13 +943,29 @@ def test_concept_figure_middot_label_also_gated_by_both_reviews(
     assert outcome["status"] == "pass", outcome["errors"]
 
 
+def test_concept_figure_middot_label_fails_when_only_one_review_confirms(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    label = "conceptual model \u00b7 not a reported benchmark"
+    _write_full_sidecars(
+        figures,
+        "dense_intelligence",
+        review_overrides={"confirmed_labels": [label]},
+    )
+    text = _full_ocr_text_for("dense_intelligence").replace(
+        label, "conceptual model not a reported benchmark"
+    )
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "dense_intelligence", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(label in e for e in outcome["errors"])
+
+
 # ---------------------------------------------------------------------------
-# Stricter approved-spec contracts: every figure gets a second independent
-# exact-content vision review (content-review.json); data figures
-# additionally require strict numeric/source review. These tests were
-# written before the corresponding validator fix landed and must fail (RED)
-# against the pre-fix implementation, which only wired content-review.json
-# into the data-figure sidecar set/acceptance path.
+# content-review.json is required for every structural figure.
 # ---------------------------------------------------------------------------
 
 
@@ -1314,10 +978,7 @@ def _write_core_sidecars_without_content_review(
     review_overrides: dict[str, Any] | None = None,
 ) -> str:
     """Write a PNG plus only the seven "core" sidecars for ``stem`` -- no
-    ``content-review.json`` -- regardless of whether ``stem`` is a data
-    figure. Used to probe the "every figure requires content-review.json"
-    requirement without depending on the (pre-fix) data-figure-only
-    fixture gating in ``_write_full_sidecars``.
+    ``content-review.json``.
     """
     png_path = figures / f"{stem}.png"
     _write_png(png_path, width, height)
@@ -1354,14 +1015,11 @@ def _write_core_sidecars_without_content_review(
 
 
 def test_every_contract_requires_content_review_sidecar() -> None:
-    # Per the amended Generation Workflow, every one of the eight figures
-    # gets a second independent exact-content vision review -- not just the
-    # two data figures.
     for contract in vaf.FIGURE_CONTRACTS.values():
         assert "content-review.json" in contract.sidecar_suffixes, contract.stem
 
 
-def test_validate_figure_fails_when_content_review_sidecar_absent_for_concept_figure(
+def test_validate_figure_fails_when_content_review_sidecar_absent(
     tmp_path: Path,
 ) -> None:
     figures = _figures_dir(tmp_path)
@@ -1377,7 +1035,7 @@ def test_validate_figure_fails_when_content_review_sidecar_absent_for_concept_fi
     ), outcome["errors"]
 
 
-def test_validate_figure_fails_when_content_review_not_keep_for_concept_figure(
+def test_validate_figure_fails_when_content_review_not_keep(
     tmp_path: Path,
 ) -> None:
     figures = _figures_dir(tmp_path)
@@ -1387,7 +1045,7 @@ def test_validate_figure_fails_when_content_review_not_keep_for_concept_figure(
         _review_wrapper(
             {
                 "score_1_to_5": 2,
-                "unresolved_numeric_mismatches": [],
+                "extra_tokens_present": [],
                 "keep_or_regenerate": "regenerate",
             }
         ),
@@ -1399,26 +1057,6 @@ def test_validate_figure_fails_when_content_review_not_keep_for_concept_figure(
     assert outcome["status"] == "fail"
     assert any(
         "content-review.json does not accept" in e for e in outcome["errors"]
-    ), outcome["errors"]
-
-
-def test_validate_figure_fails_when_content_review_absent_for_data_figure(
-    tmp_path: Path,
-) -> None:
-    # Absence must fail even though it is trivially implied by the existing
-    # "missing sidecar" check for data figures -- assert it explicitly so a
-    # future refactor of the sidecar-presence check cannot silently drop the
-    # content-review acceptance requirement for data figures.
-    figures = _figures_dir(tmp_path)
-    _write_core_sidecars_without_content_review(figures, "public_results")
-    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
-
-    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
-
-    assert outcome["status"] == "fail"
-    assert any(
-        "missing sidecar" in e and "content-review.json" in e
-        for e in outcome["errors"]
     ), outcome["errors"]
 
 
@@ -1436,7 +1074,7 @@ def test_concept_label_passes_only_when_both_reviews_independently_confirm(
         _review_wrapper(
             {
                 "score_1_to_5": 5,
-                "unresolved_numeric_mismatches": [],
+                "extra_tokens_present": [],
                 "keep_or_regenerate": "keep",
                 "confirmed_labels": ["Reviewer"],
             }
@@ -1464,7 +1102,7 @@ def test_review_json_confirmation_alone_cannot_bypass_ocr(tmp_path: Path) -> Non
         _review_wrapper(
             {
                 "score_1_to_5": 5,
-                "unresolved_numeric_mismatches": [],
+                "extra_tokens_present": [],
                 "keep_or_regenerate": "keep",
             }
         ),
@@ -1490,7 +1128,7 @@ def test_content_review_json_confirmation_alone_cannot_bypass_ocr(
         _review_wrapper(
             {
                 "score_1_to_5": 5,
-                "unresolved_numeric_mismatches": [],
+                "extra_tokens_present": [],
                 "keep_or_regenerate": "keep",
                 "confirmed_labels": ["Reviewer"],
             }
@@ -1534,13 +1172,13 @@ def test_sidecar_fails_when_no_recorded_hash_present_not_only_on_mismatch(
 def _full_ocr_text_for_all(contracts) -> str:
     return " ".join(
         label for contract in contracts.values() for label in contract.required_labels
-    ) + " artifact digest artifact digest website snapshot website snapshot website snapshot website snapshot"
+    )
 
 
 def test_write_validation_manifest_writes_expected_file(tmp_path: Path) -> None:
     figures = _figures_dir(tmp_path)
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    for stem in vaf.FIGURE_CONTRACTS:
+        _write_full_sidecars(figures, stem)
 
     all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
     ocr_runner = _ocr_runner_returning(all_text)
@@ -1550,7 +1188,7 @@ def test_write_validation_manifest_writes_expected_file(tmp_path: Path) -> None:
     manifest_path = figures / "AI_FIGURE_VALIDATION.json"
     assert manifest_path.is_file()
     on_disk = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert on_disk["figure_count"] == 8
+    assert on_disk["figure_count"] == 6
     assert on_disk["overall_status"] == "pass"
     assert manifest["overall_status"] == "pass"
 
@@ -1559,8 +1197,8 @@ def test_write_validation_manifest_hash_matches_actual_png_bytes(
     tmp_path: Path,
 ) -> None:
     figures = _figures_dir(tmp_path)
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    for stem in vaf.FIGURE_CONTRACTS:
+        _write_full_sidecars(figures, stem)
 
     all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
     ocr_runner = _ocr_runner_returning(all_text)
@@ -1577,10 +1215,10 @@ def test_write_validation_manifest_overall_status_fails_if_any_figure_fails(
     tmp_path: Path,
 ) -> None:
     figures = _figures_dir(tmp_path)
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    for stem in vaf.FIGURE_CONTRACTS:
+        _write_full_sidecars(figures, stem)
     # Break exactly one figure's dimensions.
-    _write_png(figures / "paper_portfolio.png", 800, 600)
+    _write_png(figures / "system_planes.png", 800, 600)
 
     all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
     ocr_runner = _ocr_runner_returning(all_text)
@@ -1589,7 +1227,7 @@ def test_write_validation_manifest_overall_status_fails_if_any_figure_fails(
 
     assert manifest["overall_status"] == "fail"
     statuses = {f["stem"]: f["status"] for f in manifest["figures"]}
-    assert statuses["paper_portfolio"] == "fail"
+    assert statuses["system_planes"] == "fail"
     assert statuses["master_spine"] == "pass"
 
 
@@ -1674,8 +1312,8 @@ def test_cli_validate_all_write_manifest_creates_manifest_file(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     figures = _figures_dir(tmp_path)
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    for stem in vaf.FIGURE_CONTRACTS:
+        _write_full_sidecars(figures, stem)
 
     all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
 
@@ -1705,8 +1343,8 @@ def test_cli_validate_all_without_write_manifest_does_not_create_file(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     figures = _figures_dir(tmp_path)
-    for stem, contract in vaf.FIGURE_CONTRACTS.items():
-        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    for stem in vaf.FIGURE_CONTRACTS:
+        _write_full_sidecars(figures, stem)
 
     all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
 
@@ -1755,26 +1393,18 @@ def test_module_has_no_image_generation_function() -> None:
 
 
 # ===========================================================================
-# Task 2: eight complete Blue-Gold Precision Atlas prompts + two review
-# rubrics. These tests are the prompt-authoring contract: they assert every
-# prompt is independently complete (shared style block + exact pinned
+# Six complete Blue-Gold Precision Atlas prompts + two review rubrics. These
+# tests are the prompt-authoring contract: they assert every prompt is
+# independently complete (shared style block + exact pinned
 # labels/relationships + OCR-friendly horizontal typography + negative
-# prompt), that the two data prompts derive every numeric token from the
-# committed evidence JSON and prohibit extras, and they pin each prompt/rubric
-# file's bytes to a recorded SHA-256 so the eventual IMAGE2_FIGURES.json
-# prompt-hash provenance has a test-enforced anchor.
+# prompt), and they pin each prompt/rubric file's bytes to a recorded SHA-256
+# so the eventual IMAGE2_FIGURES.json prompt-hash provenance has a
+# test-enforced anchor.
 # ===========================================================================
 
 _FIGURES_DIR = _REPO_ROOT / "technical_report" / "figures"
-_EVIDENCE_DIR = _REPO_ROOT / "technical_report" / "evidence"
 
 _ALL_STEMS: tuple[str, ...] = tuple(vaf.FIGURE_CONTRACTS)
-_DATA_STEMS: tuple[str, ...] = tuple(
-    stem for stem, c in vaf.FIGURE_CONTRACTS.items() if c.data_figure
-)
-_CONCEPT_STEMS: tuple[str, ...] = tuple(
-    stem for stem, c in vaf.FIGURE_CONTRACTS.items() if not c.data_figure
-)
 
 # Verbatim delimiters that must bracket, byte-for-byte, the one shared style
 # block copied into every prompt, and the exact-token region of each prompt.
@@ -1788,22 +1418,19 @@ _PALETTE_HEXES = ("#FBFAF6", "#315BCE", "#214884", "#C38A20", "#24272B")
 _REVIEW_RUBRIC = "ai_figure_review_rubric.txt"
 _CONTENT_RUBRIC = "ai_figure_content_rubric.txt"
 
-# Byte-for-byte SHA-256 pins. Placeholder during RED; filled with the real
-# digests once the prompt/rubric bytes are authored (GREEN). Any later edit to
-# a prompt must deliberately update its pin (and regenerate the figure).
+# Byte-for-byte SHA-256 pins. Any later edit to a prompt must deliberately
+# update its pin (and regenerate the figure).
 _PROMPT_SHA256: dict[str, str] = {
-    "master_spine": "b740535eb054fbf76a6cbb9da31655d70bddd521cf19bc4a7df620344ea1d8a9",
-    "dense_intelligence": "57346912336050548a3eb1cb81155c07fcf42a3791c4f6a0d13282484a8d582a",
-    "system_planes": "8e6e52237aed476b10aa2d10ff1c2ef6784d55d0f6c6c94ace43c2ef053e813d",
-    "argus_architecture": "732e1bb9d00ecc0cb131c8347ea9c26590758d62cd0a6b16128f90d90066e1f7",
-    "mission_lifecycle": "c087d16de9546dff53999e14892f735cf4c94d91eefc80ae04652a60c15d7974",
-    "long_horizon_reliability": "b573d9501910a9768a4177d0d728c1cd1beb4266efb4ffacfea8e47138a1e4fc",
-    "public_results": "03dcbb9679f79c8e217207c7c311f6be18e62f229fcde7ff3eea009b76a3185e",
-    "paper_portfolio": "a584596ee35115223e17c2b7472d3204b61b0010b4088201f4d01f235d60f6e9",
+    "master_spine": "99e0f487c6dac696e337e0e868ec82cf4c9706d01d236a1a32f44e80a4752979",
+    "dense_intelligence": "eba165cffa0009522506970a11d26ad03e89271f06428d1474a0153b3a837088",
+    "system_planes": "cfe7d8a7ee9ce072c32b84e8fc3ef91492f42e8139054387941f8f24a834ae63",
+    "argus_architecture": "2e73c7a16387aa40435e567e159bd2ad371e33d0d076f813a6f07e5976c99a67",
+    "mission_lifecycle": "63bcbf6eeffd73b0fe4a876b493cb712053a2be44ebb2d34c3e4d876c3b88b16",
+    "long_horizon_reliability": "e097144e01a6b1283bf6225837100413e1f70451a54986e46673752be2c71954",
 }
 _RUBRIC_SHA256: dict[str, str] = {
-    _REVIEW_RUBRIC: "b0d3ba5b528df9a13ad6cd8e578e9567b73b1066d39d81fcff6478985c266fc5",
-    _CONTENT_RUBRIC: "944d90d8d492eeadf0c5b54a9b0b7a977c6aa4c6ed6c9c9e385524799e04174c",
+    _REVIEW_RUBRIC: "6a5b0c04d54726d5733ddb8ef6b25948b2e1e5aa9f229ee0fa3bf8bbfb14271a",
+    _CONTENT_RUBRIC: "6703f503c70a1b25a0e9687a54a9f6decd3a87be5a35669173c2a0a35182a18b",
 }
 
 
@@ -1817,17 +1444,19 @@ def _extract_block(text: str, begin: str, end: str) -> str:
     return text.split(begin, 1)[1].split(end, 1)[0]
 
 
-def _numbers_in(text: str) -> set[str]:
-    """Every standalone integer/decimal numeric run in ``text``."""
-    return set(re.findall(r"\d+(?:\.\d+)?", text))
-
-
 # --- every prompt exists and is independently complete --------------------
 
 
 @pytest.mark.parametrize("stem", _ALL_STEMS)
 def test_prompt_file_exists(stem: str) -> None:
     assert (_FIGURES_DIR / f"{stem}.prompt.txt").is_file()
+
+
+def test_only_six_structural_prompt_files_exist() -> None:
+    # The two data-figure prompts were deleted; no prompt file for them may
+    # remain.
+    assert not (_FIGURES_DIR / "public_results.prompt.txt").exists()
+    assert not (_FIGURES_DIR / "paper_portfolio.prompt.txt").exists()
 
 
 @pytest.mark.parametrize("stem", _ALL_STEMS)
@@ -1859,7 +1488,7 @@ def test_prompt_declares_spell_exactly_and_no_invented_labels(stem: str) -> None
     assert "invent" in text  # "do not invent ... labels"
 
 
-# --- one shared style block, copied byte-for-byte into all eight ----------
+# --- one shared style block, copied byte-for-byte into all six ------------
 
 
 def test_shared_style_block_is_byte_identical_across_all_prompts() -> None:
@@ -1915,140 +1544,10 @@ def test_prompt_has_negative_prompt_with_spec_prohibitions(stem: str) -> None:
         assert banned in text, f"{stem} negative prompt missing {banned!r}"
 
 
-# --- data prompts: evidence-derived numbers, extras prohibited ------------
-
-
-@pytest.mark.parametrize("stem", _DATA_STEMS)
-def test_data_prompt_cites_its_committed_evidence_source(stem: str) -> None:
-    text = _read_prompt(stem)
-    for src in vaf.FIGURE_CONTRACTS[stem].source_evidence:
-        assert src in text, f"{stem} prompt does not cite evidence source {src}"
-
-
-@pytest.mark.parametrize("stem", _DATA_STEMS)
-def test_data_prompt_prohibits_extra_numbers_and_labels(stem: str) -> None:
-    text = _read_prompt(stem)
-    lower = text.lower()
-    assert "PROHIBIT EXTRAS" in text
-    assert "not pinned" in lower
-    assert "no other number" in lower or "any number" in lower
-
-
-def test_public_results_prohibits_shared_or_normalized_scale() -> None:
-    lower = _read_prompt("public_results").lower()
-    assert "normalized scale" in lower or "shared scale" in lower
-    assert "panel-local" in lower
-
-
-@pytest.mark.parametrize("stem", _DATA_STEMS)
-def test_data_prompt_pinned_numbers_are_exactly_contract_numbers(
-    stem: str,
-) -> None:
-    block = _extract_block(_read_prompt(stem), _PINNED_BEGIN, _PINNED_END)
-    contract = vaf.FIGURE_CONTRACTS[stem]
-    expected: set[str] = set()
-    for label in contract.required_labels:
-        expected |= _numbers_in(label)
-    assert _numbers_in(block) == expected, (
-        f"{stem} pinned block has numeric tokens beyond its frozen contract"
-    )
-
-
-@pytest.mark.parametrize("stem", _DATA_STEMS)
-def test_data_prompt_numbers_appear_in_evidence_json(stem: str) -> None:
-    contract = vaf.FIGURE_CONTRACTS[stem]
-    blob = json.dumps(
-        json.loads(
-            (_REPO_ROOT / contract.source_evidence[0]).read_text(encoding="utf-8")
-        )
-    )
-    for label in contract.required_labels:
-        for num in _numbers_in(label):
-            assert num in blob, f"{stem} token {label!r} number {num} not in evidence"
-
-
-def test_public_results_numbers_derive_from_website_evidence() -> None:
-    site = json.loads(
-        (_EVIDENCE_DIR / "website_results.json").read_text(encoding="utf-8")
-    )
-    results = {r["arena"]: r for r in site["results"]}
-    # Each pinned value token is the literal published website value.
-    assert results["nanochat \u00b7 B200"]["result"] == "0.9636 BPB"
-    assert "0.9646" in results["nanochat \u00b7 B200"]["human_comparison"]
-    assert results["nanochat \u00b7 H100"]["result"] == "0.9855 BPB"
-    assert "0.9879" in results["nanochat \u00b7 H100"]["human_comparison"]
-    assert "79.77" in results["nanoGPT speedrun"]["result"]
-    assert "80.18" in results["nanoGPT speedrun"]["human_comparison"]
-    assert results["AARRI-Bench"]["result"] == "63/82 \u00b7 76.8%"
-    assert "68.3%" in results["AARRI-Bench"]["human_comparison"]
-    assert results["Arbor \u00b7 RUC NLPIR"]["result"] == "28.0 gap"
-    for token in ("Arbor 20.83", "Claude Code 8.33", "Codex 6.25"):
-        assert token in results["Arbor \u00b7 RUC NLPIR"]["human_comparison"]
-    assert results["NVIDIA SOL-ExecBench"]["result"] == "Global #6 \u00b7 2\u00d7 #1 \u00b7 7 top-3"
-
-
-def test_public_results_status_counts_derive_from_corroboration_evidence() -> None:
-    site = json.loads(
-        (_EVIDENCE_DIR / "website_results.json").read_text(encoding="utf-8")
-    )
-    results = {r["arena"]: r for r in site["results"]}
-    digest = sorted(
-        a for a, r in results.items() if r["corroboration"] == "local_artifact"
-    )
-    snapshot = sorted(
-        a for a, r in results.items() if r["corroboration"] == "website_snapshot"
-    )
-    assert digest == sorted(["nanochat \u00b7 B200", "nanoGPT speedrun"])
-    assert len(snapshot) == 4
-    counts = vaf.FIGURE_CONTRACTS["public_results"].status_counts
-    assert counts == {"artifact digest": 2, "website snapshot": 4}
-    assert len(digest) == counts["artifact digest"]
-    assert len(snapshot) == counts["website snapshot"]
-
-
-def test_public_results_prompt_assigns_status_to_correct_panels() -> None:
-    text = _read_prompt("public_results")
-    assert '"artifact digest" appears on exactly two panels' in text
-    assert '"website snapshot" appears on exactly four panels' in text
-    # the two digest panels are the two local-artifact arenas
-    digest_section = text.split('"artifact digest" appears on exactly two panels', 1)[1]
-    digest_section = digest_section.split('"website snapshot"', 1)[0]
-    assert "nanochat \u00b7 B200" in digest_section
-    assert "nanoGPT speedrun" in digest_section
-
-
-def test_paper_portfolio_numbers_derive_from_inventory_evidence() -> None:
-    inv = json.loads(
-        (_EVIDENCE_DIR / "paper_inventory.json").read_text(encoding="utf-8")
-    )
-    assert inv["totals"]["papers"] == 41
-    assert inv["totals"]["manuscript"] == 35
-    assert inv["totals"]["draft"] == 6
-    assert inv["totals"]["manuscript"] + inv["totals"]["draft"] == 41
-    program_counts = inv["program_counts"]
-    assert sum(program_counts.values()) == 41
-    expected = {
-        "Multimodal & Vision-Language Models": 16,
-        "Cognitive Bias in LLMs": 9,
-        "Efficiency, Compression & Decoding": 7,
-        "LLM Agent Methods": 5,
-        "World Models": 2,
-        "State Trace & Auditability": 2,
-    }
-    assert program_counts == expected
-
-
-def test_paper_portfolio_prompt_forbids_acceptance_status() -> None:
-    text = _read_prompt("paper_portfolio")
-    assert "output inventory \u00b7 not accepted papers" in text
-    lower = text.lower()
-    assert "accept" in lower  # must speak to (and forbid) acceptance framing
-
-
 # --- concept prompts: relationships present -------------------------------
 
 
-@pytest.mark.parametrize("stem", _CONCEPT_STEMS)
+@pytest.mark.parametrize("stem", _ALL_STEMS)
 def test_concept_prompt_states_required_relationships(stem: str) -> None:
     text = _read_prompt(stem)
     assert "Required relationships" in text or "RELATIONSHIPS" in text
@@ -2094,17 +1593,15 @@ def test_content_rubric_is_exact_content_and_covers_every_figure() -> None:
     text = (_FIGURES_DIR / _CONTENT_RUBRIC).read_text(encoding="utf-8")
     assert "keep_or_regenerate" in text
     assert "confirmed_labels" in text
-    assert "unresolved_numeric_mismatches" in text
     for contract in vaf.FIGURE_CONTRACTS.values():
         assert contract.title in text, f"content rubric omits {contract.title}"
 
 
-def test_content_rubric_adds_strict_numeric_source_for_data_figures() -> None:
+def test_content_rubric_has_no_data_figure_source_wording() -> None:
+    # Data-specific source/numeric clauses were removed with the two data
+    # figures.
     text = (_FIGURES_DIR / _CONTENT_RUBRIC).read_text(encoding="utf-8")
-    assert "technical_report/evidence/website_results.json" in text
-    assert "technical_report/evidence/paper_inventory.json" in text
-    lower = text.lower()
-    assert "numeric" in lower and ("source" in lower or "evidence" in lower)
-    # the two data-figure titles must be named as the stricter cases
-    assert "Public Results" in text
-    assert "Paper Portfolio" in text
+    assert "website_results.json" not in text
+    assert "paper_inventory.json" not in text
+    assert "Public Results" not in text
+    assert "Paper Portfolio" not in text

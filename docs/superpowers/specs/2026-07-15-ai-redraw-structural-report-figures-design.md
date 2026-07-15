@@ -1,17 +1,20 @@
-# AI Redraw of All Argus Report Figures — Design Specification
+# AI Redraw of the Structural Argus Report Figures — Design Specification
 
 **Date:** 2026-07-15
 **Status:** Approved
-**Scope:** All eight visible figures in Technical Report 0.3 and the README hero
+**Scope:** The six structural/concept figures in Technical Report 0.3 and the
+README hero. The two data figures (`public_results`, `paper_portfolio`) are
+explicitly out of scope for AI generation and remain deterministically drawn.
 
 ## Goal
 
-Replace every visible report figure with a newly generated AI raster. No
-Matplotlib/vector/deterministic rendering may remain in the report or README.
-All eight images must share one Blue–Gold Precision Atlas art direction and
-retain complete generation, OCR, review, and provenance evidence.
+Regenerate the six structural/concept figures as newly generated AI rasters,
+and never hand-draw them again. The two data figures are exact evidence charts
+and MAY remain deterministically drawn; they are not regenerated with an image
+model. All eight visible figures share one Blue–Gold Precision Atlas art
+direction so the AI structures and the deterministic data plates match.
 
-The final visible figures are:
+The six AI-regenerated structural figures are:
 
 1. `master_spine.png`
 2. `dense_intelligence.png`
@@ -19,15 +22,25 @@ The final visible figures are:
 4. `argus_architecture.png`
 5. `mission_lifecycle.png`
 6. `long_horizon_reliability.png`
+
+The two figures that remain deterministically drawn are:
+
 7. `public_results.png`
 8. `paper_portfolio.png`
 
-All eight are regenerated, including the two existing image-2 figures.
+Only the six structural figures are AI-regenerated (including the two that were
+previously image-2 figures). The two data figures stay deterministic, exact,
+and blue-gold.
 
 ## Non-Negotiable Constraints
 
-- Generator: `gpt-image-2` through `argus_skill.tools.image_tool`.
-- Output: PNG raster, 1536×1024 landscape (3:2), no deterministic overlay.
+- Structural-figure generator: `gpt-image-2` through
+  `argus_skill.tools.image_tool`.
+- Structural output: PNG raster, 1536×1024 landscape (3:2), no deterministic
+  overlay.
+- Data figures keep their existing deterministic generator
+  (`build_report_figures.py`) and remain exact, source-grounded, and rendered
+  in the same Blue–Gold palette.
 - Shared palette:
   - bone white `#FBFAF6`;
   - system blue `#315BCE`;
@@ -38,9 +51,9 @@ All eight are regenerated, including the two existing image-2 figures.
   restrained blue-gold accents, professional report quality.
 - No cyberpunk, neon, robots, brains, faces, fake 3D dashboards, vendor logos,
   watermarks, or marketing badges.
-- No manual correction, compositing, text overlay, chart overlay, or pixel edit.
-- If a number, label, arrow, role, or relationship is wrong, reject the entire
-  raster and regenerate it.
+- For the six structural figures: no manual correction, compositing, text
+  overlay, chart overlay, or pixel edit. If a number, label, arrow, role, or
+  relationship is wrong, reject the entire raster and regenerate it.
 - Public result values and portfolio counts must remain exactly equal to the
   committed evidence JSON files.
 - The final report remains 28–30 pages, with zero overfull boxes and zero
@@ -215,11 +228,15 @@ Required relationships:
 - Safe round boundary returns to Planner.
 - Budget, Event log, and Artifacts persist across the cycle.
 
-### 7. Public Results
+### 7. Public Results (deterministic data figure)
 
 **Purpose:** Present six public arenas as exact scoped proof points.
 
-All visible content is AI-generated. No deterministic bars, labels, or overlays.
+This figure is **not** AI-generated. It is drawn deterministically by
+`build_report_figures.py` from `technical_report/evidence/website_results.json`,
+in the shared Blue–Gold palette, with exact bars/labels and no image-model
+call. Its content contract is defined and validated by that generator and the
+existing deterministic-figure tests, not by the AI validator.
 
 Required exact arena/value tokens:
 
@@ -256,9 +273,13 @@ Required visual structure:
 - Other four panels carry website-snapshot status.
 - The figure must not add a universal-SOTA headline.
 
-### 8. Paper Portfolio
+### 8. Paper Portfolio (deterministic data figure)
 
 **Purpose:** Present the de-duplicated research-output inventory.
+
+This figure is **not** AI-generated. It is drawn deterministically by
+`build_report_figures.py` from `technical_report/evidence/paper_inventory.json`,
+in the shared Blue–Gold palette, with exact counts and no image-model call.
 
 Required exact labels:
 
@@ -281,9 +302,9 @@ Required relationships:
 - Totals sum visibly to 41.
 - No acceptance or publication-status badge.
 
-## Generation Workflow
+## Generation Workflow (six structural figures only)
 
-Each figure uses a complete standalone prompt file:
+Each of the six structural figures uses a complete standalone prompt file:
 
 ```text
 technical_report/figures/<stem>.prompt.txt
@@ -303,25 +324,26 @@ For each attempt:
 5. Compare extracted tokens against the figure's required token contract.
 6. Run a vision-capable semantic/content review with the complete prompt via
    `image_tool review --out <stem>.review.json`.
-7. Run a second, independent exact-content vision review for every figure via
-   `image_tool review --out <stem>.content-review.json`. For data figures,
-   this second review additionally performs strict numeric/source
-   verification against the committed evidence JSON.
+7. Run a second, independent exact-content vision review for every structural
+   figure via `image_tool review --out <stem>.content-review.json`.
 8. Reject and regenerate on any material mismatch.
 
 Attempt limits:
 
 - Concept/architecture figures: at most 6 attempts per figure.
-- Data figures: at most 12 attempts per figure.
-- Hitting the limit is `BLOCKED`, never permission to accept an incorrect image.
+- Hitting the limit is `BLOCKED`, never permission to accept an incorrect
+  image.
 
 Rejected attempts are not committed. Final provenance records attempt count and
 the hashes/rejection reasons of discarded attempts without retaining their image
 bytes.
 
-## OCR and Vision Acceptance
+The two data figures do not use this workflow: they are rebuilt deterministically
+and validated by their generator and the deterministic-figure tests.
 
-Every final figure stores:
+## OCR and Vision Acceptance (six structural figures only)
+
+Every final structural figure stores:
 
 - `<stem>.ocr.txt`: raw Tesseract output;
 - `<stem>.ocr.json`: expected tokens, normalized observed tokens, coverage, and
@@ -343,40 +365,32 @@ validator parses this wrapper directly — no manual "flatten" step is required
 or permitted. A missing, non-string, or malformed `"review"` field fails
 closed (the figure cannot pass).
 
-Required short/data labels are matched against OCR using the canonical,
-exact `normalize_ocr` comparison first. If that fails, a separate,
-separator-tolerant fallback (`normalize_ocr_for_matching`) may match a label
-whose only difference is a lost or substituted `·` (middle-dot) separator
-between two label halves (e.g. `nanochat · B200` OCR-reading as
-`nanochat B200`) — this fallback never loosens digits, decimal points, `%`,
-`/`, or numeric sign characters, so `0.9636` can never match `0.963` and
-`63/82` / `76.8%` are never loosened. A label rescued only through this
-separator-tolerant fallback additionally requires BOTH independent vision
-reviews to confirm the label's exact original spelling/glyph (via the
-canonical, non-tolerant comparison) before it counts as present; one review
-confirming it alone is never sufficient, and a label whose words/numbers are
-wholly absent from OCR can never be rescued by vision confirmation alone,
-data figure or concept figure.
+Required short labels are matched against OCR using the canonical, exact
+`normalize_ocr` comparison first. If that fails, a separate, separator-tolerant
+fallback (`normalize_ocr_for_matching`) may match a label whose only difference
+is a lost or substituted `·` (middle-dot) separator between two label halves
+(e.g. `Backlog / continuous`) — this fallback never loosens digits, decimal
+points, `%`, `/`, or numeric sign characters, so `1,800 s` can never match
+`1,80 s` and `112 typed events` is never loosened. A label rescued only through
+this separator-tolerant fallback additionally requires BOTH independent vision
+reviews to confirm the label's exact original spelling/glyph (via the canonical,
+non-tolerant comparison) before it counts as present; one review confirming it
+alone is never sufficient. A required short label may also be accepted when BOTH
+independent vision reviews explicitly confirm it, even if OCR missed it; one
+review confirming it alone never suffices.
 
-Concept figures pass when:
+Structural figures pass when:
 
 - all required entities and relationships are confirmed by vision review;
 - required short labels pass OCR (exact or separator-tolerant-plus-both-
   reviews) or are explicitly confirmed by both independent vision reviews;
 - no prohibited content appears.
 
-Data figures pass only when:
-
-- every required numeric token is confirmed by OCR (exact or separator-
-  tolerant-plus-both-reviews) and both vision reviews;
-- status counts are exactly 2 digest / 4 snapshot;
-- no extra numeric claim appears;
-- every arena/program total matches the JSON source.
-
 ## Provenance
 
-`technical_report/figures/IMAGE2_FIGURES.json` becomes the single figure manifest
-and contains exactly eight entries. Each entry includes:
+`technical_report/figures/IMAGE2_FIGURES.json` is the manifest for the six
+AI-generated structural figures and contains exactly six entries. Each entry
+includes:
 
 - figure id/type;
 - output path/hash/dimensions;
@@ -385,32 +399,38 @@ and contains exactly eight entries. Each entry includes:
 - inspect/review/content-review paths and hashes;
 - OCR paths/hashes and coverage;
 - generation attempt count;
-- rejected-attempt hashes and concise rejection reasons;
-- source-evidence paths for data figures.
+- rejected-attempt hashes and concise rejection reasons.
+
+`technical_report/figures/REPORT_FIGURES.json` is the manifest for the two
+deterministic data figures and contains exactly two entries (`public_results`,
+`paper_portfolio`), each recording the deterministic PNG (and any PDF) output
+and its reproducible digest.
 
 No credential, local absolute path, username, session id, proxy route, or vault
 pointer may appear in committed provenance.
 
-## Deletions
+## Deterministic Data Generator
 
-Delete all deterministic figure machinery and outputs:
+`build_report_figures.py` is **kept**, but reduced to only the two data
+figures. During integration (Task 6), all structural drawing functions and the
+structural `.pdf` outputs are removed from it, so it produces only
+`public_results` and `paper_portfolio`. `REPORT_FIGURES.json` is trimmed to
+those two entries. The deterministic data figures and their tests continue to
+enforce exactness and the shared Blue–Gold palette.
 
-- `technical_report/figures/build_report_figures.py`
-- `technical_report/figures/REPORT_FIGURES.json`
-- all deterministic `.pdf` figure files
-- the six previous deterministic `.png` files before replacing them with AI
-  outputs
-- tests that import or execute the deterministic builder
-
-Do not retain hidden deterministic chart/reference images.
+The six structural figures' previous deterministic `.pdf`/`.png` drawings and
+any structural drawing code are removed once their AI rasters are accepted. No
+hidden deterministic chart/reference image is retained for the structural
+figures.
 
 ## Report and README Integration
 
-- Replace all six `.pdf` figure references with `.png`.
-- Keep current figure ids, captions, and semantic claims unless the new raster
+- Structural figure references switch to the accepted `.png` AI rasters.
+- Data figure references remain the deterministic `.png` outputs.
+- Keep current figure ids, captions, and semantic claims unless a new raster
   requires a caption clarification.
-- README English and Chinese continue to reference `master_spine.png`, now the AI
-  raster.
+- README English and Chinese continue to reference `master_spine.png`, now the
+  AI raster.
 - Preserve the 30-page report envelope; adjust figure width only, not evidence
   prose, to recover layout.
 - Rebuild and visually inspect all 30 pages.
@@ -419,20 +439,20 @@ Do not retain hidden deterministic chart/reference images.
 
 Automated tests must verify:
 
-- deterministic builder and manifest are absent;
-- no report figure PDF remains;
-- `IMAGE2_FIGURES.json` contains exactly eight expected ids;
-- each output and sidecar hash matches;
-- all outputs are 1536×1024 PNG;
-- OCR/data-token contracts pass;
-- all report/README image references resolve to manifest entries;
+- `IMAGE2_FIGURES.json` contains exactly six expected structural ids;
+- `REPORT_FIGURES.json` contains exactly the two deterministic data ids;
+- each structural output and sidecar hash matches;
+- all structural outputs are 1536×1024 PNG;
+- structural OCR/label contracts pass;
+- the deterministic data figures remain exact and reproducible;
+- all report/README image references resolve to a manifest entry;
 - all public values and portfolio totals remain unchanged.
 
 Final reviews:
 
-1. Independent figure-by-figure visual/semantic review.
-2. Independent exact-content/OCR review.
+1. Independent figure-by-figure visual/semantic review of the six structures.
+2. Independent exact-content/OCR review of the six structures.
 3. Full report claims/citations/visual review.
 4. Full ML-systems/source-grounding review.
 
-No image is accepted with a Critical or Important finding.
+No structural figure is accepted with a Critical or Important finding.
