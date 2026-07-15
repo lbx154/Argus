@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,6 +81,9 @@ _STALE_MULTIPLIER = 2.0
 # Sentinel an agent emits when the only remaining work is to wait for a
 # self-watched subagent to reach its next checkpoint / terminal report.
 _WAIT_SENTINEL = "WAIT_FOR_SUBAGENT:"
+_WAIT_SENTINEL_RE = re.compile(
+    r"^WAIT_FOR_SUBAGENT:\s*(?:`([^`\s]+)`|([^\s`]+))\s*$"
+)
 _SUPERVISOR_USAGE_BASELINE_FIELD = "supervisor_cost_folded_totals"
 
 
@@ -196,10 +200,22 @@ def _registry_dir(workdir: Path | str) -> Path:
 
 
 def _registry_files(workdir: Path | str) -> list[Path]:
+    registry_dir = _registry_dir(workdir)
     try:
-        return sorted(f for f in _registry_dir(workdir).glob("*.json") if not f.name.endswith(".tmp"))
+        registry_root = registry_dir.resolve(strict=False)
+        candidates = sorted(
+            f for f in registry_dir.glob("*.json") if not f.name.endswith(".tmp")
+        )
     except OSError:
         return []
+    out: list[Path] = []
+    for path in candidates:
+        try:
+            path.resolve(strict=False).relative_to(registry_root)
+        except (OSError, ValueError):
+            continue
+        out.append(path)
+    return out
 
 
 def _read_registry_record(path: Path) -> dict[str, Any] | None:
@@ -502,27 +518,28 @@ def render_background_subagents_advisory(
 def parse_wait_sentinel(message: str | None) -> str | None:
     """Extract the task id from a ``WAIT_FOR_SUBAGENT: <id>`` agent message.
 
-    The sentinel must be effectively the agent's whole action: this tolerates
-    leading/trailing whitespace and a single surrounding code fence, but rejects
-    a sentinel buried inside a larger message (so a mere mention in prose never
-    hangs the loop). Returns the task id, or ``None`` if not a wait request.
+    The final non-empty line must be an exact wait directive. Earlier summary or
+    handoff text is ignored, but any non-empty text after the directive rejects
+    the request so a mere prose mention never hangs the loop. A message that is
+    solely a fenced sentinel remains supported for compatibility.
     """
     if not message:
         return None
     text = message.strip()
-    if text.startswith("```") and text.endswith("```"):
-        text = text.strip("`").strip()
-    # Collapse to the first non-empty line so a trailing newline / stray blank
-    # line does not defeat the single-action check.
+    lines = text.splitlines()
+    if (
+        len(lines) >= 2
+        and lines[0].strip().startswith("```")
+        and lines[-1].strip() == "```"
+    ):
+        text = "\n".join(lines[1:-1]).strip()
     non_empty = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if len(non_empty) != 1:
+    if not non_empty:
         return None
-    line = non_empty[0]
-    if not line.upper().startswith(_WAIT_SENTINEL):
+    match = _WAIT_SENTINEL_RE.fullmatch(non_empty[-1])
+    if match is None:
         return None
-    task_id = line[len(_WAIT_SENTINEL):].strip().strip("`").strip()
-    task_id = task_id.split()[0] if task_id else ""
-    return task_id or None
+    return match.group(1) or match.group(2)
 
 
 def find_waitable_subagent(
@@ -542,6 +559,58 @@ def find_waitable_subagent(
         if sub.task_id == target and sub.self_watched:
             return sub
     return None
+
+
+def inspect_wait_target(
+    workdir: Path | str,
+    task_id: str,
+    *,
+    now: float | None = None,
+) -> tuple[str, str]:
+    """Classify a wait target from the contained registry only.
+
+    Returns ``(reason_code, reason_text)`` with one of:
+      * ``waitable`` — current healthy self-watched in-flight job;
+      * ``needs_attention`` — known in-flight job that is not self-watched;
+      * ``terminal_task`` — known registry record whose state is terminal;
+      * ``registry_unreadable`` — contained registry entry matched by filename but
+        could not be parsed;
+      * ``missing_task_id`` / ``unknown_task`` / ``not_waitable``.
+
+    The lookup NEVER constructs a file path from model-controlled ``task_id``.
+    It enumerates contained ``.argus_subagents/*.json`` records and matches by
+    record ``task_id`` (or, for unreadable entries, exact filename stem).
+    """
+    target = (task_id or "").strip()
+    if not target:
+        return ("missing_task_id", "control.task_id was blank")
+    if find_waitable_subagent(workdir, target, now=now) is not None:
+        return ("waitable", f"task `{target}` is already waitable")
+    for sub in scan_inflight_subagents(workdir, now=now):
+        if sub.task_id != target:
+            continue
+        reason = sub.attention_reason or "task is not self-watched"
+        return ("needs_attention", reason)
+    for path in _registry_files(workdir):
+        record = _read_registry_record(path)
+        if record is None:
+            if path.stem == target:
+                return (
+                    "registry_unreadable",
+                    f"task `{target}` registry record is unreadable",
+                )
+            continue
+        record_task_id = str(record.get("task_id") or "").strip() or path.stem
+        if record_task_id != target and path.stem != target:
+            continue
+        state = str(record.get("state") or "").strip().lower()
+        if state and state not in _INFLIGHT_STATES:
+            return ("terminal_task", f"task `{target}` is terminal (state={state})")
+        return (
+            "not_waitable",
+            f"task `{target}` is not a currently healthy self-watched supervised subagent",
+        )
+    return ("unknown_task", f"unknown task `{target}` — no registry record found")
 
 
 def cadence_seconds(sub: InflightSubagent) -> float:

@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
 import path from 'node:path';
+import * as sharedCore from '../../../core/src';
 import {
   activeGuardianAlert,
   authoritativeSpend,
@@ -317,6 +318,56 @@ describe('shared frontend core', () => {
       continuous: { enabled: false, objective: 'CO2 paper', done_reason: 'done' },
     });
     expect(view).toMatchObject({ state: 'complete', objective: 'CO2 paper' });
+  });
+
+  it('maps mission terminal outcomes truthfully across new and legacy fields', () => {
+    const present = (sharedCore as Record<string, unknown>).missionOutcomePresentation;
+    expect(typeof present).toBe('function');
+    if (typeof present !== 'function') return;
+
+    expect((present as (event: Record<string, unknown>) => unknown)({
+      success: true,
+    })).toMatchObject({
+      outcomeClass: 'completed',
+      label: 'Mission completed',
+      tone: 'ok',
+      missionStatus: 'complete',
+    });
+
+    const cases = [
+      [
+        { outcome_class: 'completed', status: 'supervisor_error', success: false },
+        { outcomeClass: 'completed', label: 'Mission completed', tone: 'ok', missionStatus: 'complete' },
+      ],
+      [
+        { status: 'research_incomplete', success: false },
+        { outcomeClass: 'incomplete', label: 'Mission incomplete', tone: 'warn', missionStatus: 'incomplete' },
+      ],
+      [
+        { status: 'no_progress', success: false },
+        { outcomeClass: 'stalled', label: 'Mission stalled', tone: 'warn', missionStatus: 'stalled' },
+      ],
+      [
+        { status: 'blocked', success: false },
+        { outcomeClass: 'blocked', label: 'Mission blocked', tone: 'err', missionStatus: 'blocked' },
+      ],
+      [
+        { status: 'supervisor_error', success: false },
+        { outcomeClass: 'failed', label: 'Mission failed', tone: 'err', missionStatus: 'failed' },
+      ],
+      [
+        { status: 'legacy_weird_status', success: false },
+        { outcomeClass: 'ended', label: 'Mission ended · legacy_weird_status', tone: 'info', missionStatus: 'ended' },
+      ],
+      [
+        { success: false },
+        { outcomeClass: 'ended', label: 'Mission ended', tone: 'info', missionStatus: 'ended' },
+      ],
+    ] as const;
+
+    for (const [event, expected] of cases) {
+      expect((present as (event: Record<string, unknown>) => unknown)(event)).toMatchObject(expected);
+    }
   });
 
   it('treats a fresh session with a lazy daemon as ready, not offline', () => {

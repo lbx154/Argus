@@ -95,6 +95,7 @@ def parse_decision_text(
     assert round_summary_markdown is not None
     assert completion_summary_markdown is not None
     planner_report = _parse_planner_report(parsed, status=status, reason=reason)
+    control_action, control_task_id = _parse_control(parsed)
     return ReviewDecision(
         status=status,
         reason=reason,
@@ -106,6 +107,8 @@ def parse_decision_text(
         completion_summary_markdown=completion_summary_markdown,
         achievement=_parse_achievement(parsed, status=status),
         progress_class=_parse_progress_class(parsed, planner_report),
+        control_action=control_action,
+        control_task_id=control_task_id,
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
         research_result=_parse_research_result(parsed),
@@ -126,6 +129,18 @@ _PROGRESS_CLASSES = frozenset({
     "artifact_sync_only",
     "none",
 })
+_WAIT_FOR_SUBAGENT_CONTROL = "wait_for_subagent"
+
+
+def _parse_control(parsed: dict[str, Any]) -> tuple[str, str]:
+    raw = parsed.get("control")
+    if not isinstance(raw, dict):
+        return "", ""
+    action = str(raw.get("action") or "").strip().lower()
+    task_id = str(raw.get("task_id") or "").strip()[:200]
+    if action != _WAIT_FOR_SUBAGENT_CONTROL or not task_id:
+        return "", ""
+    return action, task_id
 
 
 def _parse_progress_class(

@@ -153,6 +153,35 @@ test('natural-language progress never invents a metric or review verdict', () =>
   assert.equal(view.review.status, '');
 });
 
+test('mission projector keeps research_incomplete distinct from failure', () => {
+  const view = reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.mission.completed',
+    ts: 21,
+    item_id: 'task-1',
+    status: 'research_incomplete',
+    success: false,
+  });
+  assert.equal(view.mission.status, 'incomplete');
+  assert.equal(view.timeline.at(-1)?.title, 'Mission incomplete');
+  assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
+});
+
+test('mission projector forces life.mission.failed to failed even with malformed completion fields', () => {
+  const view = reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.mission.failed',
+    ts: 22,
+    item_id: 'task-1',
+    title: 'Kernel v7',
+    objective: 'Optimize kernel',
+    status: 'research_incomplete',
+    success: true,
+    outcome_class: 'incomplete',
+  });
+  assert.equal(view.mission.status, 'failed');
+  assert.equal(view.timeline.at(-1)?.title, 'Mission failed');
+  assert.equal(view.timeline.at(-1)?.detail, 'Kernel v7');
+});
+
 test('idle snapshot clears stale role activity from historical events', () => {
   const idle = snapshot();
   idle.session.objective = '';

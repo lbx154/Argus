@@ -118,6 +118,34 @@ describe('renderEvent', () => {
     } as EventMsg);
     expect(row!.text).toContain('advance → implement_cli');
   });
+
+  it('renders mission terminal outcomes truthfully for new and legacy events', () => {
+    expect(renderEvent({
+      type: 'life.mission.completed',
+      status: 'research_incomplete',
+      success: false,
+    } as EventMsg)).toMatchObject({
+      text: 'Mission incomplete',
+      tone: 'warn',
+    });
+    expect(renderEvent({
+      type: 'life.mission.completed',
+      outcome_class: 'blocked',
+      status: 'done',
+      success: true,
+    } as EventMsg)).toMatchObject({
+      text: 'Mission blocked',
+      tone: 'err',
+    });
+    expect(renderEvent({
+      type: 'life.mission.completed',
+      status: 'legacy_weird_status',
+      success: false,
+    } as EventMsg)).toMatchObject({
+      text: 'Mission ended · legacy_weird_status',
+      tone: 'info',
+    });
+  });
 });
 
 describe('isReasoning', () => {

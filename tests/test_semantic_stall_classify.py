@@ -50,7 +50,7 @@ def _classify(streak: int, threshold: int, *, round_index: int = 5,
 def test_decision_progress_defaults_are_bounded() -> None:
     config = SupervisedConfig()
 
-    assert config.stall_threshold == 2
+    assert config.stall_threshold == 4
     assert config.decision_progress_timeout_seconds == 1800
 
 
@@ -77,15 +77,15 @@ def test_nondecision_round_increments_stall_streak(progress_class: str) -> None:
     ) == 2
 
 
-def test_stall_kills_at_threshold() -> None:
-    status, reason = _classify(streak=2, threshold=2)
+def test_stall_below_default_threshold_continues() -> None:
+    status, _ = _classify(streak=3, threshold=4)
+    assert status is None
+
+
+def test_stall_kills_at_default_threshold() -> None:
+    status, reason = _classify(streak=4, threshold=4)
     assert status == "no_progress"
     assert "decision progress" in reason
-
-
-def test_stall_below_threshold_continues() -> None:
-    status, _ = _classify(streak=1, threshold=2)
-    assert status is None
 
 
 def test_stall_disabled_when_threshold_zero() -> None:

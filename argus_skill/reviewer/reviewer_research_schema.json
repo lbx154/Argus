@@ -117,6 +117,37 @@
         "none"
       ]
     },
+    "control": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "OPTIONAL reviewer-authored runner control. Use null unless you are explicitly requesting a reviewed wait on a healthy self-watched subagent.",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "wait_for_subagent",
+            null
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "action",
+        "task_id"
+      ]
+    },
     "scope": {
       "type": [
         "string",
@@ -705,6 +736,7 @@
     "achievement",
     "failure_cause",
     "progress_class",
+    "control",
     "scope",
     "research_result",
     "planner_report",

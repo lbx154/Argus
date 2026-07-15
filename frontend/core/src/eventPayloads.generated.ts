@@ -192,6 +192,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "objective"?: string;
   "scope"?: string;
   "status": string;
+  "outcome_class"?: "completed" | "incomplete" | "stalled" | "blocked" | "failed" | "ended";
   "success"?: boolean;
   "rounds"?: number;
   "elapsed_seconds"?: number;

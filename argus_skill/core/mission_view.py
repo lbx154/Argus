@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from .event_catalog import EventType, canonical_event_type
+from ..life.mission_outcome import mission_outcome_class
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -332,6 +333,42 @@ _PROGRESS_LABELS = {
     "tool_result": "Inspecting tool output",
     "codex_idle": "Waiting for model output",
 }
+
+
+_MISSION_OUTCOME_PRESENTATIONS = {
+    "completed": ("complete", "done", "Mission completed", "success"),
+    "incomplete": ("incomplete", "done", "Mission incomplete", "info"),
+    "stalled": ("stalled", "done", "Mission stalled", "info"),
+    "blocked": ("blocked", "error", "Mission blocked", "error"),
+    "failed": ("failed", "error", "Mission failed", "error"),
+    "ended": ("ended", "done", "Mission ended", "info"),
+}
+
+
+def _mission_outcome_presentation(
+    event: Mapping[str, Any],
+    event_type: str,
+) -> tuple[str, str, str, str]:
+    if event_type == EventType.LIFE_MISSION_FAILED:
+        outcome_class = "failed"
+    else:
+        candidate = _text(event, "outcome_class").lower()
+        outcome_class = (
+            candidate
+            if candidate in _MISSION_OUTCOME_PRESENTATIONS
+            else mission_outcome_class(
+                status=_text(event, "status"),
+                success=bool(event.get("success")),
+            )
+        )
+    mission_status, role_status, label, tone = _MISSION_OUTCOME_PRESENTATIONS[
+        outcome_class
+    ]
+    if outcome_class == "ended":
+        raw_status = _text(event, "status")
+        if raw_status:
+            label = f"{label} · {raw_status}"
+    return mission_status, role_status, label, tone
 
 
 def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
@@ -821,16 +858,26 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         }
 
     elif event_type in {EventType.LIFE_MISSION_COMPLETED, EventType.LIFE_MISSION_FAILED}:
-        success = bool(event.get("success")) and event_type == EventType.LIFE_MISSION_COMPLETED
+        mission_status, role_status, label, tone = _mission_outcome_presentation(
+            event,
+            event_type,
+        )
         mission.update({
             "id": _text(event, "item_id") or mission.get("id", ""),
             "title": _text(event, "title", 240) or mission.get("title", ""),
             "objective": _text(event, "objective", 2000) or mission.get("objective", ""),
-            "status": "complete" if success else _text(event, "status") or "failed",
+            "status": mission_status,
             "completed_at": ts,
         })
-        _set_role(view, "engineer", "done" if success else "error", "Mission complete" if success else "Mission failed", ts)
-        _timeline(view, event, role="engineer", title="Mission achievement" if success else "Mission failed", detail=_text(event, "title") or _text(event, "status"), tone="success" if success else "error")
+        _set_role(view, "engineer", role_status, label, ts)
+        _timeline(
+            view,
+            event,
+            role="engineer",
+            title=label,
+            detail=_text(event, "title") or _text(event, "status"),
+            tone=tone,
+        )
     _refresh_primary_metric(view)
     _refresh_primary_metric(view)
     view["updated_at"] = time.time()

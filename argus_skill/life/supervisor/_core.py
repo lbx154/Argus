@@ -39,6 +39,7 @@ from ...core.planner_verdict import (
 from ...core.ports import EventSink
 from ...core.pricing import price_for
 from ...core.usage import project_usage_summary
+from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
 from ..planner_verdict_outbox import (
     OUTBOX_FILE,
@@ -724,6 +725,10 @@ class LifeSupervisor(
                 "objective": objective,
                 "success": False,
                 "status": "supervisor_error",
+                "outcome_class": mission_outcome_class(
+                    status="supervisor_error",
+                    success=False,
+                ),
                 "rounds": 0,
                 "cost_usd": usage.cost_usd,
                 "known_cost_usd": usage.known_cost_usd,
