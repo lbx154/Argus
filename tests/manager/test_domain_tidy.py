@@ -66,6 +66,77 @@ def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch)
     assert callable(mod.role_banner)
 
 
+def test_render_preserves_seed_plus_custom_items(tmp_path):
+    """REGRESSION: _render_stages_py must snapshot seed items AND custom items.
+
+    A data domain with seed checklist items in its CHECKLIST_ITEMS, plus a
+    Planner-authored custom row for the same stage, should produce a promoted
+    CHECKLIST_ITEMS that contains both IDs — seeds first, then custom.
+
+    Previously _render_stages_py called load_checklist_store(), which only
+    returns raw project rows.  When a custom row existed, store.get(stage) was
+    truthy and the code returned *only* the custom row, silently dropping the
+    domain's seed items.  The fix is to call store_items_for_stage() instead,
+    which applies seed+override+tombstone semantics before returning.
+    """
+    # Hand-author a domain JSON that carries a real seed item for "scope".
+    domains_dir = tmp_path / "research" / "DOMAINS"
+    domains_dir.mkdir(parents=True, exist_ok=True)
+    domain_payload = {
+        "name": "robotics_sim",
+        "stages": ["scope", "simulate", "measure", "report"],
+        "checklist_stage_order": ["scope", "simulate", "measure", "report"],
+        "completion_gate": "none",
+        "role_banner": "",
+        "created_by": "manager",
+        "promoted": False,
+        "checklist": {
+            "scope": [
+                {
+                    "id": "scope.seed.vision",
+                    "statement": "State the scope vision",
+                    "evidence_hint": "scope/VISION.md",
+                }
+            ]
+        },
+    }
+    (domains_dir / "robotics_sim.json").write_text(json.dumps(domain_payload, indent=2))
+
+    # PIPELINE_STATE: vertical = robotics_sim (so seed_items_for resolves correctly)
+    # and one stage done so the domain is "proven".
+    state = tmp_path / "research" / "PIPELINE_STATE.json"
+    state.write_text(
+        json.dumps({
+            "vertical": "robotics_sim",
+            "current_stage": "simulate",
+            "stages": {"scope": {"status": "done"}},
+        })
+    )
+
+    # Planner adds a custom row for the same "scope" stage.
+    cs.apply_checklist_ops(tmp_path, [
+        {
+            "op": "add",
+            "stage": "scope",
+            "id": "scope.custom.planner",
+            "statement": "Custom planner item",
+            "evidence_hint": "scope/CUSTOM.md",
+        }
+    ])
+
+    src = dt._render_stages_py("robotics_sim", tmp_path)
+    src = src.replace("from ...skills.stage_checklists", "from argus_skill.skills.stage_checklists")
+    mod = types.ModuleType("promoted_stages_seed_test")
+    exec(compile(src, "<stages>", "exec"), mod.__dict__)
+
+    scope_ids = [i.id for i in mod.CHECKLIST_ITEMS["scope"]]
+    assert "scope.seed.vision" in scope_ids, "seed item was dropped during promotion"
+    assert "scope.custom.planner" in scope_ids, "custom item was dropped during promotion"
+    assert scope_ids.index("scope.seed.vision") < scope_ids.index("scope.custom.planner"), (
+        "seed items should precede custom items in the promoted snapshot"
+    )
+
+
 def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
     _seed_proven_domain(tmp_path)
