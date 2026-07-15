@@ -17,6 +17,18 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
     Returns True if the lifecycle was actually resumed (state was ``done``).
     Returns False for already-active states or missing lifecycle data.
     Raises RuntimeError for quarantined/archived (explicit resume required).
+
+    Concurrency note
+    ----------------
+    The read (``load_persisted``) and the write (``resume_atomically_if_done``)
+    are NOT fully lock-atomic end-to-end: ``infer_observable_status`` and
+    ``apply_persisted_to_status`` run between them.  If two concurrent callers
+    simultaneously observe ``done``, both compute a resumed ``new_status``, and
+    then ``resume_atomically_if_done`` serialises the actual write — only the
+    first caller's write lands; the second caller's no-ops (returns False,
+    treated as True here since the project IS resumed).  In the worst case both
+    writes land back-to-back, which is idempotent.  This is a residual low-risk
+    TOCTOU; ``append_event`` atomic persistence is preserved and correct.
     """
     from ..core.session import read_session_meta
     from ..life.project_lifecycle import (
@@ -24,9 +36,9 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
         resume as lifecycle_resume,
     )
     from ..life.project_lifecycle_io import (
-        append_event,
         apply_persisted_to_status,
         load_persisted,
+        resume_atomically_if_done,
     )
 
     life_dir = Path(front_door._life_dir_for(mem))
@@ -40,7 +52,10 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
                 f"project lifecycle is {state}; explicit resume is required"
             )
         return False
-    root = life_dir.parent.parent
+    # Prefer mem.global_root (MemoryBundle attribute) for a stable path; fall
+    # back to path arithmetic only when the object lacks the attribute.
+    global_root = getattr(mem, "global_root", None)
+    root = Path(global_root) if global_root is not None else life_dir.parent.parent
     meta = read_session_meta(root, life_dir.name)
     observable_root = (
         Path(meta.launch_cwd)
@@ -53,7 +68,9 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
         status,
         reason="manager_team_dispatch",
     )
-    append_event(life_dir, new_status=new_status, event=event)
+    # Atomic check-then-write: only commits if persisted state is still "done".
+    # Returns False if a concurrent caller already resumed — treat as success.
+    resume_atomically_if_done(life_dir, new_status=new_status, event=event)
     return True
 
 

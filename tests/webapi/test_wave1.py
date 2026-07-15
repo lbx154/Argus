@@ -664,7 +664,60 @@ def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
     return mem, launch_dir
 
 
-class TestLifecycleResumeOnTeamDispatch:
+class TestManagerMessageLifecycleErrors:
+    """manager_message returns structured error for quarantined/archived projects.
+
+    This is a blocking integration test: it exercises manager_message end-to-end
+    with a stubbed Manager front-door so no real model is invoked, and verifies
+    that a RuntimeError raised by resume_done_lifecycle_for_team_dispatch is
+    caught and converted to ``{"kind": "error", ...}`` — never an unhandled
+    exception / HTTP 500.
+    """
+
+    @pytest.mark.parametrize("state", ["quarantined", "archived"])
+    def test_quarantined_archived_return_structured_error(
+        self,
+        tmp_path: Path,
+        state: str,
+        monkeypatch,
+    ) -> None:
+        from argus_skill.manager import config_intent as ci
+        from argus_skill.manager import front_door as fd
+
+        sid = f"s-mgr-err-{state}"
+        life_dir = tmp_path / "projects" / sid
+        life_dir.mkdir(parents=True, exist_ok=True)
+        # Minimal events file so MemoryBundle doesn't error on open.
+        (life_dir / "events.jsonl").write_text(
+            json.dumps({"type": "mission.started", "text": "x", "ts": time.time()}) + "\n",
+            encoding="utf-8",
+        )
+        # Persist the blocking lifecycle state.
+        _persist_lifecycle_state(life_dir, state)
+
+        # Stub the front-door classify so we take the TEAM/complex path
+        # without calling a real model (route="complex", no config intent,
+        # no control signal).
+        monkeypatch.setattr(
+            ci,
+            "_front_door_classify",
+            lambda mem, text, chat_state, **kwargs: (None, None, "complex"),
+        )
+        # Stub triage to return None → TEAM path (not a chat/SELF reply).
+        monkeypatch.setattr(fd, "manager_triage", lambda *a, **kw: None)
+        # No active mission — so we don't take the "already running" early-return.
+        monkeypatch.setattr(fd, "mission_is_running", lambda mem: False)
+
+        # Clear per-session state cache so this test starts clean.
+        manager_bridge._STATES.pop(sid, None)
+
+        result = manager_bridge.manager_message(
+            sid, "add a new feature", global_root=tmp_path
+        )
+
+        assert result["kind"] == "error", f"expected error response, got {result!r}"
+        assert "could not enqueue" in result["reply"]
+        assert state in result["reply"]
     """resume_done_lifecycle_for_team_dispatch resumes a done project on TEAM."""
 
     def test_done_project_resumes_to_active_state(self, tmp_path: Path) -> None:

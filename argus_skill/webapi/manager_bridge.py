@@ -290,7 +290,11 @@ def manager_message(
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.config_intent import _apply_config_intent, _front_door_classify
-    from ..manager.dispatch import enqueue_mission, maybe_promote_to_continuous
+    from ..manager.dispatch import (
+        enqueue_mission,
+        maybe_promote_to_continuous,
+        resume_done_lifecycle_for_team_dispatch,
+    )
     from ..manager.front_door import _accepts_keyword, manager_triage
 
     body = (text or "").strip()
@@ -582,18 +586,10 @@ def manager_message(
         #
         # If the project lifecycle is ``done``, auto-resume it so the new
         # work can actually be picked up by the daemon.  Quarantined/archived
-        # projects require an explicit operator action — let the error
-        # surface cleanly.
+        # projects raise RuntimeError which is caught below and returned as a
+        # structured ``{"kind": "error"}`` response — never a bare HTTP 500.
         try:
-            from ..manager.dispatch import resume_done_lifecycle_for_team_dispatch
-
             resume_done_lifecycle_for_team_dispatch(mem)
-        except RuntimeError:
-            raise  # quarantined / archived — propagate into error_reply
-        except Exception:  # noqa: BLE001 — lifecycle resume is best-effort
-            pass
-
-        try:
             if not chat_state.get("config", {}).get("continuous", False):
                 _phase("Manager · deciding task lifetime")
                 maybe_promote_to_continuous(
