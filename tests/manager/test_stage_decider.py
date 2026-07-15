@@ -206,8 +206,18 @@ def test_manager_holds_empty_required_checklist_before_stage_backend(
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["current_stage"] = "solve"
     state_path.write_text(json.dumps(state), encoding="utf-8")
+    # Tombstone every active Math solve seed so the effective list is truly
+    # empty under seed-plus-override semantics (stage present + all seeds
+    # disabled → store_items_for_stage returns () → state=EMPTY).
+    from argus_skill.skills.checklist_store import seed_items_for
+
+    solve_seed_ids = [item.id for item in seed_items_for(tmp_path, "solve")]
     (tmp_path / "research" / "CHECKLISTS.json").write_text(
-        json.dumps({"revision": 1, "stages": {"solve": []}}),
+        json.dumps({
+            "revision": 1,
+            "stages": {"solve": []},
+            "disabled": {"solve": solve_seed_ids},
+        }),
         encoding="utf-8",
     )
     backend = _StubRunner({
