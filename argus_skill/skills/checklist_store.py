@@ -68,8 +68,8 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _load_raw(project_root: object) -> dict[str, Any]:
-    """Return ``{"revision": int, "stages": {stage: [item-dict, ...]}}`` fail-open."""
-    empty = {"revision": 0, "stages": {}}
+    """Return ``{"revision": int, "stages": {stage: [item-dict, ...]}, "disabled": {stage: [id, ...]}}`` fail-open."""
+    empty: dict[str, Any] = {"revision": 0, "stages": {}, "disabled": {}}
     try:
         payload = json.loads(_store_path(project_root).read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -83,7 +83,22 @@ def _load_raw(project_root: object) -> dict[str, Any]:
     if not isinstance(stages, dict):
         stages = {}
     rev = payload.get("revision", 0)
-    return {"revision": int(rev) if isinstance(rev, (int, float)) else 0, "stages": stages}
+    # Parse optional 'disabled' field: {stage: [item_id, ...]}
+    disabled_raw = payload.get("disabled")
+    disabled: dict[str, list[str]] = {}
+    if isinstance(disabled_raw, dict):
+        for k, v in disabled_raw.items():
+            key = str(k).strip().lower()
+            if isinstance(v, list):
+                disabled[key] = [
+                    s for s in (str(i).strip() for i in v if isinstance(i, str))
+                    if s
+                ]
+    return {
+        "revision": int(rev) if isinstance(rev, (int, float)) else 0,
+        "stages": stages,
+        "disabled": disabled,
+    }
 
 
 def _coerce_item(raw: object) -> Any | None:
@@ -104,26 +119,65 @@ def _coerce_item(raw: object) -> Any | None:
 
 
 def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] | None":
-    """Return the Planner-authored items for ``stage``, or ``None`` if absent.
+    """Return the effective checklist items for ``stage``, or ``None`` if absent.
 
-    ``None`` ⇒ stage not in the store ⇒ caller falls back to the seed constant.
-    ``()`` ⇒ stage present but empty (Planner emptied it) ⇒ honored as empty.
+    **Seed-plus-override semantics** (Task 2):
+
+    * Effective = active-vertical seed keyed by ID, overlaid with project rows.
+      A project row whose ``id`` matches a seed ID overrides that seed item in
+      place; rows with custom IDs are appended after the seeds.
+    * Tombstoned seed IDs (stored under the top-level ``disabled`` key) are
+      hidden from the effective list.
+    * ``None`` ⇒ stage not in the store AND no tombstones ⇒ caller falls back to
+      the seed constant unchanged (byte-identical to pre-Task-2 for untouched
+      stages).
+    * ``()`` ⇒ stage is managed by the project (either in ``stages`` or has
+      tombstones) but the effective list is empty (all seeds tombstoned, no
+      custom items) ⇒ honored as empty by ``resolve_stage_checklist_contract``.
+    * Non-empty tuple ⇒ effective items in seed order (with overrides and custom
+      items appended).
     """
     stage_n = (stage or "").strip().lower()
     if not stage_n:
         return None
-    stages = _load_raw(project_root)["stages"]
-    if stage_n not in stages:
+    raw = _load_raw(project_root)
+    stages = raw["stages"]
+    disabled_map = raw["disabled"]
+
+    stage_in_store = stage_n in stages
+    tombstoned: set[str] = set(disabled_map.get(stage_n, []))
+
+    if not stage_in_store and not tombstoned:
+        # No project management of this stage → caller falls back to seed constant.
         return None
-    rows = stages.get(stage_n)
-    if isinstance(rows, list):
-        items = [it for it in (_coerce_item(r) for r in rows) if it is not None]
-    else:
-        items = []
-    # Re-inject the protected anti-fraud floor so no write path (planner add-over,
-    # or a direct edit of CHECKLISTS.json) can drop/weaken it from the rendered
-    # checklist the reviewer certifies against.
-    return tuple(_with_protected_floor(project_root, stage_n, items))
+
+    # Resolve seed items for this stage from the active vertical.
+    seed_items = seed_items_for(project_root, stage_n)  # tuple[ChecklistItem, ...]
+    seed_ids: set[str] = {it.id for it in seed_items}
+
+    # Split project rows into overrides (for seed IDs) and custom (new IDs).
+    project_rows = stages.get(stage_n, []) if stage_in_store else []
+    override_map: dict[str, Any] = {}  # seed_id → ChecklistItem
+    custom_items: list[Any] = []
+    for r in project_rows:
+        item = _coerce_item(r)
+        if item is None:
+            continue
+        if item.id in seed_ids:
+            override_map[item.id] = item
+        else:
+            custom_items.append(item)
+
+    # Build effective list: seeds (minus tombstoned, with overrides applied) + custom items.
+    effective: list[Any] = []
+    for seed_item in seed_items:
+        if seed_item.id in tombstoned:
+            continue  # hidden by tombstone
+        effective.append(override_map.get(seed_item.id, seed_item))
+    effective.extend(custom_items)
+
+    # Re-validate protected floor on read (guards against direct store edits).
+    return tuple(_with_protected_floor(project_root, stage_n, effective))
 
 
 def load_checklist_store(project_root: object) -> dict[str, list[Any]]:
@@ -235,11 +289,19 @@ def apply_checklist_ops(
     ``ops`` items: ``{op, stage, id, statement?, evidence_hint?}`` with
     ``op ∈ {seed, add, modify, remove}``:
 
-    * ``seed`` — if the stage has no project entry yet, copy the seed (reference)
-      items for that stage into the store as the editable base. No-op if present.
+    * ``seed`` — if the stage has no project entry yet, initialize an empty
+      project entry so subsequent ``add``/``modify``/``remove`` ops have a bucket
+      to work with.  Seeds are always merged in at read time; ``seed`` does NOT
+      copy them into the store (no duplication).  No-op if the stage is already
+      present.
     * ``add`` — append (or replace same-id) a new item; needs ``statement``.
+      Clears any tombstone for the same ID so the item becomes visible.
     * ``modify`` — update an existing item's statement/evidence by ``id``.
-    * ``remove`` — drop an item by ``id``.
+      For seed IDs not yet overridden, creates an override entry.  Clears any
+      tombstone for the same ID.
+    * ``remove`` on a **custom ID** — removes its row only.  ``remove`` on a
+      **seed ID** — records a tombstone under ``disabled[stage]`` and hides that
+      seed from the effective list; does not touch other seeds.
 
     ``add``/``modify``/``remove`` on a paper-vertical PROTECTED floor id are
     refused (counted as ``skipped``) — the floor is the Planner's read-only base.
@@ -255,6 +317,7 @@ def apply_checklist_ops(
     try:
         raw = _load_raw(project_root)
         stages: dict[str, Any] = dict(raw["stages"])
+        disabled: dict[str, list[str]] = {k: list(v) for k, v in raw["disabled"].items()}
         # Normalize existing stage lists to plain lists we can mutate.
         for k, v in list(stages.items()):
             stages[k] = list(v) if isinstance(v, list) else []
@@ -274,11 +337,8 @@ def apply_checklist_ops(
 
             if op == "seed":
                 if stage not in stages:
-                    seed_items = seed_fn(stage) or ()
-                    stages[stage] = [
-                        _row(it.id, it.statement, getattr(it, "evidence_hint", ""))
-                        for it in seed_items
-                    ][:MAX_ITEMS_PER_STAGE]
+                    # Mark stage as explicitly managed; seeds are merged at read time.
+                    stages[stage] = []
                     applied += 1
                 else:
                     skipped += 1
@@ -299,6 +359,9 @@ def apply_checklist_ops(
                     skipped += 1
                     continue
                 evidence = str(op_raw.get("evidence_hint") or "").strip()
+                # Clear tombstone so the item becomes visible.
+                if item_id in disabled.get(stage, []):
+                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
                 bucket = [r for r in bucket if not (isinstance(r, dict) and r.get("id") == item_id)]
                 if len(bucket) >= MAX_ITEMS_PER_STAGE:
                     skipped += 1
@@ -307,7 +370,11 @@ def apply_checklist_ops(
                 bucket.append(_row(item_id, statement, evidence))
                 stages[stage] = bucket
                 applied += 1
+
             elif op == "modify":
+                # Clear tombstone so the item becomes visible.
+                if item_id in disabled.get(stage, []):
+                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
                 found = False
                 for r in bucket:
                     if isinstance(r, dict) and r.get("id") == item_id:
@@ -317,20 +384,52 @@ def apply_checklist_ops(
                             r["evidence_hint"] = str(op_raw.get("evidence_hint") or "").strip()[:MAX_EVIDENCE_LEN]
                         found = True
                         break
+                if not found:
+                    # Item not in bucket — create an override entry (handles seed IDs
+                    # and newly referenced IDs that were never added explicitly).
+                    stmt = str(op_raw.get("statement") or "").strip()
+                    ev = str(op_raw.get("evidence_hint") or "").strip()
+                    if stmt:
+                        bucket.append(_row(item_id, stmt, ev))
+                        stages[stage] = bucket
+                        found = True
                 applied += 1 if found else 0
                 skipped += 0 if found else 1
+
             elif op == "remove":
-                before = len(bucket)
-                stages[stage] = [
-                    r for r in bucket if not (isinstance(r, dict) and r.get("id") == item_id)
-                ]
-                if len(stages[stage]) != before:
-                    applied += 1
+                seed_ids_for_stage = {it.id for it in (seed_fn(stage) or ())}
+                if item_id in seed_ids_for_stage:
+                    # Seed ID: record tombstone to hide this seed from effective list.
+                    dis = disabled.setdefault(stage, [])
+                    if item_id not in dis:
+                        dis.append(item_id)
+                        applied += 1
+                    else:
+                        skipped += 1  # already tombstoned → idempotent
+                    # Also remove any override entry so the tombstone is authoritative.
+                    stages[stage] = [
+                        r for r in bucket
+                        if not (isinstance(r, dict) and r.get("id") == item_id)
+                    ]
                 else:
-                    skipped += 1
+                    # Custom ID: remove its row only.
+                    before = len(bucket)
+                    stages[stage] = [
+                        r for r in bucket
+                        if not (isinstance(r, dict) and r.get("id") == item_id)
+                    ]
+                    if len(stages[stage]) != before:
+                        applied += 1
+                    else:
+                        skipped += 1
 
         revision = int(raw["revision"]) + 1
-        _atomic_write_json(_store_path(project_root), {"revision": revision, "stages": stages})
+        payload: dict[str, Any] = {"revision": revision, "stages": stages}
+        # Only persist 'disabled' when it is non-empty (keeps old format for clean stores).
+        clean_disabled = {k: v for k, v in disabled.items() if v}
+        if clean_disabled:
+            payload["disabled"] = clean_disabled
+        _atomic_write_json(_store_path(project_root), payload)
         return {"applied": applied, "skipped": skipped, "revision": revision}
     except Exception:  # noqa: BLE001 — write must never break planning
         log.warning("apply_checklist_ops failed; store left untouched", exc_info=True)
