@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Deterministic report-figure builder for the Argus technical report.
 
-This script renders four source-controlled figures from committed source-grounded
+This script renders six source-controlled figures from committed source-grounded
 specifications and public-safe evidence bundles:
 
-  1. ``system_planes``      -- control / execution / evidence plane interfaces.
-  2. ``mission_lifecycle``  -- mission state transitions and recovery edges.
-  3. ``public_results``     -- six-arena results as small multiples (units differ;
+  1. ``master_spine``       -- the expanding-frontier causal chain and the four
+                               runtime roles (Manager / Planner / Engineer /
+                               Reviewer).
+  2. ``dense_intelligence``  -- explanatory decision/execution/verification
+                               continuity schematic (not a performance score).
+  3. ``system_planes``      -- control / execution / evidence plane interfaces.
+  4. ``mission_lifecycle``  -- mission state transitions and recovery edges.
+  5. ``public_results``     -- six-arena results as small multiples (units differ;
                                panels are never cross-normalized).
-  4. ``paper_portfolio``    -- six-program paper counts with manuscript/draft split.
+  6. ``paper_portfolio``    -- six-program paper counts with manuscript/draft split.
 
 No image-model call is required: every figure is drawn with matplotlib from data
 that already lives in the repository. Output is deterministic -- running the
@@ -20,8 +25,8 @@ Usage::
 
     python technical_report/figures/build_report_figures.py
 
-Palette follows the report's Precision Atlas colours: bone-white page, graphite
-ink, Argus indigo accent.
+Palette follows the Argus website's Blue-Gold narrative: bone-white page,
+graphite ink, system blue / deep blue accents, and a gold frontier accent.
 """
 from __future__ import annotations
 
@@ -59,18 +64,35 @@ matplotlib.rcParams.update(
     }
 )
 
-# Precision Atlas palette (matches technical_report/main.tex).
+# Blue-Gold palette (matches the Argus website / expanding-frontier narrative).
 BONE = "#FBFAF6"
 GRAPHITE = "#24272B"
 GRAPHITE_SOFT = "#4A4F55"
-INDIGO = "#3B3D6E"
-INDIGO_SOFT = "#6C6EA0"
+BLUE = "#315BCE"
+BLUE_DEEP = "#214884"
+BLUE_SOFT = "#EAF0FF"
+GOLD = "#C38A20"
+GOLD_SOFT = "#FFF3D6"
 PANEL_FILL = "#F2F1EC"
 PANEL_LINE = "#D8D6CE"
-CALLOUT_FILL = "#EEF0F6"
 EVIDENCE_FILL = "#EAEEE8"
 EVIDENCE_LINE = "#9AAE93"
 RECOVERY = "#8A5A3B"  # muted terracotta for recovery / fault edges
+
+MASTER_SPINE_STAGES = (
+    ("Unknown objective", "OOD problem or deeper challenge"),
+    ("Dense Intelligence Runtime", "continuous organized research work"),
+    ("Evidence Gate", "artifacts \u00b7 measurements \u00b7 failures \u00b7 verdicts"),
+    ("Runtime Evolution", "memory \u00b7 skills \u00b7 tools \u00b7 verifiers \u00b7 routing \u00b7 evaluations"),
+    ("Expanded OOD Frontier", "the next unknown task does not start from zero"),
+)
+
+MASTER_SPINE_ROLES = (
+    ("Manager", "intent \u00b7 lifetime \u00b7 stage"),
+    ("Planner", "decompose \u00b7 schedule \u00b7 re-plan"),
+    ("Engineer", "retrieve \u00b7 build \u00b7 experiment"),
+    ("Reviewer", "inspect evidence \u00b7 decide"),
+)
 
 HERE = Path(__file__).resolve().parent
 EVIDENCE = HERE.parent / "evidence"
@@ -175,8 +197,8 @@ def build_system_planes() -> dict:
             "research judgment \u00b7 what to run, whether it is done",
             68.5,
             26.0,
-            CALLOUT_FILL,
-            INDIGO,
+            BLUE_SOFT,
+            BLUE_DEEP,
             [
                 ("Manager", "front door \u00b7 vertical\nselect \u00b7 stage authority"),
                 ("Planner (L4)", "forward scheduling\ntask DAG \u00b7 backlog"),
@@ -231,8 +253,8 @@ def build_system_planes() -> dict:
                   color=GRAPHITE_SOFT)
 
     # Cross-plane arrows: dispatch down, evidence up.
-    _arrow(ax, 24, 68.0, 24, 64.9, color=INDIGO, lw=1.7)
-    _text(ax, 21.5, 66.4, "dispatch", size=7.4, color=INDIGO, ha="right")
+    _arrow(ax, 24, 68.0, 24, 64.9, color=BLUE_DEEP, lw=1.7)
+    _text(ax, 21.5, 66.4, "dispatch", size=7.4, color=BLUE_DEEP, ha="right")
     _arrow(ax, 24, 38.0, 24, 34.9, color=GRAPHITE_SOFT, lw=1.7)
     _text(ax, 21.5, 36.4, "emit", size=7.4, color=GRAPHITE_SOFT, ha="right")
 
@@ -242,7 +264,7 @@ def build_system_planes() -> dict:
     _text(ax, 78.5, 36.4, "read-back", size=7.4, color=EVIDENCE_LINE, ha="left")
 
     _text(ax, 50, 97.4, "Argus three-plane architecture", size=12,
-          weight="bold", color=INDIGO)
+          weight="bold", color=BLUE_DEEP)
     _text(ax, 50, 2.0,
           "Judgment stays in the control and execution planes; the evidence "
           "plane records but never decides.",
@@ -268,9 +290,9 @@ def build_mission_lifecycle() -> dict:
         "backlog": (73, 71, "Backlog / continuous", "STANDING 7\u00d724\nor BOUNDED end"),
     }
     colors = {
-        "claim": (CALLOUT_FILL, INDIGO),
-        "mission": (CALLOUT_FILL, INDIGO),
-        "verdict": (CALLOUT_FILL, INDIGO),
+        "claim": (BLUE_SOFT, BLUE_DEEP),
+        "mission": (BLUE_SOFT, BLUE_DEEP),
+        "verdict": (BLUE_SOFT, BLUE_DEEP),
         "done": (EVIDENCE_FILL, EVIDENCE_LINE),
         "plannext": (PANEL_FILL, GRAPHITE_SOFT),
         "backlog": (PANEL_FILL, GRAPHITE_SOFT),
@@ -283,17 +305,17 @@ def build_mission_lifecycle() -> dict:
         _text(ax, x, y - 2.8, sub, size=7.0, color=GRAPHITE_SOFT)
 
     # Primary spine edges.
-    _arrow(ax, 26, 84, 26, 77, color=INDIGO, lw=1.7)
-    _arrow(ax, 26, 65, 26, 58, color=INDIGO, lw=1.7)
-    _arrow(ax, 26, 46, 26, 39, color=INDIGO, lw=1.7)
-    _text(ax, 27.8, 42.5, "done", size=7.2, color=INDIGO, ha="left")
+    _arrow(ax, 26, 84, 26, 77, color=BLUE_DEEP, lw=1.7)
+    _arrow(ax, 26, 65, 26, 58, color=BLUE_DEEP, lw=1.7)
+    _arrow(ax, 26, 46, 26, 39, color=BLUE_DEEP, lw=1.7)
+    _text(ax, 27.8, 42.5, "done", size=7.2, color=BLUE_DEEP, ha="left")
 
     # continue: verdict -> mission (loop back up on the left).
-    _arrow(ax, 15, 49, 15, 68, color=INDIGO, lw=1.4,
+    _arrow(ax, 15, 49, 15, 68, color=BLUE_DEEP, lw=1.4,
            connection="arc3,rad=0.0")
-    _arrow(ax, 20, 52.5, 12, 55, color=INDIGO, lw=1.4)
-    _arrow(ax, 12, 67, 20, 70.5, color=INDIGO, lw=1.4)
-    _text(ax, 9.5, 60, "continue\n(+ next step)", size=7.0, color=INDIGO,
+    _arrow(ax, 20, 52.5, 12, 55, color=BLUE_DEEP, lw=1.4)
+    _arrow(ax, 12, 67, 20, 70.5, color=BLUE_DEEP, lw=1.4)
+    _text(ax, 9.5, 60, "continue\n(+ next step)", size=7.0, color=BLUE_DEEP,
           ha="right")
 
     # plan-next loop (right side).
@@ -344,7 +366,7 @@ def build_mission_lifecycle() -> dict:
           size=7.0, color=GRAPHITE_SOFT, ha="left")
 
     _text(ax, 50, 97.7, "Mission lifecycle and recovery edges", size=12,
-          weight="bold", color=INDIGO)
+          weight="bold", color=BLUE_DEEP)
     return _save(fig, "mission_lifecycle")
 
 
@@ -369,7 +391,7 @@ def build_public_results() -> dict:
         ax.text(0.0, 1.13, sub, transform=ax.transAxes, fontsize=6.8,
                 color=GRAPHITE_SOFT, ha="left", va="bottom")
         tag = "artifact digest" if tier == "local_artifact" else "website snapshot"
-        tcol = EVIDENCE_LINE if tier == "local_artifact" else INDIGO_SOFT
+        tcol = EVIDENCE_LINE if tier == "local_artifact" else BLUE
         ax.text(0.0, 1.00, f"{tag}  \u00b7  {better}", transform=ax.transAxes,
                 fontsize=6.5, color=tcol, ha="left", va="bottom")
         for spine in ("top", "right"):
@@ -389,7 +411,7 @@ def build_public_results() -> dict:
     ax = axes[0][0]
     cats = ["#1\nfinishes", "Top-3\nplacements", "H2H wins\nvs Recursive"]
     vals = [2, 7, 2]
-    cols = [INDIGO, INDIGO, INDIGO_SOFT]
+    cols = [BLUE_DEEP, BLUE_DEEP, BLUE]
     bars = ax.bar(cats, vals, color=cols, width=0.62, edgecolor=GRAPHITE,
                   linewidth=0.4)
     label_bars(ax, bars, vals, "{:d}", dy=0.08)
@@ -401,7 +423,7 @@ def build_public_results() -> dict:
     # Panel B: nanochat B200 (BPB, lower better).
     ax = axes[0][1]
     vals = [0.9636, 0.9646]
-    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[INDIGO, INDIGO_SOFT],
+    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[BLUE_DEEP, BLUE],
                   width=0.55, edgecolor=GRAPHITE, linewidth=0.4)
     ax.set_ylim(0.960, 0.966)
     label_bars(ax, bars, vals, "{:.4f}", dy=0.00012)
@@ -412,7 +434,7 @@ def build_public_results() -> dict:
     # Panel C: nanochat H100 (BPB, lower better).
     ax = axes[0][2]
     vals = [0.9855, 0.9879]
-    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[INDIGO, INDIGO_SOFT],
+    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[BLUE_DEEP, BLUE],
                   width=0.55, edgecolor=GRAPHITE, linewidth=0.4)
     ax.set_ylim(0.982, 0.989)
     label_bars(ax, bars, vals, "{:.4f}", dy=0.00014)
@@ -424,7 +446,7 @@ def build_public_results() -> dict:
     ax = axes[1][0]
     vals = [79.77, 80.18]
     bars = ax.bar(["Argus", "Human #83\n(same device)"], vals,
-                  color=[INDIGO, INDIGO_SOFT], width=0.55, edgecolor=GRAPHITE,
+                  color=[BLUE_DEEP, BLUE], width=0.55, edgecolor=GRAPHITE,
                   linewidth=0.4)
     ax.set_ylim(79.0, 80.6)
     label_bars(ax, bars, vals, "{:.2f}s", dy=0.03)
@@ -436,7 +458,7 @@ def build_public_results() -> dict:
     ax = axes[1][1]
     vals = [76.8, 68.3]
     bars = ax.bar(["Argus\n63/82", "Paper-reported\nbest"], vals,
-                  color=[INDIGO, INDIGO_SOFT], width=0.55, edgecolor=GRAPHITE,
+                  color=[BLUE_DEEP, BLUE], width=0.55, edgecolor=GRAPHITE,
                   linewidth=0.4)
     ax.set_ylim(0, 100)
     label_bars(ax, bars, vals, "{:.1f}%", dy=1.0)
@@ -448,7 +470,7 @@ def build_public_results() -> dict:
     ax = axes[1][2]
     labels = ["Argus", "Arbor", "Claude\nCode", "Codex"]
     vals = [28.0, 20.83, 8.33, 6.25]
-    cols = [INDIGO, INDIGO_SOFT, GRAPHITE_SOFT, PANEL_LINE]
+    cols = [BLUE_DEEP, BLUE, GRAPHITE_SOFT, PANEL_LINE]
     bars = ax.bar(labels, vals, color=cols, width=0.68, edgecolor=GRAPHITE,
                   linewidth=0.4)
     ax.set_ylim(0, 31)
@@ -459,7 +481,7 @@ def build_public_results() -> dict:
 
     fig.suptitle("Public results across six arenas (units differ; panels are "
                  "not cross-normalized)", fontsize=10.5, fontweight="bold",
-                 color=INDIGO, x=0.07, ha="left", y=0.965)
+                 color=BLUE_DEEP, x=0.07, ha="left", y=0.965)
     return _save(fig, "public_results")
 
 
@@ -485,9 +507,9 @@ def build_paper_portfolio() -> dict:
     ax.set_facecolor(BONE)
 
     ypos = range(len(programs))
-    b1 = ax.barh(ypos, manuscripts, color=INDIGO, edgecolor=GRAPHITE,
+    b1 = ax.barh(ypos, manuscripts, color=BLUE_DEEP, edgecolor=GRAPHITE,
                  linewidth=0.5, height=0.62, label="Manuscripts (35)")
-    b2 = ax.barh(ypos, drafts, left=manuscripts, color=INDIGO_SOFT,
+    b2 = ax.barh(ypos, drafts, left=manuscripts, color=BLUE,
                  edgecolor=GRAPHITE, linewidth=0.5, height=0.62,
                  label="Drafts (6)")
 
@@ -513,7 +535,7 @@ def build_paper_portfolio() -> dict:
     ax.spines["bottom"].set_color(PANEL_LINE)
     ax.set_title("")
     fig.text(0.035, 0.945, "Research portfolio \u2014 41 papers across six programs",
-             fontsize=11.0, fontweight="bold", color=INDIGO, ha="left",
+             fontsize=11.0, fontweight="bold", color=BLUE_DEEP, ha="left",
              va="center")
     fig.text(0.035, 0.878,
              "35 manuscripts + 6 drafts   \u00b7   human-authored baselines only"
@@ -524,8 +546,130 @@ def build_paper_portfolio() -> dict:
     return _save(fig, "paper_portfolio")
 
 
+# --------------------------------------------------------------------------- #
+# Figure 5: master spine -- the expanding-frontier causal chain.
+# --------------------------------------------------------------------------- #
+def build_master_spine() -> dict:
+    fig, ax = _new_axes(10.4, 6.2)
+    _text(
+        ax, 5, 96, "ARGUS \u00b7 TECHNICAL SPINE",
+        size=7.8, color=GOLD, weight="bold", ha="left",
+    )
+    _text(
+        ax, 5, 90, "Every run expands the frontier.",
+        size=15, color=BLUE_DEEP, weight="bold", ha="left",
+    )
+
+    # Widths are sized per-stage so long titles (e.g. "Expanded OOD Frontier")
+    # and the role/runtime-label grids they host both fit without collisions.
+    stage_x = (1, 17, 43, 59, 83)
+    stage_w = (14, 24, 14, 22, 16)
+    box_y, box_h = 38, 32
+    # Manual two-line wraps (display only) so the longer subtitles do not
+    # spill past their own stage into a neighbour.
+    subtitle_wraps = {
+        0: "OOD problem or\ndeeper challenge",
+        2: "artifacts \u00b7 measurements \u00b7\nfailures \u00b7 verdicts",
+        3: "memory \u00b7 skills \u00b7 tools \u00b7 verifiers\n\u00b7 routing \u00b7 evaluations",
+        4: "the next unknown task\ndoes not start from zero",
+    }
+    for index, ((title, subtitle), x, width) in enumerate(
+        zip(MASTER_SPINE_STAGES, stage_x, stage_w, strict=True)
+    ):
+        face = BLUE_SOFT if index in {1, 3} else BONE
+        edge = GOLD if index in {2, 4} else BLUE
+        _box(ax, x, box_y, width, box_h, face=face, edge=edge, lw=1.3)
+        _text(ax, x + width / 2, 67, title, size=8.2, weight="bold")
+        rendered_subtitle = subtitle_wraps.get(index, subtitle)
+        if index == 1:
+            _text(ax, x + width / 2, 61.5, rendered_subtitle, size=6.2,
+                  color=GRAPHITE_SOFT)
+        else:
+            _text(ax, x + width / 2, 40, rendered_subtitle, size=5.6,
+                  color=GRAPHITE_SOFT)
+        if index < len(MASTER_SPINE_STAGES) - 1:
+            _arrow(ax, x + width + 1, 55, stage_x[index + 1] - 1, 55, color=BLUE)
+
+    role_w, role_h = 7.5, 6.5
+    role_positions = ((19.5, 51), (31, 51), (19.5, 42.5), (31, 42.5))
+    for (name, detail), (x, y) in zip(
+        MASTER_SPINE_ROLES, role_positions, strict=True
+    ):
+        _box(ax, x, y, role_w, role_h, face=BONE,
+             edge=GOLD if name == "Reviewer" else BLUE)
+        _text(ax, x + role_w / 2, y + 4.1, name, size=6.0, weight="bold")
+        _text(ax, x + role_w / 2, y + 1.7, detail, size=4.8,
+              color=GRAPHITE_SOFT)
+
+    runtime_labels = ("Memory", "Skills", "Tools", "Verifiers", "Routing", "Evaluations")
+    for index, label in enumerate(runtime_labels):
+        row, col = divmod(index, 2)
+        _text(ax, 65 + col * 10, 61 - row * 7, label, size=5.8, color=BLUE_DEEP)
+
+    _text(
+        ax, 50, 27,
+        "H(t+1) = U(H(t), trajectory, evidence)",
+        size=9.0, color=BLUE_DEEP, weight="bold",
+    )
+    _text(
+        ax, 50, 20, "model parameters remain fixed",
+        size=7.2, color=GRAPHITE_SOFT,
+    )
+    _text(
+        ax, 50, 13,
+        "capability is not guaranteed to grow every run",
+        size=6.4, color=GRAPHITE_SOFT, style="italic",
+    )
+    _arrow(ax, 97, 33, 3, 33, color=GOLD, lw=1.5, connection="arc3,rad=-0.22")
+    return _save(fig, "master_spine")
+
+
+# --------------------------------------------------------------------------- #
+# Figure 6: dense intelligence -- explanatory continuity schematic.
+# --------------------------------------------------------------------------- #
+def build_dense_intelligence() -> dict:
+    fig, ax = _new_axes(9.4, 4.8)
+    _text(ax, 5, 94, "DENSE INTELLIGENCE", size=7.8, color=GOLD, weight="bold", ha="left")
+    _text(
+        ax, 5, 87,
+        "Continuity is useful only when decision, execution, and verification remain coupled.",
+        size=11.5, color=BLUE_DEEP, weight="bold", ha="left",
+    )
+
+    labels = ("decision", "execution", "verification", "state retention")
+    for row, (title, subtitle) in enumerate(
+        (
+            ("Episodic research", "useful work separated by context recovery"),
+            ("Argus Life", "continuous role loop over persisted project state"),
+        )
+    ):
+        y = 61 - row * 27
+        _text(ax, 6, y + 10, title, size=8.0, weight="bold", ha="left")
+        _text(ax, 6, y + 5, subtitle, size=6.3, color=GRAPHITE_SOFT, ha="left")
+        for index, label in enumerate(labels):
+            x = 36 + index * 15
+            active = row == 1 or index in {0, 2}
+            _box(
+                ax, x, y, 12, 9,
+                face=BLUE_SOFT if active else PANEL_FILL,
+                edge=BLUE if active else PANEL_LINE,
+            )
+            _text(ax, x + 6, y + 4.5, label, size=5.8)
+            if index < len(labels) - 1:
+                _arrow(ax, x + 12.5, y + 4.5, x + 14.5, y + 4.5, color=GOLD if row == 1 else PANEL_LINE)
+
+    _text(
+        ax, 50, 5,
+        "conceptual model \u00b7 not a reported benchmark",
+        size=6.5, color=GRAPHITE_SOFT, style="italic",
+    )
+    return _save(fig, "dense_intelligence")
+
+
 def main() -> None:
     figures = {
+        "master_spine": build_master_spine(),
+        "dense_intelligence": build_dense_intelligence(),
         "system_planes": build_system_planes(),
         "mission_lifecycle": build_mission_lifecycle(),
         "public_results": build_public_results(),
@@ -542,7 +686,9 @@ def main() -> None:
         "palette": {
             "bone_white": BONE,
             "graphite": GRAPHITE,
-            "argus_indigo": INDIGO,
+            "system_blue": BLUE,
+            "deep_blue": BLUE_DEEP,
+            "frontier_gold": GOLD,
         },
         "source_evidence": [
             "argus_skill/core/event_catalog.py",

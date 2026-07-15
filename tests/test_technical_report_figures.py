@@ -102,3 +102,54 @@ def test_figure_builder_imports_from_outside_repository(tmp_path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_master_spine_contains_causal_chain_and_four_roles(monkeypatch) -> None:
+    text = _figure_text(monkeypatch, "build_master_spine")
+
+    required = {
+        "Unknown objective",
+        "Dense Intelligence Runtime",
+        "Evidence Gate",
+        "Runtime Evolution",
+        "Expanded OOD Frontier",
+        "Manager",
+        "Planner",
+        "Engineer",
+        "Reviewer",
+        "Memory",
+        "Skills",
+        "Tools",
+        "Verifiers",
+        "Routing",
+        "Evaluations",
+    }
+    assert required <= set(text.splitlines())
+    assert "Every run expands the frontier." in text
+
+
+def test_master_spine_states_fixed_model_parameters(monkeypatch) -> None:
+    text = _figure_text(monkeypatch, "build_master_spine")
+
+    assert "H(t+1) = U(H(t), trajectory, evidence)" in text
+    assert "model parameters remain fixed" in text
+    assert "capability is not guaranteed to grow every run" in text
+
+
+def test_dense_intelligence_is_explanatory_not_a_score(monkeypatch) -> None:
+    text = _figure_text(monkeypatch, "build_dense_intelligence")
+
+    assert "decision" in text
+    assert "execution" in text
+    assert "verification" in text
+    assert "conceptual model \u00b7 not a reported benchmark" in text
+    assert "Argus > human" not in text
+
+
+def test_website_palette_is_used_by_report_figures() -> None:
+    builder = _load_figure_builder()
+
+    assert builder.BONE == "#FBFAF6"
+    assert builder.BLUE == "#315BCE"
+    assert builder.BLUE_DEEP == "#214884"
+    assert builder.GOLD == "#C38A20"
