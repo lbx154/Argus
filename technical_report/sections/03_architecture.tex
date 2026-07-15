@@ -68,7 +68,7 @@ tests.
 \subsection{Evidence plane: measurement integrity}
 
 The evidence plane records the run and enforces the run's integrity invariants
-(Section~\ref{sec:episodic}). Its spine is a per-project append-only
+(Section~\ref{sec:evidence}). Its spine is a per-project append-only
 event tape, \code{events.jsonl} (\srcpath{core/paths.py}), carrying the 112 typed
 event types. Alongside it sit the usage ledger (\srcpath{core/usage.py}), the
 credential-redaction pass applied before persistence

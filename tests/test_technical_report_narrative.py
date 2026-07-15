@@ -12,12 +12,23 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def _all_report_source() -> str:
+    main = _read("technical_report/main.tex")
+    sections = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((REPORT / "sections").glob("*.tex"))
+    )
+    return main + "\n" + sections
+
+
 def test_report_identity_is_dense_intelligence_03() -> None:
     main = _read("technical_report/main.tex")
+    source = _all_report_source()
 
     assert "Technical Report 0.3" in main
     assert "Dense Intelligence for an Expanding Research Frontier" in main
-    assert "Technical Report 0.2" not in main
+    assert "Technical Report 0.2" not in source
+    assert "version 0.2" not in source
 
 
 def test_cover_is_light_blue_gold() -> None:
