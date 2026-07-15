@@ -50,21 +50,23 @@ PSM_MODES: tuple[int, ...] = (6, 11, 12)
 REQUIRED_WIDTH = 1536
 REQUIRED_HEIGHT = 1024
 
-# Sidecar suffixes shared by every figure, plus the data-figure-only
-# independent exact-content review. Order matters only for readability; the
-# CLI/tests treat this as a set.
+# Sidecar suffixes required for every one of the eight figures. Per the
+# approved Generation Workflow, every figure gets a second independent
+# exact-content vision review (``content-review.json``); data figures
+# additionally hold that review to a stricter numeric/source standard (see
+# ``validate_figure``), but the sidecar itself is not data-figure-only.
+# Order matters only for readability; the CLI/tests treat this as a set.
 _COMMON_SIDECAR_SUFFIXES: tuple[str, ...] = (
     "prompt.txt",
     "png.json",
     "inspect.json",
     "provenance.json",
     "review.json",
+    "content-review.json",
     "ocr.txt",
     "ocr.json",
 )
-_DATA_FIGURE_SIDECAR_SUFFIXES: tuple[str, ...] = _COMMON_SIDECAR_SUFFIXES + (
-    "content-review.json",
-)
+_DATA_FIGURE_SIDECAR_SUFFIXES: tuple[str, ...] = _COMMON_SIDECAR_SUFFIXES
 
 # Unicode code points that Tesseract (or a font) may render in place of a
 # plain multiplication sign. Normalized to ascii "x" so contract tokens and
@@ -458,8 +460,18 @@ def _check_hash_consistency(
     sidecar_json: dict[str, dict[str, Any]], output_sha256: str, errors: list[str]
 ) -> None:
     for suffix in ("inspect.json", "png.json", "provenance.json"):
-        recorded = _recorded_hash(sidecar_json.get(suffix))
-        if recorded is not None and recorded != output_sha256:
+        payload = sidecar_json.get(suffix)
+        if payload is None:
+            # Missing/unparseable sidecar is already reported by the
+            # sidecar-presence/JSON-parse check; nothing further to add here.
+            continue
+        recorded = _recorded_hash(payload)
+        if recorded is None:
+            errors.append(
+                f"{suffix} has no recorded output/image sha256: cannot "
+                "confirm it corresponds to the committed PNG"
+            )
+        elif recorded != output_sha256:
             errors.append(
                 f"hash mismatch in {suffix}: sidecar records {recorded}, "
                 f"actual PNG sha256 is {output_sha256}"
@@ -521,19 +533,24 @@ def validate_figure(
             f"{review.get('keep_or_regenerate')!r})"
         )
 
+    # Every figure -- concept or data -- gets a second independent
+    # exact-content vision review; it must independently accept the figure.
+    # Data figures additionally hold that review to a stricter
+    # numeric/source standard (zero unresolved numeric mismatches).
     content_review = sidecar_json.get("content-review.json")
-    if contract.data_figure and content_review is not None:
+    if content_review is not None:
         if content_review.get("keep_or_regenerate") != "keep":
             errors.append(
                 "content-review.json does not accept the figure "
                 f"(keep_or_regenerate={content_review.get('keep_or_regenerate')!r})"
             )
-        unresolved = content_review.get("unresolved_numeric_mismatches") or []
-        if unresolved:
-            errors.append(
-                "content-review.json reports unresolved numeric mismatches: "
-                f"{unresolved}"
-            )
+        if contract.data_figure:
+            unresolved = content_review.get("unresolved_numeric_mismatches") or []
+            if unresolved:
+                errors.append(
+                    "content-review.json reports unresolved numeric mismatches: "
+                    f"{unresolved}"
+                )
 
     ocr_result = ocr_runner(image_path)
     combined_normalized = ocr_result.get("combined_normalized", "")
@@ -549,11 +566,18 @@ def validate_figure(
     if not per_psm_normalized:
         per_psm_normalized = [combined_normalized]
 
-    confirmed_labels: set[str] = set()
-    for payload in (review, content_review):
-        if isinstance(payload, dict):
-            confirmed_labels.update(payload.get("confirmed_labels") or [])
-    normalized_confirmed = {normalize_ocr(label) for label in confirmed_labels}
+    # A required label absent from OCR may still pass for concept figures,
+    # but only when BOTH independent vision reviews confirm it -- one review
+    # confirming it alone (in either sidecar) must never bypass OCR.
+    review_confirmed = {
+        normalize_ocr(label)
+        for label in (review.get("confirmed_labels") or [])
+    } if isinstance(review, dict) else set()
+    content_review_confirmed = {
+        normalize_ocr(label)
+        for label in (content_review.get("confirmed_labels") or [])
+    } if isinstance(content_review, dict) else set()
+    normalized_confirmed = review_confirmed & content_review_confirmed
 
     missing_labels: list[str] = []
     for label in contract.required_labels:

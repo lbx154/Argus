@@ -298,8 +298,9 @@ For each attempt:
    altering the image.
 5. Compare extracted tokens against the figure's required token contract.
 6. Run a vision-capable semantic/content review with the complete prompt.
-7. For data figures, run a second independent exact-content vision review against
-   the committed evidence JSON.
+7. Run a second, independent exact-content vision review for every figure. For
+   data figures, this second review additionally performs strict
+   numeric/source verification against the committed evidence JSON.
 8. Reject and regenerate on any material mismatch.
 
 Attempt limits:

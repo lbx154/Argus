@@ -97,7 +97,13 @@ def _write_full_sidecars(
     content_review_overrides: dict[str, Any] | None = None,
 ) -> str:
     """Write a PNG plus every required sidecar for ``stem`` and return its
-    sha256 so callers can assert hash-consistency behavior."""
+    sha256 so callers can assert hash-consistency behavior.
+
+    Every figure -- concept or data -- gets a ``content-review.json`` second
+    independent exact-content vision review, per the approved Generation
+    Workflow; ``data_figure`` only affects whether extra strict
+    numeric/source fields (``unresolved_numeric_mismatches``) are meaningful.
+    """
     png_path = figures / f"{stem}.png"
     _write_png(png_path, width, height)
     sha256 = vaf._sha256(png_path)
@@ -133,17 +139,14 @@ def _write_full_sidecars(
         {"expected_tokens": [], "unresolved": [], "coverage": 1.0},
     )
 
-    if data_figure:
-        content_review_payload = {
-            "score_1_to_5": 5,
-            "unresolved_numeric_mismatches": [],
-            "keep_or_regenerate": "keep",
-        }
-        if content_review_overrides:
-            content_review_payload.update(content_review_overrides)
-        _write_json(
-            figures / f"{stem}.content-review.json", content_review_payload
-        )
+    content_review_payload = {
+        "score_1_to_5": 5,
+        "unresolved_numeric_mismatches": [],
+        "keep_or_regenerate": "keep",
+    }
+    if content_review_overrides:
+        content_review_payload.update(content_review_overrides)
+    _write_json(figures / f"{stem}.content-review.json", content_review_payload)
 
     return sha256
 
@@ -289,9 +292,11 @@ def test_data_figure_sidecar_suffixes_include_content_review() -> None:
     assert "content-review.json" in contract.sidecar_suffixes
 
 
-def test_concept_figure_sidecar_suffixes_exclude_content_review() -> None:
+def test_concept_figure_sidecar_suffixes_also_include_content_review() -> None:
+    # Amended spec: every one of the eight figures -- not just data figures
+    # -- gets a second independent exact-content vision review.
     contract = vaf.FIGURE_CONTRACTS["master_spine"]
-    assert "content-review.json" not in contract.sidecar_suffixes
+    assert "content-review.json" in contract.sidecar_suffixes
 
 
 def test_every_contract_requires_the_core_sidecar_set() -> None:
@@ -592,14 +597,15 @@ def test_validate_figure_fails_when_required_label_missing_from_ocr(
 def test_validate_figure_concept_label_passes_via_vision_review_confirmation(
     tmp_path: Path,
 ) -> None:
-    # Concept figures may satisfy a required label either via OCR or via an
-    # explicit vision-review confirmation; OCR alone missing "Reviewer" must
-    # not fail the figure if the review confirms it.
+    # Concept figures may satisfy a required label either via OCR or via
+    # explicit confirmation from BOTH independent vision reviews; OCR alone
+    # missing "Reviewer" must not fail the figure if both reviews confirm it.
     figures = _figures_dir(tmp_path)
     _write_full_sidecars(
         figures,
         "master_spine",
         review_overrides={"confirmed_labels": ["Reviewer"]},
+        content_review_overrides={"confirmed_labels": ["Reviewer"]},
     )
     text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
     ocr_runner = _ocr_runner_returning(text_without_reviewer)
@@ -734,6 +740,229 @@ def test_validate_figure_output_includes_sha256_and_sidecar_map(
     assert outcome["output_sha256"] == sha256
     assert "review.json" in outcome["sidecars"]
     assert outcome["sidecars"]["review.json"]["exists"] is True
+
+
+# ---------------------------------------------------------------------------
+# Stricter approved-spec contracts: every figure gets a second independent
+# exact-content vision review (content-review.json); data figures
+# additionally require strict numeric/source review. These tests were
+# written before the corresponding validator fix landed and must fail (RED)
+# against the pre-fix implementation, which only wired content-review.json
+# into the data-figure sidecar set/acceptance path.
+# ---------------------------------------------------------------------------
+
+
+def _write_core_sidecars_without_content_review(
+    figures: Path,
+    stem: str,
+    *,
+    width: int = 1536,
+    height: int = 1024,
+    review_overrides: dict[str, Any] | None = None,
+) -> str:
+    """Write a PNG plus only the seven "core" sidecars for ``stem`` -- no
+    ``content-review.json`` -- regardless of whether ``stem`` is a data
+    figure. Used to probe the "every figure requires content-review.json"
+    requirement without depending on the (pre-fix) data-figure-only
+    fixture gating in ``_write_full_sidecars``.
+    """
+    png_path = figures / f"{stem}.png"
+    _write_png(png_path, width, height)
+    sha256 = vaf._sha256(png_path)
+
+    (figures / f"{stem}.prompt.txt").write_text("prompt body", encoding="utf-8")
+    _write_json(
+        figures / f"{stem}.png.json",
+        {"output_sha256": sha256, "model": "gpt-image-2"},
+    )
+    _write_json(
+        figures / f"{stem}.inspect.json",
+        {"sha256": sha256, "width": width, "height": height},
+    )
+    _write_json(
+        figures / f"{stem}.provenance.json",
+        {"output_sha256": sha256, "generator": "codex-image2"},
+    )
+    review_payload = {
+        "score_1_to_5": 5,
+        "major_issues": [],
+        "concrete_revision_prompt": "",
+        "keep_or_regenerate": "keep",
+    }
+    if review_overrides:
+        review_payload.update(review_overrides)
+    _write_json(figures / f"{stem}.review.json", review_payload)
+    (figures / f"{stem}.ocr.txt").write_text("raw ocr text", encoding="utf-8")
+    _write_json(
+        figures / f"{stem}.ocr.json",
+        {"expected_tokens": [], "unresolved": [], "coverage": 1.0},
+    )
+    return sha256
+
+
+def test_every_contract_requires_content_review_sidecar() -> None:
+    # Per the amended Generation Workflow, every one of the eight figures
+    # gets a second independent exact-content vision review -- not just the
+    # two data figures.
+    for contract in vaf.FIGURE_CONTRACTS.values():
+        assert "content-review.json" in contract.sidecar_suffixes, contract.stem
+
+
+def test_validate_figure_fails_when_content_review_sidecar_absent_for_concept_figure(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(figures, "master_spine")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "missing sidecar" in e and "content-review.json" in e
+        for e in outcome["errors"]
+    ), outcome["errors"]
+
+
+def test_validate_figure_fails_when_content_review_not_keep_for_concept_figure(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(figures, "master_spine")
+    _write_json(
+        figures / "master_spine.content-review.json",
+        {
+            "score_1_to_5": 2,
+            "unresolved_numeric_mismatches": [],
+            "keep_or_regenerate": "regenerate",
+        },
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "content-review.json does not accept" in e for e in outcome["errors"]
+    ), outcome["errors"]
+
+
+def test_validate_figure_fails_when_content_review_absent_for_data_figure(
+    tmp_path: Path,
+) -> None:
+    # Absence must fail even though it is trivially implied by the existing
+    # "missing sidecar" check for data figures -- assert it explicitly so a
+    # future refactor of the sidecar-presence check cannot silently drop the
+    # content-review acceptance requirement for data figures.
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(figures, "public_results")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "missing sidecar" in e and "content-review.json" in e
+        for e in outcome["errors"]
+    ), outcome["errors"]
+
+
+def test_concept_label_passes_only_when_both_reviews_independently_confirm(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(
+        figures,
+        "master_spine",
+        review_overrides={"confirmed_labels": ["Reviewer"]},
+    )
+    _write_json(
+        figures / "master_spine.content-review.json",
+        {
+            "score_1_to_5": 5,
+            "unresolved_numeric_mismatches": [],
+            "keep_or_regenerate": "keep",
+            "confirmed_labels": ["Reviewer"],
+        },
+    )
+    text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
+    ocr_runner = _ocr_runner_returning(text_without_reviewer)
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_review_json_confirmation_alone_cannot_bypass_ocr(tmp_path: Path) -> None:
+    # review.json confirms "Reviewer" but content-review.json does not: a
+    # single review must never be sufficient to bypass OCR.
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(
+        figures,
+        "master_spine",
+        review_overrides={"confirmed_labels": ["Reviewer"]},
+    )
+    _write_json(
+        figures / "master_spine.content-review.json",
+        {
+            "score_1_to_5": 5,
+            "unresolved_numeric_mismatches": [],
+            "keep_or_regenerate": "keep",
+        },
+    )
+    text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
+    ocr_runner = _ocr_runner_returning(text_without_reviewer)
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("Reviewer" in e for e in outcome["errors"])
+
+
+def test_content_review_json_confirmation_alone_cannot_bypass_ocr(
+    tmp_path: Path,
+) -> None:
+    # Symmetric case: content-review.json confirms "Reviewer" but
+    # review.json does not.
+    figures = _figures_dir(tmp_path)
+    _write_core_sidecars_without_content_review(figures, "master_spine")
+    _write_json(
+        figures / "master_spine.content-review.json",
+        {
+            "score_1_to_5": 5,
+            "unresolved_numeric_mismatches": [],
+            "keep_or_regenerate": "keep",
+            "confirmed_labels": ["Reviewer"],
+        },
+    )
+    text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
+    ocr_runner = _ocr_runner_returning(text_without_reviewer)
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("Reviewer" in e for e in outcome["errors"])
+
+
+@pytest.mark.parametrize("sidecar_suffix", ["inspect.json", "png.json", "provenance.json"])
+def test_sidecar_fails_when_no_recorded_hash_present_not_only_on_mismatch(
+    tmp_path: Path, sidecar_suffix: str
+) -> None:
+    # A sidecar that records no sha256/output_sha256 at all must fail
+    # (missing provenance is not "trust it"), not just a sidecar that
+    # records the wrong hash.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    _write_json(figures / f"master_spine.{sidecar_suffix}", {"width": 1536, "height": 1024})
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        sidecar_suffix in e and ("missing" in e or "no recorded" in e)
+        for e in outcome["errors"]
+    ), outcome["errors"]
 
 
 # ---------------------------------------------------------------------------
