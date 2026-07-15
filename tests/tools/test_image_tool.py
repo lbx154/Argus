@@ -488,6 +488,61 @@ def test_review_image_falls_back_to_chat_completions(
     assert result["review"] == "score_1_to_5: 4"
 
 
+def test_review_prompt_without_rubric_uses_generic_schema() -> None:
+    # Backward compatibility: when no rubric is supplied the historical generic
+    # "communicate the method" schema (score_1_to_5 ...) is emitted verbatim, so
+    # existing paper-figure callers keep byte-identical behavior.
+    prompt = image_tool._review_prompt(original_prompt="a diagram", rubric="")
+    assert "score_1_to_5" in prompt
+    assert "Return JSON with:" in prompt
+    assert "communicates" in prompt
+
+
+def test_review_prompt_with_rubric_is_rubric_authoritative() -> None:
+    # When a real rubric is supplied it becomes authoritative: the prompt must
+    # not force the generic score_1_to_5 schema (which would swamp the rubric's
+    # requested fields such as confirmed_labels), and it must tell the model to
+    # emit every field the rubric requests plus keep_or_regenerate.
+    rubric = (
+        "Output a JSON object with fields: keep_or_regenerate, confirmed_labels, "
+        "findings, prohibited_content_present."
+    )
+    prompt = image_tool._review_prompt(original_prompt="a diagram", rubric=rubric)
+    assert "AUTHORITATIVE" in prompt
+    assert "keep_or_regenerate" in prompt
+    assert "score_1_to_5" not in prompt
+    # the caller's rubric text is passed through verbatim
+    assert rubric in prompt
+
+
+def test_review_image_threads_rubric_into_authoritative_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # End-to-end: a rubric passed to review_image reaches the model request as
+    # an authoritative instruction, not buried under the generic schema.
+    image = tmp_path / "figure.png"
+    image.write_bytes(_PNG_BYTES)
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResponse({"output_text": '{"keep_or_regenerate": "keep"}'})
+
+    monkeypatch.setattr(image_tool, "_urlopen", fake_urlopen)
+    image_tool.review_image(
+        image=image,
+        prompt="hierarchy diagram",
+        rubric="Output JSON with keep_or_regenerate and confirmed_labels.",
+        out=tmp_path / "review.json",
+        env=_env_with_vault(tmp_path),
+    )
+    sent_text = captured["body"]["input"][0]["content"][0]["text"]
+    assert "AUTHORITATIVE" in sent_text
+    assert "confirmed_labels" in sent_text
+    assert "score_1_to_5" not in sent_text
+
+
 def test_image_tool_uses_distinct_image_and_review_routes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -664,6 +664,34 @@ def _review_prompt(
     reviewer_persona = (
         venue_profile.reviewer_persona if venue_profile is not None else "EMNLP"
     )
+    # When the caller supplies a real rubric (as the AI-figure validator does),
+    # that rubric is authoritative: it defines the reviewer's task, the exact
+    # pass/fail criteria, AND the exact JSON fields to emit (e.g.
+    # ``confirmed_labels``, ``findings``, ``extra_tokens_present``). The generic
+    # "communicate the method" schema below must never override those fields,
+    # otherwise a caller asking for structured verdicts (label confirmation,
+    # exact-content checks) silently gets only ``score_1_to_5`` back. When no
+    # rubric is supplied, the historical generic schema is used verbatim so
+    # existing paper-figure callers keep byte-identical behavior.
+    if rubric and rubric.strip():
+        return (
+            f"You are reviewing an academic paper figure for an {figure_persona} "
+            "submission. You are a VISION reviewer: judge the rendered raster you "
+            "are shown, and read every label directly off the image rather than "
+            "trusting the prompt text.\n\n"
+            "The Rubric below is AUTHORITATIVE. It defines your task, your exact "
+            "acceptance criteria, and the exact JSON fields you must return. Emit "
+            "a single JSON object that includes EVERY field the Rubric requests, "
+            "each populated strictly from what you can actually see in the raster. "
+            "Always include \"keep_or_regenerate\" (\"keep\" or \"regenerate\"). "
+            "Apply the Rubric's pass/fail rules exactly — including exact label "
+            "spelling, missing/invented/duplicated labels, wrong or reversed "
+            "relationships and arrows, off-palette colour, and prohibited content. "
+            "Where the Rubric and any generic guidance disagree, the Rubric wins. "
+            "Return only the JSON object, optionally fenced as ```json ... ```.\n\n"
+            f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
+            f"Rubric:\n{rubric}"
+        )
     return (
         f"You are reviewing an academic paper figure for an {figure_persona} submission. "
         "Your ONLY job is to judge whether the figure effectively communicates "
