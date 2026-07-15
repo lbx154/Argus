@@ -167,6 +167,75 @@ def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> N
         pass
 
 
+def record_task_dispatch_ack(
+    sid: str,
+    result: dict[str, Any],
+    *,
+    global_root: Path | str | None = None,
+    on_fragment: Any = None,
+) -> str:
+    """Derive truthful acknowledgement text from the daemon-start outcome,
+    persist it durably (transcript + UI event + optional SSE delta), and set
+    ``result["reply"]``.
+
+    Unlike chat turns, transcript write failures are NOT swallowed — the caller
+    must surface them (the operator deserves to know their dispatch was not
+    recorded).
+
+    Called after ``start_project_daemon`` in both blocking and streaming
+    endpoints.
+    """
+    import uuid
+
+    daemon = result.get("daemon")
+    daemon_alive = result.get("daemon_alive", False)
+
+    # Derive truthful human-readable text
+    if daemon is None and daemon_alive:
+        text = "executor already running"
+    elif isinstance(daemon, dict):
+        if daemon.get("admission_required"):
+            text = "waiting for an executor slot"
+        elif int(daemon.get("rc", 0)) != 0:
+            error = daemon.get("error", "unknown error")
+            text = f"executor failed to start: {error}"
+        else:
+            text = "executor started"
+    else:
+        text = "executor started"
+
+    # Resolve life_dir
+    root = Path(global_root) if global_root else None
+    if root is None:
+        from ..core import paths as core_paths
+        root = core_paths.global_root()
+    life_dir = root / "projects" / sid
+
+    # Persist transcript — errors propagate (not swallowed).
+    # We inline the write because the public append_turn() swallows exceptions
+    # by design for chat turns; here we intentionally let I/O errors surface.
+    import json as _json
+
+    life_dir.mkdir(parents=True, exist_ok=True)
+    rec = {"ts": time.time(), "role": "argus", "text": text}
+    with (life_dir / "transcript.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+
+    # Persist UI event (best-effort — Activity mirroring must not break dispatch)
+    message_id = f"dispatch-{uuid.uuid4().hex}"
+    _emit_ui_turn(life_dir, "argus", text, message_id=message_id)
+
+    # SSE delta for streaming callers
+    if callable(on_fragment):
+        try:
+            on_fragment("delta", {"text": text, "message_id": "dispatch"})
+        except Exception:  # noqa: BLE001 — UI progress must never break dispatch
+            pass
+
+    result["reply"] = text
+    return text
+
+
 def _lock_for(sid: str) -> threading.RLock:
     with _REGISTRY_LOCK:
         lk = _LOCKS.get(sid)

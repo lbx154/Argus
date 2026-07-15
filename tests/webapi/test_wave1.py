@@ -822,3 +822,107 @@ class TestManagerMessageLifecycleErrors:
         result = resume_done_lifecycle_for_team_dispatch(mem)
 
         assert result is False
+
+
+# ── Dispatch acknowledgement persistence ────────────────────────────────────
+
+_DISPATCH_ACK_CASES = [
+    ({"rc": 0, "pid": 42}, "executor started"),
+    (None, "executor already running"),
+    ({"admission_required": True}, "waiting for an executor slot"),
+    ({"rc": 2, "error": "auth failed"}, "executor failed to start: auth failed"),
+]
+
+
+@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
+def test_dispatch_ack_stream_persists_truthful_text(
+    tmp_path: Path, daemon_result, expected_substr,
+) -> None:
+    """Streaming endpoint: returned reply, transcript turn, and SSE delta agree."""
+    from argus_skill.core.transcript import read_turns
+    from argus_skill.webapi.manager_bridge import record_task_dispatch_ack
+
+    life_dir = tmp_path / "projects" / "s-ack"
+    life_dir.mkdir(parents=True)
+
+    fragments: list[tuple[str, dict]] = []
+
+    def on_fragment(kind: str, payload: dict) -> None:
+        fragments.append((kind, payload))
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": daemon_result is None,
+        "daemon": daemon_result,
+        "reply": None,
+    }
+    text = record_task_dispatch_ack(
+        "s-ack", result, global_root=tmp_path, on_fragment=on_fragment,
+    )
+
+    assert expected_substr in text
+    assert result["reply"] == text
+
+    # Transcript persisted
+    turns = read_turns(life_dir)
+    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+
+    # SSE delta emitted
+    deltas = [p for k, p in fragments if k == "delta"]
+    assert any(expected_substr in d.get("text", "") for d in deltas)
+
+
+@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
+def test_dispatch_ack_blocking_persists_truthful_text(
+    tmp_path: Path, daemon_result, expected_substr,
+) -> None:
+    """Blocking endpoint: returned reply and transcript turn agree (no SSE)."""
+    from argus_skill.core.transcript import read_turns
+    from argus_skill.webapi.manager_bridge import record_task_dispatch_ack
+
+    life_dir = tmp_path / "projects" / "s-ack"
+    life_dir.mkdir(parents=True)
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": daemon_result is None,
+        "daemon": daemon_result,
+        "reply": None,
+    }
+    text = record_task_dispatch_ack(
+        "s-ack", result, global_root=tmp_path, on_fragment=None,
+    )
+
+    assert expected_substr in text
+    assert result["reply"] == text
+
+    turns = read_turns(life_dir)
+    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+
+
+def test_dispatch_ack_raises_on_transcript_write_failure(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Transcript persistence failure must NOT be swallowed."""
+    from argus_skill.webapi import manager_bridge
+
+    life_dir = tmp_path / "projects" / "s-ack-fail"
+    life_dir.mkdir(parents=True)
+    # Make transcript file unwritable
+    transcript = life_dir / "transcript.jsonl"
+    transcript.write_text("")
+    transcript.chmod(0o000)
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": False,
+        "daemon": {"rc": 0, "pid": 99},
+        "reply": None,
+    }
+    try:
+        with pytest.raises(PermissionError):
+            manager_bridge.record_task_dispatch_ack(
+                "s-ack-fail", result, global_root=tmp_path, on_fragment=None,
+            )
+    finally:
+        transcript.chmod(0o644)

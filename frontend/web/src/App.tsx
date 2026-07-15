@@ -781,15 +781,18 @@ export default function App() {
       const daemon = result.daemon && typeof result.daemon === 'object'
         ? result.daemon as Record<string, unknown>
         : null;
+      // Use result.reply (persisted by backend) as a non-durable accessibility
+      // notice — the conversation event is already in the transcript refetch.
+      const reply = typeof result.reply === 'string' ? result.reply : null;
       if (daemon?.admission_required) {
         notify(
           'error',
-          `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+          reply || `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
         );
       } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
-        notify('error', `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
-      } else if (daemon?.auto_parked_idle) {
-        notify('success', `Started · parked idle session ${String(daemon.auto_parked_idle)}`);
+        notify('error', reply || `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+      } else if (reply) {
+        notify('success', reply);
       }
       snapQ.refetch?.();
     };

@@ -175,4 +175,24 @@ describe('web API protocol handshake', () => {
       'stale command revision',
     );
   });
+
+  it('message endpoint returns dispatch ack reply for task results', async () => {
+    const taskResult = {
+      kind: 'task',
+      reply: 'executor started',
+      daemon: { rc: 0, pid: 42 },
+      daemon_alive: false,
+      item: { id: 'item-1', title: 'test task' },
+    };
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      return Response.json(taskResult);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    const result = await api.message('s-test', 'do something');
+    expect(result.reply).toBe('executor started');
+    expect(result.kind).toBe('task');
+  });
 });
