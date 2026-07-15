@@ -13,10 +13,24 @@ Public surface:
 - ``FIGURE_CONTRACTS``: the exact eight figure contracts, keyed by stem.
 - ``normalize_ocr(text)``: whitespace + multiplication/dash Unicode
   normalization only. Digits and decimal points are never altered.
+- ``normalize_ocr_for_matching(text)``: a *separate*, more tolerant
+  normalization used only as a token-matching fallback. It layers on top of
+  ``normalize_ocr`` and additionally tolerates OCR loss/substitution of a
+  middle-dot ("\u00b7") separator glyph and collapses repeated punctuation.
+  Like ``normalize_ocr``, it never alters digits, decimal points, "%", "/",
+  or numeric sign characters, and it never mutates the raw OCR/`normalize_ocr`
+  provenance recorded for a figure -- it is purely a matching aid.
 - ``run_tesseract(image)``: runs Tesseract with ``--psm 6``, ``11``, and
   ``12`` and returns every raw and normalized transcript.
 - ``validate_figure(root, figure_id)``: validates one figure's dimensions,
-  sidecars, review acceptance, and OCR/data-token coverage.
+  sidecars, review acceptance, and OCR/data-token coverage. ``review.json``
+  and ``content-review.json`` are parsed as the real vision-review tool's
+  ``review_image(..., out=...)`` wrapper: the
+  verdict JSON (``keep_or_regenerate``, ``confirmed_labels``, ...) lives
+  inside a top-level *string* field named ``"review"`` (optionally fenced as
+  ```` ```json ... ``` ````), not at the sidecar's top level. A missing,
+  non-string, or malformed ``"review"`` field fails closed (recorded as an
+  error; never silently treated as an accepting review).
 - ``write_validation_manifest(root)``: validates all eight figures and writes
   ``technical_report/figures/AI_FIGURE_VALIDATION.json``.
 
@@ -111,6 +125,114 @@ def normalize_ocr(text: str | None) -> str:
         normalized = normalized.replace(variant, "-")
     normalized = _WHITESPACE_RE.sub(" ", normalized)
     return normalized.strip()
+
+
+# Middle-dot separator glyph variants a font/OCR engine may render in place
+# of the pinned "\u00b7" (MIDDLE DOT) that separates two label halves (e.g.
+# "nanochat \u00b7 B200"). Mapped to a plain space -- never to "." or any
+# other character that could collide with a decimal point -- so that OCR
+# losing or substituting the separator glyph does not, by itself, hide an
+# otherwise-correct label from token matching. Digits are never members of
+# this set.
+_MIDDLE_DOT_VARIANTS: str = (
+    "\u00b7"  # · MIDDLE DOT
+    "\u2027"  # ‧ HYPHENATION POINT
+    "\u2219"  # ∙ BULLET OPERATOR
+    "\u22c5"  # ⋅ DOT OPERATOR
+    "\u2022"  # • BULLET
+    "\u30fb"  # ・ KATAKANA MIDDLE DOT
+)
+
+# Matches a run of 2+ identical punctuation characters, excluding word
+# characters, whitespace, and every character this function must never
+# touch: digits, decimal point, percent, slash, plus/minus sign. Used only to
+# collapse OCR punctuation noise (e.g. "::" -> ":"); it can never collapse a
+# repeated digit or touch a numeric sign.
+_REPEATED_PUNCTUATION_RE = re.compile(r"([^\w\s0-9.%/+-])\1+")
+
+
+def normalize_ocr_for_matching(text: str | None) -> str:
+    """Separator-tolerant OCR token-matching normalization.
+
+    This is a **separate, strictly more tolerant** function from
+    ``normalize_ocr``, used only as a fallback when the canonical exact match
+    fails. It layers on top of ``normalize_ocr`` (whitespace +
+    multiplication/dash glyph normalization) and additionally:
+
+    - maps middle-dot separator glyph variants (see ``_MIDDLE_DOT_VARIANTS``)
+      to a plain space, tolerating OCR loss or substitution of the "\u00b7"
+      that appears between two label halves (e.g. "nanochat \u00b7 B200"
+      OCR-matching "nanochat B200");
+    - collapses runs of 2+ identical non-alphanumeric punctuation characters
+      to a single occurrence.
+
+    It NEVER alters digits, the decimal point, "%", "/", or numeric sign
+    characters -- those are excluded from every substitution/collapse this
+    function performs. "0.9636" can therefore never match "0.963", and
+    "63/82" / "76.8%" are never loosened.
+
+    Raw OCR transcripts and the canonical ``normalize_ocr`` output used for
+    provenance are produced independently of this function and are never
+    mutated by it; this function exists purely as a token-matching aid and
+    must never be substituted for ``normalize_ocr`` when recording OCR
+    evidence.
+    """
+    normalized = normalize_ocr(text)
+    for variant in _MIDDLE_DOT_VARIANTS:
+        normalized = normalized.replace(variant, " ")
+    normalized = _REPEATED_PUNCTUATION_RE.sub(r"\1", normalized)
+    normalized = _WHITESPACE_RE.sub(" ", normalized)
+    return normalized.strip()
+
+
+_FENCED_JSON_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
+
+
+def _extract_review_verdict(
+    payload: dict[str, Any] | None, suffix: str, errors: list[str]
+) -> dict[str, Any] | None:
+    """Extract the verdict object from a real vision-review wrapper.
+
+    The vision-review tool's ``review_image(..., out=...)`` writes a
+    sidecar shaped like::
+
+        {"image": {...}, "model": "...", "endpoint": "...", "prompt": "...",
+         "rubric": "...", "review": "<model text, optionally fenced as"
+         " ```json ... ```>"}
+
+    The actual verdict (``keep_or_regenerate``, ``confirmed_labels``, ...)
+    lives inside the top-level *string* field ``"review"``, not at the
+    sidecar's top level. This fails closed: a missing/non-string/malformed
+    ``"review"`` field is recorded in ``errors`` and treated as a
+    non-accepting review -- it is never silently ignored or coerced into an
+    accepting verdict.
+    """
+    if payload is None:
+        return None
+    review_field = payload.get("review")
+    if isinstance(review_field, dict):
+        # Already a parsed verdict object (not the real tool's shape, but
+        # harmless to accept defensively).
+        return review_field
+    if not isinstance(review_field, str) or not review_field.strip():
+        errors.append(
+            f"{suffix} has no top-level string \"review\" field to parse "
+            "(expected the real vision-review tool's wrapper shape)"
+        )
+        return None
+    text = review_field.strip()
+    fenced = _FENCED_JSON_RE.match(text)
+    if fenced:
+        text = fenced.group(1).strip()
+    try:
+        verdict = json.loads(text)
+    except json.JSONDecodeError as exc:
+        errors.append(f'{suffix} "review" field is not valid JSON: {exc}')
+        return None
+    if not isinstance(verdict, dict):
+        errors.append(f'{suffix} "review" field did not parse to a JSON object')
+        return None
+    return verdict
 
 
 @dataclass(frozen=True)
@@ -526,7 +648,11 @@ def validate_figure(
 
     _check_hash_consistency(sidecar_json, output_sha256, errors)
 
-    review = sidecar_json.get("review.json")
+    # ``review.json``/``content-review.json`` are the real
+    # the vision-review tool's ``review --out`` wrapper: the verdict is a JSON string
+    # inside the top-level "review" field, not the sidecar's top level.
+    review_wrapper = sidecar_json.get("review.json")
+    review = _extract_review_verdict(review_wrapper, "review.json", errors)
     if review is not None and review.get("keep_or_regenerate") != "keep":
         errors.append(
             "review.json does not accept the figure (keep_or_regenerate="
@@ -537,7 +663,10 @@ def validate_figure(
     # exact-content vision review; it must independently accept the figure.
     # Data figures additionally hold that review to a stricter
     # numeric/source standard (zero unresolved numeric mismatches).
-    content_review = sidecar_json.get("content-review.json")
+    content_review_wrapper = sidecar_json.get("content-review.json")
+    content_review = _extract_review_verdict(
+        content_review_wrapper, "content-review.json", errors
+    )
     if content_review is not None:
         if content_review.get("keep_or_regenerate") != "keep":
             errors.append(
@@ -566,6 +695,17 @@ def validate_figure(
     if not per_psm_normalized:
         per_psm_normalized = [combined_normalized]
 
+    # Separator-tolerant matching text, derived independently from the same
+    # raw per-PSM transcripts. This is purely a token-matching aid (see
+    # ``normalize_ocr_for_matching``): it never replaces, and is never
+    # written into, the canonical OCR provenance recorded below
+    # (``result["ocr"]``/``combined_normalized``/``per_psm_normalized`` are
+    # produced by ``normalize_ocr`` only).
+    raw_per_psm = list((ocr_result.get("raw") or {}).values())
+    if not raw_per_psm:
+        raw_per_psm = [combined_normalized]
+    per_psm_matching = [normalize_ocr_for_matching(text) for text in raw_per_psm]
+
     # A required label absent from OCR may still pass for concept figures,
     # but only when BOTH independent vision reviews confirm it -- one review
     # confirming it alone (in either sidecar) must never bypass OCR.
@@ -585,6 +725,25 @@ def validate_figure(
         found_in_ocr = any(normalized_label in text for text in per_psm_normalized)
         if found_in_ocr:
             continue
+
+        # Separator-tolerant fallback: OCR may have lost or substituted a
+        # "\u00b7" between two label halves (e.g. "nanochat \u00b7 B200"
+        # OCR-reading as "nanochat B200"). This never widens digit/decimal/
+        # percent/slash/sign matching (``normalize_ocr_for_matching`` never
+        # touches those), applies to data figures too (unlike the concept-
+        # only vision bypass below), but only counts as found when BOTH
+        # independent vision reviews confirm the label's EXACT original
+        # spelling/glyph (matched via the strict, non-tolerant
+        # ``normalize_ocr``) -- a data label whose words/numbers are wholly
+        # absent from OCR can never be rescued by vision alone, because the
+        # tolerant text still would not contain it.
+        matching_label = normalize_ocr_for_matching(label)
+        found_via_separator_tolerant_ocr = matching_label != normalized_label and any(
+            matching_label in text for text in per_psm_matching
+        )
+        if found_via_separator_tolerant_ocr and normalized_label in normalized_confirmed:
+            continue
+
         if not contract.data_figure and normalized_label in normalized_confirmed:
             continue
         missing_labels.append(label)

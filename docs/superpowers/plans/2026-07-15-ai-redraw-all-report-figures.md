@@ -47,6 +47,8 @@ model, Tesseract OCR, Python 3.11, pytest, LaTeX, SHA-256.
 **Produces:**
 - `FIGURE_CONTRACTS`
 - `normalize_ocr(text: str) -> str`
+- `normalize_ocr_for_matching(text: str) -> str` (separate, separator-tolerant
+  token-matching fallback; never used for provenance)
 - `run_tesseract(image: Path) -> dict`
 - `validate_figure(root: Path, figure_id: str) -> dict`
 - `write_validation_manifest(root: Path) -> dict`
@@ -63,6 +65,17 @@ model, Tesseract OCR, Python 3.11, pytest, LaTeX, SHA-256.
 - [ ] Use Tesseract `--psm 6`, `11`, and `12`; retain all raw outputs.
 - [ ] Normalize whitespace and Unicode multiplication/dash variants only; never
   normalize numeric digits or decimal points.
+- [ ] Parse `review.json`/`content-review.json` as the real
+  `image_tool review --out` wrapper: the verdict JSON lives inside a
+  top-level string field `"review"` (optionally fenced as `` ```json ... ``` ``),
+  not at the sidecar's top level; a missing/non-string/malformed `"review"`
+  field must fail closed.
+- [ ] Add a separate, separator-tolerant matching fallback
+  (`normalize_ocr_for_matching`) that tolerates a lost/substituted `·`
+  middle-dot separator and collapses repeated punctuation, but never alters
+  digits, decimal points, `%`, `/`, or numeric sign characters; a label
+  rescued only via this fallback additionally requires both independent
+  vision reviews to confirm its exact original spelling/glyph.
 - [ ] Require both data figures to have zero unresolved numeric-token mismatch.
 - [ ] Write `AI_FIGURE_VALIDATION.json` from final sidecars.
 - [ ] Run unit tests GREEN.
@@ -155,7 +168,7 @@ python -m argus_skill.tools.image_tool review \
   --image "technical_report/figures/${stem}.png" \
   --prompt-file "technical_report/figures/${stem}.prompt.txt" \
   --rubric "$(cat technical_report/figures/ai_figure_review_rubric.txt)" \
-  --out "technical_report/figures/${stem}.png.review.json" \
+  --out "technical_report/figures/${stem}.review.json" \
   --timeout 600 --max-retries 3
 ```
 
@@ -170,7 +183,13 @@ python -m argus_skill.tools.image_tool review \
   --timeout 600 --max-retries 3
 ```
 
-- [ ] Run the validator.
+- [ ] Run the validator. It parses `review.json`/`content-review.json` as the
+  real `image_tool review --out` wrapper (verdict JSON inside the top-level
+  string field `"review"`, plain or fenced) and matches required labels using
+  the canonical exact comparison first, falling back to the separator-
+  tolerant `normalize_ocr_for_matching` (never loosening digits/decimals/`%`/
+  `/`/sign) only when both independent reviews confirm the label's exact
+  original spelling/glyph.
 
 ```bash
 python technical_report/figures/validate_ai_figures.py validate --stem "$stem"
@@ -189,7 +208,7 @@ python -m argus_skill.tools.image_tool sync-paper-metadata \
   --figure-type architecture \
   --manifest technical_report/figures/IMAGE2_FIGURES.json \
   --prompt-file "technical_report/figures/${stem}.prompt.txt" \
-  --review-path "technical_report/figures/${stem}.png.review.json" \
+  --review-path "technical_report/figures/${stem}.review.json" \
   --provenance-path "technical_report/figures/${stem}.provenance.json" \
   --allow-noncanonical-prompt
 ```

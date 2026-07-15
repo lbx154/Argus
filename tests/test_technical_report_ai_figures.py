@@ -77,6 +77,35 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _review_wrapper(verdict: dict[str, Any], *, fence: bool = False) -> dict[str, Any]:
+    """Build the *real* wrapper shape written by
+    ``argus_skill.tools.image_tool.review_image(..., out=...)``: the
+    verdict object is JSON-encoded as a *string* inside the top-level
+    "review" field, alongside the other fields the real tool always writes
+    (``image``, ``model``, ``endpoint``, ``prompt``, ``rubric``). Every test
+    fixture in this file writes ``.review.json``/``.content-review.json`` in
+    this exact shape -- never the flattened (verdict-at-top-level) shape --
+    so the tests exercise the validator against reality, not a fixture
+    convenience shortcut that would hide a real parsing bug.
+    """
+    review_text = json.dumps(verdict)
+    if fence:
+        review_text = f"```json\n{review_text}\n```"
+    return {
+        "image": {
+            "path": "figure.png",
+            "width": 1536,
+            "height": 1024,
+            "sha256": "0" * 64,
+        },
+        "model": "gpt-5-vision",
+        "endpoint": "/responses",
+        "prompt": "prompt body",
+        "rubric": "rubric body",
+        "review": review_text,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Fixture project scaffolding
 # ---------------------------------------------------------------------------
@@ -133,7 +162,7 @@ def _write_full_sidecars(
     }
     if review_overrides:
         review_payload.update(review_overrides)
-    _write_json(figures / f"{stem}.review.json", review_payload)
+    _write_json(figures / f"{stem}.review.json", _review_wrapper(review_payload))
 
     (figures / f"{stem}.ocr.txt").write_text("raw ocr text", encoding="utf-8")
     _write_json(
@@ -148,7 +177,10 @@ def _write_full_sidecars(
     }
     if content_review_overrides:
         content_review_payload.update(content_review_overrides)
-    _write_json(figures / f"{stem}.content-review.json", content_review_payload)
+    _write_json(
+        figures / f"{stem}.content-review.json",
+        _review_wrapper(content_review_payload),
+    )
 
     return sha256
 
@@ -744,6 +776,525 @@ def test_validate_figure_output_includes_sha256_and_sidecar_map(
     assert outcome["sidecars"]["review.json"]["exists"] is True
 
 
+# ===========================================================================
+# Real vision-review wrapper parsing (AI generation-readiness blocker #1).
+#
+# `argus_skill.tools.image_tool.review_image(..., out=...)` writes
+# {"image": {...}, "model": ..., "endpoint": ..., "prompt": ..., "rubric": ...,
+#  "review": "<model text, optionally fenced as ```json ... ```>"}
+# -- the verdict (keep_or_regenerate/confirmed_labels/...) lives inside the
+# top-level *string* field "review", not at the sidecar's top level. Before
+# this fix, `validate_figure` read `sidecar_json.get("review.json")` and
+# called `.get("keep_or_regenerate")` directly on that wrapper dict, which
+# has no such key -- so a REAL review sidecar produced by the real tool
+# would always be treated as a non-accepting review (an
+# AI-generation-readiness blocker: no image call could ever pass validation
+# without an extra, undocumented, manual "flatten" step on the sidecar).
+# ===========================================================================
+
+
+def _write_wrapped_sidecars(
+    figures: Path,
+    stem: str,
+    *,
+    review_verdict: dict[str, Any] | None = None,
+    content_review_verdict: dict[str, Any] | None = None,
+    review_fence: bool = False,
+    content_review_fence: bool = False,
+    width: int = 1536,
+    height: int = 1024,
+) -> str:
+    """Like ``_write_full_sidecars`` but lets a caller substitute a raw
+    ``.review.json`` / ``.content-review.json`` payload directly (still
+    wrapped in the real tool's shape unless the caller passes a raw dict
+    that intentionally is NOT a valid wrapper, to probe fail-closed
+    behavior).
+    """
+    png_path = figures / f"{stem}.png"
+    _write_png(png_path, width, height)
+    sha256 = vaf._sha256(png_path)
+
+    (figures / f"{stem}.prompt.txt").write_text("prompt body", encoding="utf-8")
+    _write_json(
+        figures / f"{stem}.png.json",
+        {"output_sha256": sha256, "model": "gpt-image-2"},
+    )
+    _write_json(
+        figures / f"{stem}.inspect.json",
+        {"sha256": sha256, "width": width, "height": height},
+    )
+    _write_json(
+        figures / f"{stem}.provenance.json",
+        {"output_sha256": sha256, "generator": "codex-image2"},
+    )
+
+    default_review = {
+        "score_1_to_5": 5,
+        "major_issues": [],
+        "concrete_revision_prompt": "",
+        "keep_or_regenerate": "keep",
+    }
+    review_verdict = default_review if review_verdict is None else review_verdict
+    _write_json(
+        figures / f"{stem}.review.json",
+        _review_wrapper(review_verdict, fence=review_fence),
+    )
+
+    (figures / f"{stem}.ocr.txt").write_text("raw ocr text", encoding="utf-8")
+    _write_json(
+        figures / f"{stem}.ocr.json",
+        {"expected_tokens": [], "unresolved": [], "coverage": 1.0},
+    )
+
+    default_content_review = {
+        "score_1_to_5": 5,
+        "unresolved_numeric_mismatches": [],
+        "keep_or_regenerate": "keep",
+    }
+    content_review_verdict = (
+        default_content_review if content_review_verdict is None else content_review_verdict
+    )
+    _write_json(
+        figures / f"{stem}.content-review.json",
+        _review_wrapper(content_review_verdict, fence=content_review_fence),
+    )
+
+    return sha256
+
+
+def test_validate_figure_accepts_real_wrapper_for_review_json_plain_json(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def _full_ocr_text_with_status_counts_for(stem: str) -> str:
+    """Full-coverage OCR text for a data figure's required labels plus its
+    contract status-count tokens, matching the pattern used by
+    ``test_validate_figure_data_figure_passes_two_digest_four_snapshot_counts``.
+    """
+    text = _full_ocr_text_for(stem)
+    counts = vaf.FIGURE_CONTRACTS[stem].status_counts or {}
+    for label, count in counts.items():
+        text += " " + " ".join([label] * count)
+    return text
+
+
+def test_validate_figure_accepts_real_wrapper_for_content_review_json_plain_json(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "public_results", width=1536, height=1024)
+    ocr_runner = _ocr_runner_returning(
+        _full_ocr_text_with_status_counts_for("public_results")
+    )
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_accepts_fenced_json_review_field(tmp_path: Path) -> None:
+    # The real vision model frequently wraps its JSON verdict in a markdown
+    # ```json fence; the wrapper's "review" string then looks like
+    # "```json\n{...}\n```" rather than bare JSON.
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine", review_fence=True)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_accepts_fenced_json_content_review_field(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine", content_review_fence=True)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_accepts_bare_fence_without_json_language_tag(
+    tmp_path: Path,
+) -> None:
+    # Some model responses fence with plain ``` rather than ```json.
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    verdict = {
+        "score_1_to_5": 5,
+        "major_issues": [],
+        "concrete_revision_prompt": "",
+        "keep_or_regenerate": "keep",
+    }
+    wrapper = _review_wrapper(verdict)
+    wrapper["review"] = "```\n" + json.dumps(verdict) + "\n```"
+    _write_json(figures / "master_spine.review.json", wrapper)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_fails_closed_on_malformed_review_json_field(
+    tmp_path: Path,
+) -> None:
+    # The "review" field exists but is not valid JSON (e.g. the model
+    # returned prose instead of JSON). This must fail closed -- never be
+    # silently treated as an accepting review.
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    wrapper = _review_wrapper({"keep_or_regenerate": "keep"})
+    wrapper["review"] = "This figure looks great, I would keep it."
+    _write_json(figures / "master_spine.review.json", wrapper)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "review.json" in e and ("not valid JSON" in e or "review" in e)
+        for e in outcome["errors"]
+    ), outcome["errors"]
+
+
+def test_validate_figure_fails_closed_on_malformed_content_review_json_field(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    wrapper = _review_wrapper({"keep_or_regenerate": "keep"})
+    wrapper["review"] = "{not: valid json,,,"
+    _write_json(figures / "master_spine.content-review.json", wrapper)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("content-review.json" in e for e in outcome["errors"]), outcome["errors"]
+
+
+def test_validate_figure_fails_closed_when_review_field_missing_entirely(
+    tmp_path: Path,
+) -> None:
+    # A sidecar that never even has a top-level "review" string field (e.g.
+    # someone accidentally wrote the flattened verdict shape directly, or an
+    # empty/placeholder file) must fail closed, not be silently accepted.
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    _write_json(
+        figures / "master_spine.review.json",
+        {"keep_or_regenerate": "keep", "confirmed_labels": []},
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "review.json" in e and "review" in e for e in outcome["errors"]
+    ), outcome["errors"]
+
+
+def test_validate_figure_fails_closed_when_review_field_is_not_a_string(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(figures, "master_spine")
+    wrapper = _review_wrapper({"keep_or_regenerate": "keep"})
+    wrapper["review"] = 12345  # not a string, not the real tool's shape
+    _write_json(figures / "master_spine.review.json", wrapper)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+
+
+def test_validate_figure_wrapper_regeneration_verdict_still_fails(
+    tmp_path: Path,
+) -> None:
+    # A correctly-parsed wrapper whose verdict is "regenerate" must still be
+    # rejected -- the wrapper-parsing fix must not accidentally coerce every
+    # parsed verdict into an acceptance.
+    figures = _figures_dir(tmp_path)
+    _write_wrapped_sidecars(
+        figures,
+        "master_spine",
+        review_verdict={
+            "score_1_to_5": 2,
+            "major_issues": ["wrong palette"],
+            "concrete_revision_prompt": "fix palette",
+            "keep_or_regenerate": "regenerate",
+        },
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("review.json does not accept" in e for e in outcome["errors"])
+
+
+def test_normalize_ocr_for_matching_is_a_distinct_function_from_normalize_ocr() -> None:
+    # Not the same function/behavior -- the tolerant matcher must exist
+    # independently and must not have silently replaced normalize_ocr.
+    assert vaf.normalize_ocr_for_matching is not vaf.normalize_ocr
+    dotted = "nanochat \u00b7 B200"
+    assert vaf.normalize_ocr(dotted) == dotted  # canonical: dot untouched
+    assert vaf.normalize_ocr_for_matching(dotted) == "nanochat B200"
+
+
+# ===========================================================================
+# Separator-tolerant OCR token-matching normalization (AI generation-
+# readiness blocker #2/#3): tolerates OCR losing/substituting a "\u00b7"
+# middle-dot separator, but never loosens digits/decimal points/percent/
+# slash/numeric sign, and a data label whose words/numbers are wholly absent
+# from OCR still cannot pass on vision confirmation alone.
+# ===========================================================================
+
+
+def test_normalize_ocr_for_matching_maps_middle_dot_to_space() -> None:
+    assert vaf.normalize_ocr_for_matching("nanochat \u00b7 B200") == "nanochat B200"
+
+
+def test_normalize_ocr_for_matching_tolerates_missing_middle_dot() -> None:
+    # OCR that already lost the dot entirely (double space collapses).
+    assert vaf.normalize_ocr_for_matching("nanochat  B200") == "nanochat B200"
+
+
+def test_normalize_ocr_for_matching_collapses_repeated_punctuation() -> None:
+    assert vaf.normalize_ocr_for_matching("nanochat :: B200") == "nanochat : B200"
+
+
+def test_normalize_ocr_for_matching_never_alters_digits() -> None:
+    assert vaf.normalize_ocr_for_matching("0.9636 BPB") == "0.9636 BPB"
+    assert "0.9636" in vaf.normalize_ocr_for_matching("0.9636 BPB")
+
+
+def test_normalize_ocr_for_matching_never_alters_decimal_point() -> None:
+    assert vaf.normalize_ocr_for_matching("76.8%") == "76.8%"
+
+
+def test_normalize_ocr_for_matching_never_alters_percent() -> None:
+    assert "%" in vaf.normalize_ocr_for_matching("76.8%")
+
+
+def test_normalize_ocr_for_matching_never_alters_slash() -> None:
+    assert vaf.normalize_ocr_for_matching("63/82") == "63/82"
+
+
+def test_normalize_ocr_for_matching_never_alters_numeric_sign() -> None:
+    assert "-" in vaf.normalize_ocr_for_matching("-5.2%")
+    assert vaf.normalize_ocr_for_matching("-5.2%") == "-5.2%"
+
+
+def test_normalize_ocr_for_matching_does_not_make_0_9636_equal_0_963() -> None:
+    tolerant = vaf.normalize_ocr_for_matching("0.9636 BPB")
+    assert "0.963 BPB" != tolerant
+    assert tolerant not in "0.963 BPB"
+
+
+def _public_results_ocr_text_missing_dots() -> str:
+    """The full public_results OCR text (plus status-count tokens) with the
+    "nanochat \u00b7 B200" separator specifically dropped (OCR loss),
+    simulating a real figure where Tesseract failed to read that one thin
+    middle-dot glyph but read every other word/digit -- including the other
+    two dotted labels, which stay exact so this fixture only exercises the
+    one label under test.
+    """
+    text = _full_ocr_text_with_status_counts_for("public_results")
+    return text.replace("nanochat \u00b7 B200", "nanochat B200")
+
+
+def test_data_figure_middot_label_matches_ocr_missing_dot_when_both_reviews_confirm(
+    tmp_path: Path,
+) -> None:
+    # "nanochat \u00b7 B200" may OCR-match "nanochat B200" (dot lost) only
+    # when BOTH independent vision reviews confirm the label's exact
+    # original spelling ("nanochat \u00b7 B200", with the real dot glyph).
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+    )
+    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_data_figure_middot_label_fails_when_only_one_review_confirms(
+    tmp_path: Path,
+) -> None:
+    # Symmetric to the general "one review cannot bypass" rule: confirming
+    # only in review.json (not content-review.json) must not be enough, even
+    # though OCR does contain the words modulo the lost separator.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+    )
+    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
+
+
+def test_data_figure_middot_label_fails_when_only_content_review_confirms(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+    )
+    ocr_runner = _ocr_runner_returning(_public_results_ocr_text_missing_dots())
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
+
+
+def test_data_figure_middot_label_fails_when_words_wholly_absent_from_ocr_even_with_both_reviews(
+    tmp_path: Path,
+) -> None:
+    # Vision confirmation (even from BOTH reviews) can never rescue a data
+    # label whose words/numbers are entirely missing from OCR -- the
+    # separator-tolerant fallback only rescues a *lost separator glyph*, not
+    # an outright absent label.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+        content_review_overrides={"confirmed_labels": ["nanochat \u00b7 B200"]},
+    )
+    text_without_nanochat_b200 = _full_ocr_text_for("public_results").replace(
+        "nanochat \u00b7 B200", ""
+    )
+    ocr_runner = _ocr_runner_returning(text_without_nanochat_b200)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("nanochat \u00b7 B200" in e for e in outcome["errors"])
+
+
+def test_data_figure_exact_digit_still_fails_even_with_middot_tolerance(
+    tmp_path: Path,
+) -> None:
+    # Regression guard: the separator-tolerant fallback must never let
+    # "0.9636 BPB" match an OCR transcript that only contains "0.963 BPB" --
+    # digits/decimal points are excluded from every tolerant substitution.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["0.9636 BPB"]},
+        content_review_overrides={"confirmed_labels": ["0.9636 BPB"]},
+    )
+    text = _full_ocr_text_for("public_results").replace("0.9636 BPB", "0.963 BPB")
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("0.9636 BPB" in e for e in outcome["errors"])
+
+
+def test_data_figure_slash_token_stays_strict_even_with_both_reviews(
+    tmp_path: Path,
+) -> None:
+    # "63/82" must never be loosened by the separator-tolerant matcher, even
+    # when both reviews confirm it and the "/" is dropped from OCR.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["63/82"]},
+        content_review_overrides={"confirmed_labels": ["63/82"]},
+    )
+    text = _full_ocr_text_for("public_results").replace("63/82", "63 82")
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("63/82" in e for e in outcome["errors"])
+
+
+def test_data_figure_percent_token_stays_strict_even_with_both_reviews(
+    tmp_path: Path,
+) -> None:
+    # "76.8%" must never be loosened by the separator-tolerant matcher, even
+    # when both reviews confirm it and the "%" is dropped from OCR.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        review_overrides={"confirmed_labels": ["76.8%"]},
+        content_review_overrides={"confirmed_labels": ["76.8%"]},
+    )
+    text = _full_ocr_text_for("public_results").replace("76.8%", "76.8")
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("76.8%" in e for e in outcome["errors"])
+
+
+def test_concept_figure_middot_label_also_gated_by_both_reviews(
+    tmp_path: Path,
+) -> None:
+    # dense_intelligence's disclaimer label carries a middle dot too; the
+    # separator-tolerant path applies to concept figures as well, still
+    # gated on both reviews confirming the exact original label.
+    figures = _figures_dir(tmp_path)
+    label = "conceptual model \u00b7 not a reported benchmark"
+    _write_full_sidecars(
+        figures,
+        "dense_intelligence",
+        review_overrides={"confirmed_labels": [label]},
+        content_review_overrides={"confirmed_labels": [label]},
+    )
+    text = _full_ocr_text_for("dense_intelligence").replace(
+        label, "conceptual model not a reported benchmark"
+    )
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "dense_intelligence", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
 # ---------------------------------------------------------------------------
 # Stricter approved-spec contracts: every figure gets a second independent
 # exact-content vision review (content-review.json); data figures
@@ -793,7 +1344,7 @@ def _write_core_sidecars_without_content_review(
     }
     if review_overrides:
         review_payload.update(review_overrides)
-    _write_json(figures / f"{stem}.review.json", review_payload)
+    _write_json(figures / f"{stem}.review.json", _review_wrapper(review_payload))
     (figures / f"{stem}.ocr.txt").write_text("raw ocr text", encoding="utf-8")
     _write_json(
         figures / f"{stem}.ocr.json",
@@ -833,11 +1384,13 @@ def test_validate_figure_fails_when_content_review_not_keep_for_concept_figure(
     _write_core_sidecars_without_content_review(figures, "master_spine")
     _write_json(
         figures / "master_spine.content-review.json",
-        {
-            "score_1_to_5": 2,
-            "unresolved_numeric_mismatches": [],
-            "keep_or_regenerate": "regenerate",
-        },
+        _review_wrapper(
+            {
+                "score_1_to_5": 2,
+                "unresolved_numeric_mismatches": [],
+                "keep_or_regenerate": "regenerate",
+            }
+        ),
     )
     ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
 
@@ -880,12 +1433,14 @@ def test_concept_label_passes_only_when_both_reviews_independently_confirm(
     )
     _write_json(
         figures / "master_spine.content-review.json",
-        {
-            "score_1_to_5": 5,
-            "unresolved_numeric_mismatches": [],
-            "keep_or_regenerate": "keep",
-            "confirmed_labels": ["Reviewer"],
-        },
+        _review_wrapper(
+            {
+                "score_1_to_5": 5,
+                "unresolved_numeric_mismatches": [],
+                "keep_or_regenerate": "keep",
+                "confirmed_labels": ["Reviewer"],
+            }
+        ),
     )
     text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
     ocr_runner = _ocr_runner_returning(text_without_reviewer)
@@ -906,11 +1461,13 @@ def test_review_json_confirmation_alone_cannot_bypass_ocr(tmp_path: Path) -> Non
     )
     _write_json(
         figures / "master_spine.content-review.json",
-        {
-            "score_1_to_5": 5,
-            "unresolved_numeric_mismatches": [],
-            "keep_or_regenerate": "keep",
-        },
+        _review_wrapper(
+            {
+                "score_1_to_5": 5,
+                "unresolved_numeric_mismatches": [],
+                "keep_or_regenerate": "keep",
+            }
+        ),
     )
     text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
     ocr_runner = _ocr_runner_returning(text_without_reviewer)
@@ -930,12 +1487,14 @@ def test_content_review_json_confirmation_alone_cannot_bypass_ocr(
     _write_core_sidecars_without_content_review(figures, "master_spine")
     _write_json(
         figures / "master_spine.content-review.json",
-        {
-            "score_1_to_5": 5,
-            "unresolved_numeric_mismatches": [],
-            "keep_or_regenerate": "keep",
-            "confirmed_labels": ["Reviewer"],
-        },
+        _review_wrapper(
+            {
+                "score_1_to_5": 5,
+                "unresolved_numeric_mismatches": [],
+                "keep_or_regenerate": "keep",
+                "confirmed_labels": ["Reviewer"],
+            }
+        ),
     )
     text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
     ocr_runner = _ocr_runner_returning(text_without_reviewer)

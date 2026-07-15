@@ -295,12 +295,18 @@ For each attempt:
 2. Run local dimension/hash inspection with `image_tool inspect`.
 3. Run Tesseract OCR using multiple page-segmentation modes.
 4. Normalize OCR whitespace and common multiplication-symbol variants without
-   altering the image.
+   altering the image (canonical `normalize_ocr`, used for provenance and
+   exact matching). A separate, more tolerant matching-only normalization
+   additionally accepts a lost/substituted `·` separator (see "OCR and
+   Vision Acceptance" below) without loosening digits, decimals, `%`, `/`,
+   or numeric signs.
 5. Compare extracted tokens against the figure's required token contract.
-6. Run a vision-capable semantic/content review with the complete prompt.
-7. Run a second, independent exact-content vision review for every figure. For
-   data figures, this second review additionally performs strict
-   numeric/source verification against the committed evidence JSON.
+6. Run a vision-capable semantic/content review with the complete prompt via
+   `image_tool review --out <stem>.review.json`.
+7. Run a second, independent exact-content vision review for every figure via
+   `image_tool review --out <stem>.content-review.json`. For data figures,
+   this second review additionally performs strict numeric/source
+   verification against the committed evidence JSON.
 8. Reject and regenerate on any material mismatch.
 
 Attempt limits:
@@ -327,16 +333,42 @@ Every final figure stores:
 - generation sidecar `<stem>.png.json`;
 - prompt `<stem>.prompt.txt`.
 
+`<stem>.review.json` and `<stem>.content-review.json` are written verbatim by
+`image_tool review --out`, whose real output is a wrapper object
+(`{"image": ..., "model": ..., "endpoint": ..., "prompt": ..., "rubric": ...,
+"review": "<model text>"}`): the actual verdict (`keep_or_regenerate`,
+`confirmed_labels`, ...) lives inside the top-level *string* field `"review"`,
+optionally fenced as `` ```json ... ``` ``, not at the sidecar's top level. The
+validator parses this wrapper directly — no manual "flatten" step is required
+or permitted. A missing, non-string, or malformed `"review"` field fails
+closed (the figure cannot pass).
+
+Required short/data labels are matched against OCR using the canonical,
+exact `normalize_ocr` comparison first. If that fails, a separate,
+separator-tolerant fallback (`normalize_ocr_for_matching`) may match a label
+whose only difference is a lost or substituted `·` (middle-dot) separator
+between two label halves (e.g. `nanochat · B200` OCR-reading as
+`nanochat B200`) — this fallback never loosens digits, decimal points, `%`,
+`/`, or numeric sign characters, so `0.9636` can never match `0.963` and
+`63/82` / `76.8%` are never loosened. A label rescued only through this
+separator-tolerant fallback additionally requires BOTH independent vision
+reviews to confirm the label's exact original spelling/glyph (via the
+canonical, non-tolerant comparison) before it counts as present; one review
+confirming it alone is never sufficient, and a label whose words/numbers are
+wholly absent from OCR can never be rescued by vision confirmation alone,
+data figure or concept figure.
+
 Concept figures pass when:
 
 - all required entities and relationships are confirmed by vision review;
-- required short labels pass OCR or are explicitly confirmed by both independent
-  vision reviews;
+- required short labels pass OCR (exact or separator-tolerant-plus-both-
+  reviews) or are explicitly confirmed by both independent vision reviews;
 - no prohibited content appears.
 
 Data figures pass only when:
 
-- every required numeric token is confirmed by OCR and both vision reviews;
+- every required numeric token is confirmed by OCR (exact or separator-
+  tolerant-plus-both-reviews) and both vision reviews;
 - status counts are exactly 2 digest / 4 snapshot;
 - no extra numeric claim appears;
 - every arena/program total matches the JSON source.
