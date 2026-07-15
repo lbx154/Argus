@@ -295,10 +295,15 @@ def apply_checklist_ops(
       copy them into the store (no duplication).  No-op if the stage is already
       present.
     * ``add`` — append (or replace same-id) a new item; needs ``statement``.
-      Clears any tombstone for the same ID so the item becomes visible.
+      Refused when the authored-row count is already at ``MAX_ITEMS_PER_STAGE``
+      (replacement of an existing same-id row is still permitted because the
+      old row is stripped before the cap check).  Clears any tombstone for the
+      same ID only when the operation succeeds.
     * ``modify`` — update an existing item's statement/evidence by ``id``.
-      For seed IDs not yet overridden, creates an override entry.  Clears any
-      tombstone for the same ID.
+      For seed IDs not yet overridden and below the cap, creates an override
+      entry.  Custom IDs that are absent from the store are skipped (modify
+      cannot create arbitrary new rows).  Clears any tombstone for the same
+      ID only when the operation succeeds.
     * ``remove`` on a **custom ID** — removes its row only.  ``remove`` on a
       **seed ID** — records a tombstone under ``disabled[stage]`` and hides that
       seed from the effective list; does not touch other seeds.
@@ -359,22 +364,20 @@ def apply_checklist_ops(
                     skipped += 1
                     continue
                 evidence = str(op_raw.get("evidence_hint") or "").strip()
-                # Clear tombstone so the item becomes visible.
-                if item_id in disabled.get(stage, []):
-                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
+                # Strip same-id existing row (dedup before cap check).
                 bucket = [r for r in bucket if not (isinstance(r, dict) and r.get("id") == item_id)]
                 if len(bucket) >= MAX_ITEMS_PER_STAGE:
                     skipped += 1
                     stages[stage] = bucket
                     continue
+                # Clear tombstone only after we know the add will succeed.
+                if item_id in disabled.get(stage, []):
+                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
                 bucket.append(_row(item_id, statement, evidence))
                 stages[stage] = bucket
                 applied += 1
 
             elif op == "modify":
-                # Clear tombstone so the item becomes visible.
-                if item_id in disabled.get(stage, []):
-                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
                 found = False
                 for r in bucket:
                     if isinstance(r, dict) and r.get("id") == item_id:
@@ -385,14 +388,18 @@ def apply_checklist_ops(
                         found = True
                         break
                 if not found:
-                    # Item not in bucket — create an override entry (handles seed IDs
-                    # and newly referenced IDs that were never added explicitly).
-                    stmt = str(op_raw.get("statement") or "").strip()
-                    ev = str(op_raw.get("evidence_hint") or "").strip()
-                    if stmt:
-                        bucket.append(_row(item_id, stmt, ev))
-                        stages[stage] = bucket
-                        found = True
+                    # Only create an override entry for seed IDs, not arbitrary custom IDs.
+                    seed_ids_for_stage = {it.id for it in (seed_fn(stage) or ())}
+                    if item_id in seed_ids_for_stage:
+                        stmt = str(op_raw.get("statement") or "").strip()
+                        ev = str(op_raw.get("evidence_hint") or "").strip()
+                        if stmt and len(bucket) < MAX_ITEMS_PER_STAGE:
+                            bucket.append(_row(item_id, stmt, ev))
+                            stages[stage] = bucket
+                            found = True
+                # Clear tombstone only after the operation is known to succeed.
+                if found and item_id in disabled.get(stage, []):
+                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
                 applied += 1 if found else 0
                 skipped += 0 if found else 1
 

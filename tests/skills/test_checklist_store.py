@@ -335,3 +335,93 @@ def test_backward_compatible_store_without_disabled_field(tmp_path):
         "review.novelty-gate",
     ):
         assert seed_id in ids, f"seed {seed_id!r} missing in backward-compat store"
+
+
+# ── Task 4 regressions: authored-row cap enforcement on modify ─────────────
+
+def test_modify_absent_custom_id_is_skipped(tmp_path):
+    """`modify` of an absent custom ID (not a seed ID) must not create a row."""
+    persist_vertical(tmp_path, "math")
+    cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "review", "id": ""}])
+    count_before = len(cs.store_items_for_stage(tmp_path, "review"))
+    res = cs.apply_checklist_ops(tmp_path, [{
+        "op": "modify", "stage": "review",
+        "id": "review.totally-new-custom-id",
+        "statement": "Should not be created.",
+    }])
+    items_after = cs.store_items_for_stage(tmp_path, "review")
+    assert res["skipped"] >= 1
+    assert len(items_after) == count_before  # no new row appended
+    assert not any(i.id == "review.totally-new-custom-id" for i in items_after)
+
+
+def test_modify_absent_seed_id_creates_override_below_cap(tmp_path):
+    """`modify` of an absent seed ID still creates an override when below the cap."""
+    persist_vertical(tmp_path, "math")
+    cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "review", "id": ""}])
+    # "review.no-goal-drift" is a seed ID but has no explicit stored row yet.
+    res = cs.apply_checklist_ops(tmp_path, [{
+        "op": "modify", "stage": "review",
+        "id": "review.no-goal-drift",
+        "statement": "Revised: no goal drift allowed.",
+    }])
+    assert res["applied"] >= 1
+    by_id = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "review")}
+    assert "review.no-goal-drift" in by_id
+    assert by_id["review.no-goal-drift"] == "Revised: no goal drift allowed."
+
+
+def test_modify_absent_seed_at_cap_is_skipped_and_preserves_tombstone(tmp_path):
+    """`modify` creating an absent-seed override is refused at cap; tombstone must not be cleared."""
+    persist_vertical(tmp_path, "math")
+    # Tombstone a seed ID.
+    cs.apply_checklist_ops(tmp_path, [
+        {"op": "remove", "stage": "review", "id": "review.no-goal-drift"}
+    ])
+    # Fill the stored bucket to the cap with custom items.
+    fill_ops = [
+        {"op": "add", "stage": "review", "id": f"review.fill-{i}",
+         "statement": f"s {i}", "evidence_hint": ""}
+        for i in range(cs.MAX_ITEMS_PER_STAGE)
+    ]
+    cs.apply_checklist_ops(tmp_path, fill_ops)
+    raw_mid = json.loads((tmp_path / "research" / "CHECKLISTS.json").read_text())
+    assert len(raw_mid["stages"]["review"]) == cs.MAX_ITEMS_PER_STAGE
+
+    # Attempt to create an absent-seed override — must be refused at cap.
+    res = cs.apply_checklist_ops(tmp_path, [{
+        "op": "modify", "stage": "review",
+        "id": "review.no-goal-drift",
+        "statement": "Override that must not be created.",
+    }])
+    assert res["skipped"] >= 1
+
+    raw_after = json.loads((tmp_path / "research" / "CHECKLISTS.json").read_text())
+    assert "review.no-goal-drift" in raw_after.get("disabled", {}).get("review", [])
+
+
+def test_add_at_cap_is_skipped_and_preserves_tombstone(tmp_path):
+    """`add` refused at the authored-row cap must not clear a tombstone for the same ID."""
+    persist_vertical(tmp_path, "math")
+    # Tombstone a seed ID.
+    cs.apply_checklist_ops(tmp_path, [
+        {"op": "remove", "stage": "review", "id": "review.no-goal-drift"}
+    ])
+    # Fill to cap.
+    fill_ops = [
+        {"op": "add", "stage": "review", "id": f"review.fill-{i}",
+         "statement": f"s {i}", "evidence_hint": ""}
+        for i in range(cs.MAX_ITEMS_PER_STAGE)
+    ]
+    cs.apply_checklist_ops(tmp_path, fill_ops)
+
+    # Attempt to add the tombstoned seed ID at cap — skipped, tombstone preserved.
+    res = cs.apply_checklist_ops(tmp_path, [{
+        "op": "add", "stage": "review",
+        "id": "review.no-goal-drift",
+        "statement": "Restored item that must not be added at cap.",
+    }])
+    assert res["skipped"] >= 1
+
+    raw_after = json.loads((tmp_path / "research" / "CHECKLISTS.json").read_text())
+    assert "review.no-goal-drift" in raw_after.get("disabled", {}).get("review", [])
