@@ -2,8 +2,7 @@
 
 % ---------------------------------------------------------------------------
 % Argus: Autonomous Research Generation and Understanding System
-% Technical Report 0.2 -- Architecture, Research Infrastructure, and
-% Empirical Programs.
+% Technical Report 0.3 -- Dense Intelligence for an Expanding Research Frontier.
 % Single-column professional systems/research-engineering report.
 % Standard, widely available TeX Live packages only.
 % ---------------------------------------------------------------------------
@@ -22,6 +21,7 @@
 \usepackage{enumitem}
 \usepackage{tcolorbox}
 \usepackage{graphicx}
+\usepackage{float}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 \usepackage{caption}
@@ -42,6 +42,12 @@
 \definecolor{evidencefill}{HTML}{EAEEE8}
 \definecolor{evidenceline}{HTML}{9AAE93}
 
+% ---- Expanding-frontier accent palette (matches the report figure system) ---
+\definecolor{systemblue}{HTML}{315BCE}
+\definecolor{deepblue}{HTML}{214884}
+\definecolor{frontiergold}{HTML}{C38A20}
+\definecolor{goldsoft}{HTML}{FFF3D6}
+
 \pagecolor{bonewhite}
 \color{graphite}
 
@@ -52,7 +58,7 @@
   citecolor=argusindigo,
   pdftitle={Argus: Autonomous Research Generation and Understanding System},
   pdfauthor={Argus Team},
-  pdfsubject={Technical Report 0.2 -- Architecture, Research Infrastructure, and Empirical Programs}
+  pdfsubject={Technical Report 0.3 -- Dense Intelligence for an Expanding Research Frontier}
 }
 
 % ---- Section styling: graphite headings with a restrained indigo rule -------
@@ -75,7 +81,7 @@
 \renewcommand{\headrulewidth}{0.4pt}
 \renewcommand{\footrulewidth}{0pt}
 \fancyhead[L]{\footnotesize\color{graphitesoft}Argus}
-\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.2}
+\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.3}
 \fancyfoot[C]{\footnotesize\color{graphitesoft}\thepage}
 
 % ---- Caption styling --------------------------------------------------------
@@ -119,6 +125,19 @@
 
 \newcommand{\code}[1]{\texttt{\small #1}}
 \newcommand{\srcpath}[1]{{\small\color{graphitesoft}\texttt{#1}}}
+
+% ---- Act opener: light kicker / title / standfirst with a system-blue rule ---
+\newcommand{\actopener}[3]{%
+  \clearpage
+  {\small\bfseries\ttfamily\color{frontiergold} #1}\par
+  \vspace{0.35cm}
+  {\LARGE\bfseries\color{deepblue} #2}\par
+  \vspace{0.25cm}
+  {\large\color{graphitesoft} #3}\par
+  \vspace{0.35cm}
+  {\color{systemblue}\rule{\textwidth}{0.7pt}}
+  \vspace{0.25cm}
+}
 \setlength{\emergencystretch}{3em}
 \tolerance=900
 \hyphenpenalty=400
@@ -127,22 +146,21 @@
 \begin{document}
 
 \thispagestyle{empty}
-
+\vspace*{0.6cm}
+{\small\bfseries\ttfamily\color{frontiergold} ARGUS}\\[2.0cm]
+{\Huge\bfseries\color{deepblue}
+  Autonomous Research Generation\\[0.15cm]
+  and Understanding System}\\[0.7cm]
+{\Large\color{graphite}
+  Dense Intelligence for an Expanding Research Frontier}\\[1.2cm]
 \begin{center}
-  \vspace*{0.1cm}
-  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}\\[0.55cm]
-  {\Huge\bfseries\color{argusindigo} Argus}\\[0.3cm]
-  {\LARGE\bfseries\color{graphite} Autonomous Research Generation\\[0.12cm]
-    and Understanding System}\\[0.5cm]
-  {\large\color{graphitesoft} Technical Report 0.2}\\[0.15cm]
-  {\normalsize\color{graphitesoft} Architecture, Research Infrastructure, and
-    Empirical Programs}\\[0.5cm]
-  {\large\color{graphitesoft} Argus Team}\\[0.2cm]
-  {\normalsize\color{graphitesoft} July 2026}\\[0.45cm]
-  {\color{indigosoft}\rule{0.42\textwidth}{0.8pt}}
+  \includegraphics[width=0.62\textwidth]{figures/master_spine.pdf}
 \end{center}
+\vfill
+{\color{systemblue}\rule{\textwidth}{0.7pt}}\\[0.2cm]
+{\small\ttfamily\color{systemblue} TECHNICAL REPORT 0.3 \hfill JULY 2026}
 
-\vspace{0.3cm}
+\clearpage
 
 \begin{quote}
 \small\color{graphitesoft}
@@ -171,10 +189,14 @@ accepted autonomous publication, or correctness outside the stated protocols.
 \endgroup
 {\small\color{argusindigo}\hrulefill}
 
-\clearpage
+\actopener
+  {ACT I · THE DENSE-INTELLIGENCE PROBLEM}
+  {Research intelligence is sparse in time.}
+  {Long-horizon research requires continuity, execution, verification, and durable state—not merely a longer context window.}
 
-\input{sections/01_executive_summary}
-\input{sections/02_problem}
+\input{sections/01_executive_thesis}
+\input{sections/02_dense_intelligence}
+\input{sections/03_episodic_agents}
 \input{sections/03_architecture}
 \input{sections/04_runtime_lifecycle}
 \input{sections/05_state_memory}

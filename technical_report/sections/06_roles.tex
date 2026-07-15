@@ -186,7 +186,7 @@ achievement payload is emitted only on a \code{done} verdict.}
 \end{table}
 
 \begin{callout}[Why ``done'' has exactly one owner]
-Premature acceptance (Section~\ref{sec:problem}) is answered structurally:
+Premature acceptance (Section~\ref{sec:episodic}) is answered structurally:
 completion is a single typed verdict from a role that sees the artifacts and the
 execution log, not a self-report from the role that did the work, and not a
 keyword the infrastructure fished out of a summary. If the Reviewer is wrong, that
@@ -196,7 +196,8 @@ is never ambiguous, and it is never silently overridden.
 
 \subsection{What was deliberately removed}
 
-The commitment to O1 is visible as deletions, not slogans. A prior reviewer path
+The commitment to keeping judgment with the agent is visible as deletions, not
+slogans. A prior reviewer path
 scanned the Engineer's summary with regexes and forcibly rewrote a \code{done}
 verdict into \code{continue}; it and its pattern constants were removed, and the
 underlying constraint now lives in the Reviewer's own prompt. Chat-vs-task routing
