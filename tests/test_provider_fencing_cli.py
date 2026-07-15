@@ -21,7 +21,6 @@ def test_claude_command_receives_dollar_fence() -> None:
 def test_copilot_command_receives_soft_ai_credit_fence() -> None:
     runner = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT)
     command = runner._build_copilot_command(
-        prompt="bounded",
         resume_thread_id=None,
         options=RunnerOptions(max_ai_credits=30),
     )
@@ -67,7 +66,6 @@ def test_manager_read_only_policy_is_backend_specific() -> None:
         default_extra_args=["--allow-all-tools", "--available-tools", "write"],
     )
     copilot_command = copilot._build_copilot_command(
-        prompt="inspect",
         resume_thread_id=None,
         options=RunnerOptions(sandbox_mode="read-only"),
     )
