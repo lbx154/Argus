@@ -23,12 +23,11 @@ export function Wordmark({
   lit?: number;
   sh?: number;
 }) {
-  const diamond = d === 'ghost' ? '◇' : '◆';
-  const diamondColor = d === 'ghost' ? WORDMARK_GHOST : theme.accent;
+  const markColor = d === 'ghost' ? WORDMARK_GHOST : theme.accent;
   return (
     <Text>
-      <Text color={diamondColor} bold={d === 'solid'} dimColor={d === 'flick'}>
-        {diamond}
+      <Text color={markColor} bold={d === 'solid'} dimColor={d === 'flick'}>
+        {'◉'}
       </Text>
       {lit >= 0 ? (
         <>

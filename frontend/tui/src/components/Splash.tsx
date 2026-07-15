@@ -9,7 +9,11 @@ import {
   splashLogoForWidth,
 } from '../../../core/src/splash.js';
 
-export { splashLogoForWidth } from '../../../core/src/splash.js';
+export {
+  ARGUS_ROUNDED_ART_COMPACT,
+  ARGUS_ROUNDED_ART_FULL,
+  splashLogoForWidth,
+} from '../../../core/src/splash.js';
 
 function AnimatedLine({
   line,

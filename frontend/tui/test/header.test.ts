@@ -44,7 +44,10 @@ test('static header uses stable unique keys and renders without key warnings', a
     console.error = originalError;
   }
 
-  assert.match(output, /ARGUS/);
+  assert.match(output, /argus/);
+  assert.match(output, /◉/);
+  assert.match(output, /Autonomous Research Lab/);
+  assert.doesNotMatch(output, /\bARGUS\b/);
   assert.equal(
     errors.some((args) => args.some((arg) => String(arg).includes('unique "key" prop'))),
     false,

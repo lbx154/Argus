@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Static, Text } from 'ink';
 import { theme } from '../theme.js';
+import { Wordmark } from './Wordmark.js';
 
 const truncate = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, Math.max(1, max - 1))}…`;
@@ -21,8 +22,7 @@ export function Header({
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={theme.accent}>◆ </Text>
-        <Text color={theme.info} bold>ARGUS</Text>
+        <Wordmark />
         <Text dimColor> · Autonomous Research Lab</Text>
       </Box>
       {health ? (
