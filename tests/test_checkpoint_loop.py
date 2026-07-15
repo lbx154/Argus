@@ -255,3 +255,84 @@ def test_scope_resumes_partial_artifact_after_engineer_turn_timeout(
     assert "status: complete" in scope
     assert "Precise statement" in scope
     assert "Literature status" in scope
+
+
+def test_solve_resumes_partial_artifacts_after_engineer_turn_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "0")
+    persist_vertical(tmp_path, "math")
+    pipeline_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    pipeline = json.loads(pipeline_path.read_text(encoding="utf-8"))
+    pipeline["current_stage"] = "solve"
+    pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+    solve_path = tmp_path / "research" / "SOLVE.md"
+    ledger_path = tmp_path / "research" / "CLAIM_LEDGER.md"
+
+    def write_partial(prompt, _options) -> str:
+        assert "Do not wait for a complete proof" in prompt
+        atomic_write_text(
+            solve_path,
+            "<!-- status: incomplete -->\n# Solve\n## Active route\n",
+        )
+        atomic_write_text(
+            ledger_path,
+            "<!-- status: incomplete -->\n# Claim ledger\n",
+        )
+        return "The first solve checkpoints are on disk."
+
+    def continue_partial(prompt, _options) -> str:
+        assert "MARKER_SOLVE_CHECKPOINTS" in prompt
+        assert solve_path.exists()
+        assert ledger_path.exists()
+        atomic_append_text(solve_path, "## Verified increment\nbounded evidence\n")
+        atomic_append_text(ledger_path, "- bounded evidence: partial result\n")
+        return "Continued the existing solve artifacts."
+
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message_factory=write_partial,
+            exit_code=-15,
+            fatal_error=(
+                "External interrupt: engineer turn time budget reached after "
+                "300s; yield for review/steering"
+            ),
+            thread_id="solve-thread",
+        ),
+    )
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_continue_review({
+            "goal": "produce a checkable solve increment",
+            "done": [
+                "MARKER_SOLVE_CHECKPOINTS: incomplete SOLVE.md and "
+                "CLAIM_LEDGER.md are durable"
+            ],
+            "tried_and_failed": [],
+            "open_blocker": "the active route still needs evidence",
+            "next_step": "continue the existing solve artifacts",
+        })),
+    )
+    backend.queue(
+        "engineer-r2",
+        CannedResponse(message_factory=continue_partial, thread_id="solve-thread"),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=3,
+            workflow_mode="direct",
+            checkpoint_path=tmp_path / "checkpoint.json",
+        ),
+    ).run("produce one bounded solve increment", workdir=tmp_path)
+
+    assert outcome.round_count == 2
+    assert "Verified increment" in solve_path.read_text(encoding="utf-8")
+    assert "partial result" in ledger_path.read_text(encoding="utf-8")

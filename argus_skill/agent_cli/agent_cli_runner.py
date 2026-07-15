@@ -49,6 +49,8 @@ _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
 _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
 _DEFAULT_ENGINEER_TURN_MAX_SECONDS = 300
+_SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
+_DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 120
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -109,6 +111,11 @@ def _nonnegative_env_int(name: str, default: int) -> int:
 
 def _turn_wall_clock_seconds(run_label: str | None) -> int:
     label = str(run_label or "").strip().lower()
+    if label == "scientist.skill_distill":
+        return _nonnegative_env_int(
+            _SCIENTIST_TURN_MAX_SECONDS_ENV,
+            _DEFAULT_SCIENTIST_TURN_MAX_SECONDS,
+        )
     if not (label.startswith("engineer") or label == "main"):
         return 0
     return _nonnegative_env_int(
@@ -387,8 +394,13 @@ class AgentCliRunner:
                 or time.monotonic() - turn_started_at < turn_wall_clock_seconds
             ):
                 return False
+            subject = (
+                "scientist skill distill"
+                if str(run_label or "").strip().lower() == "scientist.skill_distill"
+                else "engineer turn"
+            )
             watchdog_reason = (
-                "External interrupt: engineer turn time budget reached after "
+                f"External interrupt: {subject} time budget reached after "
                 f"{turn_wall_clock_seconds}s; yield for review/steering"
             )
             self._emit(

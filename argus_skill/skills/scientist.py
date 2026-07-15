@@ -81,6 +81,11 @@ class SkillScientist:
             log.debug("scientist skill distill failed: %s", exc)
             return ""
         self.last_result = result
+        if (
+            int(getattr(result, "exit_code", 0) or 0) != 0
+            or getattr(result, "fatal_error", None)
+        ):
+            return ""
         text = (
             getattr(result, "last_agent_message", "")
             or (getattr(result, "agent_messages", None) or [""])[-1]

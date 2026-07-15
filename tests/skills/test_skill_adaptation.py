@@ -36,6 +36,24 @@ class _ScientistBackend:
         )
 
 
+class _TimedOutScientistBackend:
+    def run_exec(self, **_kwargs) -> RunnerResult:
+        return RunnerResult(
+            exit_code=-15,
+            agent_messages=["# Partial unreviewed skill"],
+            fatal_error=(
+                "External interrupt: scientist skill distill time budget reached "
+                "after 120s; yield for review/steering"
+            ),
+        )
+
+
+def test_timed_out_scientist_does_not_activate_partial_skill() -> None:
+    scientist = SkillScientist(_TimedOutScientistBackend(), model="test")
+
+    assert scientist.distill("solve a conjecture") == ""
+
+
 def test_adaptation_state_is_generic_restart_safe_project_state(tmp_path: Path) -> None:
     checkpoint = tmp_path / "life" / "checkpoint.json"
     path = adaptation_state_path(checkpoint, "mission-1")

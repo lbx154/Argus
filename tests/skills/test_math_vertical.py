@@ -138,6 +138,22 @@ def test_math_scope_protocol_is_artifact_first_and_resumable() -> None:
     )
 
 
+def test_math_solve_protocol_checkpoints_before_new_research() -> None:
+    context = vertical_role_banner(load_vertical("math"), "engineer")
+
+    assert "current stage is `solve`" in context
+    assert "research/SOLVE.md" in context
+    assert "research/CLAIM_LEDGER.md" in context
+    assert "status: incomplete" in context
+    assert "argus_skill.tools.atomic_artifact" in context
+    assert "Do not wait for a complete proof" in context
+    assert context.index(
+        "Atomically create any missing `research/SOLVE.md`"
+    ) < context.index(
+        "before any new\n   literature retrieval"
+    )
+
+
 def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
     items = vertical_checklist_items(load_vertical("math"))
     rendered = "\n".join(

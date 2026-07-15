@@ -209,3 +209,15 @@ def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
     assert _turn_wall_clock_seconds("engineer-r7") == 90
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0")
     assert _turn_wall_clock_seconds("engineer-r7") == 0
+
+
+def test_scientist_skill_distill_has_independent_wall_clock_cap(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0")
+
+    assert _turn_wall_clock_seconds("scientist.skill_distill") == 120
+
+    monkeypatch.setenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "45")
+    assert _turn_wall_clock_seconds("scientist.skill_distill") == 45
+    monkeypatch.setenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "0")
+    assert _turn_wall_clock_seconds("scientist.skill_distill") == 0
