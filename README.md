@@ -51,10 +51,14 @@ writes — its memory, skills, tools, verifiers, routing, and evaluations — wh
 the technical report writes compactly as `H(t+1) = U(H(t), trajectory,
 evidence)`. This is **Runtime Evolution**: the system grows more capable not by
 retraining a model but by accumulating audited, reusable capability around it.
-Every update is attributable — one role proposes a change to that state, a
-distinct owner accepts it, and it lands on a named persistence surface — so the
-same separation that governs completion extends to memory, skills, tools,
-verifiers, routing, and evaluations.
+Every update is attributable — it names a source, an authoritative owner, and a
+named persistence surface. That ownership is honestly scoped, not universal: only
+for the memory and skills a mission *earns* is the owner a distinct role — the
+**Reviewer certifies** work it did not author, the same work-versus-certification
+separation that governs completion. The rest are **operator-owned** (tools),
+**Planner-owned** with the Reviewer **feedback-only** (verifiers), or
+operator-sourced-and-Manager-committed (routing) and
+Planner-authored-and-scheduler-committed (evaluations).
 
 Two boundaries keep this claim honest. First, runtime evolution
 **does not require online parameter training**: the underlying model's weights

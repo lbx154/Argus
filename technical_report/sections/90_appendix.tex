@@ -150,15 +150,14 @@ paths on \code{main}, not any transient local filesystem location.}
 \label{tab:evmap}
 \end{table}
 
-\paragraph{Figure provenance.} The four deterministic figures (\code{system\_planes},
-\code{mission\_lifecycle}, \code{public\_results}, \code{paper\_portfolio}) come from
-\srcpath{technical\_report/figures/build\_report\_figures.py} with no image-model call
-and SHA-256 digests in \srcpath{figures/REPORT\_FIGURES.json}; the two editorial plates
-carry image-2 prompt, inspect, review, and provenance sidecars in
-\srcpath{figures/IMAGE2\_FIGURES.json}.
+\paragraph{Figure provenance.} The six deterministic figures (\code{master\_spine},
+\code{dense\_intelligence}, \code{system\_planes}, \code{mission\_lifecycle},
+\code{public\_results}, \code{paper\_portfolio}) come from
+\srcpath{figures/build\_report\_figures.py} with no image-model call and carry
+SHA-256 digests in \srcpath{figures/REPORT\_FIGURES.json}; the two editorial
+plates instead carry image-2 sidecars in \srcpath{figures/IMAGE2\_FIGURES.json}.
 
 \paragraph{Paper-inventory summary.} The 41-paper portfolio
 (Section~\ref{sec:portfolio}) --- 35 manuscripts and 6 drafts across the six programs
 of Table~\ref{tab:portfolio} --- is enumerated in
-\srcpath{technical\_report/evidence/paper\_inventory.json}, compared only to
-human-authored literature.
+\srcpath{evidence/paper\_inventory.json}, compared only to human-authored literature.

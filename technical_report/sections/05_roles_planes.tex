@@ -81,17 +81,18 @@ out of scope here.)
 \subsection{Manager --- front door and stage authority}
 
 The Manager converts operator free text into a committed campaign in a single
-grounded model call that emits three structured axes at once --- \code{CONFIG}
-(e.g.\ a backend/model change), \code{CONTROL} (whether to dispatch at all), and
-\code{ROUTE} (chat vs.\ task and which vertical). A \code{CONTROL: NO\_DISPATCH}
+grounded model call that emits six structured axes at once --- \code{CONFIG} (a
+knob change), \code{CONTROL} (whether to dispatch), \code{ROUTE} (self-reply
+vs.\ team task and vertical), \code{LIFETIME} (bounded vs.\ standing),
+\code{FAST\_REPLY} (an optional one-line reply), and \code{NAME} (a title). A
+\code{CONTROL: NO\_DISPATCH}
 decision is authoritative: the bridge forces a read-only self-reply and, if that
 fails, fails closed rather than enqueuing work. A task division yields a
 \code{Division}; stage progression is a \code{StageTransition}
 (Table~\ref{tab:manager}). The Manager is the sole writer of \code{current\_stage};
-the transition's \code{action} and \code{source} fields make both the decision and
-its justification auditable, including the fail-safe holds that keep the pipeline
-coherent when a downstream role is unavailable. The other roles may advise a stage
-change but never write it.
+the transition's \code{action} and \code{source} fields make the decision and
+its justification auditable, including fail-safe holds when a downstream role is
+unavailable. The other roles may advise a stage change but never write it.
 
 \begin{table}[h]
 \centering

@@ -33,7 +33,7 @@ To separate real progress from busy churn, the Reviewer labels each round with a
 \code{progress\_class}: \code{decision} or \code{evidence} for genuine forward
 motion, or \code{setup\_only}, \code{artifact\_sync\_only}, or \code{none} for
 nondecision work. The runtime \emph{counts} these structured labels; it never infers
-progress from tool activity, filenames, or token emission. Two consecutive
+progress from tool activity, filenames, or token emission. Four consecutive
 nondecision rounds trip the stall guard, and a 1,800-second decision-progress
 budget --- measured from the last decision or evidence increment and checked only
 between rounds --- ends a mission that is spinning without ever cutting useful
@@ -51,7 +51,7 @@ Planner re-plans. Table~\ref{tab:guards} is the full guard matrix.
 \midrule
 Backend-failure recovery & failure streak $\rightarrow$ backoff, then end as error & 2 / 15\,s & no (round boundary) \\
 No-progress bail & consecutive rounds with no engineer message & 2 & no \\
-Decision stall & consecutive nondecision \code{progress\_class} rounds $\rightarrow$ end & 2 & no \\
+Decision stall & consecutive nondecision \code{progress\_class} rounds $\rightarrow$ end & 4 & no \\
 Decision-progress budget & seconds since last decision/evidence $\rightarrow$ end & 1{,}800\,s & \textbf{no} \\
 Soft round escalation & round index $\rightarrow$ ask Reviewer to return \code{blocked} & 12 & no \\
 Hard round escalation & round index $\rightarrow$ force-end as \code{blocked} & 24 & no \\

@@ -315,3 +315,94 @@ def test_readmes_bound_runtime_evolution_claim() -> None:
     assert "does not guarantee that every run adds capability" in english
     assert "不依赖在线参数训练" in chinese
     assert "不保证每次 run 都增加能力" in chinese
+
+
+def test_reliability_decision_stall_default_is_four() -> None:
+    # Rebase pulled in runner.py commit 61c53cad which set
+    # SupervisedConfig.stall_threshold = 4; the guard fires at FOUR consecutive
+    # nondecision rounds, not two. The unrelated no-progress bail default stays 2.
+    source = _read("technical_report/sections/08_reliability_resources.tex")
+    norm = re.sub(r"\s+", " ", source)
+
+    assert "Four consecutive nondecision rounds trip the stall guard" in norm
+    assert "Two consecutive nondecision rounds trip the stall guard" not in norm
+
+    # Guard table: the Decision-stall row default is 4.
+    assert re.search(r"Decision stall &.*? & 4 & no", norm)
+    assert not re.search(r"Decision stall &.*? & 2 & no", norm)
+
+    # Do NOT change the unrelated no-progress bail default (still 2).
+    assert re.search(r"No-progress bail &.*? & 2 & no", norm)
+
+
+def test_manager_front_door_emits_six_axes() -> None:
+    # The single front-door model call classifies on SIX axes and requires
+    # "EXACTLY six lines" of output (life/router.py), not three.
+    source = _read("technical_report/sections/05_roles_planes.tex")
+    norm = re.sub(r"\s+", " ", source)
+
+    assert "six structured axes" in norm
+    assert "three structured axes" not in norm
+
+    for axis in (
+        r"\code{CONFIG}",
+        r"\code{CONTROL}",
+        r"\code{ROUTE}",
+        r"\code{LIFETIME}",
+        r"\code{FAST\_REPLY}",
+        r"\code{NAME}",
+    ):
+        assert axis in source, f"missing front-door axis: {axis!r}"
+
+
+def test_appendix_figure_provenance_counts_six_deterministic() -> None:
+    # REPORT_FIGURES.json holds SIX deterministic figures; the provenance
+    # paragraph must name all six, including master_spine and dense_intelligence.
+    source = _read("technical_report/sections/90_appendix.tex")
+    norm = re.sub(r"\s+", " ", source)
+
+    assert "six deterministic figures" in norm
+    assert "four deterministic figures" not in norm
+
+    for fig in (
+        r"\code{master\_spine}",
+        r"\code{dense\_intelligence}",
+        r"\code{system\_planes}",
+        r"\code{mission\_lifecycle}",
+        r"\code{public\_results}",
+        r"\code{paper\_portfolio}",
+    ):
+        assert fig in source, f"missing deterministic figure: {fig!r}"
+
+
+def test_readmes_scope_ownership_separation_honestly() -> None:
+    # The public READMEs must NOT universalize the work-vs-certification
+    # separation to all six H components. Only M and S get a distinct certifying
+    # owner (the Reviewer certifies work it did not author); A is operator-owned;
+    # V is Planner-owned with the Reviewer feedback-only; R/Q keep their owners.
+    english = _read("README.md")
+    chinese = _read("README.zh-CN.md")
+    en_norm = re.sub(r"\s+", " ", english)
+    zh_ns = re.sub(r"\s+", "", chinese)
+
+    # The false universal is gone from BOTH languages.
+    assert (
+        "same separation that governs completion extends to memory, skills, "
+        "tools, verifiers, routing, and evaluations" not in en_norm
+    )
+    assert (
+        "这套职责分离，因此同样延伸到记忆、skill、工具、verifier、路由与评测"
+        not in zh_ns
+    )
+
+    # English: honest per-component scoping.
+    assert "Reviewer certifies" in en_norm          # M/S distinct-owner certification
+    assert "operator-owned" in en_norm              # A (tools)
+    assert "Planner-owned" in en_norm               # V (verifiers)
+    assert "feedback-only" in en_norm               # Reviewer on checklists
+
+    # Chinese: mirror the same honest scoping (whitespace stripped, so no spaces).
+    assert "Reviewer认证" in zh_ns                   # M/S certification
+    assert "operator拥有" in zh_ns                    # A operator-owned
+    assert "Planner拥有" in zh_ns                     # V Planner-owned
+    assert "仅提供反馈" in zh_ns                       # Reviewer feedback-only
