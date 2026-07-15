@@ -207,6 +207,17 @@
         "objective": {"type": "string"},
         "scope": {"type": "string"},
         "status": {"type": "string", "minLength": 1},
+        "outcome_class": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "incomplete",
+            "stalled",
+            "blocked",
+            "failed",
+            "ended"
+          ]
+        },
         "success": {"type": "boolean"},
         "rounds": {"type": "integer", "minimum": 0},
         "elapsed_seconds": {"type": "number", "minimum": 0},

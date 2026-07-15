@@ -41,6 +41,7 @@ def _schema_verdict(result: dict) -> dict:
         "achievement": None,
         "failure_cause": None,
         "progress_class": "decision",
+        "control": None,
         "scope": "bounded",
         "research_result": result,
         "planner_report": {
@@ -83,6 +84,7 @@ class _ReviewerBackend:
             "next_action": "none",
             "round_summary_markdown": "# Review\n",
             "completion_summary_markdown": "# Complete\n",
+            "control": None,
             "research_result": self.result,
             "planner_report": {"forward_progress": True},
             "checklist": [

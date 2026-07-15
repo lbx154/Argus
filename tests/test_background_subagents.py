@@ -264,12 +264,43 @@ def test_parse_sentinel_fenced_and_backticked() -> None:
     assert bs.parse_wait_sentinel("```\nWAIT_FOR_SUBAGENT: `train-1`\n```") == "train-1"
 
 
+def test_parse_sentinel_accepts_final_control_line_after_summary_and_handoff() -> None:
+    message = (
+        "Summary:\n"
+        "- repaired the evaluator\n"
+        "\n"
+        "HANDOFF:\n"
+        "- supervised run is still healthy\n"
+        "\n"
+        "WAIT_FOR_SUBAGENT: train-1"
+    )
+    assert bs.parse_wait_sentinel(message) == "train-1"
+
+
 def test_parse_sentinel_rejects_prose() -> None:
     assert bs.parse_wait_sentinel("I will now WAIT_FOR_SUBAGENT: train-1 and wait") is None
 
 
-def test_parse_sentinel_rejects_multiline() -> None:
-    assert bs.parse_wait_sentinel("WAIT_FOR_SUBAGENT: train-1\nAlso doing other work.") is None
+def test_parse_sentinel_rejects_embedded_prose_mentions() -> None:
+    message = (
+        "Summary:\n"
+        "- I may WAIT_FOR_SUBAGENT: train-1 later if nothing else is ready\n"
+        "\n"
+        "HANDOFF:\n"
+        "- keep working for now"
+    )
+    assert bs.parse_wait_sentinel(message) is None
+
+
+def test_parse_sentinel_rejects_nonempty_text_after_final_control_line() -> None:
+    assert (
+        bs.parse_wait_sentinel("WAIT_FOR_SUBAGENT: train-1\nAlso doing other work.")
+        is None
+    )
+
+
+def test_parse_sentinel_rejects_trailing_text_on_control_line() -> None:
+    assert bs.parse_wait_sentinel("WAIT_FOR_SUBAGENT: train-1 please wait") is None
 
 
 def test_parse_sentinel_rejects_empty() -> None:

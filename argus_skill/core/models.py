@@ -189,6 +189,12 @@ class ReviewDecision:
     # Compact reviewer-authored decision-progress classification. The harness
     # counts it but never infers it from filenames, keywords, or tool activity.
     progress_class: str = ""
+    # Structured reviewer-authored control request, parsed ONLY from the JSON
+    # ``control`` object in the final verdict. Empty strings mean "no control
+    # request". The runner currently honors ``wait_for_subagent`` only after a
+    # real reviewed round and never infers it from prose.
+    control_action: str = ""
+    control_task_id: str = ""
     verification_summary: str = ""
     # Optional project-level research achievement independently certified by
     # this reviewer. The loop emits the sole authoritative
@@ -362,6 +368,8 @@ class ReviewDecision:
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
             "progress_class": self.progress_class or "",
+            "control_action": self.control_action or "",
+            "control_task_id": self.control_task_id or "",
             "verification_summary": self.verification_summary or "",
             "achievement": (
                 dict(self.achievement) if isinstance(self.achievement, dict) else None

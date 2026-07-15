@@ -214,6 +214,69 @@ def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
     assert view["timeline"][-1]["detail"] == "wire the parser into the runner"
 
 
+@pytest.mark.parametrize(
+    ("status", "success", "mission_status", "role_status", "label", "tone"),
+    [
+        ("done", True, "complete", "done", "Mission completed", "success"),
+        ("completed", False, "complete", "done", "Mission completed", "success"),
+        ("research_incomplete", False, "incomplete", "done", "Mission incomplete", "info"),
+        ("no_progress", False, "stalled", "done", "Mission stalled", "info"),
+        ("blocked", False, "blocked", "error", "Mission blocked", "error"),
+        ("failed", False, "failed", "error", "Mission failed", "error"),
+        (
+            "legacy_unknown_status",
+            False,
+            "ended",
+            "done",
+            "Mission ended · legacy_unknown_status",
+            "info",
+        ),
+    ],
+)
+def test_completed_mission_projects_terminal_outcomes_without_false_failures(
+    tmp_path: Path,
+    status: str,
+    success: bool,
+    mission_status: str,
+    role_status: str,
+    label: str,
+    tone: str,
+) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        title="Run mission",
+        status=status,
+        success=success,
+    )
+
+    role = next(role for role in view["roles"] if role["role"] == "engineer")
+    timeline = view["timeline"][-1]
+    assert view["mission"]["status"] == mission_status
+    assert role["status"] == role_status
+    assert role["label"] == label
+    assert timeline["title"] == label
+    assert timeline["tone"] == tone
+    assert load_mission_view(tmp_path)["mission"]["status"] == mission_status
+
+
+def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        status="legacy_unknown_status",
+        success=False,
+        outcome_class="incomplete",
+    )
+
+    assert view["mission"]["status"] == "incomplete"
+    assert view["timeline"][-1]["title"] == "Mission incomplete"
+
+
 def test_snapshot_bootstraps_from_existing_event_log(tmp_path: Path) -> None:
     (tmp_path / "events.jsonl").write_text(
         "\n".join([

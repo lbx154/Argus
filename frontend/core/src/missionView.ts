@@ -1,5 +1,6 @@
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
 import { eventKey } from './events.js';
+import { missionOutcomePresentation } from './missionOutcome.js';
 import type {
   ArtifactInfo,
   EventMsg,
@@ -107,6 +108,14 @@ function addTimeline(
     if (value) row[key] = value;
   });
   view.timeline = [...view.timeline, row].slice(-120);
+}
+
+function missionTimelineTone(
+  tone: ReturnType<typeof missionOutcomePresentation>['tone'],
+): MissionTimelineItem['tone'] {
+  if (tone === 'ok') return 'success';
+  if (tone === 'err') return 'error';
+  return 'info';
 }
 
 const PROGRESS_LABELS: Record<string, string> = {
@@ -407,13 +416,22 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       certified_at: ts,
     };
   } else if ([EVENT_TYPES.LIFE_MISSION_COMPLETED, EVENT_TYPES.LIFE_MISSION_FAILED].includes(type as never)) {
-    const success = type === EVENT_TYPES.LIFE_MISSION_COMPLETED && event.success === true;
+    const presentation = type === EVENT_TYPES.LIFE_MISSION_FAILED
+      ? missionOutcomePresentation({ ...event, outcome_class: 'failed', status: S(event, 'status') || 'failed', success: false })
+      : missionOutcomePresentation(event);
     view.mission.id = S(event, 'item_id') || view.mission.id;
     view.mission.title = S(event, 'title') || view.mission.title;
     view.mission.objective = S(event, 'objective') || view.mission.objective;
-    view.mission.status = success ? 'complete' : S(event, 'status') || 'failed';
+    view.mission.status = presentation.missionStatus;
     view.mission.completed_at = ts;
-    addTimeline(view, event, 'engineer', success ? 'Mission achievement' : 'Mission failed', S(event, 'title') || S(event, 'status'), success ? 'success' : 'error');
+    addTimeline(
+      view,
+      event,
+      'engineer',
+      presentation.label,
+      S(event, 'title') || S(event, 'status'),
+      missionTimelineTone(presentation.tone),
+    );
   }
   refreshPrimaryMetric(view);
   refreshPrimaryMetric(view);

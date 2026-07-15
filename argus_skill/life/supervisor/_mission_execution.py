@@ -14,6 +14,7 @@ from ...core.stop_kinds import (
     stop_kind_is_recoverable,
 )
 from ...core.usage import UsageLedger, UsageRecord
+from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
 from ._constants import PLANNER_SCOPE_FINAL_SUBMISSION
 from ._cost import _CostTrackingSink
@@ -272,6 +273,10 @@ class MissionExecutionMixin:
                 "item_id": item.id,
                 "success": False,
                 "status": pause_status,
+                "outcome_class": mission_outcome_class(
+                    status=pause_status,
+                    success=False,
+                ),
                 "stop_kind": stop_kind,
                 "recoverable": True,
                 "cost_usd": usd,
@@ -436,6 +441,7 @@ class MissionExecutionMixin:
             "scope": self._planner_scope_from_item(item),
             "success": success,
             "status": status,
+            "outcome_class": mission_outcome_class(status=status, success=success),
             "rounds": rounds,
             "elapsed_seconds": elapsed,
             "cost_usd": usd,

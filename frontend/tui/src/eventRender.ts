@@ -1,6 +1,11 @@
 import { theme } from './theme.js';
 import type { EventMsg } from './api.js';
-import { isReasoning, isStructuredAgentPayload, mergeFragment } from '../../core/src/events.js';
+import {
+  isReasoning,
+  isStructuredAgentPayload,
+  mergeFragment,
+} from '../../core/src/events.js';
+import { missionOutcomePresentation } from '../../core/src/missionOutcome.js';
 
 export { isReasoning, mergeFragment };
 
@@ -141,8 +146,15 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   if (t === 'life.iteration.critic') return { role: 'critic', label: 'Critic', glyph: '👔', text: `${S(ev, 'decision') || ''} ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
   if (t === 'life.iteration.continued') return { role: 'critic', label: 'Critic', glyph: '🔁', text: 'queued next iteration', tone: 'dim' };
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
-    const ok = (ev as Record<string, unknown>).success !== false;
-    return { role: 'engineer', label: 'Engineer', glyph: ok ? '🎉' : '💥', text: `mission ${ok ? S(ev, 'status') || 'done' : 'failed'}`, tone: ok ? 'ok' : 'err', rule: true };
+    const presentation = missionOutcomePresentation(ev);
+    return {
+      role: 'engineer',
+      label: 'Engineer',
+      glyph: presentation.glyph,
+      text: presentation.label,
+      tone: presentation.tone,
+      rule: true,
+    };
   }
   if (t === 'life.mission.failed' || t === 'mission.error')
     return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `mission failed ${trunc(S(ev, 'reason') || S(ev, 'error'), 160)}`, tone: 'err', rule: true };

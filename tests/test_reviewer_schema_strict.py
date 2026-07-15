@@ -97,6 +97,18 @@ def test_skill_ops_items_require_all_keys():
     assert "skill_ops" in schema["required"]
 
 
+def test_control_object_requires_all_keys_in_active_schemas() -> None:
+    for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
+        schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        control = schema["properties"]["control"]
+        assert set(control["required"]) == set(control["properties"]) == {
+            "action",
+            "task_id",
+        }
+        assert control["additionalProperties"] is False
+        assert "control" in schema["required"]
+
+
 def test_operator_question_parsing_blocked_only():
     """blocked uses the reviewer's question (or falls back to next_action's first
     sentence); done/continue never carry one; a blocked verdict still parses with

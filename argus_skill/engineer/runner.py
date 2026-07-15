@@ -59,6 +59,7 @@ from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
     emit_subagent_cost_events,
     find_waitable_subagent,
+    inspect_wait_target,
     parse_wait_sentinel,
     render_background_subagents_advisory,
     wait_for_subagent_cadence,
@@ -602,6 +603,46 @@ def _pause_decision_clock(last_progress_at: float, waited_seconds: float) -> flo
     return float(last_progress_at) + max(0.0, float(waited_seconds or 0.0))
 
 
+def _run_background_wait(
+    *,
+    workdir: Path,
+    task_id: str,
+    round_index: int,
+    round_max: int,
+    on_event: Callable[[dict], None] | None,
+) -> tuple[str, float]:
+    if on_event:
+        on_event({
+            "type": "round.background_wait.started",
+            "round_index": round_index,
+            "round_max": round_max,
+            "task_id": task_id,
+            "text": f"yielding to supervised subagent cadence: {task_id}",
+        })
+    try:
+        wait_reason, waited_s = wait_for_subagent_cadence(workdir, task_id)
+    except Exception as exc:  # noqa: BLE001 — a wait must never break the loop
+        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
+    if on_event:
+        on_event({
+            "type": "round.background_wait.completed",
+            "round_index": round_index,
+            "round_max": round_max,
+            "task_id": task_id,
+            "text": (
+                f"resumed after {waited_s:.0f}s ({wait_reason}) waiting on {task_id}"
+            ),
+        })
+    return wait_reason, waited_s
+
+
+def _review_wait_rejection(
+    workdir: Path,
+    task_id: str,
+) -> tuple[str, str]:
+    return inspect_wait_target(workdir, task_id)
+
+
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
@@ -610,7 +651,7 @@ class SupervisedConfig:
     # Consecutive reviewed rounds classified by the Reviewer as setup-only,
     # artifact-sync-only, or no decision progress. The harness counts the
     # structured verdict; it never infers scientific progress from activity.
-    stall_threshold: int = 2
+    stall_threshold: int = 4
     # Dynamic Plan is observation-only by default. ``active`` lets two
     # consecutive Reviewer-authored reconsider signals end the current mission
     # cleanly so L4 can replace the remaining backlog plan.
@@ -1684,29 +1725,13 @@ class SupervisedEngineer:
             if supervised_config.background_subagent_advisory:
                 wait_task_id = parse_wait_sentinel(raw_engineer_message)
                 if wait_task_id and find_waitable_subagent(workdir, wait_task_id) is not None:
-                    if on_event:
-                        on_event({
-                            "type": "round.background_wait.started",
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "text": f"yielding to supervised subagent cadence: {wait_task_id}",
-                        })
-                    try:
-                        wait_reason, waited_s = wait_for_subagent_cadence(
-                            workdir, wait_task_id
-                        )
-                    except Exception as exc:  # noqa: BLE001 — a wait must never break the loop
-                        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
-                    if on_event:
-                        on_event({
-                            "type": "round.background_wait.completed",
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "text": (
-                                f"resumed after {waited_s:.0f}s ({wait_reason}) "
-                                f"waiting on {wait_task_id}"
-                            ),
-                        })
+                    _, waited_s = _run_background_wait(
+                        workdir=workdir,
+                        task_id=wait_task_id,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        on_event=on_event,
+                    )
                     last_decision_progress_at = _pause_decision_clock(
                         last_decision_progress_at,
                         waited_s,
@@ -2195,7 +2220,7 @@ class SupervisedEngineer:
             review_deferral_streak = 0
             pending_secret_guard_notes.clear()
             progress_class = _review_progress_class(review)
-            semantic_stall_streak = _next_decision_stall_streak(
+            next_semantic_stall_streak = _next_decision_stall_streak(
                 review,
                 semantic_stall_streak,
             )
@@ -2226,26 +2251,11 @@ class SupervisedEngineer:
                 and plan_signal_event.get("confirmed") is True
             )
             now_monotonic = time.monotonic()
-            if progress_class in _DECISION_PROGRESS_CLASSES:
-                last_decision_progress_at = now_monotonic
-            decision_idle_seconds = max(
-                0.0,
-                now_monotonic - last_decision_progress_at,
+            next_decision_progress_at = (
+                now_monotonic
+                if progress_class in _DECISION_PROGRESS_CLASSES
+                else last_decision_progress_at
             )
-            if on_event and semantic_stall_streak > 0:
-                on_event({
-                    "type": EventType.ROUND_STALL,
-                    "round_index": round_index,
-                    "round_max": supervised_config.max_rounds,
-                    "progress_class": progress_class,
-                    "semantic_stall_streak": semantic_stall_streak,
-                    "stall_threshold": supervised_config.stall_threshold,
-                    "decision_idle_seconds": round(decision_idle_seconds, 1),
-                    "text": (
-                        f"no decision progress {semantic_stall_streak}/"
-                        f"{supervised_config.stall_threshold} rounds"
-                    ),
-                })
             # Update curated working memory from the reviewer-authored
             # checkpoint. Fail-soft: an empty/malformed checkpoint keeps the
             # prior one rather than wiping memory on a noisy verdict.
@@ -2286,6 +2296,74 @@ class SupervisedEngineer:
                     None,
                 )
 
+            if getattr(review, "control_action", "") == "wait_for_subagent":
+                rejection_code = ""
+                rejection_reason = ""
+                wait_task_id = str(getattr(review, "control_task_id", "") or "").strip()
+                if not supervised_config.background_subagent_advisory:
+                    rejection_code = "advisory_disabled"
+                    rejection_reason = (
+                        "background-subagent advisory is disabled in this mission"
+                    )
+                elif review.status != "continue":
+                    rejection_code = "review_status_not_continue"
+                    rejection_reason = (
+                        f"review status `{review.status}` cannot request a wait"
+                    )
+                elif inspect_wait_target(workdir, wait_task_id)[0] == "waitable":
+                    _, waited_s = _run_background_wait(
+                        workdir=workdir,
+                        task_id=wait_task_id,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        on_event=on_event,
+                    )
+                    last_decision_progress_at = _pause_decision_clock(
+                        next_decision_progress_at,
+                        waited_s,
+                    )
+                    no_progress_streak = 0
+                    last_next_action = review.next_action or ""
+                    continue
+                else:
+                    rejection_code, rejection_reason = _review_wait_rejection(
+                        workdir,
+                        wait_task_id,
+                    )
+                if on_event:
+                    on_event({
+                        "type": "round.background_wait.rejected",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "task_id": wait_task_id,
+                        "reason_code": rejection_code,
+                        "reason": rejection_reason,
+                        "text": (
+                            "reviewed background wait rejected: "
+                            f"{rejection_reason}"
+                        ),
+                    })
+
+            semantic_stall_streak = next_semantic_stall_streak
+            last_decision_progress_at = next_decision_progress_at
+            decision_idle_seconds = max(
+                0.0,
+                now_monotonic - last_decision_progress_at,
+            )
+            if on_event and semantic_stall_streak > 0:
+                on_event({
+                    "type": EventType.ROUND_STALL,
+                    "round_index": round_index,
+                    "round_max": supervised_config.max_rounds,
+                    "progress_class": progress_class,
+                    "semantic_stall_streak": semantic_stall_streak,
+                    "stall_threshold": supervised_config.stall_threshold,
+                    "decision_idle_seconds": round(decision_idle_seconds, 1),
+                    "text": (
+                        f"no decision progress {semantic_stall_streak}/"
+                        f"{supervised_config.stall_threshold} rounds"
+                    ),
+                })
             terminal_status, reason = self._classify(
                 review=review,
                 no_progress_streak=no_progress_streak,

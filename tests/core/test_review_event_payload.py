@@ -26,6 +26,8 @@ def _full_review() -> ReviewDecision:
         completion_summary_markdown="Mission not complete.",
         failure_cause="skill_gap",
         verification_summary="`jq . research/LITERATURE_GROUNDING.json` returned OK.",
+        control_action="wait_for_subagent",
+        control_task_id="train-1",
         scope="final_submission",
         checklist=[
             {"item": "BibTeX has 10+ verified entries", "satisfied": False, "evidence": "0 entries"},
@@ -65,6 +67,8 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
 
     # Previously dropped fields — these are the regression guard.
     assert payload["verification_summary"].startswith("`jq")
+    assert payload["control_action"] == "wait_for_subagent"
+    assert payload["control_task_id"] == "train-1"
     assert payload["scope"] == "final_submission"
     assert isinstance(payload["checklist"], list) and len(payload["checklist"]) == 2
     assert payload["checklist"][0]["item"].startswith("BibTeX")
@@ -144,5 +148,6 @@ def test_to_event_payload_extras_can_override_helpers_but_not_lose_data() -> Non
     for k in (
         "status", "checklist", "planner_report",
         "scope", "checkpoint", "verification_summary",
+        "control_action", "control_task_id",
     ):
         assert k in payload
