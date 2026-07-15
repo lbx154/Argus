@@ -579,6 +579,20 @@ def manager_message(
         # 2) TEAM/complex — let Manager own lifetime before enqueue. Chat and
         # simple one-turn work already returned above, so ambiguity defaults to
         # STANDING; only an explicit Manager BOUNDED verdict remains one-shot.
+        #
+        # If the project lifecycle is ``done``, auto-resume it so the new
+        # work can actually be picked up by the daemon.  Quarantined/archived
+        # projects require an explicit operator action — let the error
+        # surface cleanly.
+        try:
+            from ..manager.dispatch import resume_done_lifecycle_for_team_dispatch
+
+            resume_done_lifecycle_for_team_dispatch(mem)
+        except RuntimeError:
+            raise  # quarantined / archived — propagate into error_reply
+        except Exception:  # noqa: BLE001 — lifecycle resume is best-effort
+            pass
+
         try:
             if not chat_state.get("config", {}).get("continuous", False):
                 _phase("Manager · deciding task lifetime")

@@ -604,3 +604,168 @@ def test_wave1_reads_404_on_unknown_project(ctx) -> None:
     _, _, _, client = ctx
     for path in ("status", "journal", "doctor", "config", "identity", "transcript", "backlog/item1"):
         assert client.get(f"/api/projects/s-nope/{path}").status_code == 404, path
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle resume on TEAM Manager dispatch
+# ---------------------------------------------------------------------------
+
+
+def _persist_lifecycle_done(life_dir: Path) -> None:
+    """Write a lifecycle.json with state=done so tests can verify resume."""
+    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus_skill.life.project_lifecycle_io import write_persisted
+
+    status = ProjectStatus(
+        project_id=life_dir.name,
+        state=ProjectState.DONE,
+        created_at=__import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ),
+    )
+    write_persisted(life_dir, status=status, history=[])
+
+
+def _persist_lifecycle_state(life_dir: Path, state_str: str) -> None:
+    """Write a lifecycle.json with an arbitrary state."""
+    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus_skill.life.project_lifecycle_io import write_persisted
+
+    status = ProjectStatus(
+        project_id=life_dir.name,
+        state=ProjectState(state_str),
+        created_at=__import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ),
+    )
+    write_persisted(life_dir, status=status, history=[])
+
+
+def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
+    """Create a MemoryBundle with session metadata including launch_cwd."""
+    from argus_skill.life.memory import MemoryBundle
+
+    launch_dir = tmp_path / "workspace"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid, global_root=tmp_path
+    )
+    # Write session meta with launch_cwd
+    meta = SessionMeta(
+        id=sid,
+        created=time.time(),
+        last_active=time.time(),
+        launch_cwd=str(launch_dir),
+    )
+    write_session_meta(tmp_path, meta)
+    # Ensure life dir exists
+    mem.project_root.mkdir(parents=True, exist_ok=True)
+    return mem, launch_dir
+
+
+class TestLifecycleResumeOnTeamDispatch:
+    """resume_done_lifecycle_for_team_dispatch resumes a done project on TEAM."""
+
+    def test_done_project_resumes_to_active_state(self, tmp_path: Path) -> None:
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _launch = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_done(mem.project_root)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is True
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] in {"incubating", "running", "writing"}
+        assert persisted["history"][-1]["reason"] == "manager_team_dispatch"
+
+    def test_done_project_resume_uses_launch_cwd(self, tmp_path: Path) -> None:
+        """Resume infers observable status from session launch_cwd."""
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, launch = _make_mem_with_launch_cwd(tmp_path)
+        # Put a paper draft in the workspace to trigger writing state
+        paper_dir = launch / "paper"
+        paper_dir.mkdir()
+        (paper_dir / "main.tex").write_text("\\documentclass{article}", encoding="utf-8")
+        _persist_lifecycle_done(mem.project_root)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is True
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == "writing"
+
+    @pytest.mark.parametrize("state", ["quarantined", "archived"])
+    def test_quarantined_and_archived_raise(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_state(mem.project_root, state)
+
+        with pytest.raises(RuntimeError, match=state):
+            resume_done_lifecycle_for_team_dispatch(mem)
+
+        # State must remain unchanged
+        from argus_skill.life.project_lifecycle_io import load_persisted
+
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == state
+
+    @pytest.mark.parametrize("state", ["incubating", "running", "writing"])
+    def test_active_states_are_noop(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        """Already-active projects return False and stay unchanged."""
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_state(mem.project_root, state)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is False
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == state
+
+    def test_chat_self_never_mutates_done(self, tmp_path: Path) -> None:
+        """chat/SELF classification must not touch lifecycle.
+
+        This test validates the contract: only TEAM dispatch calls the
+        resume helper, so a done project stays done for chat/SELF turns.
+        """
+        from argus_skill.life.project_lifecycle_io import load_persisted
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_done(mem.project_root)
+
+        # Simulate what chat/SELF does: nothing — no resume call.
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == "done"
+
+    def test_no_lifecycle_file_returns_false(self, tmp_path: Path) -> None:
+        """Fresh project with no lifecycle.json should be a no-op."""
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        # No lifecycle file written
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is False

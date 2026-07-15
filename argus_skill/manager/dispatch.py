@@ -2,12 +2,59 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG, add_backlog_item
 from . import front_door
 
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
+
+
+def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
+    """Resume a completed project lifecycle when new TEAM work arrives.
+
+    Returns True if the lifecycle was actually resumed (state was ``done``).
+    Returns False for already-active states or missing lifecycle data.
+    Raises RuntimeError for quarantined/archived (explicit resume required).
+    """
+    from ..core.session import read_session_meta
+    from ..life.project_lifecycle import (
+        infer_observable_status,
+        resume as lifecycle_resume,
+    )
+    from ..life.project_lifecycle_io import (
+        append_event,
+        apply_persisted_to_status,
+        load_persisted,
+    )
+
+    life_dir = Path(front_door._life_dir_for(mem))
+    persisted = load_persisted(life_dir)
+    state = str(persisted.get("state") or "")
+    if not state:
+        return False
+    if state != "done":
+        if state in {"quarantined", "archived"}:
+            raise RuntimeError(
+                f"project lifecycle is {state}; explicit resume is required"
+            )
+        return False
+    root = life_dir.parent.parent
+    meta = read_session_meta(root, life_dir.name)
+    observable_root = (
+        Path(meta.launch_cwd)
+        if meta is not None and meta.launch_cwd and Path(meta.launch_cwd).exists()
+        else life_dir
+    )
+    status = infer_observable_status(observable_root, project_id=life_dir.name)
+    status = apply_persisted_to_status(status, persisted)
+    new_status, event = lifecycle_resume(
+        status,
+        reason="manager_team_dispatch",
+    )
+    append_event(life_dir, new_status=new_status, event=event)
+    return True
 
 
 def _daemon_status(life_dir: Any) -> tuple[bool, int | None]:
@@ -157,4 +204,5 @@ __all__ = [
     "DEFAULT_MANAGER_CONFIG",
     "enqueue_mission",
     "maybe_promote_to_continuous",
+    "resume_done_lifecycle_for_team_dispatch",
 ]
