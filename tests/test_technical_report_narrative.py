@@ -217,3 +217,52 @@ def test_appendix_defines_all_formal_symbols() -> None:
         r"\epsilon",
     ):
         assert symbol in source
+
+
+def _prose_word_count(text: str) -> int:
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = "\n".join(line for line in text.splitlines() if not line.startswith("|"))
+    return len(re.findall(r"\b[\w×·#.–]+\b", text))
+
+
+def test_english_readme_uses_expanding_frontier_spine() -> None:
+    readme = _read("README.md")
+
+    assert "Every run expands the frontier." in readme
+    assert "Dense Intelligence" in readme
+    assert "Runtime Evolution" in readme
+    assert "master_spine.png" in readme
+    assert "Technical Report 0.3" in readme
+    assert 1200 <= _prose_word_count(readme) <= 1600
+
+
+def test_readmes_preserve_public_proof_points() -> None:
+    english = _read("README.md")
+    chinese = _read("README.zh-CN.md")
+    for value in (
+        "Global #6",
+        "0.9636",
+        "0.9855",
+        "79.77",
+        "63/82",
+        "76.8%",
+        "28.0",
+        "41",
+    ):
+        assert value in english
+        assert value in chinese
+    assert "35 manuscripts" in english
+    assert "6 drafts" in english
+    assert "35 篇 manuscript" in chinese
+    assert "6 篇 draft" in chinese
+
+
+def test_readmes_bound_runtime_evolution_claim() -> None:
+    english = _read("README.md")
+    chinese = _read("README.zh-CN.md")
+
+    assert "does not require online parameter training" in english
+    assert "does not guarantee that every run adds capability" in english
+    assert "不依赖在线参数训练" in chinese
+    assert "不保证每次 run 都增加能力" in chinese
