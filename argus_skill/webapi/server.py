@@ -363,6 +363,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
     gpt-5.5 while the cockpit reported a configured Sonnet model."""
     from ..core.knobs import (
         resolve_budget_caps,
+        resolve_role_backend,
         resolve_role_model,
         resolve_role_reasoning_effort,
     )
@@ -376,7 +377,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         # `/`, so relying on process cwd makes vertical and stage resolution
         # diverge from the Manager front-door.  Pin execution to the session.
         project_workdir=life_dir,
-        backend=os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
+        backend=resolve_role_backend(""),
         engineer_model=resolve_role_model(
             "engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL",
         ),

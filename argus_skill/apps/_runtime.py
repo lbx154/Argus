@@ -347,19 +347,21 @@ class _SkillLoopRunner(SelfReplyMixin):
         # an override only when you want, e.g., the reviewer on a different
         # provider than the engineer.
         def _role_backend(role: str):
-            be_env = os.environ.get(f"ARGUS_SKILL_{role.upper()}_BACKEND", "").strip()
+            role_backend_name = _resolve_role_runner_backend_name(
+                role, backend_name,
+            )
             bin_env = os.environ.get(
                 f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", ""
             ).strip()
-            if not be_env and not bin_env:
-                return self._backend
             from ..agent_cli.runner_backend import (
                 default_runner_bin,
                 normalize_runner_backend,
             )
 
-            chosen = normalize_runner_backend(be_env or backend_name)
+            chosen = normalize_runner_backend(role_backend_name)
             same_type = normalize_runner_backend(backend_name) == chosen
+            if same_type and not bin_env:
+                return self._backend
             role_bin = bin_env or (
                 runner_bin if same_type else default_runner_bin(chosen)
             )
@@ -1189,6 +1191,32 @@ def _resolve_runner_backend_name(
     if resolved in ("codex", "claude", "copilot"):
         return resolved
     return None
+
+
+def _resolve_role_runner_backend_name(
+    role: str,
+    default_backend: str | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve one role override while preserving the caller's shared default."""
+    from ..core.knobs import resolve_knob
+
+    env_map = env if env is not None else os.environ
+    role_var = f"ARGUS_SKILL_{role.upper()}_BACKEND"
+    for name in (
+        role_var,
+        "ARGUS_SKILL_RUNNER_BACKEND",
+        "ARGUS_SKILL_LIFE_BACKEND",
+    ):
+        explicit = str(env_map.get(name, "") or "").strip()
+        if explicit:
+            return explicit
+    return resolve_knob(
+        role_var,
+        str(default_backend or "codex"),
+        env={},
+    ).value
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):

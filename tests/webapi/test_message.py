@@ -894,3 +894,19 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.reviewer_reasoning_effort == "xhigh"
     assert cfg.planner_task_iteration_max_cycles == 9
     assert cfg.planner_task_iteration_budget_usd == 1234.0
+
+
+def test_web_daemon_config_honors_persisted_runner_backend(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs",
+        lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
+    )
+
+    cfg = server._worker_config_from_env(tmp_path / "life", tmp_path)
+
+    assert cfg.backend == "copilot"

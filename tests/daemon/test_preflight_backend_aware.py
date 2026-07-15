@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from argus_skill.daemon import life_worker
 from argus_skill.daemon.life_worker import (
     _preflight_route_on_codex,
     required_codex_routes,
@@ -89,3 +90,11 @@ def test_text_route_follows_runner_default(monkeypatch) -> None:
     assert _preflight_route_on_codex("text") is True
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     assert _preflight_route_on_codex("text") is False
+
+
+def test_copilot_worker_still_preflights_codex_role(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
+
+    assert life_worker._worker_vault_preflight_routes("copilot") == ["engineer"]
+    assert life_worker._worker_vault_preflight_routes("memory") == []

@@ -413,6 +413,13 @@ def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     return [r for r in routes if _preflight_route_on_codex(r)]
 
 
+def _worker_vault_preflight_routes(worker_backend: str) -> list[str]:
+    """Return Codex routes to probe for this worker; memory never uses providers."""
+    if str(worker_backend or "").strip().lower() == "memory":
+        return []
+    return required_codex_routes()
+
+
 def _apply_continuous_suppression(
     state: dict,
     enabled: bool,
@@ -1163,11 +1170,10 @@ class LifeWorker:
         # memory backend (tests) skips. Override: ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
         # 只探测真正跑在 codex/Azure 后端的路由；固定到 copilot/claude 的角色用自己的
         # CLI 认证，不走 model_api vault，故全 copilot 运行无需 Azure 路由、直接跳过。
-        if (
-            cfg.backend == "codex"
-            and os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() not in ("1", "true", "yes")
-        ):
-            codex_routes = required_codex_routes()
+        if os.environ.get(
+            "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", ""
+        ).strip() not in ("1", "true", "yes"):
+            codex_routes = _worker_vault_preflight_routes(cfg.backend)
             if not codex_routes:
                 log.info(
                     "vault preflight skipped: no required route runs on the codex "
