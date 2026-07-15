@@ -323,6 +323,39 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert "confidence" not in decision
 
 
+def test_replayed_scope_completion_cannot_advance_math_stage_twice(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    runner = _runner_with(_StubRunner({
+        "action": "advance",
+        "target_stage": "solve",
+        "reason": "scope complete",
+    }))
+    sink = _Sink()
+    reviewed_round = [_Round(_review())]
+
+    first = runner._decide_stage_transition(
+        rounds_list=reviewed_round,
+        workdir=tmp_path,
+        sink=sink,
+    )
+    replay = runner._decide_stage_transition(
+        rounds_list=reviewed_round,
+        workdir=tmp_path,
+        sink=sink,
+    )
+
+    assert first["action"] == "advance"
+    assert replay["action"] == "hold"
+    assert _stage(tmp_path) == "solve"
+    assert sum(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "advance"
+        for event in sink.events
+    ) == 1
+
+
 def test_bounded_item_stays_pending_after_intermediate_stage_advance(
     tmp_path: Path,
 ) -> None:
