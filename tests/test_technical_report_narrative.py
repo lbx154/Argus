@@ -49,7 +49,7 @@ def test_act_one_sections_and_master_spine_are_wired() -> None:
     assert r"\input{sections/03_episodic_agents}" in main
     thesis = _read("technical_report/sections/01_executive_thesis.tex")
     assert r"\includegraphics" in thesis
-    assert "master_spine.pdf" in thesis
+    assert "master_spine.png" in thesis
     assert "Every run expands the frontier." in thesis
 
 
@@ -355,24 +355,25 @@ def test_manager_front_door_emits_six_axes() -> None:
         assert axis in source, f"missing front-door axis: {axis!r}"
 
 
-def test_appendix_figure_provenance_counts_six_deterministic() -> None:
-    # REPORT_FIGURES.json holds SIX deterministic figures; the provenance
-    # paragraph must name all six, including master_spine and dense_intelligence.
+def test_appendix_figure_provenance_counts_six_structural_two_data() -> None:
+    # Final hybrid contract: SIX structural figures are image-2 outputs and
+    # TWO deterministic data figures are matplotlib-drawn. The appendix
+    # provenance paragraph must state the split and point at both manifests;
+    # the six structural figures are authoritatively enumerated in
+    # IMAGE2_FIGURES.json (verified by the AI-figure manifest tests).
     source = _read("technical_report/sections/90_appendix.tex")
     norm = re.sub(r"\s+", " ", source)
 
-    assert "six deterministic figures" in norm
-    assert "four deterministic figures" not in norm
+    assert "six structural figures" in norm
+    assert "gpt-image-2" in norm
+    assert "two deterministic data figures" in norm
+    assert "six deterministic figures" not in norm
 
-    for fig in (
-        r"\code{master\_spine}",
-        r"\code{dense\_intelligence}",
-        r"\code{system\_planes}",
-        r"\code{mission\_lifecycle}",
-        r"\code{public\_results}",
-        r"\code{paper\_portfolio}",
-    ):
-        assert fig in source, f"missing deterministic figure: {fig!r}"
+    for fig in (r"\code{public\_results}", r"\code{paper\_portfolio}"):
+        assert fig in source, f"missing data figure: {fig!r}"
+
+    assert r"IMAGE2\_FIGURES.json" in source
+    assert r"REPORT\_FIGURES.json" in source
 
 
 def test_readmes_scope_ownership_separation_honestly() -> None:

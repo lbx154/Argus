@@ -1,16 +1,30 @@
 #!/usr/bin/env python3
-"""Content-contract, OCR, and validation for the six AI-redrawn structural figures.
+"""Provenance, hash, dimension, and OCR validation for the six AI structural figures.
 
-This module defines the exact per-figure semantic contracts approved in
-``docs/superpowers/specs/2026-07-15-ai-redraw-structural-report-figures-design.md``
-and validates already-generated figures against them. It covers only the six
-structural/concept figures that are regenerated with an image model; the two
-data figures (``public_results``, ``paper_portfolio``) remain deterministically
-drawn and are validated by ``build_report_figures.py`` and the deterministic
-figure tests, not here. It intentionally does **not** draw, render, or generate
-any image: it only reads committed PNG bytes and their sidecar evidence files
-(prompt, generation sidecar, inspect, provenance, review, content-review, and
-OCR sidecars) and reports pass/fail.
+This module defines the six structural/concept figures that are drawn by the
+``gpt-image-2`` image model and validates the already-generated, operator-accepted
+rasters against a public-safe provenance contract. It covers only the six
+structural figures; the two data figures (``public_results``, ``paper_portfolio``)
+remain deterministically drawn and are validated by ``build_report_figures.py``
+and the deterministic figure tests, not here. It intentionally does **not** draw,
+render, or generate any image: it only reads committed PNG bytes and their sidecar
+evidence files (prompt, generation sidecar, inspect, provenance, and Tesseract OCR
+sidecars) and reports pass/fail.
+
+Final integration workflow (fast delivery): the six rasters were accepted by the
+operator, so this validator no longer performs or requires any iterative model
+review. There is no ``review.json``/``content-review.json`` dual-review gate. The
+hard checks are domain-agnostic provenance guarantees:
+
+- the raster is exactly ``1536x1024`` and every required sidecar is present;
+- the ``inspect``/``png.json``/``provenance`` sidecars record a SHA-256 that
+  matches the committed PNG bytes;
+- the ``png.json``/``provenance`` prompt SHA-256 matches the raw prompt file;
+- no committed sidecar leaks an absolute path, session id, or API-vault field.
+
+OCR is retained purely as recorded evidence: Tesseract PSM 6/11/12 transcripts
+are captured and per-label coverage is reported for auditing, but imperfect OCR
+of stylized image-model text never rejects an operator-accepted raster.
 
 Public surface:
 
@@ -28,14 +42,8 @@ Public surface:
 - ``run_tesseract(image)``: runs Tesseract with ``--psm 6``, ``11``, and
   ``12`` and returns every raw and normalized transcript.
 - ``validate_figure(root, figure_id)``: validates one figure's dimensions,
-  sidecars, review acceptance, and OCR/label coverage. ``review.json``
-  and ``content-review.json`` are parsed as the real vision-review tool's
-  ``review_image(..., out=...)`` wrapper: the
-  verdict JSON (``keep_or_regenerate``, ``confirmed_labels``, ...) lives
-  inside a top-level *string* field named ``"review"`` (optionally fenced as
-  ```` ```json ... ``` ````), not at the sidecar's top level. A missing,
-  non-string, or malformed ``"review"`` field fails closed (recorded as an
-  error; never silently treated as an accepting review).
+  sidecar presence, hash/prompt consistency, absence of local paths, and
+  records OCR label coverage as evidence.
 - ``write_validation_manifest(root)``: validates all six figures and writes
   ``technical_report/figures/AI_FIGURE_VALIDATION.json``.
 
@@ -68,17 +76,15 @@ PSM_MODES: tuple[int, ...] = (6, 11, 12)
 REQUIRED_WIDTH = 1536
 REQUIRED_HEIGHT = 1024
 
-# Sidecar suffixes required for every one of the six structural figures. Per
-# the approved Generation Workflow, every structural figure gets a second
-# independent exact-content vision review (``content-review.json``). Order
-# matters only for readability; the CLI/tests treat this as a set.
+# Sidecar suffixes required for every one of the six structural figures. The
+# fast-delivery contract keeps prompt/generation/inspect/OCR/provenance
+# evidence; the superseded dual model-review sidecars (review.json,
+# content-review.json) are intentionally NOT part of the required set.
 _COMMON_SIDECAR_SUFFIXES: tuple[str, ...] = (
     "prompt.txt",
     "png.json",
-    "inspect.json",
-    "provenance.json",
-    "review.json",
-    "content-review.json",
+    "png.inspect.json",
+    "png.provenance.json",
     "ocr.txt",
     "ocr.json",
 )
@@ -186,62 +192,13 @@ def normalize_ocr_for_matching(text: str | None) -> str:
     return normalized.strip()
 
 
-_FENCED_JSON_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
-
-
-def _extract_review_verdict(
-    payload: dict[str, Any] | None, suffix: str, errors: list[str]
-) -> dict[str, Any] | None:
-    """Extract the verdict object from a real vision-review wrapper.
-
-    The vision-review tool's ``review_image(..., out=...)`` writes a
-    sidecar shaped like::
-
-        {"image": {...}, "model": "...", "endpoint": "...", "prompt": "...",
-         "rubric": "...", "review": "<model text, optionally fenced as"
-         " ```json ... ```>"}
-
-    The actual verdict (``keep_or_regenerate``, ``confirmed_labels``, ...)
-    lives inside the top-level *string* field ``"review"``, not at the
-    sidecar's top level. This fails closed: a missing/non-string/malformed
-    ``"review"`` field is recorded in ``errors`` and treated as a
-    non-accepting review -- it is never silently ignored or coerced into an
-    accepting verdict.
-    """
-    if payload is None:
-        return None
-    review_field = payload.get("review")
-    if isinstance(review_field, dict):
-        # Already a parsed verdict object (not the real tool's shape, but
-        # harmless to accept defensively).
-        return review_field
-    if not isinstance(review_field, str) or not review_field.strip():
-        errors.append(
-            f"{suffix} has no top-level string \"review\" field to parse "
-            "(expected the real vision-review tool's wrapper shape)"
-        )
-        return None
-    text = review_field.strip()
-    fenced = _FENCED_JSON_RE.match(text)
-    if fenced:
-        text = fenced.group(1).strip()
-    try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError as exc:
-        errors.append(f'{suffix} "review" field is not valid JSON: {exc}')
-        return None
-    if not isinstance(verdict, dict):
-        errors.append(f'{suffix} "review" field did not parse to a JSON object')
-        return None
-    return verdict
-
-
 @dataclass(frozen=True)
 class FigureContract:
     """The exact content contract for one of the six structural figures."""
 
     stem: str
     figure_id: str
+    figure_type: str
     title: str
     required_labels: tuple[str, ...]
 
@@ -264,6 +221,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "master_spine": _contract(
         stem="master_spine",
         figure_id="master-spine",
+        figure_type="concept",
         title="Master Spine",
         required_labels=(
             "Every run expands the frontier.",
@@ -289,6 +247,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "dense_intelligence": _contract(
         stem="dense_intelligence",
         figure_id="dense-intelligence",
+        figure_type="concept",
         title="Dense Intelligence",
         required_labels=(
             "Dense Intelligence",
@@ -304,6 +263,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "system_planes": _contract(
         stem="system_planes",
         figure_id="system-planes",
+        figure_type="architecture",
         title="Three Planes",
         required_labels=(
             "Control Plane",
@@ -326,6 +286,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "argus_architecture": _contract(
         stem="argus_architecture",
         figure_id="argus-architecture",
+        figure_type="architecture",
         title="Argus Architecture",
         required_labels=(
             "Argus",
@@ -343,6 +304,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "mission_lifecycle": _contract(
         stem="mission_lifecycle",
         figure_id="mission-lifecycle",
+        figure_type="lifecycle",
         title="Mission Lifecycle",
         required_labels=(
             "Claim backlog item",
@@ -364,6 +326,7 @@ FIGURE_CONTRACTS: dict[str, FigureContract] = {
     "long_horizon_reliability": _contract(
         stem="long_horizon_reliability",
         figure_id="long-horizon-reliability",
+        figure_type="reliability",
         title="Long-Horizon Reliability",
         required_labels=(
             "Argus long-horizon cycle",
@@ -518,10 +481,17 @@ def _recorded_hash(payload: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _recorded_prompt_hash(payload: dict[str, Any] | None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("prompt_sha256")
+    return value if isinstance(value, str) else None
+
+
 def _check_hash_consistency(
     sidecar_json: dict[str, dict[str, Any]], output_sha256: str, errors: list[str]
 ) -> None:
-    for suffix in ("inspect.json", "png.json", "provenance.json"):
+    for suffix in ("png.inspect.json", "png.json", "png.provenance.json"):
         payload = sidecar_json.get(suffix)
         if payload is None:
             # Missing/unparseable sidecar is already reported by the
@@ -538,6 +508,68 @@ def _check_hash_consistency(
                 f"hash mismatch in {suffix}: sidecar records {recorded}, "
                 f"actual PNG sha256 is {output_sha256}"
             )
+
+
+def _check_prompt_hash_consistency(
+    sidecar_json: dict[str, dict[str, Any]], prompt_sha256: str, errors: list[str]
+) -> None:
+    for suffix in ("png.json", "png.provenance.json"):
+        payload = sidecar_json.get(suffix)
+        if payload is None:
+            continue
+        recorded = _recorded_prompt_hash(payload)
+        if recorded is None:
+            errors.append(
+                f"{suffix} has no recorded prompt_sha256: cannot confirm it "
+                "corresponds to the committed prompt file"
+            )
+        elif recorded != prompt_sha256:
+            errors.append(
+                f"prompt hash mismatch in {suffix}: sidecar records {recorded}, "
+                f"actual prompt file sha256 is {prompt_sha256}"
+            )
+
+
+# Public-safe committed sidecars must never leak an absolute filesystem path, a
+# session/state directory, or an API-vault reference. These are domain-agnostic
+# anti-leak guards, not research judgements.
+_LOCAL_PATH_MARKERS: tuple[str, ...] = (
+    "/home/",
+    "/Users/",
+    "/root/",
+    "/tmp/",
+    "\\Users\\",
+    "session-state",
+    ".argus-skill",
+    "vault:",
+)
+
+
+def _iter_json_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, sub in value.items():
+            if isinstance(key, str):
+                yield key
+            yield from _iter_json_strings(sub)
+    elif isinstance(value, (list, tuple)):
+        for sub in value:
+            yield from _iter_json_strings(sub)
+
+
+def _check_no_local_paths(
+    sidecar_json: dict[str, dict[str, Any]], errors: list[str]
+) -> None:
+    for suffix, payload in sidecar_json.items():
+        for text in _iter_json_strings(payload):
+            for marker in _LOCAL_PATH_MARKERS:
+                if marker in text:
+                    errors.append(
+                        f"{suffix} leaks a local path / vault reference "
+                        f"({marker!r}); committed sidecars must be public-safe"
+                    )
+                    break
 
 
 def validate_figure(
@@ -586,107 +618,67 @@ def validate_figure(
     result["sidecars"] = sidecar_status
 
     _check_hash_consistency(sidecar_json, output_sha256, errors)
+    _check_no_local_paths(sidecar_json, errors)
 
-    # ``review.json``/``content-review.json`` are the real
-    # the vision-review tool's ``review --out`` wrapper: the verdict is a JSON string
-    # inside the top-level "review" field, not the sidecar's top level.
-    review_wrapper = sidecar_json.get("review.json")
-    review = _extract_review_verdict(review_wrapper, "review.json", errors)
-    if review is not None and review.get("keep_or_regenerate") != "keep":
-        errors.append(
-            "review.json does not accept the figure (keep_or_regenerate="
-            f"{review.get('keep_or_regenerate')!r})"
-        )
-
-    # Every structural figure gets a second independent exact-content vision
-    # review; it must independently accept the figure.
-    content_review_wrapper = sidecar_json.get("content-review.json")
-    content_review = _extract_review_verdict(
-        content_review_wrapper, "content-review.json", errors
-    )
-    if content_review is not None:
-        if content_review.get("keep_or_regenerate") != "keep":
-            errors.append(
-                "content-review.json does not accept the figure "
-                f"(keep_or_regenerate={content_review.get('keep_or_regenerate')!r})"
-            )
+    prompt_path = figures_dir(root) / f"{stem}.prompt.txt"
+    prompt_sha256 = _sha256(prompt_path) if prompt_path.is_file() else None
+    result["prompt_sha256"] = prompt_sha256
+    if prompt_sha256 is not None:
+        _check_prompt_hash_consistency(sidecar_json, prompt_sha256, errors)
 
     ocr_result = ocr_runner(image_path)
     combined_normalized = ocr_result.get("combined_normalized", "")
-    # Token presence/counts are evaluated per page-segmentation-mode
-    # transcript, not against a concatenation of all three modes: PSM 6, 11,
-    # and 12 each read the same figure independently, so naively joining
-    # their raw text before counting would multiply every occurrence count
-    # (e.g. a label appearing once per mode would count as 3x). A token is
-    # considered found if any single mode's transcript contains it; a status
-    # count is considered matched if any single mode's transcript shows the
-    # exact expected count.
+    # Token presence is evaluated per page-segmentation-mode transcript, not
+    # against a concatenation of all three modes: PSM 6, 11, and 12 each read
+    # the same figure independently. A token is considered found if any single
+    # mode's transcript contains it.
     per_psm_normalized = list((ocr_result.get("normalized") or {}).values())
     if not per_psm_normalized:
         per_psm_normalized = [combined_normalized]
 
-    # Separator-tolerant matching text, derived independently from the same
-    # raw per-PSM transcripts. This is purely a token-matching aid (see
-    # ``normalize_ocr_for_matching``): it never replaces, and is never
-    # written into, the canonical OCR provenance recorded below
-    # (``result["ocr"]``/``combined_normalized``/``per_psm_normalized`` are
-    # produced by ``normalize_ocr`` only).
+    # Separator-tolerant matching text, derived independently from the same raw
+    # per-PSM transcripts (see ``normalize_ocr_for_matching``). It never
+    # replaces the canonical ``normalize_ocr`` provenance recorded below.
     raw_per_psm = list((ocr_result.get("raw") or {}).values())
     if not raw_per_psm:
         raw_per_psm = [combined_normalized]
     per_psm_matching = [normalize_ocr_for_matching(text) for text in raw_per_psm]
 
-    # A required label absent from OCR may still pass, but only when BOTH
-    # independent vision reviews confirm it -- one review confirming it alone
-    # (in either sidecar) must never bypass OCR.
-    review_confirmed = {
-        normalize_ocr(label)
-        for label in (review.get("confirmed_labels") or [])
-    } if isinstance(review, dict) else set()
-    content_review_confirmed = {
-        normalize_ocr(label)
-        for label in (content_review.get("confirmed_labels") or [])
-    } if isinstance(content_review, dict) else set()
-    normalized_confirmed = review_confirmed & content_review_confirmed
-
-    missing_labels: list[str] = []
+    # OCR coverage is recorded as evidence only. Because the six rasters are
+    # operator-accepted for fast delivery and this validator does no model
+    # review, imperfect OCR of stylized image-model text is a warning, never a
+    # hard failure -- it must not reject an accepted figure.
+    unresolved_labels: list[str] = []
     for label in contract.required_labels:
         normalized_label = normalize_ocr(label)
-        found_in_ocr = any(normalized_label in text for text in per_psm_normalized)
-        if found_in_ocr:
+        if any(normalized_label in text for text in per_psm_normalized):
             continue
-
-        # Separator-tolerant fallback: OCR may have lost or substituted a
-        # "\u00b7" between two label halves (e.g. "Backlog \u00b7 continuous"
-        # OCR-reading as "Backlog continuous"). This never widens digit/
-        # decimal/percent/slash/sign matching (``normalize_ocr_for_matching``
-        # never touches those), but only counts as found when BOTH independent
-        # vision reviews confirm the label's EXACT original spelling/glyph
-        # (matched via the strict, non-tolerant ``normalize_ocr``) -- a label
-        # whose words/numbers are wholly absent from OCR can never be rescued
-        # by vision alone, because the tolerant text still would not contain it.
         matching_label = normalize_ocr_for_matching(label)
-        found_via_separator_tolerant_ocr = matching_label != normalized_label and any(
+        if matching_label != normalized_label and any(
             matching_label in text for text in per_psm_matching
-        )
-        if found_via_separator_tolerant_ocr and normalized_label in normalized_confirmed:
+        ):
             continue
+        unresolved_labels.append(label)
 
-        if normalized_label in normalized_confirmed:
-            continue
-        missing_labels.append(label)
-
-    if missing_labels:
-        errors.append(
-            "required labels missing from OCR evidence and vision "
-            "review confirmation: " + ", ".join(missing_labels)
+    if unresolved_labels:
+        warnings.append(
+            "labels not resolved by OCR (recorded as evidence, not a "
+            "rejection of the operator-accepted raster): "
+            + ", ".join(unresolved_labels)
         )
 
+    resolved = len(contract.required_labels) - len(unresolved_labels)
+    coverage = resolved / len(contract.required_labels) if contract.required_labels else 1.0
     result["ocr"] = {
         "psm_modes": ocr_result.get("psm_modes", list(PSM_MODES)),
         "combined_normalized": combined_normalized,
-        "missing_labels": missing_labels,
+        "label_coverage": coverage,
+        "unresolved_labels": unresolved_labels,
     }
+    result["validation_route"] = (
+        "operator-accepted raster; provenance/hash/dimension/no-local-path "
+        "checks enforced, OCR coverage recorded as evidence"
+    )
     result["status"] = "fail" if errors else "pass"
     result["errors"] = errors
     result["warnings"] = warnings

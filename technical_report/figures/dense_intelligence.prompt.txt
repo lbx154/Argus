@@ -77,9 +77,11 @@ renumber, reorder, or duplicate any label:
 
 Required relationships / layout (honour every one):
 - Draw two stacked registers: "Episodic research" on top and "Argus Life"
-  below, sharing one left-to-right time axis of unlabelled episodes.
-- "Episodic research" shows separate work episodes with visible GAPS between
-  them and a small context-recovery step bridging each gap.
+  below. Use purely visual blue line segments and blank space for time; do not
+  draw or label individual episodes.
+- "Episodic research" shows separate blue work segments with visible EMPTY
+  GAPS. Put no words, letters, numbers, icons, captions, or annotations inside
+  or beside those gaps.
 - "Argus Life" shows the four elements "decision", "execution", "verification",
   "state retention" staying COUPLED as one continuous band across the whole
   timeline (no gaps).
@@ -96,7 +98,8 @@ Figure-specific negative prompt (reject the raster if any appears):
   conceptual model only
 
 Semantic contract (the finished plate must read as):
-Human research proceeds in episodes with context lost between sessions; Argus
-keeps decision, execution, verification, and state retention coupled and dense
-across the whole horizon. The figure asserts continuity, not superiority: it is a
-conceptual model and explicitly not a reported benchmark.
+Episodic research appears as separated work segments and unlabeled gaps; Argus
+Life keeps decision, execution, verification, and state retention coupled across
+the whole horizon. The figure asserts continuity, not superiority: it is a
+conceptual model and explicitly not a reported benchmark. The eight pinned labels
+are the ONLY visible text anywhere in the image.

@@ -1,0 +1,22 @@
+{
+  "figure_id": "master-spine",
+  "figure_studio_source": "paper-framework-figure-studio-pro-v3.1.4a",
+  "figure_studio_stage": "S5-CANDIDATE-IMAGE",
+  "figure_type": "concept",
+  "generator": "codex-image2",
+  "generator_model": "gpt-image-2",
+  "height": 1024,
+  "inspect_path": "technical_report/figures/master_spine.png.inspect.json",
+  "model": "gpt-image-2",
+  "ocr_path": "technical_report/figures/master_spine.ocr.json",
+  "output_path": "technical_report/figures/master_spine.png",
+  "output_sha256": "944c65d7b8c8c7fa0881067cf21a9e41a7e360480f7fc0687c291241eaec33c4",
+  "prompt_path": "technical_report/figures/master_spine.prompt.txt",
+  "prompt_sha256": "99e0f487c6dac696e337e0e868ec82cf4c9706d01d236a1a32f44e80a4752979",
+  "prompt_template_id": "argus-image2-paper-prompt-v1",
+  "requested_size": "1536x1024",
+  "sidecar_path": "technical_report/figures/master_spine.png.json",
+  "tool": "argus_skill.tools.image_tool",
+  "validation_route": "operator-accepted raster; provenance/hash/dimension/no-local-path checks via technical_report/figures/validate_ai_figures.py; Tesseract OCR coverage recorded as evidence",
+  "width": 1536
+}

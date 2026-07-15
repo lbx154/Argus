@@ -1,0 +1,31 @@
+{
+  "coverage": 0.8666666666666667,
+  "expected_tokens": [
+    "Control Plane",
+    "Execution Plane",
+    "Evidence Plane",
+    "Manager",
+    "Planner",
+    "LifeSupervisor",
+    "SkillLoop",
+    "Engineer",
+    "Reviewer",
+    "Run Gateway",
+    "Event Tape",
+    "Usage Ledger",
+    "Credential Redaction",
+    "Provenance",
+    "112 typed events"
+  ],
+  "image": "technical_report/figures/system_planes.png",
+  "normalized_observed": "cS Control Plane Planner o LifeSupervisor a a z 1 ' ' 1 ' ' ' ' &) Execution Plane O CO) Q Q \\ SkillLoop Engineer Reviewer Run Gateway A A ! ' ' ' ' ' Evidence Plane [Le [EF] a sey 112 Credential typed events Event Tape Usage Ledger Redaction Provenance water | [585 me |[Elmm |[@ mame &) Execution Plane Oo > a + Q& + Qo 112 Tr EA a a Evidence Plane Event Tape Usage Ledger Credential Provenance typed events Redaction Control Plane | cha Manager | | FE Planner o LifeSupervisor ----> ----> O &) Execution Plane SkillLoop | -----> 112 Tr EA a a Evidence Plane Event Tape Usage Ledger Credential Provenance typed events Redaction",
+  "psm_modes": [
+    6,
+    11,
+    12
+  ],
+  "unresolved": [
+    "Credential Redaction",
+    "112 typed events"
+  ]
+}

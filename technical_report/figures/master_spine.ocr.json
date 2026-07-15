@@ -1,0 +1,35 @@
+{
+  "coverage": 0.8333333333333334,
+  "expected_tokens": [
+    "Every run expands the frontier.",
+    "Unknown objective",
+    "Dense Intelligence Runtime",
+    "Evidence Gate",
+    "Runtime Evolution",
+    "Expanded OOD Frontier",
+    "Manager",
+    "Planner",
+    "Engineer",
+    "Reviewer",
+    "Memory",
+    "Skills",
+    "Tools",
+    "Verifiers",
+    "Routing",
+    "Evaluations",
+    "model parameters remain fixed",
+    "capability is not guaranteed to grow every run"
+  ],
+  "image": "technical_report/figures/master_spine.png",
+  "normalized_observed": "a \u201cfF fase 1 <b). | @ Every run expands the frontier. @ eee Dense Intelligence Runtime Runtime Evolution Ss De = Js sl loos | 4 | (Cm) = ee at 2? | aX A | Ssh\u201d \\ Evidence - mA xi\u2122 / | () Engineer ca fi am | Unknown F/ @) Werifiers Expanded objective / - : | OOD Frontier -- (ul) Evaluations (&) model parameters remain fixed capability is not guaranteed to grow every run aa L 1 1 ae BGe @- Every run expands the frontier 25 ~~ ZA Dense Intelligence Runtime Runtime Evolution Ss = ( = Z) Memory a Planner aan s Zo ata id el @) Tools ee) - Gate a ee aA | Unknown y) Engineer Xe e/ objective Expanded OOD Frontier | (Ge) Routing a a ee ee ee ee ee ee a (&) model parameters remain fixed capability is not guaranteed to grow every run =|5 BGe @- Every run expands the frontier. NS ZA Dense Intelligence Runtime Runtime Evolution = aa Ss = Memory = | Z t = ii =) Skills a ] G Planner : i ; if EX Tools vidi lence | - Gate G Verifiers Unknown y) Engineer x 7 objective Expanded Routing Reviewer A)\\@)|\u00ae = pala I Evaluations (=) Sy a a ee ee ee ee ee ee ! (&) model parameters remain fixed capability is not guaranteed to grow every run",
+  "psm_modes": [
+    6,
+    11,
+    12
+  ],
+  "unresolved": [
+    "Unknown objective",
+    "Evidence Gate",
+    "Manager"
+  ]
+}

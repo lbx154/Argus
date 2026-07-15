@@ -1,20 +1,31 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from argus_skill.core.event_catalog import EventType
-
-
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_FIGURE_BUILDER = (
-    _REPO_ROOT / "technical_report" / "figures" / "build_report_figures.py"
-)
+_FIGURES_DIR = _REPO_ROOT / "technical_report" / "figures"
+_FIGURE_BUILDER = _FIGURES_DIR / "build_report_figures.py"
+_REPORT_FIGURES_JSON = _FIGURES_DIR / "REPORT_FIGURES.json"
 _MAIN_TEX = _REPO_ROOT / "technical_report" / "main.tex"
+
+# The final hybrid contract: build_report_figures.py owns ONLY the two
+# deterministic data figures. The six structural figures are image-2 outputs
+# handled by build_ai_figure_provenance.py / validate_ai_figures.py.
+_DATA_FIGURES = ("public_results", "paper_portfolio")
+_STRUCTURAL_STEMS = (
+    "master_spine",
+    "dense_intelligence",
+    "system_planes",
+    "argus_architecture",
+    "mission_lifecycle",
+    "long_horizon_reliability",
+)
 
 
 def _load_figure_builder():
@@ -46,31 +57,93 @@ def _figure_text(monkeypatch, builder_name: str) -> str:
     return "\n".join(rendered)
 
 
-def test_system_planes_uses_live_event_type_count(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_system_planes")
+# --------------------------------------------------------------------------- #
+# Scope: only the two deterministic data figures remain in the builder.
+# --------------------------------------------------------------------------- #
+def test_builder_exposes_only_the_two_data_figure_functions() -> None:
+    builder = _load_figure_builder()
 
-    assert f"{len(EventType)} typed events" in text
+    assert hasattr(builder, "build_public_results")
+    assert hasattr(builder, "build_paper_portfolio")
+
+    # Structural drawing functions and their helpers were removed.
+    for removed in (
+        "build_master_spine",
+        "build_dense_intelligence",
+        "build_system_planes",
+        "build_mission_lifecycle",
+        "_arrow",
+        "_box",
+        "_new_axes",
+    ):
+        assert not hasattr(builder, removed), f"unexpected structural symbol: {removed}"
 
 
-def test_system_planes_describes_bounded_engineer_session(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_system_planes")
+def test_report_figures_manifest_has_exactly_the_two_data_figures() -> None:
+    manifest = json.loads(_REPORT_FIGURES_JSON.read_text(encoding="utf-8"))
 
-    assert "bounded session" in text
-    assert "fresh session" not in text
-
-
-def test_mission_lifecycle_describes_bounded_session_reuse(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_mission_lifecycle")
-
-    assert "bounded session reuse" in text
-    assert "fresh session / round" not in text
+    assert set(manifest["figures"]) == set(_DATA_FIGURES)
+    for stem in _DATA_FIGURES:
+        entry = manifest["figures"][stem]
+        assert entry["pdf"] == f"{stem}.pdf"
+        assert entry["png"] == f"{stem}.png"
+        assert len(entry["pdf_sha256"]) == 64
+        assert len(entry["png_sha256"]) == 64
 
 
+def test_report_figures_manifest_excludes_structural_stems() -> None:
+    manifest = json.loads(_REPORT_FIGURES_JSON.read_text(encoding="utf-8"))
+    for stem in _STRUCTURAL_STEMS:
+        assert stem not in manifest["figures"]
+
+
+def test_no_structural_pdf_files_remain() -> None:
+    for stem in _STRUCTURAL_STEMS:
+        assert not (_FIGURES_DIR / f"{stem}.pdf").exists(), (
+            f"structural PDF {stem}.pdf should have been removed"
+        )
+
+
+def test_latex_references_structural_png_and_data_pdf() -> None:
+    sources = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in [_MAIN_TEX, *(_REPO_ROOT / "technical_report" / "sections").glob("*.tex")]
+    )
+    # Structural figures are referenced as .png (image-2 outputs).
+    for stem in _STRUCTURAL_STEMS:
+        assert f"figures/{stem}.png" in sources, f"missing .png ref for {stem}"
+        assert f"figures/{stem}.pdf" not in sources, f"stale .pdf ref for {stem}"
+    # Data figures keep their deterministic .pdf includes.
+    for stem in _DATA_FIGURES:
+        assert f"figures/{stem}.pdf" in sources, f"missing .pdf ref for {stem}"
+
+
+# --------------------------------------------------------------------------- #
+# Deterministic-data content contracts.
+# --------------------------------------------------------------------------- #
 def test_public_results_distinguishes_corroborated_digests(monkeypatch) -> None:
     text = _figure_text(monkeypatch, "build_public_results")
 
     assert text.count("artifact digest") == 2
     assert text.count("website snapshot") == 4
+
+
+def test_public_results_reproducible_digests() -> None:
+    builder = _load_figure_builder()
+    first = builder.build_public_results()
+    second = builder.build_public_results()
+
+    assert first["png_sha256"] == second["png_sha256"]
+    assert first["pdf_sha256"] == second["pdf_sha256"]
+
+
+def test_paper_portfolio_reproducible_digests() -> None:
+    builder = _load_figure_builder()
+    first = builder.build_paper_portfolio()
+    second = builder.build_paper_portfolio()
+
+    assert first["png_sha256"] == second["png_sha256"]
+    assert first["pdf_sha256"] == second["pdf_sha256"]
 
 
 def test_callout_titles_use_contrasting_text() -> None:
@@ -102,90 +175,6 @@ def test_figure_builder_imports_from_outside_repository(tmp_path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-
-
-def test_master_spine_contains_causal_chain_and_four_roles(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_master_spine")
-
-    required = {
-        "Unknown objective",
-        "Dense Intelligence Runtime",
-        "Evidence Gate",
-        "Runtime Evolution",
-        "Expanded OOD Frontier",
-        "Manager",
-        "Planner",
-        "Engineer",
-        "Reviewer",
-        "Memory",
-        "Skills",
-        "Tools",
-        "Verifiers",
-        "Routing",
-        "Evaluations",
-    }
-    assert required <= set(text.splitlines())
-    assert "Every run expands the frontier." in text
-
-
-def test_master_spine_states_fixed_model_parameters(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_master_spine")
-
-    assert "H(t+1) = U(H(t), trajectory, evidence)" in text
-    assert "model parameters remain fixed" in text
-    assert "capability is not guaranteed to grow every run" in text
-
-
-def test_master_spine_stage_connectors_have_visible_span(monkeypatch) -> None:
-    """The five stage boxes must be joined by four visibly non-zero-length
-    left-to-right connector arrows. A prior regression computed both arrow
-    endpoints from a fixed +1/-1 inset around a gap that happened to be
-    exactly 2 units wide, so the two insets cancelled out and every
-    connector collapsed to a zero-length (invisible) arrow.
-    """
-    builder = _load_figure_builder()
-    calls: list[tuple] = []
-    original_arrow = builder._arrow
-
-    def capture_arrow(ax, x1, y1, x2, y2, **kwargs):
-        calls.append((x1, y1, x2, y2, kwargs))
-        return original_arrow(ax, x1, y1, x2, y2, **kwargs)
-
-    def noop_save(fig, _stem):
-        plt.close(fig)
-        return {}
-
-    monkeypatch.setattr(builder, "_arrow", capture_arrow)
-    monkeypatch.setattr(builder, "_save", noop_save)
-    builder.build_master_spine()
-
-    # The causal-chain stage connectors are the horizontal (y1 == y2) BLUE
-    # arrows without a curved connection style; the gold feedback arrow at
-    # the bottom of the figure uses an arc connection and GOLD color, so it
-    # is excluded by these filters.
-    connectors = [
-        (x1, y1, x2, y2)
-        for x1, y1, x2, y2, kwargs in calls
-        if y1 == y2
-        and kwargs.get("color") == builder.BLUE
-        and kwargs.get("connection", "arc3,rad=0.0") == "arc3,rad=0.0"
-    ]
-
-    assert len(connectors) == 4, (
-        f"expected exactly 4 stage connectors, found {len(connectors)}: {connectors}"
-    )
-    for x1, _y1, x2, _y2 in connectors:
-        assert x2 - x1 > 0, f"connector ({x1}, {x2}) has zero or negative horizontal span"
-
-
-def test_dense_intelligence_is_explanatory_not_a_score(monkeypatch) -> None:
-    text = _figure_text(monkeypatch, "build_dense_intelligence")
-
-    assert "decision" in text
-    assert "execution" in text
-    assert "verification" in text
-    assert "conceptual model \u00b7 not a reported benchmark" in text
-    assert "Argus > human" not in text
 
 
 def test_website_palette_is_used_by_report_figures() -> None:

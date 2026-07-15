@@ -1,0 +1,25 @@
+{
+  "coverage": 0.625,
+  "expected_tokens": [
+    "Dense Intelligence",
+    "Episodic research",
+    "Argus Life",
+    "decision",
+    "execution",
+    "verification",
+    "state retention",
+    "conceptual model \u00b7 not a reported benchmark"
+  ],
+  "image": "technical_report/figures/dense_intelligence.png",
+  "normalized_observed": "eS ee CO e Dense Intelligence eee -_-. conceptual model - not a reported benchmark ee ee Dense Intelligence - gob execution Y verification S state retention es decision > conceptual model - not a reported benchmark Dense Intelligence - gob execution Y verification S state retention es decision > conceptual model - not a reported benchmark",
+  "psm_modes": [
+    6,
+    11,
+    12
+  ],
+  "unresolved": [
+    "Episodic research",
+    "Argus Life",
+    "conceptual model \u00b7 not a reported benchmark"
+  ]
+}
