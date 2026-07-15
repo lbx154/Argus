@@ -1,0 +1,964 @@
+"""Tests for technical_report/figures/validate_ai_figures.py.
+
+These tests exercise the AI figure content-contract, OCR, and validation
+module entirely through fixtures/temp directories built in-test. They never
+depend on the current (incomplete, partially-deterministic) production
+figure set under ``technical_report/figures/`` -- that set predates the new
+eight-figure AI contract and does not yet carry the sidecars this validator
+requires.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import struct
+import subprocess
+import sys
+import zlib
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_MODULE_PATH = (
+    _REPO_ROOT / "technical_report" / "figures" / "validate_ai_figures.py"
+)
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location(
+        "validate_ai_figures", _MODULE_PATH
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+vaf = _load_module()
+
+
+# ---------------------------------------------------------------------------
+# PNG fixture helpers (no PIL dependency: hand-roll a minimal valid PNG so the
+# only thing under test is validate_ai_figures.py's own IHDR reader/hasher).
+# ---------------------------------------------------------------------------
+
+
+def _write_png(path: Path, width: int, height: int) -> None:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data))
+        )
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    # One row of raw RGB pixels (all white), prefixed by the filter-type byte.
+    raw_row = b"\x00" + (b"\xff\xff\xff" * width)
+    raw = raw_row * height
+    idat = zlib.compress(raw)
+    png_bytes = (
+        signature
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", idat)
+        + chunk(b"IEND", b"")
+    )
+    path.write_bytes(png_bytes)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Fixture project scaffolding
+# ---------------------------------------------------------------------------
+
+
+def _figures_dir(project_root: Path) -> Path:
+    figures = project_root / "technical_report" / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    return figures
+
+
+def _write_full_sidecars(
+    figures: Path,
+    stem: str,
+    *,
+    width: int = 1536,
+    height: int = 1024,
+    data_figure: bool = False,
+    review_overrides: dict[str, Any] | None = None,
+    content_review_overrides: dict[str, Any] | None = None,
+) -> str:
+    """Write a PNG plus every required sidecar for ``stem`` and return its
+    sha256 so callers can assert hash-consistency behavior."""
+    png_path = figures / f"{stem}.png"
+    _write_png(png_path, width, height)
+    sha256 = vaf._sha256(png_path)
+
+    (figures / f"{stem}.prompt.txt").write_text("prompt body", encoding="utf-8")
+
+    _write_json(
+        figures / f"{stem}.png.json",
+        {"output_sha256": sha256, "model": "gpt-image-2"},
+    )
+    _write_json(
+        figures / f"{stem}.inspect.json",
+        {"sha256": sha256, "width": width, "height": height},
+    )
+    _write_json(
+        figures / f"{stem}.provenance.json",
+        {"output_sha256": sha256, "generator": "codex-image2"},
+    )
+
+    review_payload = {
+        "score_1_to_5": 5,
+        "major_issues": [],
+        "concrete_revision_prompt": "",
+        "keep_or_regenerate": "keep",
+    }
+    if review_overrides:
+        review_payload.update(review_overrides)
+    _write_json(figures / f"{stem}.review.json", review_payload)
+
+    (figures / f"{stem}.ocr.txt").write_text("raw ocr text", encoding="utf-8")
+    _write_json(
+        figures / f"{stem}.ocr.json",
+        {"expected_tokens": [], "unresolved": [], "coverage": 1.0},
+    )
+
+    if data_figure:
+        content_review_payload = {
+            "score_1_to_5": 5,
+            "unresolved_numeric_mismatches": [],
+            "keep_or_regenerate": "keep",
+        }
+        if content_review_overrides:
+            content_review_payload.update(content_review_overrides)
+        _write_json(
+            figures / f"{stem}.content-review.json", content_review_payload
+        )
+
+    return sha256
+
+
+def _ocr_runner_returning(text: str):
+    def _runner(image_path: Path) -> dict[str, Any]:
+        normalized = vaf.normalize_ocr(text)
+        return {
+            "image": str(image_path),
+            "psm_modes": list(vaf.PSM_MODES),
+            "raw": {"psm_6": text, "psm_11": text, "psm_12": text},
+            "normalized": {
+                "psm_6": normalized,
+                "psm_11": normalized,
+                "psm_12": normalized,
+            },
+            "combined_normalized": normalized,
+        }
+
+    return _runner
+
+
+def _full_ocr_text_for(stem: str) -> str:
+    contract = vaf.FIGURE_CONTRACTS[stem]
+    return " ".join(contract.required_labels)
+
+
+# ---------------------------------------------------------------------------
+# FIGURE_CONTRACTS
+# ---------------------------------------------------------------------------
+
+
+def test_figure_contracts_has_exactly_eight_entries() -> None:
+    assert len(vaf.FIGURE_CONTRACTS) == 8
+
+
+def test_figure_contracts_has_exact_expected_stems() -> None:
+    expected_stems = {
+        "master_spine",
+        "dense_intelligence",
+        "system_planes",
+        "argus_architecture",
+        "mission_lifecycle",
+        "long_horizon_reliability",
+        "public_results",
+        "paper_portfolio",
+    }
+    assert set(vaf.FIGURE_CONTRACTS) == expected_stems
+
+
+def test_figure_contracts_has_exact_expected_kebab_figure_ids() -> None:
+    expected_ids = {
+        "master-spine",
+        "dense-intelligence",
+        "system-planes",
+        "argus-architecture",
+        "mission-lifecycle",
+        "long-horizon-reliability",
+        "public-results",
+        "paper-portfolio",
+    }
+    actual_ids = {c.figure_id for c in vaf.FIGURE_CONTRACTS.values()}
+    assert actual_ids == expected_ids
+
+
+def test_only_public_results_and_paper_portfolio_are_data_figures() -> None:
+    data_figures = {
+        stem for stem, c in vaf.FIGURE_CONTRACTS.items() if c.data_figure
+    }
+    assert data_figures == {"public_results", "paper_portfolio"}
+
+
+def test_public_results_status_counts_are_two_digest_four_snapshot() -> None:
+    contract = vaf.FIGURE_CONTRACTS["public_results"]
+    assert contract.status_counts == {"artifact digest": 2, "website snapshot": 4}
+
+
+def test_non_data_figures_have_no_status_counts() -> None:
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        if stem in {"public_results", "paper_portfolio"}:
+            continue
+        assert contract.status_counts is None
+
+
+def test_master_spine_required_labels_match_spec() -> None:
+    contract = vaf.FIGURE_CONTRACTS["master_spine"]
+    required = {
+        "Every run expands the frontier.",
+        "Unknown objective",
+        "Dense Intelligence Runtime",
+        "Evidence Gate",
+        "Runtime Evolution",
+        "Expanded OOD Frontier",
+        "Manager",
+        "Planner",
+        "Engineer",
+        "Reviewer",
+        "Memory",
+        "Skills",
+        "Tools",
+        "Verifiers",
+        "Routing",
+        "Evaluations",
+        "model parameters remain fixed",
+        "capability is not guaranteed to grow every run",
+    }
+    assert required <= set(contract.required_labels)
+
+
+def test_paper_portfolio_required_labels_include_totals() -> None:
+    contract = vaf.FIGURE_CONTRACTS["paper_portfolio"]
+    required = {
+        "Research Portfolio",
+        "41 papers",
+        "35 manuscripts",
+        "6 drafts",
+        "output inventory \u00b7 not accepted papers",
+    }
+    assert required <= set(contract.required_labels)
+
+
+def test_public_results_required_labels_include_all_six_arenas() -> None:
+    contract = vaf.FIGURE_CONTRACTS["public_results"]
+    required = {
+        "NVIDIA SOL-ExecBench",
+        "nanochat \u00b7 B200",
+        "nanochat \u00b7 H100",
+        "nanoGPT speedrun",
+        "AARRI-Bench",
+        "Arbor \u00b7 RUC NLPIR",
+        "0.9636 BPB",
+        "0.9855 BPB",
+        "79.77 s",
+        "63/82",
+        "76.8%",
+        "28.0 gap",
+    }
+    assert required <= set(contract.required_labels)
+
+
+def test_data_figure_sidecar_suffixes_include_content_review() -> None:
+    contract = vaf.FIGURE_CONTRACTS["public_results"]
+    assert "content-review.json" in contract.sidecar_suffixes
+
+
+def test_concept_figure_sidecar_suffixes_exclude_content_review() -> None:
+    contract = vaf.FIGURE_CONTRACTS["master_spine"]
+    assert "content-review.json" not in contract.sidecar_suffixes
+
+
+def test_every_contract_requires_the_core_sidecar_set() -> None:
+    core = {
+        "prompt.txt",
+        "png.json",
+        "inspect.json",
+        "provenance.json",
+        "review.json",
+        "ocr.txt",
+        "ocr.json",
+    }
+    for contract in vaf.FIGURE_CONTRACTS.values():
+        assert core <= set(contract.sidecar_suffixes)
+
+
+# ---------------------------------------------------------------------------
+# normalize_ocr
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_ocr_collapses_whitespace_runs() -> None:
+    assert vaf.normalize_ocr("Manager \n\t Planner   Engineer") == (
+        "Manager Planner Engineer"
+    )
+
+
+def test_normalize_ocr_strips_leading_and_trailing_whitespace() -> None:
+    assert vaf.normalize_ocr("  Reviewer  ") == "Reviewer"
+
+
+def test_normalize_ocr_handles_none_and_empty_string() -> None:
+    assert vaf.normalize_ocr(None) == ""
+    assert vaf.normalize_ocr("") == ""
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["\u00d7", "\u2715", "\u2716", "\u2a2f"],
+)
+def test_normalize_ocr_maps_multiplication_variants_to_ascii_x(variant: str) -> None:
+    assert vaf.normalize_ocr(f"2{variant}#1") == "2x#1"
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212"],
+)
+def test_normalize_ocr_maps_dash_variants_to_ascii_hyphen(variant: str) -> None:
+    assert vaf.normalize_ocr(f"7 top{variant}3") == "7 top-3"
+
+
+def test_normalize_ocr_never_alters_digits() -> None:
+    text = "0.9636 BPB \u00d7 79.77 s \u2013 63/82"
+    normalized = vaf.normalize_ocr(text)
+    assert "0.9636" in normalized
+    assert "79.77" in normalized
+    assert "63/82" in normalized
+
+
+def test_normalize_ocr_never_alters_decimal_points() -> None:
+    # A dash-variant character placed directly next to a decimal number must
+    # not disturb the number's own digits or its decimal point.
+    text = "28.0\u2013gap"
+    normalized = vaf.normalize_ocr(text)
+    assert "28.0" in normalized
+    assert normalized == "28.0-gap"
+
+
+def test_normalize_ocr_does_not_touch_fullwidth_unicode_digits() -> None:
+    # Fullwidth digit U+FF10 ("０") is not ascii "0" and must be left exactly
+    # as-is: normalize_ocr must never perform any digit-shape normalization.
+    fullwidth_zero = "\uff10"
+    assert fullwidth_zero in vaf.normalize_ocr(f"score {fullwidth_zero}")
+
+
+def test_normalize_ocr_is_idempotent() -> None:
+    text = "2\u00d7 #1 \u2013 7 top-3"
+    once = vaf.normalize_ocr(text)
+    twice = vaf.normalize_ocr(once)
+    assert once == twice
+
+
+# ---------------------------------------------------------------------------
+# run_tesseract
+# ---------------------------------------------------------------------------
+
+
+def test_run_tesseract_raises_for_missing_image(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        vaf.run_tesseract(tmp_path / "does_not_exist.png")
+
+
+def test_run_tesseract_invokes_psm_6_11_and_12(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "figure.png"
+    _write_png(image_path, 1536, 1024)
+
+    invoked_psms: list[str] = []
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(cmd, capture_output, text, check):
+        assert cmd[0] == vaf.TESSERACT_BIN
+        assert cmd[1] == str(image_path)
+        assert "--psm" in cmd
+        psm = cmd[cmd.index("--psm") + 1]
+        invoked_psms.append(psm)
+        return _Completed(f"text for psm {psm}")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = vaf.run_tesseract(image_path)
+
+    assert invoked_psms == ["6", "11", "12"]
+    assert set(result["raw"]) == {"psm_6", "psm_11", "psm_12"}
+    assert result["raw"]["psm_6"] == "text for psm 6"
+    assert result["normalized"]["psm_11"] == vaf.normalize_ocr("text for psm 11")
+    assert "text for psm 12" in result["combined_normalized"]
+
+
+def test_run_tesseract_retains_all_raw_psm_outputs_even_when_they_differ(
+    tmp_path, monkeypatch
+) -> None:
+    image_path = tmp_path / "figure.png"
+    _write_png(image_path, 1536, 1024)
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    outputs = {"6": "alpha", "11": "beta", "12": "gamma"}
+
+    def fake_run(cmd, capture_output, text, check):
+        psm = cmd[cmd.index("--psm") + 1]
+        return _Completed(outputs[psm])
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = vaf.run_tesseract(image_path)
+
+    assert result["raw"]["psm_6"] == "alpha"
+    assert result["raw"]["psm_11"] == "beta"
+    assert result["raw"]["psm_12"] == "gamma"
+
+
+def test_run_tesseract_raises_runtime_error_on_nonzero_exit(
+    tmp_path, monkeypatch
+) -> None:
+    image_path = tmp_path / "figure.png"
+    _write_png(image_path, 1536, 1024)
+
+    class _Completed:
+        stdout = ""
+        stderr = "tesseract exploded"
+        returncode = 1
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Completed())
+
+    with pytest.raises(RuntimeError, match="tesseract exploded"):
+        vaf.run_tesseract(image_path)
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("tesseract") is None,
+    reason="tesseract binary not available in this environment",
+)
+def test_run_tesseract_reads_real_text_via_real_binary(tmp_path) -> None:
+    from PIL import Image, ImageDraw, ImageFont
+
+    image_path = tmp_path / "real_ocr.png"
+    image = Image.new("RGB", (1536, 1024), "white")
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 96
+        )
+    except OSError:
+        font = ImageFont.load_default()
+    draw.text((100, 400), "REVIEWER", fill="black", font=font)
+    image.save(image_path)
+
+    result = vaf.run_tesseract(image_path)
+
+    assert "REVIEWER" in result["combined_normalized"].upper()
+
+
+# ---------------------------------------------------------------------------
+# validate_figure
+# ---------------------------------------------------------------------------
+
+
+def test_validate_figure_passes_when_everything_is_consistent(tmp_path: Path) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+    assert outcome["errors"] == []
+
+
+def test_validate_figure_accepts_kebab_figure_id(tmp_path: Path) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master-spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_fails_when_image_missing(tmp_path: Path) -> None:
+    _figures_dir(tmp_path)  # directory exists but no PNG written
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine")
+
+    assert outcome["status"] == "fail"
+    assert any("missing figure image" in e for e in outcome["errors"])
+
+
+def test_validate_figure_fails_on_wrong_dimensions(tmp_path: Path) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine", width=800, height=600)
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert outcome["dimensions"] == {"width": 800, "height": 600}
+    assert any("dimension mismatch" in e for e in outcome["errors"])
+
+
+def test_validate_figure_fails_when_a_sidecar_is_missing(tmp_path: Path) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    (figures / "master_spine.review.json").unlink()
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("missing sidecar" in e and "review.json" in e for e in outcome["errors"])
+
+
+def test_validate_figure_fails_when_inspect_hash_does_not_match_png(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    _write_json(
+        figures / "master_spine.inspect.json",
+        {"sha256": "0" * 64, "width": 1536, "height": 1024},
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("hash mismatch" in e for e in outcome["errors"])
+
+
+def test_validate_figure_fails_when_review_requests_regeneration(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "master_spine",
+        review_overrides={"keep_or_regenerate": "regenerate"},
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("review.json does not accept" in e for e in outcome["errors"])
+
+
+def test_validate_figure_fails_when_required_label_missing_from_ocr(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+    text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
+    ocr_runner = _ocr_runner_returning(text_without_reviewer)
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("Reviewer" in e for e in outcome["errors"])
+
+
+def test_validate_figure_concept_label_passes_via_vision_review_confirmation(
+    tmp_path: Path,
+) -> None:
+    # Concept figures may satisfy a required label either via OCR or via an
+    # explicit vision-review confirmation; OCR alone missing "Reviewer" must
+    # not fail the figure if the review confirms it.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "master_spine",
+        review_overrides={"confirmed_labels": ["Reviewer"]},
+    )
+    text_without_reviewer = _full_ocr_text_for("master_spine").replace("Reviewer", "")
+    ocr_runner = _ocr_runner_returning(text_without_reviewer)
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_data_figure_label_cannot_be_satisfied_by_review_alone(
+    tmp_path: Path,
+) -> None:
+    # Data figures require every numeric/data token to be confirmed by OCR;
+    # a vision-review confirmation alone is not sufficient.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        content_review_overrides={"confirmed_labels": ["0.9636 BPB"]},
+    )
+    text_missing_token = _full_ocr_text_for("public_results").replace(
+        "0.9636 BPB", ""
+    )
+    ocr_runner = _ocr_runner_returning(text_missing_token)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("0.9636 BPB" in e for e in outcome["errors"])
+
+
+def test_validate_figure_data_figure_requires_content_review_sidecar(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "public_results", data_figure=True)
+    (figures / "public_results.content-review.json").unlink()
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any(
+        "missing sidecar" in e and "content-review.json" in e
+        for e in outcome["errors"]
+    )
+
+
+def test_validate_figure_data_figure_fails_on_unresolved_numeric_mismatch(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(
+        figures,
+        "public_results",
+        data_figure=True,
+        content_review_overrides={
+            "unresolved_numeric_mismatches": ["0.9636 BPB read as 0.9736 BPB"]
+        },
+    )
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("public_results"))
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("unresolved numeric mismatches" in e for e in outcome["errors"])
+
+
+def test_validate_figure_data_figure_passes_two_digest_four_snapshot_counts(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "public_results", data_figure=True)
+    text = _full_ocr_text_for("public_results") + (
+        " artifact digest artifact digest "
+        "website snapshot website snapshot website snapshot website snapshot"
+    )
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "pass", outcome["errors"]
+
+
+def test_validate_figure_data_figure_fails_wrong_digest_snapshot_counts(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "public_results", data_figure=True)
+    text = _full_ocr_text_for("public_results") + (
+        " artifact digest website snapshot website snapshot"
+    )
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("status label count mismatch" in e for e in outcome["errors"])
+
+
+def test_validate_figure_exact_digit_ocr_error_is_not_silently_accepted(
+    tmp_path: Path,
+) -> None:
+    # An OCR misread that drops or alters a digit must never be treated as a
+    # match: normalize_ocr must not perform fuzzy digit correction.
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "public_results", data_figure=True)
+    text = _full_ocr_text_for("public_results").replace("0.9636 BPB", "0.963 BPB")
+    ocr_runner = _ocr_runner_returning(text)
+
+    outcome = vaf.validate_figure(tmp_path, "public_results", ocr_runner=ocr_runner)
+
+    assert outcome["status"] == "fail"
+    assert any("0.9636 BPB" in e for e in outcome["errors"])
+
+
+def test_validate_figure_raises_for_unknown_figure_id(tmp_path: Path) -> None:
+    with pytest.raises(KeyError):
+        vaf.validate_figure(tmp_path, "not_a_real_figure")
+
+
+def test_validate_figure_output_includes_sha256_and_sidecar_map(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    sha256 = _write_full_sidecars(figures, "master_spine")
+    ocr_runner = _ocr_runner_returning(_full_ocr_text_for("master_spine"))
+
+    outcome = vaf.validate_figure(tmp_path, "master_spine", ocr_runner=ocr_runner)
+
+    assert outcome["output_sha256"] == sha256
+    assert "review.json" in outcome["sidecars"]
+    assert outcome["sidecars"]["review.json"]["exists"] is True
+
+
+# ---------------------------------------------------------------------------
+# write_validation_manifest
+# ---------------------------------------------------------------------------
+
+
+def _full_ocr_text_for_all(contracts) -> str:
+    return " ".join(
+        label for contract in contracts.values() for label in contract.required_labels
+    ) + " artifact digest artifact digest website snapshot website snapshot website snapshot website snapshot"
+
+
+def test_write_validation_manifest_writes_expected_file(tmp_path: Path) -> None:
+    figures = _figures_dir(tmp_path)
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+
+    all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
+    ocr_runner = _ocr_runner_returning(all_text)
+
+    manifest = vaf.write_validation_manifest(tmp_path, ocr_runner=ocr_runner)
+
+    manifest_path = figures / "AI_FIGURE_VALIDATION.json"
+    assert manifest_path.is_file()
+    on_disk = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert on_disk["figure_count"] == 8
+    assert on_disk["overall_status"] == "pass"
+    assert manifest["overall_status"] == "pass"
+
+
+def test_write_validation_manifest_hash_matches_actual_png_bytes(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+
+    all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
+    ocr_runner = _ocr_runner_returning(all_text)
+
+    manifest = vaf.write_validation_manifest(tmp_path, ocr_runner=ocr_runner)
+
+    for entry in manifest["figures"]:
+        stem = entry["stem"]
+        actual_sha256 = vaf._sha256(figures / f"{stem}.png")
+        assert entry["output_sha256"] == actual_sha256
+
+
+def test_write_validation_manifest_overall_status_fails_if_any_figure_fails(
+    tmp_path: Path,
+) -> None:
+    figures = _figures_dir(tmp_path)
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+    # Break exactly one figure's dimensions.
+    _write_png(figures / "paper_portfolio.png", 800, 600)
+
+    all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
+    ocr_runner = _ocr_runner_returning(all_text)
+
+    manifest = vaf.write_validation_manifest(tmp_path, ocr_runner=ocr_runner)
+
+    assert manifest["overall_status"] == "fail"
+    statuses = {f["stem"]: f["status"] for f in manifest["figures"]}
+    assert statuses["paper_portfolio"] == "fail"
+    assert statuses["master_spine"] == "pass"
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def test_cli_validate_stem_reports_pass_for_consistent_fixture(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    figures = _figures_dir(tmp_path)
+    _write_full_sidecars(figures, "master_spine")
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        return _Completed(_full_ocr_text_for("master_spine"))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = vaf.main(
+        ["--root", str(tmp_path), "validate", "--stem", "master_spine"]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["status"] == "pass"
+
+
+def test_cli_validate_stem_reports_failure_exit_code(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    _figures_dir(tmp_path)  # no PNG written -> guaranteed failure
+
+    exit_code = vaf.main(
+        ["--root", str(tmp_path), "validate", "--stem", "master_spine"]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert payload["status"] == "fail"
+
+
+def test_cli_ocr_stem_writes_sidecars_and_prints_json(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    figures = _figures_dir(tmp_path)
+    image_path = figures / "master_spine.png"
+    _write_png(image_path, 1536, 1024)
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        return _Completed(_full_ocr_text_for("master_spine"))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = vaf.main(["--root", str(tmp_path), "ocr", "--stem", "master_spine"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["unresolved"] == []
+    assert (figures / "master_spine.ocr.txt").is_file()
+    assert (figures / "master_spine.ocr.json").is_file()
+    on_disk = json.loads((figures / "master_spine.ocr.json").read_text())
+    assert on_disk["unresolved"] == []
+
+
+def test_cli_validate_all_write_manifest_creates_manifest_file(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    figures = _figures_dir(tmp_path)
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+
+    all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        return _Completed(all_text)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = vaf.main(
+        ["--root", str(tmp_path), "validate-all", "--write-manifest"]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["overall_status"] == "pass"
+    assert (figures / "AI_FIGURE_VALIDATION.json").is_file()
+
+
+def test_cli_validate_all_without_write_manifest_does_not_create_file(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    figures = _figures_dir(tmp_path)
+    for stem, contract in vaf.FIGURE_CONTRACTS.items():
+        _write_full_sidecars(figures, stem, data_figure=contract.data_figure)
+
+    all_text = _full_ocr_text_for_all(vaf.FIGURE_CONTRACTS)
+
+    class _Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        return _Completed(all_text)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = vaf.main(["--root", str(tmp_path), "validate-all"])
+    captured = capsys.readouterr()
+    json.loads(captured.out)  # must still be valid JSON
+
+    assert exit_code == 0
+    assert not (figures / "AI_FIGURE_VALIDATION.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# The validator must not draw or generate images.
+# ---------------------------------------------------------------------------
+
+
+def test_module_does_not_import_drawing_or_generation_libraries() -> None:
+    source = _MODULE_PATH.read_text(encoding="utf-8")
+    forbidden_substrings = [
+        "matplotlib",
+        "ImageDraw",
+        "Image.new(",
+        "image_tool",
+        "requests.post",
+        "openai",
+        "urlopen",
+    ]
+    for forbidden in forbidden_substrings:
+        assert forbidden not in source, f"unexpected drawing/generation dependency: {forbidden!r}"
+
+
+def test_module_has_no_image_generation_function() -> None:
+    assert not hasattr(vaf, "generate")
+    assert not hasattr(vaf, "draw")
