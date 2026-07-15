@@ -277,7 +277,7 @@ class AgentCliRunner:
                 return _acp
         options = self._apply_sandbox_policy(options)
         command = self._build_command(
-            prompt=prompt, resume_thread_id=resume_thread_id, options=options
+            resume_thread_id=resume_thread_id, options=options
         )
         command[0] = self._resolve_executable(command[0])
         process = subprocess.Popen(
@@ -292,7 +292,14 @@ class AgentCliRunner:
             start_new_session=os.name != "nt",
         )
         if self._prompt_via_stdin():
-            self._write_prompt(process=process, prompt=prompt)
+            self._write_prompt(
+                process=process,
+                prompt=self._effective_prompt(
+                    prompt=prompt,
+                    resume_thread_id=resume_thread_id,
+                    options=options,
+                ),
+            )
         else:
             self._close_stdin(process)
 
@@ -619,13 +626,13 @@ class AgentCliRunner:
         return None
 
     def _build_command(
-        self, *, prompt: str, resume_thread_id: str | None, options: RunnerOptions
+        self, *, resume_thread_id: str | None, options: RunnerOptions
     ) -> list[str]:
         if self.backend == BACKEND_CLAUDE:
             return self._build_claude_command(resume_thread_id=resume_thread_id, options=options)
         if self.backend == BACKEND_COPILOT:
             return self._build_copilot_command(
-                prompt=prompt, resume_thread_id=resume_thread_id, options=options
+                resume_thread_id=resume_thread_id, options=options
             )
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
@@ -815,7 +822,6 @@ class AgentCliRunner:
     def _build_copilot_command(
         self,
         *,
-        prompt: str,
         resume_thread_id: str | None,
         options: RunnerOptions,
     ) -> list[str]:
@@ -861,24 +867,44 @@ class AgentCliRunner:
             command.extend(merged_extra_args)
         if resume_thread_id:
             command.extend(["--resume", resume_thread_id])
-        # Copilot CLI (@github/copilot) has NO structured-output / schema flag
-        # (codex --output-schema, claude --json-schema); its --output-format json
-        # only wraps EVENTS while the assistant CONTENT stays free-form. The
-        # reviewer/planner need a schema-valid JSON verdict (reviewer is the SOLE
-        # done-authority), so on copilot we embed the compact schema + a strict
-        # "JSON only" instruction IN THE PROMPT so the model self-constrains.
-        # Skip on a resumed thread (the contract already lives in the
-        # conversation) and fail-open. / copilot CLI 无结构化输出/schema 参数，
-        # --output-format json 只包事件、内容仍自由文本；reviewer/planner 需要
-        # schema 合法的 JSON 裁决，故在 prompt 里嵌入压缩 schema + 严格"只回 JSON"
-        # 指令让模型自约束；resume 时跳过（契约已在对话里），失败不阻塞。
-        effective_prompt = prompt
+        # Copilot CLI (@github/copilot) reads the prompt from STDIN when no
+        # ``-p/--prompt <text>`` argv is given (non-interactive because stdin is
+        # not a TTY). We deliberately DO NOT pass the prompt via argv: a large
+        # reviewer/planner prompt (full-pipeline checklist + embedded schema)
+        # blows past the kernel per-arg limit (MAX_ARG_STRLEN, 128 KiB) and
+        # ``execve`` fails with OSError: [Errno 7] Argument list too long,
+        # crashing the reviewer every round. Streaming through stdin (same as
+        # codex/claude) has no such limit. The schema contract that used to be
+        # appended here now rides along in the stdin prompt via
+        # ``_effective_prompt`` so the reviewer/planner verdict still parses.
+        # copilot CLI 在不传 ``-p`` 时从 stdin 读 prompt；把大 prompt 放进 argv 会
+        # 超过内核单参数上限触发 E2BIG（Errno 7）导致 reviewer 每轮崩溃，故与
+        # codex/claude 一样统一走 stdin；schema 契约改由 ``_effective_prompt``
+        # 拼进 stdin prompt。
+        return command
+
+    def _effective_prompt(
+        self,
+        *,
+        prompt: str,
+        resume_thread_id: str | None,
+        options: RunnerOptions,
+    ) -> str:
+        """Prompt actually delivered to the backend (via stdin).
+
+        Copilot has no ``--output-schema`` flag, so the compact JSON Schema +
+        strict "reply with ONLY schema-valid JSON" contract is appended to the
+        prompt itself (skipped on a resumed thread, where the contract already
+        lives in the conversation). codex/claude carry the schema out-of-band
+        via their own flags, so their prompt is returned unchanged.
+        """
+        if self.backend != BACKEND_COPILOT:
+            return prompt
         if options.output_schema_path and not resume_thread_id:
             suffix = self._copilot_schema_suffix(options.output_schema_path)
             if suffix:
-                effective_prompt = prompt + suffix
-        command.extend(["-p", effective_prompt])
-        return command
+                return prompt + suffix
+        return prompt
 
     @staticmethod
     def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
@@ -906,7 +932,12 @@ class AgentCliRunner:
             return
 
     def _prompt_via_stdin(self) -> bool:
-        return self.backend != BACKEND_COPILOT
+        # All three backends (codex/claude/copilot) receive the prompt through
+        # stdin. Passing a large prompt via argv trips the kernel per-arg limit
+        # (E2BIG / OSError: [Errno 7] Argument list too long); stdin has no such
+        # cap. codex uses a trailing ``-``, claude runs ``-p`` print-mode with no
+        # value, copilot omits ``-p`` entirely — each then reads prompt on stdin.
+        return True
 
     @staticmethod
     def _resolve_executable(executable: str) -> str:
