@@ -122,6 +122,22 @@ def test_generic_roles_load_math_skill_context_only_for_math() -> None:
     assert "MATHEMATICS" not in vertical_role_banner(direct, "reviewer")
 
 
+def test_math_scope_protocol_is_artifact_first_and_resumable() -> None:
+    context = vertical_role_banner(load_vertical("math"), "engineer")
+
+    assert "research/SCOPE.md" in context
+    assert "incomplete" in context.lower()
+    assert "small, completed writes" in context
+    assert "argus_skill.tools.atomic_artifact write research/SCOPE.md" in context
+    assert "same command with `append`" in context
+    assert "atomic replacement" in context
+    assert "directory `fsync`\n   where supported" in context
+    assert "Do not repeat literature or source verification" in context
+    assert context.index("research/SCOPE.md") < context.index(
+        "literature or source verification"
+    )
+
+
 def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
     items = vertical_checklist_items(load_vertical("math"))
     rendered = "\n".join(

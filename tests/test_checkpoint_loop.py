@@ -14,6 +14,11 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.skills.vertical_select import persist_vertical
+from argus_skill.tools.atomic_artifact import (
+    atomic_append_text,
+    atomic_write_text,
+)
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
@@ -153,3 +158,100 @@ def test_no_checkpoint_keeps_prior_memory(tmp_path: Path, monkeypatch) -> None:
 
     history = {label: prompt for label, prompt, _ in backend.history}
     assert "MARKER_KEEP" in history["engineer-r3"]
+
+
+def test_scope_resumes_partial_artifact_after_engineer_turn_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "0")
+    persist_vertical(tmp_path, "math")
+    scope_path = tmp_path / "research" / "SCOPE.md"
+
+    def write_partial(_prompt, _options) -> str:
+        atomic_write_text(
+            scope_path,
+            "<!-- status: incomplete -->\n"
+            "# Scope\n\n"
+            "## Precise statement\n"
+            "The objects and quantifiers are fixed.\n"
+        )
+        return "The first scope checkpoint is on disk."
+
+    def finish_from_partial(prompt, _options) -> str:
+        partial = scope_path.read_text(encoding="utf-8")
+        assert partial.startswith(
+            "<!-- status: incomplete -->"
+        )
+        assert "MARKER_SCOPE_DEFINITION" in prompt
+        atomic_append_text(
+            scope_path,
+            "\n## Literature status\n"
+            "Verified sources reused from the checkpoint.\n",
+        )
+        atomic_write_text(
+            scope_path,
+            scope_path.read_text(encoding="utf-8").replace(
+                "status: incomplete",
+                "status: complete",
+                1,
+            ),
+        )
+        return "Continued from the persisted partial scope."
+
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message_factory=write_partial,
+            exit_code=-15,
+            fatal_error=(
+                "External interrupt: engineer turn time budget reached after "
+                "300s; yield for review/steering"
+            ),
+            thread_id="scope-thread",
+        ),
+    )
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_continue_review({
+            "goal": "finish bounded scope",
+            "done": [
+                "MARKER_SCOPE_DEFINITION: research/SCOPE.md contains the "
+                "verified objects and quantifiers"
+            ],
+            "tried_and_failed": [],
+            "open_blocker": "literature status is not yet written",
+            "next_step": "continue the existing SCOPE.md; do not restart",
+        })),
+    )
+    backend.queue(
+        "engineer-r2",
+        CannedResponse(
+            message_factory=finish_from_partial,
+            thread_id="scope-thread",
+        ),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=3,
+            workflow_mode="direct",
+            checkpoint_path=tmp_path / "checkpoint.json",
+        ),
+    )
+
+    outcome = loop.run("complete the current math scope", workdir=tmp_path)
+
+    assert outcome.round_count == 2
+    history = {label: prompt for label, prompt, _ in backend.history}
+    assert "Do not repeat literature or source verification" in history["engineer-r1"]
+    assert "MARKER_SCOPE_DEFINITION" in history["engineer-r2"]
+    scope = scope_path.read_text(encoding="utf-8")
+    assert "status: complete" in scope
+    assert "Precise statement" in scope
+    assert "Literature status" in scope
