@@ -66,9 +66,12 @@ or session ids. Table~\ref{tab:tiers} separates a \code{website\_snapshot} --- a
 result quoted verbatim from the live public record --- from a result that
 additionally carries committed external-project artifact-digest metadata. The
 artifact bytes are not committed in this repository
-(\srcpath{technical\_report/evidence/README.md}). Result \emph{signing} is
-deliberately not claimed: no cryptographic result-signing component exists in the
-current tree, and the report does not imply one.
+(\srcpath{technical\_report/evidence/README.md}). An optional, off by default
+Ed25519 result-signing path (\srcpath{team/result\_provenance.py}) lets an
+isolated scorer sign a teammate's result so a forged or tampered value fails
+verification. It is wired for isolated-scorer teammate results, but it is
+not used for the results reported here, and this report's evidence chain
+does not rely on it.
 
 \begin{table}[h]
 \centering

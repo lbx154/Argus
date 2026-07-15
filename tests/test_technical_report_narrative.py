@@ -112,3 +112,18 @@ def test_act_two_preserves_committed_runtime_facts() -> None:
         assert required in source
     assert "CHECKPOINT.md" not in source
     assert "fresh session every round" not in source
+
+
+def test_result_signing_is_stated_as_optional_and_unused_not_absent() -> None:
+    evidence = _read("technical_report/sections/07_evidence_review.tex")
+
+    for required in (
+        "optional",
+        "off by default",
+        "Ed25519",
+        "does not rely",
+        "not used for the results reported here",
+    ):
+        assert required in evidence, f"missing required concept: {required!r}"
+
+    assert "no cryptographic result-signing component exists" not in evidence

@@ -765,7 +765,7 @@ Required content:
 - Benchmark-specific measurement integrity and randomized inputs where appropriate.
 - Credential redaction before downstream persistence.
 - `website_snapshot` versus committed external-project artifact-digest metadata.
-- No cryptographic result-signing claim.
+- Result-signing stated accurately: an optional, off-by-default Ed25519 path (`team/result_provenance.py`) exists and is wired for isolated-scorer teammate results, but the six public results in this report do not use it and the evidence chain does not rely on it. Do not claim the component does not exist.
 - Reviewer completion authority and its single-authority limitation.
 
 - [ ] **Step 7: Write `08_reliability_resources.tex`**
