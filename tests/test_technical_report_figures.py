@@ -136,6 +136,48 @@ def test_master_spine_states_fixed_model_parameters(monkeypatch) -> None:
     assert "capability is not guaranteed to grow every run" in text
 
 
+def test_master_spine_stage_connectors_have_visible_span(monkeypatch) -> None:
+    """The five stage boxes must be joined by four visibly non-zero-length
+    left-to-right connector arrows. A prior regression computed both arrow
+    endpoints from a fixed +1/-1 inset around a gap that happened to be
+    exactly 2 units wide, so the two insets cancelled out and every
+    connector collapsed to a zero-length (invisible) arrow.
+    """
+    builder = _load_figure_builder()
+    calls: list[tuple] = []
+    original_arrow = builder._arrow
+
+    def capture_arrow(ax, x1, y1, x2, y2, **kwargs):
+        calls.append((x1, y1, x2, y2, kwargs))
+        return original_arrow(ax, x1, y1, x2, y2, **kwargs)
+
+    def noop_save(fig, _stem):
+        plt.close(fig)
+        return {}
+
+    monkeypatch.setattr(builder, "_arrow", capture_arrow)
+    monkeypatch.setattr(builder, "_save", noop_save)
+    builder.build_master_spine()
+
+    # The causal-chain stage connectors are the horizontal (y1 == y2) BLUE
+    # arrows without a curved connection style; the gold feedback arrow at
+    # the bottom of the figure uses an arc connection and GOLD color, so it
+    # is excluded by these filters.
+    connectors = [
+        (x1, y1, x2, y2)
+        for x1, y1, x2, y2, kwargs in calls
+        if y1 == y2
+        and kwargs.get("color") == builder.BLUE
+        and kwargs.get("connection", "arc3,rad=0.0") == "arc3,rad=0.0"
+    ]
+
+    assert len(connectors) == 4, (
+        f"expected exactly 4 stage connectors, found {len(connectors)}: {connectors}"
+    )
+    for x1, _y1, x2, _y2 in connectors:
+        assert x2 - x1 > 0, f"connector ({x1}, {x2}) has zero or negative horizontal span"
+
+
 def test_dense_intelligence_is_explanatory_not_a_score(monkeypatch) -> None:
     text = _figure_text(monkeypatch, "build_dense_intelligence")
 

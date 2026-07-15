@@ -9,9 +9,9 @@
     },
     "master_spine": {
       "pdf": "master_spine.pdf",
-      "pdf_sha256": "68dff6eb513efb7d626e5ac1387465c5504b4e223629b7dddd10d14fdb4f339c",
+      "pdf_sha256": "cb46c3bb47c26b94510aeb57963ba08b290c77e2a186b6cc5e6eec498bfef53a",
       "png": "master_spine.png",
-      "png_sha256": "fbb6e9346b308e04503747b2053a58b597637b36a0b9c51774984567c44de5b0"
+      "png_sha256": "061659ccfc7cd3e0f1a5b5000b343a97a0f8af257d49abe6d8e2c1e9df9602df"
     },
     "mission_lifecycle": {
       "pdf": "mission_lifecycle.pdf",

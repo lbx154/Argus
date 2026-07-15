@@ -588,7 +588,14 @@ def build_master_spine() -> dict:
             _text(ax, x + width / 2, 40, rendered_subtitle, size=5.6,
                   color=GRAPHITE_SOFT)
         if index < len(MASTER_SPINE_STAGES) - 1:
-            _arrow(ax, x + width + 1, 55, stage_x[index + 1] - 1, 55, color=BLUE)
+            # Derive the connector endpoints from the actual gap between this
+            # box's right edge and the next box's left edge (rather than a
+            # fixed +1/-1 inset) so the arrow always has a visible,
+            # non-zero span regardless of how the stage boxes are laid out.
+            next_x = stage_x[index + 1]
+            gap = next_x - (x + width)
+            margin = gap * 0.2
+            _arrow(ax, x + width + margin, 55, next_x - margin, 55, color=BLUE)
 
     role_w, role_h = 7.5, 6.5
     role_positions = ((19.5, 51), (31, 51), (19.5, 42.5), (31, 42.5))
