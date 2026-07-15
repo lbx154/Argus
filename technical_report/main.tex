@@ -219,15 +219,33 @@ accepted autonomous publication, or correctness outside the stated protocols.
 \input{sections/10_process_data}
 \input{sections/11_ood_expansion}
 
-\input{sections/10_results}
-\input{sections/11_portfolio}
-\input{sections/14_limitations}
-\input{sections/15_roadmap}
+% Act IV and the appendix carry the report's densest tables and figures; tighten
+% table row height, paragraph lead, heading spacing, and float separation from here
+% onward to keep the evidence-heavy closing chapters within the page envelope without
+% touching earlier acts. Layout only -- no evidence, caveat, or notation is removed.
+\renewcommand{\arraystretch}{1.0}
+\setlength{\parskip}{0.10em}
+\titlespacing*{\section}{0pt}{0.5em}{0.22em}
+\titlespacing*{\subsection}{0pt}{0.4em}{0.14em}
+\titlespacing*{\subsubsection}{0pt}{0.35em}{0.1em}
+\setlength{\textfloatsep}{5pt}
+\setlength{\intextsep}{5pt}
+\setlength{\floatsep}{5pt}
+\raggedbottom
+\linespread{0.96}\selectfont
+
+\actopener
+  {ACT IV · EVIDENCE FROM THE FRONTIER}
+  {A grand thesis is only as strong as its proof points.}
+  {Six public arenas and six research programs show where Argus has produced scoped evidence—and where the evidence remains incomplete.}
+
+\input{sections/12_frontier_evidence}
+\input{sections/13_limitations_roadmap}
 
 \appendix
 \input{sections/90_appendix}
 
-\vspace{-0.5\baselineskip}
+\vspace{-0.3\baselineskip}
 \bibliographystyle{plain}
 \let\OLDthebibliography\thebibliography
 \renewcommand\thebibliography[1]{%

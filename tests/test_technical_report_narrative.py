@@ -156,3 +156,64 @@ def test_ood_expansion_has_non_monotone_caveat() -> None:
     assert "does not guarantee" in source
     assert "monotone" in source
     assert "negative result" in source
+
+
+FINAL_SECTION_INPUTS = (
+    "01_executive_thesis",
+    "02_dense_intelligence",
+    "03_episodic_agents",
+    "04_argus_life",
+    "05_roles_planes",
+    "06_lifecycle_state",
+    "07_evidence_review",
+    "08_reliability_resources",
+    "09_runtime_evolution",
+    "10_process_data",
+    "11_ood_expansion",
+    "12_frontier_evidence",
+    "13_limitations_roadmap",
+)
+
+
+def test_report_has_exactly_thirteen_main_inputs() -> None:
+    main = _read("technical_report/main.tex")
+    inputs = re.findall(r"\\input\{sections/([0-9]{2}_[^}]+)\}", main)
+    assert tuple(inputs[:13]) == FINAL_SECTION_INPUTS
+    assert len([item for item in inputs if not item.startswith("90_")]) == 13
+
+
+def test_frontier_evidence_preserves_public_values() -> None:
+    source = _read("technical_report/sections/12_frontier_evidence.tex")
+    for value in (
+        "Global \\#6",
+        "0.9636",
+        "0.9855",
+        "79.77",
+        "63/82",
+        "76.8\\%",
+        "28.0",
+        "41",
+        "35 manuscripts",
+        "6 drafts",
+    ):
+        assert value in source
+    assert "accepted papers" in source
+    assert "does not claim" in source
+
+
+def test_appendix_defines_all_formal_symbols() -> None:
+    source = _read("technical_report/sections/90_appendix.tex")
+    for symbol in (
+        r"\rho_{\mathrm{DI}}",
+        r"\lambda",
+        r"\eta_d",
+        r"\eta_x",
+        r"\eta_v",
+        "H_t",
+        r"\tau_t",
+        "E_t",
+        r"\theta_t",
+        "C_t",
+        r"\epsilon",
+    ):
+        assert symbol in source

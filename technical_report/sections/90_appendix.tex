@@ -1,16 +1,40 @@
+\section{Formal Notation}
+\label{app:notation}
+
+The report's explanatory symbols are collected here for reference; they summarize
+design intent, not reported benchmark metrics --- $\rho_{\mathrm{DI}}(T)$ in
+particular is a lens, not an instrument (Section~\ref{sec:dense}).
+
+{\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{2.4cm} X@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$\rho_{\mathrm{DI}}(T)$ & explanatory dense-intelligence density over wall-clock horizon $T$ \\
+$\lambda(t)$ & rate of relevant reasoning and tool-mediated research work \\
+$\eta_d,\eta_x,\eta_v$ & decision, execution, and verification effectiveness factors \\
+$H_t$ & runtime capability state $\{M_t,S_t,A_t,V_t,R_t,Q_t\}$ \\
+$\tau_t,E_t$ & process trajectory and accepted evidence from run $t$ \\
+$\theta_t$ & underlying model parameters \\
+$C_t$ & retained verified capability set \\
+$\epsilon$ & evidence threshold in the explanatory capability-set model \\
+\bottomrule
+\end{tabularx}
+\par}
+
 \section{Key Interfaces and Status Taxonomy}
 \label{app:interfaces}\label{app:status}
 
 The role decision interfaces are summarized in Section~\ref{sec:roles}
-(Tables~\ref{tab:manager}--\ref{tab:reviewer}). This appendix records the status
+(Tables~\ref{tab:manager}--\ref{tab:reviewer}); this appendix records the status
 taxonomy they resolve into. Three enumerations govern outcomes: \code{ReviewStatus}
 (the verdict), \code{LoopStatus} (a mission's terminal or paused outcome), and
 \code{PlannerVerdictStatus} (the planner's event contract), the last carrying an
 explicit (success, recoverable) policy that determines how the scheduler reacts.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\small
+\footnotesize
 \begin{tabularx}{\linewidth}{@{}p{4.2cm} c c X@{}}
 \toprule
 \textbf{PlannerVerdictStatus} & \textbf{success} & \textbf{recoverable} & \textbf{Meaning} \\
@@ -37,44 +61,41 @@ explicit (success, recoverable) policy that determines how the scheduler reacts.
 \code{research\_incomplete}, \code{paused\_no\_breakthrough}, and
 \code{exhausted\_current\_methods}.
 
-\noindent\textbf{LoopStatus} (\code{core/models.py}): the terminal set
-\code{done}, \code{max\_rounds}, \code{blocked}, \code{no\_progress},
-\code{error}, \code{budget\_exhausted}; and the paused set \code{paused\_budget},
+\noindent\textbf{LoopStatus} (\code{core/models.py}): terminal statuses
+\code{done}, \code{max\_rounds}, \code{blocked}, \code{no\_progress}, \code{error},
+\code{budget\_exhausted}; paused statuses \code{paused\_budget},
 \code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
 \code{infra\_blocked}, \code{research\_incomplete}, \code{paused\_no\_breakthrough},
 \code{exhausted\_current\_methods}; and the control-transfer status
 \code{replan\_requested}, used only when dynamic planning requests a return to the
-Planner. Every mission yields one of these statuses --- never an unbounded spin
+Planner. Every mission yields one of these --- never an unbounded spin
 (Section~\ref{sec:runtime}).
 
 \section{Persisted State Map}
 \label{app:state}
 
-Table~\ref{tab:persist} (Section~\ref{sec:state}) lists the principal state files;
-the root layout is defined in \srcpath{core/paths.py}, while runtime composition
-adds the per-project checkpoint path in \srcpath{apps/\_runtime.py}. The global root
-\code{\textasciitilde/.argus-skill/} (overridable via \code{ARGUS\_SKILL\_HOME}; a
-legacy \code{ARGUS\_SKILL\_LIFE\_DIR} shim is retained for migration) holds
-cross-project identity, the shared skill library, and an operator knob store; each
-\code{projects/<fingerprint>/} subtree holds the append-only \code{events.jsonl},
-\code{backlog.jsonl}, \code{continuous.json}, \code{inbox.jsonl}, a \code{skills/}
-directory, \code{daemon.pid}, \code{daemon.status.json}, and
-\code{checkpoint.json}.
-A runtime path resolver rejects unresolved shell placeholders, and the project-root
-helper rejects empty, \code{.}, and \code{/} fingerprints, so a mis-resolved path
-fails loudly rather than writing to the wrong place.
+Table~\ref{tab:persist} (Section~\ref{sec:state}) lists the principal state files: the
+root layout is in \srcpath{core/paths.py} and the per-project checkpoint path in
+\srcpath{apps/\_runtime.py}. The global root \code{\textasciitilde/.argus-skill/}
+(overridable via \code{ARGUS\_SKILL\_HOME}; a legacy \code{ARGUS\_SKILL\_LIFE\_DIR}
+shim is kept for migration) holds cross-project identity, the shared skill library, and
+an operator knob store; each \code{projects/<fingerprint>/} subtree holds the
+append-only \code{events.jsonl}, \code{backlog.jsonl}, \code{continuous.json},
+\code{inbox.jsonl}, a \code{skills/} directory, \code{daemon.pid},
+\code{daemon.status.json}, and \code{checkpoint.json}. A path resolver rejects
+unresolved shell placeholders and empty, \code{.}, or \code{/} fingerprints, so a
+mis-resolved path fails loudly rather than writing to the wrong place.
 
 \section{Event Taxonomy}
 \label{app:events}
 
-Cross-component state is exchanged through a canonical catalog of \textbf{112
-typed event types} across \textbf{11 categories}
-(\srcpath{core/event\_catalog.py}); \textbf{75} carry a validated payload schema.
-Table~\ref{tab:events} gives the per-category counts and representative events.
+Cross-component state flows through a canonical catalog of \textbf{112 typed event
+types} across \textbf{11 categories} (\srcpath{core/event\_catalog.py}), of which
+\textbf{75} carry a validated payload schema (Table~\ref{tab:events}).
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\small
+\footnotesize
 \begin{tabularx}{\linewidth}{@{}p{2.2cm} c X@{}}
 \toprule
 \textbf{Category} & \textbf{Count} & \textbf{Representative events} \\
@@ -105,9 +126,9 @@ Every engineering claim in this report is grounded in the current
 \code{argus-skill} repository~\cite{argus_repo} rather than in transient run
 directories. Table~\ref{tab:evmap} maps each subsystem to its primary live source.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\small
+\footnotesize
 \begin{tabularx}{\linewidth}{@{}p{4.0cm} X@{}}
 \toprule
 \textbf{Subsystem (section)} & \textbf{Primary source path(s)} \\
@@ -130,24 +151,14 @@ paths on \code{main}, not any transient local filesystem location.}
 \end{table}
 
 \paragraph{Figure provenance.} The four deterministic figures (\code{system\_planes},
-\code{mission\_lifecycle}, \code{public\_results}, \code{paper\_portfolio}) are
-generated deterministically by
-\srcpath{technical\_report/figures/build\_report\_figures.py}, with no image-model
-call. The two result figures read the committed evidence bundles; the architecture
-and lifecycle schematics encode source-grounded system structure. Reproducible
-SHA-256 digests are in \srcpath{figures/REPORT\_FIGURES.json}. The two editorial
-illustration plates were produced
-through the image-2 pipeline and carry prompt, inspect, review, and provenance
-sidecars in \srcpath{figures/IMAGE2\_FIGURES.json}.
+\code{mission\_lifecycle}, \code{public\_results}, \code{paper\_portfolio}) come from
+\srcpath{technical\_report/figures/build\_report\_figures.py} with no image-model call
+and SHA-256 digests in \srcpath{figures/REPORT\_FIGURES.json}; the two editorial plates
+carry image-2 prompt, inspect, review, and provenance sidecars in
+\srcpath{figures/IMAGE2\_FIGURES.json}.
 
-\section{Paper-Inventory Summary}
-\label{app:papers}
-
-The 41-paper portfolio (Section~\ref{sec:portfolio}) is enumerated in the bundle
-\srcpath{technical\_report/evidence/paper\_inventory.json}, retrieved from the
-public research page~\cite{argus_research} with an HTTP-200 raw-HTML SHA-256 for
-provenance. It totals 41 papers --- 35 manuscripts and 6 drafts, duplicates removed
---- across Multimodal \& Vision-Language Models (16), Cognitive Bias in LLMs (9),
-Efficiency, Compression \& Decoding (7), LLM Agent Methods (5), World Models (2),
-and State Trace \& Auditability (2), compared only to human-authored
-literature/baselines; no external acceptance is claimed.
+\paragraph{Paper-inventory summary.} The 41-paper portfolio
+(Section~\ref{sec:portfolio}) --- 35 manuscripts and 6 drafts across the six programs
+of Table~\ref{tab:portfolio} --- is enumerated in
+\srcpath{technical\_report/evidence/paper\_inventory.json}, compared only to
+human-authored literature.

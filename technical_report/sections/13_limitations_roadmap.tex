@@ -1,0 +1,106 @@
+\section{Limitations and Roadmap}
+\label{sec:limitations}
+
+Argus gives an agent real judgment, real tool access, and real persistence, but does
+not guarantee good science; a report that documented reliability mechanisms without
+their boundaries would itself mislead. The limitations below are material, and the
+roadmap that follows pairs each with a checkable engineering objective, not a
+capability promise.
+
+\subsection{Limitations}
+
+\begin{description}[leftmargin=0em, itemsep=2pt]
+  \item[Underlying model quality ceiling.] Argus drives an external agent CLI (Codex,
+    Claude Code, or Copilot CLI) and inherits its capability, availability, latency,
+    and pricing; the quality ceiling of any run is the underlying model's. Argus
+    enforces integrity of \emph{measurement}, not wisdom of \emph{goal}, and guarantees
+    neither novelty, correctness, nor state of the art.
+  \item[Single fallible Reviewer authority.] The Reviewer is the sole completion
+    authority, and it is a model: a wrong Reviewer can accept an incomplete result or
+    reject a finished one. Argus mitigates this with a shared work-tree, an
+    execution-log audit, and a structured checklist (Section~\ref{sec:evidence}), and
+    routes a degraded reviewer backend to an explicit infrastructure-failure status
+    rather than a \code{continue} --- but it cannot eliminate model error, and the
+    historical blind-gate incident (Section~\ref{sec:reliability}) is this
+    concentration's concrete failure mode.
+  \item[Two digest-correlated results versus four snapshots.] Only two of the six
+    public results (Section~\ref{sec:results}) carry committed artifact-digest records;
+    the other four are website snapshots linked to the evidence bundle. All are real,
+    scoped claims, but the snapshots are not yet reproducible from a named commit, and
+    the report does not present them as if they were.
+  \item[External artifact bytes not committed here.] Even the two digest rows commit
+    logical artifact IDs, verifier excerpts, and SHA-256 digests --- not the external
+    artifact bytes, which live in named external projects, so third-party reproduction
+    of those rows depends on those projects.
+  \item[Benchmark-specific integrity.] The anti-cheat construction is task-agnostic,
+    but a determined agent explores each benchmark's exploit surface, and a new arena
+    can present a new exploit --- a leaked test set, an unrandomized input, a side
+    channel --- the current checks were not written for. Measurement integrity is
+    ongoing, not solved.
+  \item[Cost and compute.] Long-horizon autonomy consumes provider tokens
+    continuously. Budgets and reservations bound spend, but 7$\times$24 operation is
+    not free.
+  \item[GPU lease is explicit, not automatic.] The GPU lease
+    (Section~\ref{sec:execution}) is robust but operator/agent-invoked, not an automatic
+    runtime service; coordinating scarce hardware still depends on the agent choosing to
+    use it.
+  \item[Runtime state can be wrong, stale, revised, or retired.] The evolving state
+    $H$ (Section~\ref{sec:evolution}) is not guaranteed correct: a skill, wiki page,
+    verifier, or route can be mistaken, go stale, or be revised or retired through the
+    ordinary lifecycle. It lives on disk precisely so it can be inspected and rolled
+    back, not because it is assumed permanent.
+  \item[No guarantee of monotone capability expansion.] The capability set $C_t$
+    (Section~\ref{sec:frontier}) is not empirically monotone: a mission can add no new
+    capability, and a capability verified once can regress on a harder instance. The
+    union notation is design intent, not a promise that every run expands the frontier.
+\end{description}
+
+\subsection{Roadmap}
+\label{sec:roadmap}
+
+Each objective below answers a limitation above and is stated so its completion is
+checkable, not a capability promise --- the highest priority being to turn snapshots
+into reproducible evidence while keeping exactly one owner of completion.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{4.9cm} X@{}}
+\toprule
+\textbf{Limitation} & \textbf{Checkable objective} \\
+\midrule
+Two digest records vs.\ four snapshots & Convert SOL-ExecBench, nanochat H100,
+AARRI-Bench, and Arbor into artifact-digest records tied to a named commit, so every
+published number is third-party-verifiable from a commit and an artifact digest. \\
+External artifact bytes not committed & Publish or reference retrievable artifact
+bundles for each digest row, so reproduction does not depend on private external
+projects. \\
+Benchmark-specific integrity & Extend the anti-cheat construction and the Reviewer's
+structured stage checklists as each new arena reveals its exploit surface, without
+adding a second family of validators that could disagree with the completion
+authority. \\
+Single fallible Reviewer authority & Reduce Reviewer error through richer
+execution-log auditing and evidence-grounded verdicts, and harden detection of a
+degraded reviewer backend so a blind gate cannot recur. \\
+Runtime state wrong, stale, or retired & Strengthen lifecycle review so mistaken or
+stale skills, pages, and verifiers are caught and retired on evidence, with the
+version history serving as the audit. \\
+Cost, compute, and explicit GPU lease & Tighten budget accounting and cockpit cost
+attribution, and evaluate tighter but still explicit GPU-lease scheduling, to make a
+7$\times$24 campaign cheaper to run and steer. \\
+Model ceiling and non-monotonicity & Track per-arena and per-program evidence over
+time so depth and breadth are reported as measured, never as a guaranteed monotone
+capability curve. \\
+\bottomrule
+\end{tabularx}
+\caption{Each roadmap objective answers a limitation from
+Section~\ref{sec:limitations} and is stated so its completion is checkable.}
+\label{tab:roadmap}
+\end{table}
+
+\begin{callout}[The through-line]
+Argus is designed to make research intelligence denser in time, research
+experience more reusable, and the frontier of tractable work wider. The claim
+remains conditional on evidence: no run, capability, or number outruns the
+protocol that supports it.
+\end{callout}
