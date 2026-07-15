@@ -115,9 +115,9 @@ def test_data_domain_can_advance_past_first_stage(tmp_path, monkeypatch):
     assert sc.current_stage(tmp_path) == "build"  # advanced, not stuck on scope
 
 
-def test_store_override_replaces_seed_for_research_stage(tmp_path, monkeypatch):
-    # Even for a paper vertical, an authored store entry REPLACES the seed for that
-    # stage (non-protected edits), while other stages keep the seed.
+def test_store_custom_item_merges_with_seed_for_research_stage(tmp_path, monkeypatch):
+    # Seed-plus-override: an authored custom item MERGES with the seed for that
+    # stage (non-protected edits). Other stages keep their seed unchanged.
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     cs.apply_checklist_ops(tmp_path, [
         {"op": "add", "stage": "research", "id": "research.custom",
@@ -125,9 +125,9 @@ def test_store_override_replaces_seed_for_research_stage(tmp_path, monkeypatch):
     ])
     body = sc.format_stage_checklist("research", role="reviewer", project_root=tmp_path)
     assert "research.custom" in body
-    # 'research.literature' is the seed; the store entry replaced the whole stage,
-    # so it is no longer present (the Planner now owns this stage's checklist).
-    assert "research.literature" not in body
+    # 'research.literature' is the seed; seeds are merged (not replaced) so it
+    # is still present alongside the custom item.
+    assert "research.literature" in body
     # A stage with no store entry still renders its seed.
     plan_body = sc.format_stage_checklist("plan", role="reviewer", project_root=tmp_path)
     assert "plan.experiment" in plan_body

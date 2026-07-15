@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import {
-  ARGUS_LOGO_COMPACT,
-  ARGUS_LOGO_FULL,
-} from '../../../core/src/splash';
+import { ArgusMark, Wordmark } from './Wordmark';
 
 export const WEB_SPLASH_DURATION_MS = 650;
 
@@ -34,12 +31,12 @@ export function BootSplash({ onDone }: { onDone: () => void }) {
       }}
       className="argus-web-splash"
     >
-      <pre className="argus-web-splash-logo argus-web-splash-logo-full" aria-hidden="true">
-        {ARGUS_LOGO_FULL.join('\n')}
-      </pre>
-      <pre className="argus-web-splash-logo argus-web-splash-logo-compact" aria-hidden="true">
-        {ARGUS_LOGO_COMPACT.join('\n')}
-      </pre>
+      <div className="argus-web-splash-logo argus-web-splash-logo-full" aria-hidden="true">
+        <Wordmark size={72} />
+      </div>
+      <div className="argus-web-splash-logo argus-web-splash-logo-compact" aria-hidden="true">
+        <ArgusMark size={112} />
+      </div>
     </div>
   );
 }

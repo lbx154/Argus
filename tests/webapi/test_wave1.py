@@ -604,3 +604,325 @@ def test_wave1_reads_404_on_unknown_project(ctx) -> None:
     _, _, _, client = ctx
     for path in ("status", "journal", "doctor", "config", "identity", "transcript", "backlog/item1"):
         assert client.get(f"/api/projects/s-nope/{path}").status_code == 404, path
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle resume on TEAM Manager dispatch
+# ---------------------------------------------------------------------------
+
+
+def _persist_lifecycle_done(life_dir: Path) -> None:
+    """Write a lifecycle.json with state=done so tests can verify resume."""
+    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus_skill.life.project_lifecycle_io import write_persisted
+
+    status = ProjectStatus(
+        project_id=life_dir.name,
+        state=ProjectState.DONE,
+        created_at=__import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ),
+    )
+    write_persisted(life_dir, status=status, history=[])
+
+
+def _persist_lifecycle_state(life_dir: Path, state_str: str) -> None:
+    """Write a lifecycle.json with an arbitrary state."""
+    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus_skill.life.project_lifecycle_io import write_persisted
+
+    status = ProjectStatus(
+        project_id=life_dir.name,
+        state=ProjectState(state_str),
+        created_at=__import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ),
+    )
+    write_persisted(life_dir, status=status, history=[])
+
+
+def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
+    """Create a MemoryBundle with session metadata including launch_cwd."""
+    from argus_skill.life.memory import MemoryBundle
+
+    launch_dir = tmp_path / "workspace"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid, global_root=tmp_path
+    )
+    # Write session meta with launch_cwd
+    meta = SessionMeta(
+        id=sid,
+        created=time.time(),
+        last_active=time.time(),
+        launch_cwd=str(launch_dir),
+    )
+    write_session_meta(tmp_path, meta)
+    # Ensure life dir exists
+    mem.project_root.mkdir(parents=True, exist_ok=True)
+    return mem, launch_dir
+
+
+class TestManagerMessageLifecycleErrors:
+    """manager_message returns structured error for quarantined/archived projects.
+
+    This is a blocking integration test: it exercises manager_message end-to-end
+    with a stubbed Manager front-door so no real model is invoked, and verifies
+    that a RuntimeError raised by resume_done_lifecycle_for_team_dispatch is
+    caught and converted to ``{"kind": "error", ...}`` — never an unhandled
+    exception / HTTP 500.
+    """
+
+    @pytest.mark.parametrize("state", ["quarantined", "archived"])
+    def test_quarantined_archived_return_structured_error(
+        self,
+        tmp_path: Path,
+        state: str,
+        monkeypatch,
+    ) -> None:
+        from argus_skill.manager import config_intent as ci
+        from argus_skill.manager import front_door as fd
+
+        sid = f"s-mgr-err-{state}"
+        life_dir = tmp_path / "projects" / sid
+        life_dir.mkdir(parents=True, exist_ok=True)
+        # Minimal events file so MemoryBundle doesn't error on open.
+        (life_dir / "events.jsonl").write_text(
+            json.dumps({"type": "mission.started", "text": "x", "ts": time.time()}) + "\n",
+            encoding="utf-8",
+        )
+        # Persist the blocking lifecycle state.
+        _persist_lifecycle_state(life_dir, state)
+
+        # Stub the front-door classify so we take the TEAM/complex path
+        # without calling a real model (route="complex", no config intent,
+        # no control signal).
+        monkeypatch.setattr(
+            ci,
+            "_front_door_classify",
+            lambda mem, text, chat_state, **kwargs: (None, None, "complex"),
+        )
+        # Stub triage to return None → TEAM path (not a chat/SELF reply).
+        monkeypatch.setattr(fd, "manager_triage", lambda *a, **kw: None)
+        # No active mission — so we don't take the "already running" early-return.
+        monkeypatch.setattr(fd, "mission_is_running", lambda mem: False)
+
+        # Clear per-session state cache so this test starts clean.
+        manager_bridge._STATES.pop(sid, None)
+
+        result = manager_bridge.manager_message(
+            sid, "add a new feature", global_root=tmp_path
+        )
+
+        assert result["kind"] == "error", f"expected error response, got {result!r}"
+        assert "could not enqueue" in result["reply"]
+        assert state in result["reply"]
+    """resume_done_lifecycle_for_team_dispatch resumes a done project on TEAM."""
+
+    def test_done_project_resumes_to_active_state(self, tmp_path: Path) -> None:
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _launch = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_done(mem.project_root)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is True
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] in {"incubating", "running", "writing"}
+        assert persisted["history"][-1]["reason"] == "manager_team_dispatch"
+
+    def test_done_project_resume_uses_launch_cwd(self, tmp_path: Path) -> None:
+        """Resume infers observable status from session launch_cwd."""
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, launch = _make_mem_with_launch_cwd(tmp_path)
+        # Put a paper draft in the workspace to trigger writing state
+        paper_dir = launch / "paper"
+        paper_dir.mkdir()
+        (paper_dir / "main.tex").write_text("\\documentclass{article}", encoding="utf-8")
+        _persist_lifecycle_done(mem.project_root)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is True
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == "writing"
+
+    @pytest.mark.parametrize("state", ["quarantined", "archived"])
+    def test_quarantined_and_archived_raise(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_state(mem.project_root, state)
+
+        with pytest.raises(RuntimeError, match=state):
+            resume_done_lifecycle_for_team_dispatch(mem)
+
+        # State must remain unchanged
+        from argus_skill.life.project_lifecycle_io import load_persisted
+
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == state
+
+    @pytest.mark.parametrize("state", ["incubating", "running", "writing"])
+    def test_active_states_are_noop(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        """Already-active projects return False and stay unchanged."""
+        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_state(mem.project_root, state)
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is False
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == state
+
+    def test_chat_self_never_mutates_done(self, tmp_path: Path) -> None:
+        """chat/SELF classification must not touch lifecycle.
+
+        This test validates the contract: only TEAM dispatch calls the
+        resume helper, so a done project stays done for chat/SELF turns.
+        """
+        from argus_skill.life.project_lifecycle_io import load_persisted
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        _persist_lifecycle_done(mem.project_root)
+
+        # Simulate what chat/SELF does: nothing — no resume call.
+        persisted = load_persisted(mem.project_root)
+        assert persisted["state"] == "done"
+
+    def test_no_lifecycle_file_returns_false(self, tmp_path: Path) -> None:
+        """Fresh project with no lifecycle.json should be a no-op."""
+        from argus_skill.manager.dispatch import (
+            resume_done_lifecycle_for_team_dispatch,
+        )
+
+        mem, _ = _make_mem_with_launch_cwd(tmp_path)
+        # No lifecycle file written
+
+        result = resume_done_lifecycle_for_team_dispatch(mem)
+
+        assert result is False
+
+
+# ── Dispatch acknowledgement persistence ────────────────────────────────────
+
+_DISPATCH_ACK_CASES = [
+    ({"rc": 0, "pid": 42}, "executor started"),
+    (None, "executor already running"),
+    ({"admission_required": True}, "waiting for an executor slot"),
+    ({"rc": 2, "error": "auth failed"}, "executor failed to start: auth failed"),
+]
+
+
+@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
+def test_dispatch_ack_stream_persists_truthful_text(
+    tmp_path: Path, daemon_result, expected_substr,
+) -> None:
+    """Streaming endpoint: returned reply, transcript turn, and SSE delta agree."""
+    from argus_skill.core.transcript import read_turns
+    from argus_skill.webapi.manager_bridge import record_task_dispatch_ack
+
+    life_dir = tmp_path / "projects" / "s-ack"
+    life_dir.mkdir(parents=True)
+
+    fragments: list[tuple[str, dict]] = []
+
+    def on_fragment(kind: str, payload: dict) -> None:
+        fragments.append((kind, payload))
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": daemon_result is None,
+        "daemon": daemon_result,
+        "reply": None,
+    }
+    text = record_task_dispatch_ack(
+        "s-ack", result, global_root=tmp_path, on_fragment=on_fragment,
+    )
+
+    assert expected_substr in text
+    assert result["reply"] == text
+
+    # Transcript persisted
+    turns = read_turns(life_dir)
+    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+
+    # SSE delta emitted
+    deltas = [p for k, p in fragments if k == "delta"]
+    assert any(expected_substr in d.get("text", "") for d in deltas)
+
+
+@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
+def test_dispatch_ack_blocking_persists_truthful_text(
+    tmp_path: Path, daemon_result, expected_substr,
+) -> None:
+    """Blocking endpoint: returned reply and transcript turn agree (no SSE)."""
+    from argus_skill.core.transcript import read_turns
+    from argus_skill.webapi.manager_bridge import record_task_dispatch_ack
+
+    life_dir = tmp_path / "projects" / "s-ack"
+    life_dir.mkdir(parents=True)
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": daemon_result is None,
+        "daemon": daemon_result,
+        "reply": None,
+    }
+    text = record_task_dispatch_ack(
+        "s-ack", result, global_root=tmp_path, on_fragment=None,
+    )
+
+    assert expected_substr in text
+    assert result["reply"] == text
+
+    turns = read_turns(life_dir)
+    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+
+
+def test_dispatch_ack_raises_on_transcript_write_failure(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Transcript persistence failure must NOT be swallowed."""
+    from argus_skill.webapi import manager_bridge
+
+    life_dir = tmp_path / "projects" / "s-ack-fail"
+    life_dir.mkdir(parents=True)
+    # Make transcript file unwritable
+    transcript = life_dir / "transcript.jsonl"
+    transcript.write_text("")
+    transcript.chmod(0o000)
+
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": False,
+        "daemon": {"rc": 0, "pid": 99},
+        "reply": None,
+    }
+    try:
+        with pytest.raises(PermissionError):
+            manager_bridge.record_task_dispatch_ack(
+                "s-ack-fail", result, global_root=tmp_path, on_fragment=None,
+            )
+    finally:
+        transcript.chmod(0o644)

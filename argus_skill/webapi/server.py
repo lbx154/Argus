@@ -2073,7 +2073,7 @@ def create_app(
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
         project_root = _project_root_or_404(sid)
-        from .manager_bridge import manager_message
+        from .manager_bridge import manager_message, record_task_dispatch_ack
 
         result = await run_in_threadpool(
             manager_message, sid, body.text, global_root=project_root
@@ -2084,6 +2084,10 @@ def create_app(
                 start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
                 reclaim_idle=True,
+            )
+        if result.get("kind") == "task":
+            await run_in_threadpool(
+                record_task_dispatch_ack, sid, result, global_root=project_root,
             )
         return result
 
@@ -2107,7 +2111,7 @@ def create_app(
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
         project_root = _project_root_or_404(sid)
-        from .manager_bridge import manager_message
+        from .manager_bridge import manager_message, record_task_dispatch_ack
 
         q: "queue.Queue[dict | None]" = queue.Queue()
 
@@ -2139,6 +2143,16 @@ def create_app(
                                 f"{type(exc).__name__}: {exc}"
                             ),
                         }
+                # Persist truthful dispatch acknowledgement for task results
+                if result.get("kind") == "task":
+                    try:
+                        record_task_dispatch_ack(
+                            sid, result,
+                            global_root=project_root,
+                            on_fragment=_on_fragment,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — surface in done frame
+                        result["ack_error"] = str(exc)
                 q.put({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
                 q.put({"type": "error", "error": str(exc)})

@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.apps import _runtime
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
@@ -745,3 +747,217 @@ def test_supervisor_ignores_stale_manager_blocked_packet_after_one_rollback(
     assert sup.run()["stopped_by"] == "planner_retry"
     assert planner_calls["count"] == 1
     assert _stage(root) == "run"
+
+
+# ---------------------------------------------------------------------------
+# Regression: SkillLoopConfig wiring + open-ended rollback preservation
+# ---------------------------------------------------------------------------
+
+def test_skill_loop_config_carries_open_ended_and_continuous_objective() -> None:
+    """SkillLoopConfig must expose typed open_ended and continuous_objective fields.
+
+    Regression: before the fix the dataclass had neither field, so
+    _SkillLoopRunner.execute silently fell back to open_ended=False even for
+    daemon-created open-ended campaigns.
+    """
+    from argus_skill.loop import SkillLoopConfig
+
+    default_cfg = SkillLoopConfig()
+    assert default_cfg.open_ended is False
+    assert default_cfg.continuous_objective == ""
+
+    open_ended_cfg = SkillLoopConfig(open_ended=True, continuous_objective="prove X")
+    assert open_ended_cfg.open_ended is True
+    assert open_ended_cfg.continuous_objective == "prove X"
+
+
+def test_daemon_open_ended_wiring_reaches_decide_stage_transition(
+    tmp_path: Path,
+) -> None:
+    """Real construction/config wiring regression.
+
+    LifeWorkerConfig.continuous_open_ended=True must propagate through
+    _runner_namespace (→ ns.open_ended=True) and through SkillLoopConfig
+    construction (→ config.open_ended=True) so that execute() passes
+    open_ended=True to _decide_stage_transition.
+    """
+    from argus_skill.daemon.life_worker import LifeWorkerConfig, _runner_namespace
+    from argus_skill.loop import SkillLoopConfig
+
+    cfg = LifeWorkerConfig(
+        life_dir=tmp_path / "life",
+        backend="memory",
+        continuous_open_ended=True,
+        continuous_objective="prove or disprove the conjecture",
+    )
+    ns = _runner_namespace(cfg)
+
+    # Namespace must carry open_ended and continuous_objective
+    assert ns.open_ended is True
+    assert ns.continuous_objective == "prove or disprove the conjecture"
+
+    # SkillLoopConfig must accept and store them (mirroring what execute() does)
+    loop_config = SkillLoopConfig(
+        open_ended=bool(getattr(ns, "open_ended", False)),
+        continuous_objective=str(getattr(ns, "continuous_objective", "") or ""),
+    )
+    assert loop_config.open_ended is True
+    assert loop_config.continuous_objective == "prove or disprove the conjecture"
+
+    # execute() reads via getattr(config, "open_ended", False); verify the value
+    assert bool(getattr(loop_config, "open_ended", False)) is True
+    assert (
+        str(getattr(loop_config, "continuous_objective", "") or "")
+        == "prove or disprove the conjecture"
+    )
+
+
+def test_open_ended_final_stage_manager_rollback_preserved_not_overwritten(
+    tmp_path: Path,
+) -> None:
+    """Production-topology regression: for a daemon-created open-ended campaign,
+    a Manager JSON rollback at the final math stage must be preserved as rollback
+    and write stage 'solve', rather than being overwritten by bounded final completion.
+
+    The wiring path under test:
+      LifeWorkerConfig.continuous_open_ended=True
+        → _runner_namespace → ns.open_ended=True
+        → SkillLoopConfig(open_ended=True)
+        → getattr(config, "open_ended", False) == True
+        → _decide_stage_transition(open_ended=True)
+        → final_stage_completion_decision is skipped
+        → rollback is applied
+    """
+    persist_vertical(tmp_path, "math")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "pending"},
+            },
+        },
+    )
+
+    # Manager LLM returns a structured rollback to "solve"
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "solve",
+        "reason": "proof not complete; retry solve stage",
+    })
+    runner = _runner_with(backend)
+    sink = _Sink()
+
+    # Build a certified-done review (enough to trigger final_stage_completion_decision
+    # and overwrite rollback if open_ended=False / the bug path)
+    checklist = resolve_stage_checklist_contract("review", project_root=tmp_path)
+    if checklist.items:
+        review = _review(
+            checklist=[
+                {
+                    "item": item.id,
+                    "satisfied": True,
+                    "evidence": f"verified {item.evidence_hint}",
+                }
+                for item in checklist.items
+            ]
+        )
+    else:
+        review = _review()
+
+    from argus_skill.daemon.life_worker import LifeWorkerConfig, _runner_namespace
+    from argus_skill.loop import SkillLoopConfig
+
+    # Build config via the production wiring path
+    daemon_cfg = LifeWorkerConfig(
+        life_dir=tmp_path / "life",
+        backend="memory",
+        continuous_open_ended=True,
+        continuous_objective="Continue until proof or counterexample.",
+    )
+    ns = _runner_namespace(daemon_cfg)
+    loop_config = SkillLoopConfig(
+        open_ended=bool(getattr(ns, "open_ended", False)),
+        continuous_objective=str(getattr(ns, "continuous_objective", "") or ""),
+    )
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(review)],
+        workdir=tmp_path,
+        sink=sink,
+        open_ended=bool(getattr(loop_config, "open_ended", False)),
+        continuous_objective=str(getattr(loop_config, "continuous_objective", "") or ""),
+    )
+
+    assert decision["action"] == "rollback", (
+        f"expected rollback, got {decision['action']!r} — "
+        "open_ended was not propagated and bounded final completion overwrote the rollback"
+    )
+    assert decision["target_stage"] == "solve"
+    assert _stage(tmp_path) == "solve"
+    assert any(
+        e.get("type") == "life.manager.stage_decision" and e.get("action") == "rollback"
+        for e in sink.events
+    )
+
+
+# ---------------------------------------------------------------------------
+# execute()-path regression: config_kwargs wiring
+# ---------------------------------------------------------------------------
+
+class _ConfigKwargsCaptured(Exception):
+    """Sentinel: raised by the spy SkillLoopConfig to abort execute() early."""
+
+    def __init__(self, kwargs: dict) -> None:
+        self.kwargs = kwargs
+
+
+def test_execute_path_writes_open_ended_into_skill_loop_config_kwargs(
+    tmp_path: Path,
+) -> None:
+    """execute() must populate config_kwargs['open_ended'] and
+    config_kwargs['continuous_objective'] from args before constructing
+    SkillLoopConfig.
+
+    Regression guard: the two production lines
+        config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
+        config_kwargs["continuous_objective"] = str(...)
+    in _SkillLoopRunner.execute() are only reachable via execute() itself.
+    All previous tests manually construct SkillLoopConfig, so deleting those
+    lines would leave every other new test green.  This test calls execute()
+    real enough to reach line 734 (self._SkillLoopConfig(**config_kwargs))
+    and asserts the values are present — not the dataclass defaults.
+    """
+    captured: dict = {}
+
+    class _SpyConfig:
+        """Captures config_kwargs, then aborts execute() via sentinel exception."""
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            raise _ConfigKwargsCaptured(kwargs)
+
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._allow_chat_fast_path = False
+    runner._SkillLoopConfig = _SpyConfig
+    runner._args = SimpleNamespace(
+        engineer_model="stub-model",
+        reviewer_model="stub-model",
+        max_rounds=1,
+        workdir=str(tmp_path),
+        open_ended=True,
+        continuous_objective="prove or disprove the conjecture",
+    )
+
+    with pytest.raises(_ConfigKwargsCaptured):
+        runner.execute(objective="stub objective", sink=_Sink())
+
+    assert captured.get("open_ended") is True, (
+        "execute() did not forward open_ended=True into SkillLoopConfig kwargs"
+    )
+    assert captured.get("continuous_objective") == "prove or disprove the conjecture", (
+        "execute() did not forward continuous_objective into SkillLoopConfig kwargs"
+    )

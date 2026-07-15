@@ -2012,3 +2012,44 @@ def test_strip_git_config_injection_noop_when_absent() -> None:
     removed = _strip_git_config_injection(env)
     assert removed == []
     assert env == {"PATH": "/usr/bin", "HOME": "/home/x"}
+
+
+# ---------------------------------------------------------------------------
+# Regression: _runner_namespace must propagate open_ended + continuous_objective
+# ---------------------------------------------------------------------------
+
+def test_runner_namespace_propagates_open_ended_and_continuous_objective(
+    tmp_path: Path,
+) -> None:
+    """_runner_namespace must copy LifeWorkerConfig.continuous_open_ended → ns.open_ended
+    and LifeWorkerConfig.continuous_objective → ns.continuous_objective unchanged.
+
+    Regression: before the fix these attributes were absent from the namespace, so
+    _SkillLoopRunner.execute used getattr(args, "open_ended", False) == False even
+    for daemon-created open-ended campaigns, causing the Manager's rollback decisions
+    at the final stage to be silently overwritten by bounded final completion.
+    """
+    ns = _runner_namespace(
+        LifeWorkerConfig(
+            life_dir=tmp_path / "life",
+            backend="memory",
+            continuous_open_ended=True,
+            continuous_objective="keep proving X",
+        )
+    )
+    assert ns.open_ended is True
+    assert ns.continuous_objective == "keep proving X"
+
+
+def test_runner_namespace_open_ended_false_for_bounded_daemon(tmp_path: Path) -> None:
+    """A bounded daemon (continuous_open_ended=False) must produce open_ended=False."""
+    ns = _runner_namespace(
+        LifeWorkerConfig(
+            life_dir=tmp_path / "life",
+            backend="memory",
+            continuous_open_ended=False,
+            continuous_objective="",
+        )
+    )
+    assert ns.open_ended is False
+    assert ns.continuous_objective == ""

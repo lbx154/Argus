@@ -259,6 +259,53 @@ def append_event(
         )
 
 
+def resume_atomically_if_done(
+    memory_root: Path,
+    *,
+    new_status: "ProjectStatus",
+    event: "LifecycleEvent",
+) -> bool:
+    """Atomically write the resumed state only if the persisted state is still ``done``.
+
+    Takes the lifecycle file lock, re-reads the persisted state inside the
+    critical section, and writes only if the state has not changed since the
+    caller last inspected it.  This makes the check → write a single critical
+    section and prevents a TOCTOU race where two concurrent dispatches (e.g.
+    two simultaneous ``manager_message`` calls) both observe ``done`` and both
+    attempt to write a resumed state.
+
+    Returns ``True`` if the transition was written, ``False`` if the state was
+    already non-``done`` (idempotent — a concurrent caller already resumed,
+    which is the correct outcome for the caller to treat as a no-op).
+    """
+    with _lifecycle_lock(memory_root):
+        try:
+            persisted = load_persisted(memory_root)
+        except LifecycleIOError:
+            persisted = {}
+        if str(persisted.get("state") or "") != "done":
+            return False
+        history_raw = persisted.get("history") or []
+        history: list[LifecycleEvent] = []
+        for entry in history_raw:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                history.append(
+                    LifecycleEvent(
+                        at=_parse_iso(entry.get("at")) or datetime.now(timezone.utc),
+                        from_state=ProjectState(entry["from_state"]),
+                        to_state=ProjectState(entry["to_state"]),
+                        reason=str(entry.get("reason", "")),
+                    )
+                )
+            except (KeyError, ValueError):
+                continue
+        history.append(event)
+        _write_persisted_unlocked(memory_root, status=new_status, history=history)
+        return True
+
+
 def load_history(memory_root: Path) -> list[LifecycleEvent]:
     """Return all persisted events (most recent last). Empty list if
     no file / unreadable / no history."""

@@ -156,9 +156,11 @@ def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
     }.issubset({item.id for item in contract.items})
 
 
-def test_empty_math_review_override_is_not_treated_as_passed(tmp_path: Path) -> None:
+def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> None:
+    """Seed-plus-override: an empty stages entry merges with vertical seeds → LOADED."""
     persist_vertical(tmp_path, "math")
     checklist_path = tmp_path / "research" / "CHECKLISTS.json"
+    checklist_path.parent.mkdir(parents=True, exist_ok=True)
     checklist_path.write_text(
         json.dumps({"revision": 1, "stages": {"review": []}}),
         encoding="utf-8",
@@ -166,8 +168,15 @@ def test_empty_math_review_override_is_not_treated_as_passed(tmp_path: Path) -> 
 
     contract = resolve_stage_checklist_contract("review", project_root=tmp_path)
 
-    assert contract.state is ChecklistLoadState.EMPTY
+    # An empty stages entry no longer suppresses the vertical seeds.
+    assert contract.state is ChecklistLoadState.LOADED
     assert contract.checklist_optional is False
+    ids = {item.id for item in contract.items}
+    assert {
+        "review.statement-fidelity",
+        "review.no-goal-drift",
+        "review.correctness-novelty-separated",
+    }.issubset(ids)
 
 
 def test_math_has_no_target_schema_or_legacy_lifecycle_branches() -> None:
