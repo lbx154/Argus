@@ -1,0 +1,89 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Scientific research is a long-horizon activity. A useful result usually emerges
+from a sequence of dependent decisions: selecting a direction, modifying an
+artifact, running an experiment, interpreting the measurements, and deciding what to
+try next. The difficulty is therefore not only whether a model can solve an
+isolated reasoning problem, but whether a system can preserve the state of inquiry
+across many model calls, tool invocations, failures, restarts, and delayed
+measurements.
+
+Large language model agents have made substantial progress on tool use and
+software tasks. Toolformer learns when to invoke external tools
+~\citep{schick2023toolformer}, ReAct couples reasoning with actions
+~\citep{yao2023react}, and systems such as SWE-agent and OpenHands expose
+repository editing through agent-computer interfaces
+~\citep{yang2024sweagent,wang2024openhands}. Automated research systems extend this
+idea to experiment generation and scientific writing
+~\citep{lu2024aiscientist,jiang2025aide,yamada2025aiscientistv2}, while Arbor
+represents research as a persistent hypothesis tree refined by a coordinator and
+isolated executors~\citep{jin2026arbor}. These systems show that models can carry
+out increasingly complex research actions. They also make the remaining systems
+problem more visible: longer execution does not by itself make the work cumulative,
+inspectable, or reliable.
+
+In practice, long-running agents fail in three recurrent ways, consistent with
+results showing that agent success declines as software-task horizons grow
+~\citep{kwa2025longtasks}. First,
+\emph{continuity} is fragile: a growing transcript is eventually compacted or
+dropped, and later calls spend time reconstructing decisions that were already
+made. Second, \emph{acceptance} is ambiguous when the component that performs the
+work also declares it complete. Third, \emph{experience} is lost when only the
+final artifact survives; failed branches, contaminated measurements, and useful
+procedures disappear with the session that produced them. Hierarchical and
+workflow-oriented memory systems address parts of this problem
+~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}. A larger context window
+can postpone the first failure, but it does not resolve the other two and does not
+turn a transcript into durable institutional memory.
+
+We present \system{} (Autonomous Research Generation and Understanding System), a
+persistent runtime for long-horizon autonomous research. Its central abstraction
+is a sequence of \emph{bounded missions} executed against a durable project state.
+Four model-driven roles divide authority: a Manager anchors the objective and
+campaign state, a Planner selects the next units of work, an Engineer implements
+and evaluates them, and a Reviewer inspects artifacts and run outputs before issuing
+the completion verdict. These roles operate across three planes---control,
+execution, and records---so that scheduling, work, and record keeping remain
+separable even though they participate in one continuous loop.
+
+The runtime is designed to accumulate useful experience without updating the base
+model. Each mission emits a trajectory and a set of reviewer-approved results. The
+system uses these records to update persistent memory, reusable
+skills, procedures, verifiers, routing, and evaluations while holding the model
+parameters fixed. We call this mechanism \emph{review-gated runtime evolution}.
+The term \emph{dense intelligence} describes the corresponding design goal: keep
+decision, execution, and verification connected over the research horizon rather
+than concentrating useful reasoning into isolated bursts. It is a design principle,
+not a reported scalar metric.
+
+We study the resulting system through two public records. The first
+contains six heterogeneous benchmark arenas spanning GPU kernels, language-model
+training, research-assistant tasks, and data synthesis. The second is a
+de-duplicated inventory of 41 research artifacts across six programs. The results show
+that the runtime can support productive work across distinct settings, but the
+current evaluation is observational: it does not isolate the effect of each
+architectural component under a common controlled baseline.
+
+This report makes three contributions:
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+  \item We formulate long-horizon autonomous research as a sequence of bounded
+    missions over persistent state, separating artifact improvement from the
+    retention and verification mechanisms that make progress cumulative.
+  \item We introduce a role-separated runtime that combines durable objectives,
+    bounded context, independent review, append-only run records, and fixed-model
+    runtime evolution in one operational system.
+  \item We provide a protocol-explicit empirical record across six benchmark
+    arenas and six research programs, preserving protocol and provenance
+    boundaries instead of collapsing heterogeneous results into a single score.
+\end{enumerate}
+
+The remainder of the report follows a conventional research-paper organization.
+Section~\ref{sec:related} positions the system against prior agent and autonomous
+research work. Section~\ref{sec:problem} formalizes the operating problem;
+Section~\ref{sec:method} presents the runtime; Sections~\ref{sec:methodology} and
+\ref{sec:results} describe the evaluation protocol and results; and
+Sections~\ref{sec:discussion}--\ref{sec:conclusion} discuss interpretation,
+limitations, and conclusions. Implementation contracts and operational defaults
+are moved to the appendix.

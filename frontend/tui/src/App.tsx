@@ -1122,18 +1122,9 @@ export function App({
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
       ) : daemonDraft ? (
         <NewDaemonForm draft={daemonDraft} />
-      ) : panel ? (
-        <PanelView
-          panel={panel}
-          snap={snap}
-          events={events}
-          viewportRows={terminal.rows}
-          viewportColumns={terminal.columns}
-          activeProject={project}
-        />
       ) : (
         <>
-          {missionView && !slashMenuOpen ? (
+          {missionView && !slashMenuOpen && !panel ? (
             <MissionCockpit
               view={missionView}
               width={terminal.columns}
@@ -1144,35 +1135,50 @@ export function App({
               requestUsage={snap?.request_usage}
             />
           ) : null}
+          {/* Ink 5 retains a root pointer to the latest Static node after unmount;
+              keep EventLog mounted and collapse it while overlays are open. */}
           <EventLog
             events={events}
             width={terminal.columns}
             mode="conversation"
             liveMessageId={managerRequestRef.current?.messageId}
-            collapsed={slashMenuOpen}
+            collapsed={slashMenuOpen || Boolean(panel)}
           />
-          {pending && !slashMenuOpen && (
-            <ThinkingLine
-              tick={tick}
-              phase={phase}
-              elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
+          {panel ? (
+            <PanelView
+              panel={panel}
+              snap={snap}
+              events={events}
+              viewportRows={terminal.rows}
+              viewportColumns={terminal.columns}
+              activeProject={project}
             />
+          ) : (
+            <>
+              {pending && !slashMenuOpen && (
+                <ThinkingLine
+                  tick={tick}
+                  phase={phase}
+                  elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
+                />
+              )}
+              <Box flexDirection="column" flexShrink={0}>
+                <SlashMenu
+                  items={comps}
+                  selected={Math.min(menuSel, comps.length - 1)}
+                  maxVisible={slashMenuVisibleRows(terminal.rows)}
+                />
+                <PromptBox edit={edit} width={terminal.columns} />
+              </Box>
+              {!slashMenuOpen ? (
+                <Footer
+                  notice={notice}
+                  health={healthNotice}
+                  width={terminal.columns}
+                />
+              ) : null}
+            </>
           )}
-          <Box flexDirection="column" flexShrink={0}>
-            <SlashMenu
-              items={comps}
-              selected={Math.min(menuSel, comps.length - 1)}
-              maxVisible={slashMenuVisibleRows(terminal.rows)}
-            />
-            <PromptBox edit={edit} width={terminal.columns} />
-          </Box>
-          {!slashMenuOpen ? (
-            <Footer
-              notice={notice}
-              health={healthNotice}
-              width={terminal.columns}
-            />
-          ) : null}
         </>
       )}
     </Box>

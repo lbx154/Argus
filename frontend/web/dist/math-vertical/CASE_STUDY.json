@@ -1,326 +1,37 @@
 {
-  "schema_version": 1,
-  "captured_at": "2026-07-15T14:43:42.659752+00:00",
+  "schema_version": 2,
+  "captured_at": "2026-07-16T07:43:52Z",
   "project_id": "s-5d9502e7",
-  "case": "Erdős Problem #707",
-  "problem_summary": "Study whether every four-element integer Sidon set embeds in some cyclic perfect difference set, with {0,1,3,11} as a central candidate.",
-  "selected_subproblem": "独立审计 L35 的 C7 方法边界",
-  "active_mission_id": "7205c89a67d2",
-  "active_mission_status": "working",
-  "stage": "review",
-  "round": {
-    "current": 2,
-    "max": 500
+  "case": "Erdős #707-derived A*/F4 cyclic PDS embedding study",
+  "problem_summary": "原始 Erdős #707 的 prime-parameter 陈述已有反例；本项目研究放宽到任意整数参数后的四点命题 F4，并重点分析 A*={0,1,3,11} 的嵌入。",
+  "selected_result": "L35 multiplier-coupled C7 method boundary",
+  "original_problem_707_status": "disproved_by_external_counterexample",
+  "a_star_f4_target_solved": false,
+  "result": {
+    "classification": "reviewed_method_boundary",
+    "correctness": "verified_natural_language",
+    "novelty": "mixed_unverified",
+    "significance": "rigorous_terminal_boundary_for_one_relaxation",
+    "bounded_review_gate": "complete",
+    "project_target": "open"
   },
-  "active_role": "engineer",
-  "vertical_contexts": [
-    "argus_skill/verticals/math/skills/manager/math-research-manager.md",
-    "argus_skill/verticals/math/skills/planner/math-research-planning.md",
-    "argus_skill/verticals/math/skills/scientist/math-research-adaptation.md",
-    "argus_skill/verticals/math/skills/engineer/math-research-execution.md",
-    "argus_skill/verticals/math/skills/reviewer/math-research-review.md"
-  ],
-  "checklist_snapshot": {
-    "revision": 1,
-    "stages": {
-      "solve": [
-        {
-          "evidence_hint": "查看 research/SOLVE.md 中对应的完整定理及证明，并在 research/CLAIM_LEDGER.md 中核对独立的正确性、新颖性和意义分类。",
-          "id": "solve.target-achievement",
-          "statement": "每个 bounded solve item 必须明确指出并证明满足该 item 目标的终端数学结果，例如无界 obstruction、无限族排除或结构分类，并独立记录其 novelty 与 significance；不得把项目级 publishable 门槛强加为 bounded item 的完成条件。"
-        }
-      ]
-    }
+  "human_summary": {
+    "proved": "在显式无界奇数族 q=(14r+9)^2 上，完整 multiplier-coupled C7 weighted relaxation 对每个候选规范化平移都可行，因此该松弛不能成为普遍 obstruction。",
+    "not_proved": "没有构造 PDS，没有证明 A* 可嵌入或不可嵌入，没有解决仍开放的 F4 目标；也没有改写原始 #707 已被反例否定的事实。",
+    "novelty_boundary": "Hall 商群方程与 multiplier 输入已知；精确参数化、full-lift 碰撞表与 all-translate family 尚未完成 verified-new 认证。",
+    "formalization": "本案例尚无 Lean 证书。"
   },
   "artifacts": [
-    {
-      "path": "research/PIPELINE_STATE.json",
-      "exists": true,
-      "bytes": 8958
-    },
-    {
-      "path": "research/CHECKLISTS.json",
-      "exists": true,
-      "bytes": 903
-    },
-    {
-      "path": "research/SCOPE.md",
-      "exists": true,
-      "bytes": 18244
-    },
-    {
-      "path": "research/SOLVE.md",
-      "exists": true,
-      "bytes": 133440
-    },
-    {
-      "path": "research/CLAIM_LEDGER.md",
-      "exists": true,
-      "bytes": 30282
-    },
-    {
-      "path": "research/REVIEW.md",
-      "exists": true,
-      "bytes": 72269
-    },
-    {
-      "path": "research/code/audit_c7_quotient.py",
-      "exists": true,
-      "bytes": 3394
-    },
-    {
-      "path": "research/code/check_completion_conditions.py",
-      "exists": true,
-      "bytes": 5493
-    },
-    {
-      "path": "research/computation/completion_conditions.txt",
-      "exists": true,
-      "bytes": 2469
-    }
+    "products/erdos-707/theorem-and-proof.md",
+    "products/erdos-707/claim-ledger-l35.md",
+    "products/erdos-707/reviewer-conclusion-l35.md",
+    "products/erdos-707/audit_c7_quotient.py",
+    "products/erdos-707/c7-audit-output.txt",
+    "products/erdos-707/research-report.md"
   ],
-  "latest_reviewer_verdict": {
-    "status": "continue",
-    "reason": "当前 bounded review gate 未完成：research/REVIEW.md 仍止于 §9.8 的 L34 审计，当前工程师调用期间没有写入 L35 专项章节。虽然对 Proposition 15.1、Theorems 15.2–15.3 的关键代数边进行了独立抽查，未发现明显错误，但所要求的并排 statement-fidelity 审计、完整 correctness 论证和有界一手新颖性审计尚未形成持久证据。工程师正确识别并拒绝了网页代理对 Alexeev–Mixon Sections 4–5 的虚假 orbit-fiber 归因；本地原文显示这些章节讨论 projective-plane 结构。相关文本凭据扫描返回 NO_CREDENTIAL_PATTERNS。",
-    "source": "read-only compact project snapshot"
-  },
-  "latest_completed_structured_result": {
-    "result_class": "novelty_unverified",
-    "correctness_status": "verified",
-    "novelty_status": "unverified",
-    "significance_status": "exploratory",
-    "statement_fidelity_status": "verified",
-    "evidence": [
-      "research/SOLVE.md §15 给出 Proposition 15.1 与 Theorems 15.2–15.3 的完整自然语言证明。",
-      "Proposition 15.1 的中心化变量、二次型及逆向整除推导相互一致。",
-      "Theorem 15.2 的 full-group orbit 等价、两种碰撞同余、gcd 分类及 multiplier fixed points 相互一致。",
-      "Theorem 15.3 的 q=(14r+9)^2 坐标至少为 4，而 Theorem 15.2 的全部强制坐标至多为 3，故同一向量支配每个 full lift c。",
-      "research/SOLVE.md 3026–3044 与 CLAIM_LEDGER.md L35 明确限定为 weighted quotient method boundary。",
-      "Hall 1947 printed p.1084, Cor. 4.2 已认证 quotient autocorrelation 方程为 known。",
-      "Alexeev–Mixon 本地原文 219–224、274–280、330ff. 不支持网页代理声称的 orbit-fiber 先例。"
-    ],
-    "limitations": [
-      "research/REVIEW.md 尚无 L35 专项审计，当前 correctness 与 fidelity 判断尚未持久化到要求的工件。",
-      "精确 C7 参数化、碰撞敏感 lower bounds 和 all-translate family 的一手新颖性检索尚未完成，不能称 verified-new。",
-      "audit_c7_quotient.py 只有限检查 q≤300 和 r≤20，不能证明无界结论。",
-      "weighted quotient feasibility 不构造 PDS、不证明 A* 嵌入或非嵌入，也不解决 F4。",
-      "该 bounded 方法分类不满足项目级 publishable 目标。"
-    ]
-  },
-  "latest_completed_structured_result_ts": 1784126455.7948022,
-  "latest_completed_review_reason": "当前 bounded review gate 未完成：research/REVIEW.md 仍止于 §9.8 的 L34 审计，当前工程师调用期间没有写入 L35 专项章节。虽然对 Proposition 15.1、Theorems 15.2–15.3 的关键代数边进行了独立抽查，未发现明显错误，但所要求的并排 statement-fidelity 审计、完整 correctness 论证和有界一手新颖性审计尚未形成持久证据。工程师正确识别并拒绝了网页代理对 Alexeev–Mixon Sections 4–5 的虚假 orbit-fiber 归因；本地原文显示这些章节讨论 projective-plane 结构。相关文本凭据扫描返回 NO_CREDENTIAL_PATTERNS。",
-  "correctness_novelty_significance": {
-    "correctness": "verified",
-    "novelty": "unverified",
-    "significance": "exploratory",
-    "statement_fidelity": "verified"
-  },
-  "stage_history": [
-    {
-      "at": "2026-07-15T11:20:51.452610+00:00",
-      "by": "manager",
-      "direction": "complete",
-      "from_stage": "review",
-      "reason": "The bounded review is complete, but it confirms the project remains non-publishable and the core embedding questions remain open. Further high-impact work belongs in solve, targeting higher-correlation additive-realizability conditions rather than the exhausted endpoint-capacity template.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T11:30:26.332454+00:00",
-      "by": "manager",
-      "direction": "rollback",
-      "from_stage": "review",
-      "reason": "The current review-stage gate prevents the requested higher-order research from running, while the prior bounded review is already complete and the core objective remains unresolved. Roll back to solve to enable the indexed trispectrum/additive-realizability work.",
-      "to_stage": "solve"
-    },
-    {
-      "at": "2026-07-15T11:51:26.271250+00:00",
-      "by": "manager",
-      "direction": "advance",
-      "from_stage": "solve",
-      "reason": "The reviewer confirmed the bounded solve target: Theorems 11.1–11.2 provide the terminal structural classification, and L29–L30 independently record correctness, novelty, significance, and limitations. Project-level completion remains unresolved and must not be inferred.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T12:26:29.869935+00:00",
-      "by": "manager",
-      "direction": "complete",
-      "from_stage": "review",
-      "reason": "The review checklist is fully satisfied, but the publishable objective remains unresolved: L29 only restates actual PDS completion and L30 gives neither a construction nor a non-embedding certificate for A*. Further work requires a new solve mechanism rather than more review of the closed integrability route.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T13:18:11.192841+00:00",
-      "by": "manager",
-      "direction": "complete",
-      "from_stage": "review",
-      "reason": "The bounded review is fully satisfied, but it confirms only a limitation of the local certificate method: the abstract models are not PDSs, and the actual embedding problem remains open. Further progress requires solve-stage work on global PDS constraints such as anonymous-point encoding, full capacity, or complete nonzero-difference coverage.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T13:19:12.930614+00:00",
-      "by": "manager",
-      "direction": "rollback",
-      "from_stage": "review",
-      "reason": "The review gate is complete, but the open-ended objective remains unresolved and no publishable result exists. Concrete high-impact work on global PDS constraints belongs in solve; no further review task is currently justified.",
-      "to_stage": "solve"
-    },
-    {
-      "at": "2026-07-15T13:46:11.549923+00:00",
-      "by": "manager",
-      "direction": "advance",
-      "from_stage": "solve",
-      "reason": "The bounded solve target is fully met: Theorems 14.1–14.2 and Corollary 14.3 provide a proved all-parameter C3 feasibility classification and an infinite odd-order no-PDS family, while L34 independently records correctness, novelty, significance, scope, and limitations.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T14:02:31.945282+00:00",
-      "by": "manager",
-      "direction": "complete",
-      "from_stage": "review",
-      "reason": "The review gate is complete, but Hall 1947 shows the main quotient obstruction is known, while F4 and the actual A* embedding remain open. Further progress requires solve-stage work on joint quotient compatibility or point-level lifting obstructions.",
-      "to_stage": "review"
-    },
-    {
-      "at": "2026-07-15T14:04:30.611774+00:00",
-      "by": "manager",
-      "direction": "rollback",
-      "from_stage": "review",
-      "reason": "The review gate is complete, but the campaign objective remains unresolved: L34 is largely classical or novelty-unverified, and neither A* nor F4 is settled. Roll back to solve so the pipeline can pursue new global compatibility or lifting obstructions.",
-      "to_stage": "solve"
-    },
-    {
-      "at": "2026-07-15T14:30:29.111583+00:00",
-      "by": "manager",
-      "direction": "advance",
-      "from_stage": "solve",
-      "reason": "The bounded solve target is fully met: Theorems 15.2–15.3 give an exact all-c fiber-bound classification and a symbolic unbounded family where the complete C7 relaxation remains feasible, while L35 independently records correctness, novelty, significance, scope, and limitations.",
-      "to_stage": "review"
-    }
-  ],
-  "timeline": [
-    {
-      "id": "3c00b88c3c80dddc5a5e",
-      "ts": 1784124884.4141529,
-      "type": "round.start",
-      "role": "engineer",
-      "title": "Round 2 started",
-      "detail": "",
-      "tone": "neutral"
-    },
-    {
-      "id": "7fff27783a7c053e7aaa",
-      "ts": 1784125328.813036,
-      "type": "round.review.completed",
-      "role": "reviewer",
-      "title": "Attempt rejected",
-      "detail": "本轮取得实质进展但尚未完成 bounded objective。`SOLVE.md` Theorem 15.2 已给出全部 full lift c 的精确 q-轨道逐纤维下界及碰撞同余；文件随后结束，尚未把这些下界与 Proposition 15.1 联立成明确无界范围上的 all-c 可行性方法边界或 A*-specific 无限非嵌入族，且 L35 仍标为 terminal classification pending。",
-      "tone": "error"
-    },
-    {
-      "id": "8cd88d659e631234f464",
-      "ts": 1784125330.7112153,
-      "type": "round.start",
-      "role": "engineer",
-      "title": "Round 3 started",
-      "detail": "",
-      "tone": "neutral"
-    },
-    {
-      "id": "8d5f06b3f8da99ff5467",
-      "ts": 1784125812.0250273,
-      "type": "round.review.completed",
-      "role": "reviewer",
-      "title": "Evidence accepted",
-      "detail": "bounded objective 已完成。Theorem 15.2 对所有 admissible q 和每个 full lift c 精确分类逐纤维下界；Theorem 15.3 构造显式无界族 q=(14r+9)^2，使同一 Hall-feasible C7 向量对每个 c 同时支配这些下界。证明为符号无界论证，有限审计仅作 sanity check；L35 已完成独立五轴分类。",
-      "tone": "success"
-    },
-    {
-      "id": "6483cf35c8b9a17b9342",
-      "ts": 1784125829.1118667,
-      "type": "life.manager.stage_decision",
-      "role": "manager",
-      "title": "Stage → review",
-      "detail": "The bounded solve target is fully met: Theorems 15.2–15.3 give an exact all-c fiber-bound classification and a symbolic unbounded family where the complete C7 relaxation remains feasible, while L35 independently records correctness, novelty, significance, scope, and limitations.",
-      "tone": "neutral"
-    },
-    {
-      "id": "377562e9969aaf856fde",
-      "ts": 1784125831.1420276,
-      "type": "life.mission.completed",
-      "role": "engineer",
-      "title": "Mission achievement",
-      "detail": "分类 C7 multiplier-coupled 商群 obstruction",
-      "tone": "success",
-      "item_id": "319ac326fa36"
-    },
-    {
-      "id": "b7b4411ef2fd71465416",
-      "ts": 1784125889.6663864,
-      "type": "life.planner.task_added",
-      "role": "planner",
-      "title": "Research branch added",
-      "detail": "独立审计 L35 的 C7 方法边界",
-      "tone": "info",
-      "item_id": "7205c89a67d2",
-      "branch_id": "7205c89a67d2"
-    },
-    {
-      "id": "7a6abbdaa48f47ea2506",
-      "ts": 1784125892.49106,
-      "type": "life.planner.verdict",
-      "role": "planner",
-      "title": "Planning complete",
-      "detail": "当前 review 阶段尚未关闭：REVIEW.md 仅认证至 L34，而 L35 明示尚无独立正确性与新颖性审计。L35 只是 C7 加权松弛的方法边界，未解决 A* 嵌入或 F4，也未达到 publishable 标准。",
-      "tone": "neutral"
-    },
-    {
-      "id": "546578115ebf075d6527",
-      "ts": 1784125893.5685709,
-      "type": "life.mission.started",
-      "role": "engineer",
-      "title": "Mission started",
-      "detail": "独立审计 L35 的 C7 方法边界",
-      "tone": "info",
-      "item_id": "7205c89a67d2"
-    },
-    {
-      "id": "71a3e571203ef8bc4735",
-      "ts": 1784125908.2485838,
-      "type": "round.start",
-      "role": "engineer",
-      "title": "Round 1 started",
-      "detail": "",
-      "tone": "neutral"
-    },
-    {
-      "id": "c43e1d3023dfdeeb18f9",
-      "ts": 1784126455.7948022,
-      "type": "round.review.completed",
-      "role": "reviewer",
-      "title": "Attempt rejected",
-      "detail": "当前 bounded review gate 未完成：research/REVIEW.md 仍止于 §9.8 的 L34 审计，当前工程师调用期间没有写入 L35 专项章节。虽然对 Proposition 15.1、Theorems 15.2–15.3 的关键代数边进行了独立抽查，未发现明显错误，但所要求的并排 statement-fidelity 审计、完整 correctness 论证和有界一手新颖性审计尚未形成持久证据。工程师正确识别并拒绝了网页代理对 Alexeev–Mixon Sections 4–5 的虚假 orbit-fiber 归因；本地原文显示这些章节讨论 projective-plane 结构。相关文本凭据扫描返回 NO_CREDENTIAL_PATTERNS。",
-      "tone": "error"
-    },
-    {
-      "id": "6168847ede199bc0b659",
-      "ts": 1784126457.7245483,
-      "type": "round.start",
-      "role": "engineer",
-      "title": "Round 2 started",
-      "detail": "",
-      "tone": "neutral"
-    }
-  ],
-  "honest_limitations": [
-    "The original open problem is not reported solved.",
-    "The current selected review subproblem is bounded and does not certify the publishable project target.",
-    "Correctness, novelty, and significance are reported separately.",
-    "Finite scripts and quotient relaxations are not promoted to universal PDS theorems without proof."
-  ],
-  "excluded_from_export": [
-    "events.jsonl",
-    "source PDFs and full extracted papers",
-    "databases and checkpoints",
-    "credentials and absolute runtime paths"
-  ]
+  "source_hashes": {
+    "research/SOLVE.md": "d5f6799b3ccddaa855d222500c847dd6f4a04f78bfa28bd1572a073bd7ee6dcf",
+    "research/CLAIM_LEDGER.md": "c7287e7ad56e56c2cc72a1c55e33ab6ecfdafd08b2909595c3897617997e79e4",
+    "research/REVIEW.md": "96a438bbd7c5081cc541982b62fb7f60a49e6df887895968b377847e9fc6701c"
+  }
 }

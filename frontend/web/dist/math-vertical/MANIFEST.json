@@ -1,16 +1,16 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "route": "/math-vertical/",
   "entry": "frontend/web/public/math-vertical/index.html",
-  "integration_revision": "c22c6cdf88c422e290526cf503606f5ebc21446b",
-  "demo_source_revision": "fc51a09cf796eacfa0f729521192107faa51976b",
-  "generated_at": "2026-07-15T15:58:46.490728+00:00",
-  "asset_count_excluding_manifest": 24,
+  "base_revision": "7f0525d34e1608fae28362ec24064cb495daee3c",
+  "captured_at": "2026-07-16T07:43:52Z",
+  "case": "Erdős #707-derived A*/F4 cyclic PDS embedding study / L35",
+  "asset_count_excluding_manifest": 31,
   "assets": [
     {
       "path": "CASE_STUDY.json",
-      "bytes": 15910,
-      "sha256": "f66713e86ccdbd19be6fad2d046f50d170e173969f3326d142ab94cd4457f6fc"
+      "bytes": 2067,
+      "sha256": "e0c58a1fbd6d0321b60e0324a4cdd13dfc8b78b513c0c7c7a4bd393acf17de13"
     },
     {
       "path": "CODE_SNIPPETS.json",
@@ -18,9 +18,19 @@
       "sha256": "c9e44bdf5a9c16c3c3069d1bf3313a9db4a73235f82fb1d1a2bb52262ad58b37"
     },
     {
+      "path": "DEMO_SUMMARY.json",
+      "bytes": 1286,
+      "sha256": "e3fa354a074afbfbfc064bc8409e27655bdb0d21d1b6c6f8d95271370270cf3e"
+    },
+    {
       "path": "MISSING_FILES.json",
-      "bytes": 1111,
-      "sha256": "2aeab2ecacbb27261b801917496f2c48da18f12725f56f2bf1b5216a5b72706d"
+      "bytes": 1471,
+      "sha256": "61d83deb798f3bf15ce689788515bc59d7e3d73190f159fd980455bbedf35736"
+    },
+    {
+      "path": "PRODUCTS.json",
+      "bytes": 3081,
+      "sha256": "c13abbae29f6a23e52e28fb1a37f33f7dbcb8cdd1abb6254d4a4f45f8286bf87"
     },
     {
       "path": "TEST_RESULTS.json",
@@ -36,11 +46,6 @@
       "path": "case_study/completion_conditions.txt",
       "bytes": 2469,
       "sha256": "d8916efcd3c7a40966f01ff98e2738e6ced0ce9fc02ce2ffb58035baee5e2a48"
-    },
-    {
-      "path": "diagrams/case-timeline.svg",
-      "bytes": 2680,
-      "sha256": "690a93b5bafad8455d2a18db715055a9d00395ba95c35417f16179b9692d54b8"
     },
     {
       "path": "diagrams/checklist-review-flow.svg",
@@ -104,8 +109,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 20737,
-      "sha256": "73260c3d39d85bcb245405374e2f218ab9dc4b7515af3a235949729d31ba7f00"
+      "bytes": 26785,
+      "sha256": "9a45ba71810896cee1e95c756d66afb40a185dd06740971d99b5d1cc7436a9dc"
     },
     {
       "path": "lean_demo/Main.lean",
@@ -126,11 +131,41 @@
       "path": "lean_demo/statement_fidelity.md",
       "bytes": 279,
       "sha256": "a040067075ffce1f6ff71b74e2061754d6fe06b1c9d0f2158be261c09795ccd7"
+    },
+    {
+      "path": "products/erdos-707/audit_c7_quotient.py",
+      "bytes": 3394,
+      "sha256": "0a39c0a153ebef1ec8df01e11facc985067b03fe32342a41cd8c7b515e0eaca7"
+    },
+    {
+      "path": "products/erdos-707/c7-audit-output.txt",
+      "bytes": 145,
+      "sha256": "b12c8ad8c3b940340ca0bc18fbe569a12cc4f93ec01caa222f24cd288b7b3537"
+    },
+    {
+      "path": "products/erdos-707/claim-ledger-l35.md",
+      "bytes": 3108,
+      "sha256": "ee83e514cbf06914179de44421978e76e7d31a9fb2302652f2a5946932243dee"
+    },
+    {
+      "path": "products/erdos-707/research-report.md",
+      "bytes": 2460,
+      "sha256": "74cad73841f1e77edf65b45862f044fd32ad681537a99f1823d14257645926a9"
+    },
+    {
+      "path": "products/erdos-707/reviewer-conclusion-l35.md",
+      "bytes": 17045,
+      "sha256": "3794f0b396c203bf16bb1b9aac97fbcc81587bfbb765714873111caf4a047d66"
+    },
+    {
+      "path": "products/erdos-707/theorem-and-proof.md",
+      "bytes": 15750,
+      "sha256": "19ac3ced825fc8f575d849a5d96e3a48e119e61bea4fbe01211fec7c31b99a56"
     }
   ],
   "notes": [
-    "CSS is inline.",
-    "No JavaScript or external font/network dependency.",
-    "Vite copies this directory verbatim to dist/math-vertical/."
+    "CSS is inline; there is no JavaScript or external network dependency.",
+    "Vite copies this directory verbatim to dist/math-vertical/.",
+    "The page distinguishes reviewed mathematics, novelty-unverified claims, bounded computation, and missing case-specific Lean evidence."
   ]
 }

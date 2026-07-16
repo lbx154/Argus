@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Argus paper teaser</title>
+<style>
+@page { size: 12in 5.8in; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; }
+body { background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-serif; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.canvas { width: 12in; height: 5.8in; padding: .22in .28in .15in; border-top: .06in solid #315bce; display: grid; grid-template-rows: auto 1fr auto; gap: .11in; }
+.task-shape { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .22in; }
+.task-shape h1 { margin: 0; color: #173b70; font-size: 20pt; line-height: 1; }
+.task-shape p { margin: .05in 0 0; color: #5e6875; font-size: 10pt; }
+.criteria { display: flex; gap: .08in; }
+.criteria span { border: 1px solid #cbd5df; background: #f8fafc; border-radius: 99px; padding: .06in .11in; font-size: 9pt; font-weight: 700; }
+.panels { display: grid; grid-template-columns: 1.42fr 1fr; gap: .16in; min-height: 0; }
+.panel { border: 1px solid #d8e0e8; border-radius: .11in; background: #f8fafc; padding: .16in; min-height: 0; }
+.panel-title { display: flex; align-items: center; gap: .08in; margin-bottom: .10in; font-size: 11pt; }
+.panel-title b { width: .24in; height: .24in; border-radius: 50%; display: grid; place-items: center; background: #173b70; color: white; font-size: 8pt; }
+.architecture { display: grid; grid-template-rows: auto auto auto 1fr auto auto; }
+.flow { display: grid; grid-template-columns: 1.02fr auto 2.8fr auto 1.10fr auto 1.15fr; gap: .07in; align-items: stretch; }
+.node, .runtime, .gate { border: 1px solid #c9d4df; background: white; border-radius: .08in; padding: .12in; display: grid; align-content: center; text-align: center; }
+.node strong, .gate strong, .runtime > strong { color: #173b70; font-size: 10pt; }
+.node small, .gate small { color: #687380; font-size: 8.5pt; margin-top: .04in; }
+.runtime { grid-template-rows: auto 1fr; gap: .08in; }
+.roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: .05in; }
+.roles span { border-radius: .06in; background: #edf2ff; color: #315bce; padding: .08in .03in; font-size: 9pt; font-weight: 700; }
+.gate { border-color: #c38a20; background: #fff6df; }
+.arrow { display: grid; place-items: center; color: #315bce; font-size: 20pt; font-weight: 700; }
+.state { margin-top: .10in; display: grid; grid-template-columns: auto 1fr auto; gap: .10in; align-items: center; }
+.state > strong { color: #5e6875; font-size: 8.8pt; }
+.state-list { display: grid; grid-template-columns: repeat(5, 1fr); gap: .05in; }
+.state-list span { border: 1px solid #d8e0e8; background: white; border-radius: .05in; padding: .06in .02in; text-align: center; font-size: 8.7pt; font-weight: 700; }
+.next { color: #c38a20; font-size: 9pt; font-weight: 700; }
+.value-chain { align-self: center; display: grid; grid-template-columns: 1fr auto 1.2fr auto 1.15fr auto 1fr; gap: .06in; align-items: center; padding: .06in .04in; }
+.value-chain div { text-align: center; }
+.value-chain strong { color: #173b70; font-size: 8.8pt; }
+.value-chain small { display: block; color: #687380; font-size: 8pt; margin-top: .025in; }
+.value-chain i { color: #c38a20; font-size: 14pt; font-style: normal; text-align: center; }
+.trajectory { align-self: center; border-top: 1px solid #d8e0e8; border-bottom: 1px solid #d8e0e8; padding: .12in 0; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .12in; }
+.trajectory > strong { color: #173b70; font-size: 8.8pt; }
+.trajectory-steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: .05in; }
+.trajectory-steps span { position: relative; border-radius: .05in; background: #edf2ff; color: #315bce; padding: .06in .015in; text-align: center; font-size: 8.3pt; font-weight: 700; }
+.trajectory-steps span:not(:last-child)::after { content: '→'; position: absolute; right: -.065in; color: #8ca3c9; }
+.trajectory small { color: #687380; font-size: 8pt; text-align: right; }
+.formula-strip { margin-top: .10in; display: grid; grid-template-columns: 1.25fr 1fr; gap: .08in; align-self: end; }
+.formula { border-left: .045in solid #315bce; background: white; padding: .09in .12in; }
+.formula:nth-child(2) { border-left-color: #c38a20; }
+.formula .math { display: block; color: #173b70; font: 700 11pt 'Times New Roman', serif; white-space: nowrap; }
+.formula .math sub, .formula .math sup { font-size: 70%; line-height: 0; }
+.formula small { color: #687380; font-size: 8.2pt; }
+.results { display: grid; grid-template-rows: auto 1fr auto; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: .07in; min-height: 0; }
+.metric-card { border: 1px solid #d8e0e8; border-left: .045in solid #315bce; background: white; border-radius: .06in; padding: .08in .10in; display: grid; grid-template-rows: auto auto auto 1fr; }
+.metric-head { display: flex; justify-content: space-between; gap: .05in; align-items: start; }
+.metric-head span { font-size: 9pt; font-weight: 700; }
+.metric-head i { color: #6d7783; font-size: 8pt; font-style: normal; text-align: right; }
+.metric-card strong { color: #173b70; font-size: 17pt; line-height: 1.05; margin-top: .025in; }
+.metric-card small { color: #697480; font-size: 8.5pt; }
+.metric-card p { margin: .025in 0 0; color: #4f5a66; font-size: 8.2pt; line-height: 1.15; }
+.portfolio { margin-top: .08in; border: 1px solid #d8e0e8; background: #fff; border-radius: .07in; padding: .08in .11in; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .10in; }
+.portfolio strong { color: #c38a20; font-size: 18pt; }
+.portfolio span { font-size: 8.7pt; font-weight: 700; }
+.portfolio small { color: #687380; font-size: 7.3pt; text-align: right; }
+footer { border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justify-content: space-between; color: #66717d; font-size: 7.6pt; }
+</style>
+</head>
+<body>
+<main class="canvas">
+  <header class="task-shape">
+    <div><h1>Dense-intelligence research</h1><p>Continuous proposal—execution—verification over durable state</p></div>
+    <div></div>
+    <div class="criteria"><span>Invention</span><span>Long horizon</span><span>Verifiable</span></div>
+  </header>
+  <section class="panels">
+    <article class="panel architecture">
+      <div class="panel-title"><b>A</b><strong>Runtime architecture and fixed-model evolution</strong></div>
+      <div class="flow">
+        <div class="node"><strong>Objective</strong><small>task · evaluator · budget</small></div><div class="arrow">→</div>
+        <div class="runtime"><strong>Persistent research runtime</strong><div class="roles"><span>Manager</span><span>Planner</span><span>Engineer</span><span>Reviewer</span></div></div><div class="arrow">→</div>
+        <div class="gate"><strong>Review gate</strong><small>artifacts · logs · verdict</small></div><div class="arrow">→</div>
+        <div class="node"><strong>Retained capability</strong><small>inspectable and revisable</small></div>
+      </div>
+      <div class="state"><strong>Runtime state</strong><div class="state-list"><span>Memory</span><span>Skills</span><span>Tools</span><span>Verifiers</span><span>Routing</span></div><div class="next">↺ next mission</div></div>
+      <div class="value-chain"><div><strong>TOKEN</strong><small>reasoning/action budget</small></div><i>→</i><div><strong>Dense intelligence</strong><small>continuous reviewed work</small></div><i>→</i><div><strong>Research artifacts</strong><small>code · data · proofs · papers</small></div><i>→</i><div><strong>Research value</strong><small>inspectable and reusable results</small></div></div>
+      <div class="trajectory"><strong>Mission trajectory τt</strong><div class="trajectory-steps"><span>Plan</span><span>Retrieve</span><span>Build</span><span>Experiment</span><span>Review</span><span>Distill</span></div><small>bounded outcome · persisted results</small></div>
+      <div class="formula-strip">
+        <div class="formula"><span class="math">&rho;<sub>I</sub>(T)=T<sup>&minus;1</sup>&int;N&#775;<sub>tok</sub>&eta;<sub>r</sub>&eta;<sub>a</sub>&eta;<sub>v</sub>dt</span><small>useful reasoning, action, and verification per unit time</small></div>
+        <div class="formula"><span class="math">H<sub>t+1</sub>=U(H<sub>t</sub>,&tau;<sub>t</sub>,E<sub>t</sub>), &nbsp;&theta; fixed</span><small>accepted results update the runtime without online parameter training</small></div>
+      </div>
+    </article>
+    <article class="panel results">
+      <div class="panel-title"><b>B</b><strong>Benchmark results in task-native units</strong></div>
+      <div class="metrics"><div class="metric-card">
+              <div class="metric-head"><span>SOL-ExecBench</span><i>GPT-5.5 · Codex</i></div>
+              <strong>Global #6 · 2× #1 · 7 top-3</strong>
+              <small>B200 · 101 kernels</small>
+              <p>Two head-to-head wins over Recursive</p>
+            </div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanochat · B200</span><i>GPT-5.5 · Codex</i></div>
+              <strong>0.9636 BPB</strong>
+              <small>5 min · 1×B200 · 426 attempts</small>
+              <p>Human SOTA: 0.9646</p>
+            </div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanochat · H100</span><i>GPT-5.5 · Codex</i></div>
+              <strong>0.9855 BPB</strong>
+              <small>5 min · 1×H100 · 37 mechanisms</small>
+              <p>Human SOTA: 0.9879</p>
+            </div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanoGPT speedrun</span><i>GPT-5.5 · Codex</i></div>
+              <strong>79.77 seconds</strong>
+              <small>8×H100 · N=10</small>
+              <p>Same-device human #83: 80.18s</p>
+            </div>
+<div class="metric-card">
+              <div class="metric-head"><span>AARRI-Bench</span><i>GPT-5.5 · Codex</i></div>
+              <strong>63/82 · 76.8%</strong>
+              <small>82 research-intern tasks</small>
+              <p>Paper-reported best: 68.3%</p>
+            </div>
+<div class="metric-card">
+              <div class="metric-head"><span>Math-Reasoning Data</span><i>GPT-5.5 · Codex</i></div>
+              <strong>28.0 gap</strong>
+              <small>Math-Reasoning Data</small>
+              <p>Arbor 20.83 · Claude Code 8.33 · Codex 6.25</p>
+            </div></div>
+      <div class="portfolio"><strong>41</strong><span>de-duplicated research artifacts across 6 programs</span><small>35 manuscripts · 6 drafts</small></div>
+    </article>
+  </section>
+  <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>All six runs: GPT-5.5 · Codex</span></footer>
+</main>
+</body>
+</html>

@@ -66,6 +66,33 @@ describe('web API protocol handshake', () => {
     ]);
   });
 
+  it('allows source drift, warns, and still requests projects', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const driftedMeta = {
+      ...currentMeta,
+      runtime: {
+        ...currentMeta.runtime,
+        release_matches_source: false,
+        runtime_source_digest: 'deadbeef',
+      },
+    };
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
+      const body = path === '/api/meta' ? driftedMeta : { projects: [] };
+      return Response.json(body);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    await expect(api.listProjects()).resolves.toEqual([]);
+    expect(warning).toHaveBeenCalledWith(expect.stringMatching(
+      /source differs from its release manifest/,
+    ));
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/meta',
+      '/api/projects',
+    ]);
+  });
+
   it('passes cancellation signals to project reads', async () => {
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify({ events: [] }),

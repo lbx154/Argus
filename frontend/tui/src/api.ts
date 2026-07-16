@@ -99,6 +99,7 @@ export interface ApiOptions {
   port: number;
   project: string;
   token?: string;
+  onCompatibilityWarning?: (warning: string) => void;
 }
 
 export interface CreatedDaemon {
@@ -192,6 +193,7 @@ export class ApiClient {
   readonly wsBase: string;
   readonly project: string;
   private readonly token?: string;
+  private readonly onCompatibilityWarning?: (warning: string) => void;
   private metaPromise?: Promise<ApiMeta>;
 
   constructor(opts: ApiOptions) {
@@ -199,6 +201,7 @@ export class ApiClient {
     this.wsBase = `ws://${opts.host}:${opts.port}`;
     this.project = opts.project;
     this.token = opts.token;
+    this.onCompatibilityWarning = opts.onCompatibilityWarning;
   }
 
   private authHeaders(): Record<string, string> {
@@ -218,7 +221,10 @@ export class ApiClient {
           throw new Error('incompatible Argus API: service does not expose /api/meta');
         }
         await ensureResponseOk(r, 'GET', path);
-        return requireCompatibleApiMeta(await r.json());
+        return requireCompatibleApiMeta(
+          await r.json(),
+          this.onCompatibilityWarning,
+        );
       })();
       this.metaPromise = request;
       void request.catch(() => {

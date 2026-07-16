@@ -1,0 +1,76 @@
+\section{Analysis and Discussion}
+\label{sec:discussion}
+
+\subsection{Continuity as a Systems Property}
+
+The principal design claim of \system{} is that long-horizon research should be
+organized around durable state and bounded work units, not one indefinitely growing
+conversation. This changes where continuity lives. Recent context remains useful
+inside a short session, but the campaign objective, current state, artifacts,
+measurements, and verdicts are external objects with explicit owners. A session can
+therefore be replaced without erasing the research program.
+
+Role separation addresses a different failure mode. The Engineer is optimized for
+making progress and may have incentives to frame an outcome favorably. Requiring a
+Reviewer to issue the completion verdict does not remove model error, but it forces
+acceptance to occur at a named interface with access to artifacts and execution
+logs. This is closer to a reproducible research process than accepting the
+builder's final summary as the ground truth.
+
+\subsection{The Process as a Retained Asset}
+
+Equation~\ref{eq:process-data} states that a final artifact contains less
+information than the run that produced it. The process record includes states,
+actions, measurements, review feedback, and runtime-state changes, including failed
+branches that never appear in $y^\star$. This additional information can reduce
+repeated search, support later analysis, and provide training or evaluation material
+for future systems. \system{} retains typed, credential-redacted observations and
+verdicts, not private chain-of-thought transcripts. The distinction matters both
+for privacy and for scientific interpretation: the durable record documents what
+was done and shown, not every latent reason the model may have had.
+
+\subsection{Capability Expansion}
+
+The intended long-term effect of runtime evolution is to enlarge the set of
+capabilities that can be brought to a new task. Equation~\ref{eq:ood-expansion}
+expresses both the result-admission rule and the desired width/depth behavior. It
+is not an empirical law. A mission may add no capability, and an admitted skill can
+later become stale, regress on a harder instance, or be retired. Practical
+capability is therefore not guaranteed to be monotone. Negative results still have
+value when they record a counterexample or failed procedure that later missions can
+avoid, even when $C_{t+1}=C_t$.
+
+This qualified view also clarifies the public results. The benchmark rows mainly
+measure depth on well-defined tasks, while the research inventory measures breadth
+across programs. The report does not combine them into a universal frontier score.
+Breadth, depth, reproducibility, and resource efficiency remain separate axes.
+
+\subsection{Density Is Not Research Value}
+
+Equation~\ref{eq:research-value} prevents a high-throughput system from treating
+activity as the objective. Dense work contributes little when it produces no new
+information, fails review, or cannot be reused. The current evaluation measures
+final task outcomes, but it does not estimate
+$\Delta I$, $p_{\mathrm{valid}}$, or $\eta_{\mathrm{reuse}}$ as calibrated time
+series. A direct empirical test of the website formalization would instrument these
+terms and compare equal-budget trajectories across systems.
+
+\subsection{What the Current Results Support}
+
+The results support three modest conclusions. First, the system is operational over
+heterogeneous tasks rather than demonstrated on a single benchmark family. Second,
+it can produce artifacts that are competitive with the references printed by the
+corresponding public records. Third, the same GPT-5.5/Codex research-agent
+configuration operates across kernel optimization, model training, research tasks,
+and data synthesis.
+
+The results do not yet support architectural attribution. A stronger study would
+hold the base model, task interface, budget, evaluator, and randomization fixed while
+ablating persistent checkpoints, role separation, run-log access, skill
+retention, and planning. Such experiments would test whether the proposed runtime
+causes higher held-out performance, faster convergence, fewer repeated failures, or
+better recovery after interruption, following the controlled and trajectory-aware
+evaluation practices used by AgentBoard, MLE-bench, and RE-Bench
+~\citep{ma2024agentboard,chan2024mlebench,wijk2024rebench}. The current report
+establishes the system and its public benchmark record; controlled causal evaluation
+remains future work.

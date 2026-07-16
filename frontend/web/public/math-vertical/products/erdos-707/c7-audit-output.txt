@@ -1,0 +1,2 @@
+C7 audit passed: q<=300, 86 admissible parameters
+full-lift bounds checked for q<=300; all-c family checked at r=0; formulas checked for r=0..20
