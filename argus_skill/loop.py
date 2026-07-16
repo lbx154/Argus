@@ -26,6 +26,7 @@ import math
 import os
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -57,6 +58,100 @@ _ADAPTATION_FAILURE_CAUSES: frozenset[str] = frozenset({
     "method_failure",
     "skill_gap",
 })
+
+# Generic words that distinguish neither software tasks nor reusable skills.
+# In particular, project/framework names and playbook boilerplate must not make
+# the oldest, most-used skill look universally relevant.
+_TRANSFER_STOPWORDS: frozenset[str] = frozenset({
+    "add", "and", "application", "change", "code", "complete", "current",
+    "existing", "feature", "fix", "flipt", "for", "from", "implementation",
+    "instance", "into", "new", "not", "one", "problem", "production",
+    "project", "repair", "repository", "request", "software", "statement",
+    "support", "task", "tests", "that", "the", "this", "through", "use",
+    "used", "using", "when", "where", "with", "wire", "wiring",
+})
+_TRANSFER_TOKEN_ALIASES: dict[str, str] = {
+    "cached": "cache",
+    "caches": "cache",
+    "caching": "cache",
+    "config": "configuration",
+    "configured": "configuration",
+    "configuring": "configuration",
+    "evaluations": "evaluation",
+    "initialized": "initialize",
+    "initialization": "initialize",
+    "initializing": "initialize",
+    "middlewares": "middleware",
+}
+
+
+def _transfer_terms(text: object) -> list[str]:
+    """Return normalized, discriminative terms for cheap Skill retrieval."""
+    terms: list[str] = []
+    for raw in re.findall(r"[a-z][a-z0-9_]{2,}", str(text or "").lower()):
+        term = _TRANSFER_TOKEN_ALIASES.get(raw, raw)
+        if term in _TRANSFER_STOPWORDS:
+            continue
+        terms.append(term)
+    return terms
+
+
+def _nearest_transfer_scores(
+    task: str,
+    summaries: list[dict[str, Any]],
+) -> list[float]:
+    """Rank reusable Skills from stable semantic fields only.
+
+    ``task_history`` is intentionally excluded. It records prior uses, including
+    weak nearest-skill fallbacks, so feeding it back into retrieval creates a
+    self-reinforcing failure mode where an early generic Skill gradually appears
+    relevant to every later task.
+    """
+    task_counts = Counter(_transfer_terms(task))
+    if not summaries:
+        return []
+
+    docs: list[dict[str, float]] = []
+    for summary in summaries:
+        weights: dict[str, float] = {}
+        for key, field_weight in (
+            ("name", 4.0),
+            ("description", 2.0),
+            ("category", 1.0),
+        ):
+            counts = Counter(_transfer_terms(summary.get(key)))
+            for term, count in counts.items():
+                weights[term] = weights.get(term, 0.0) + field_weight * (
+                    1.0 + math.log(float(count))
+                )
+        docs.append(weights)
+
+    document_frequency = Counter(
+        term for weights in docs for term in weights
+    )
+    n_docs = float(len(docs))
+
+    def idf(term: str) -> float:
+        return math.log((n_docs + 1.0) / (document_frequency[term] + 1.0)) + 1.0
+
+    task_vector = {
+        term: (1.0 + math.log(float(count))) * idf(term)
+        for term, count in task_counts.items()
+    }
+    task_norm = math.sqrt(sum(value * value for value in task_vector.values()))
+    scores: list[float] = []
+    for weights in docs:
+        doc_vector = {term: value * idf(term) for term, value in weights.items()}
+        doc_norm = math.sqrt(sum(value * value for value in doc_vector.values()))
+        if not task_norm or not doc_norm:
+            scores.append(0.0)
+            continue
+        dot = sum(
+            task_vector.get(term, 0.0) * value
+            for term, value in doc_vector.items()
+        )
+        scores.append(dot / (task_norm * doc_norm))
+    return scores
 
 
 @dataclass
@@ -394,8 +489,7 @@ class SkillLoop:
                 log.debug("Scientist skill generation skipped", exc_info=True)
 
         if skill is None and self.config.require_post_task_learning:
-            task_tokens = set(re.findall(r"[a-z][a-z0-9_]{2,}", skill_task.lower()))
-            candidates: list[tuple[float, str, Skill]] = []
+            loaded: list[tuple[dict[str, Any], Skill]] = []
             for summary in self.skill_store.list_summaries():
                 path = str(summary.get("path") or "").strip()
                 if not path:
@@ -406,15 +500,15 @@ class SkillLoop:
                     continue
                 if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
                     continue
-                text = " ".join(
-                    str(summary.get(key) or "")
-                    for key in ("name", "description", "category", "task_history")
-                ).lower()
-                candidate_tokens = set(re.findall(r"[a-z][a-z0-9_]{2,}", text))
-                score = len(task_tokens & candidate_tokens) / max(
-                    1, len(task_tokens | candidate_tokens)
-                )
-                candidates.append((score, candidate.name.casefold(), candidate))
+                loaded.append((summary, candidate))
+            scores = _nearest_transfer_scores(
+                skill_task,
+                [summary for summary, _candidate in loaded],
+            )
+            candidates = [
+                (score, candidate.name.casefold(), candidate)
+                for score, (_summary, candidate) in zip(scores, loaded)
+            ]
             if candidates:
                 candidates.sort(key=lambda item: (-item[0], item[1]))
                 score, _name, skill = candidates[0]
@@ -422,9 +516,15 @@ class SkillLoop:
                 nearest_transfer_fallback = True
                 self._emit({
                     "type": "match.info",
+                    "selection_method": "static-semantic-tfidf",
+                    "score": round(score, 6),
+                    "candidate_scores": [
+                        {"name": candidate.name, "score": round(candidate_score, 6)}
+                        for candidate_score, _candidate_name, candidate in candidates[:3]
+                    ],
                     "text": (
                         f"no high-fit skill; transfer fallback selected nearest "
-                        f"`{skill.name}` (lexical score={score:.3f})"
+                        f"`{skill.name}` (static semantic score={score:.3f})"
                     ),
                 })
 

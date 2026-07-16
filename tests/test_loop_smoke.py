@@ -13,6 +13,7 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.loop import _nearest_transfer_scores
 
 SKILL_MD = (
     "## Title\nWrite a hello message\n\n"
@@ -45,6 +46,36 @@ def test_skill_loop_defaults_use_xhigh_reasoning_effort() -> None:
     assert config.engineer_reasoning_effort == "xhigh"
     assert config.matcher_reasoning_effort == "high"
     assert config.reviewer_reasoning_effort == "xhigh"
+
+
+def test_nearest_transfer_ignores_self_reinforcing_task_history() -> None:
+    task = (
+        "Caching middleware fails to initialize because Go shadowing leaves the "
+        "evaluation cacher nil. Repair cache middleware startup and verification."
+    )
+    summaries = [
+        {
+            "name": "Flipt Audit Resource Type Wiring",
+            "description": "Add audit resource types and checker nouns.",
+            "category": "Go audit logging",
+            # A repeatedly mis-selected Skill can accumulate the current task in
+            # history. Retrieval must not treat that as semantic relevance.
+            "task_history": [task] * 8,
+        },
+        {
+            "name": "Flipt Evaluation Cache Wiring",
+            "description": (
+                "Wire evaluation data and requests through the cache layer and "
+                "evaluation middleware."
+            ),
+            "category": "Go evaluation caching",
+            "task_history": [],
+        },
+    ]
+
+    scores = _nearest_transfer_scores(task, summaries)
+
+    assert scores[1] > scores[0]
 
 
 def _continue_review() -> str:
