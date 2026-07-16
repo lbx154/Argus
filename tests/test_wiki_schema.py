@@ -83,6 +83,25 @@ def test_page_card_parses_legacy_confidence_key():
         )
 
 
+def test_page_card_parses_legacy_minimal_fields():
+    legacy = (
+        "---\n"
+        "id: legacy-minimal\n"
+        "type: technique\n"
+        "status: scratch\n"
+        "title: Minimal card\n"
+        "created_at: 2026-07-16\n"
+        "last_reviewed_at: 2026-07-16\n"
+        "---\n\n"
+        "Body.\n"
+    )
+    parsed = parse_frontmatter(legacy, PageCard)
+    assert parsed.related_runs == []
+    assert parsed.related_projects == []
+    assert parsed.revisit_after is None
+    assert parsed.reviewer_note == ""
+
+
 def test_source_paper_roundtrip():
     src = SourcePaper(
         id="papers/2406.12345",
