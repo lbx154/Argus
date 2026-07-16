@@ -1,0 +1,80 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Tool-Using and Software-Engineering Agents}
+
+Language-agent research established the core loop of selecting actions, invoking
+external tools, and conditioning later decisions on observations. Toolformer learns
+when to call tools from self-supervised data~\citep{schick2023toolformer}, while
+ReAct interleaves textual reasoning with environment actions~\citep{yao2023react}.
+For repository-scale work, SWE-agent emphasizes the importance of an
+agent-computer interface~\citep{yang2024sweagent}, and OpenHands provides an open
+platform for generalist software-development agents~\citep{wang2024openhands}.
+
+Evaluation has moved correspondingly from isolated code generation toward
+interactive tasks. SWE-bench draws problems from real GitHub issues
+~\citep{jimenez2024swebench}; AgentBench evaluates agents across heterogeneous
+interactive environments~\citep{liu2023agentbench}; and AgentBoard adds
+fine-grained progress analysis rather than reporting only final success
+~\citep{ma2024agentboard}. Time-horizon studies further show that performance on
+software tasks degrades as task duration increases~\citep{kwa2025longtasks}. These
+results motivate treating long-horizon capability as a property of the complete
+runtime, not only the model that generates the next action.
+
+\subsection{Persistent Memory and Experience Reuse}
+
+Several lines of work externalize experience beyond a single context window.
+Generative Agents combine stored observations, reflection, and retrieval for
+multi-day simulated behavior~\citep{park2023generative}. Reflexion retains verbal
+feedback across attempts~\citep{shinn2023reflexion}, and Voyager accumulates an
+executable skill library during open-ended interaction~\citep{wang2023voyager}.
+MemGPT frames context management as a hierarchy of memory tiers
+~\citep{packer2023memgpt}. More recent systems induce reusable task workflows
+~\citep{wang2024workflowmemory} or organize memories through agentic linking and
+retrieval~\citep{xu2025amem}.
+
+\system{} shares the premise that useful experience should survive a model call,
+but couples retention to explicit authority and evidence. The Engineer may propose
+a checkpoint or procedure; the Reviewer commits the canonical retained form after
+inspecting artifacts and execution evidence. This makes memory not only retrievable
+but also attributable, versioned, and reversible.
+
+\subsection{Autonomous Research and Program Search}
+
+Automated research systems increasingly connect idea generation, implementation,
+experimentation, and scientific communication. The AI Scientist presents an
+end-to-end scientific-discovery pipeline~\citep{lu2024aiscientist}; Agent Laboratory
+organizes specialized agents as research assistants~\citep{schmidgall2025agentlab};
+and AIDE explores machine-learning improvements through iterative code search
+~\citep{jiang2025aide}. The AI Scientist-v2 introduces agentic tree search over
+research plans and experiments~\citep{yamada2025aiscientistv2}. Arbor similarly
+uses a persistent hypothesis tree, a long-lived coordinator, and isolated executors
+to make research cumulative~\citep{jin2026arbor}.
+
+Executable evaluation can also drive discovery without reproducing a conventional
+scientific workflow. FunSearch evolves programs against objective functions and
+has produced new mathematical constructions~\citep{romera2024funsearch};
+AlphaEvolve extends evolutionary code improvement to scientific and systems
+problems~\citep{novikov2025alphaevolve}. These systems demonstrate the value of a
+hard evaluator and repeated proposal--execution--selection cycles. \system{} focuses
+on the more general runtime substrate around such cycles: persistent intent,
+bounded missions, evidence admission, restartability, and reusable state across
+heterogeneous research programs.
+
+\subsection{Benchmarks for Research Agents}
+
+Research-agent evaluation is beginning to cover realistic machine-learning and
+scientific work. MLE-bench packages Kaggle competitions as machine-learning
+engineering tasks~\citep{chan2024mlebench}; RE-Bench compares agents and human
+experts in open-ended research-engineering environments~\citep{wijk2024rebench};
+AARRI-Bench evaluates research-lifecycle tasks for models and harnesses
+~\citep{wang2026aarri}; and AIRS-Bench targets frontier research-science agents
+across a suite of scientific tasks~\citep{lupidi2026airsbench}. Together these
+benchmarks emphasize held-out evaluation, task-native metrics, trajectories, and
+resource controls.
+
+The present report is complementary but weaker as a causal evaluation. It aggregates
+public results produced under different protocols and clearly distinguishes
+artifact-linked evidence from website snapshots. This supports claims about
+operational breadth and individual task outcomes, while leaving common-budget
+comparisons and component ablations to future work.

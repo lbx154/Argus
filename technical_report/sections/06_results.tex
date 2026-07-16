@@ -1,0 +1,119 @@
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Cross-Domain Performance}
+
+Figure~\ref{fig:public-results} and Table~\ref{tab:public-results} report the six
+public benchmark cards in their native units. The results span kernel optimization,
+small-language-model training, training-speed optimization, research-assistant
+tasks, and data synthesis. Because the protocols differ, the figure uses separate
+panels and the table carries the protocol beside every value.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.67\linewidth]{figures/public_results.pdf}
+  \caption{Public results across six arenas. Each panel retains its task-native
+  metric and evidence status; values are not cross-normalized. The figure is
+  generated from \srcpath{evidence/website\_results.json}.}
+  \label{fig:public-results}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{2.25cm} p{2.55cm} p{1.85cm} X p{1.25cm}@{}}
+\toprule
+\textbf{Arena} & \textbf{Protocol} & \textbf{Argus result} & \textbf{Published comparison} & \textbf{Evidence} \\
+\midrule
+NVIDIA SOL-ExecBench & B200; 101 kernels & Global \#6; 2$\times$\#1; 7 top-3 & Global rank; two head-to-head wins over Recursive & snapshot \\
+nanochat (B200) & 5 min; 1$\times$B200; 426 attempts & 0.9636 BPB & Human SOTA 0.9646 & \textbf{digest} \\
+nanochat (H100) & 5 min; 1$\times$H100; 37 mechanisms & 0.9855 BPB & Human SOTA 0.9879 & snapshot \\
+nanoGPT speedrun & 8$\times$H100; $N{=}10$ & 79.77 s & Same-device human \#83: 80.18 s & \textbf{digest} \\
+AARRI-Bench & 82 research-intern tasks & 63/82 (76.8\%) & Paper-reported best 68.3\% & snapshot \\
+Arbor (RUC NLPIR) & Math-reasoning data & 28.0 gap & Arbor 20.83; Claude Code 8.33; Codex 6.25 & snapshot \\
+\bottomrule
+\end{tabularx}
+\caption{Six public benchmark results~\citep{argus_results}. ``Digest'' means that
+the website claim additionally has committed artifact-digest metadata; ``snapshot''
+means that the present repository preserves the public card and page hash only.}
+\label{tab:public-results}
+\end{table}
+
+Several rows meet or exceed the reference printed on the corresponding public
+card. On nanochat B200, the reported 0.9636 BPB is lower than the listed human SOTA
+of 0.9646~\citep{karpathy_nanochat}. On the nanoGPT speedrun, 79.77 seconds is below
+the same-device human record of 80.18 seconds~\citep{karpathy_nanogpt}.
+AARRI-Bench reports 63 of 82 tasks (76.8\%), compared with the card's paper-reported
+best of 68.3\%~\citep{wang2026aarri}. The nanochat H100 value of 0.9855 BPB is lower
+than the listed 0.9879 reference. The SOL-ExecBench headline is Global \#6 across
+101 kernels, with two first-place head-to-head outcomes and seven top-three
+outcomes, including the source-reported comparison with Recursive
+~\citep{recursive2026firststeps}; KernelBench provides the broader public benchmark
+context for generated GPU kernels~\citep{ouyang2025kernelbench}. The Arbor row is retained as a
+source-verbatim system comparison~\citep{jin2026arbor} because the snapshot does
+not define the direction of its gap metric.
+
+These outcomes answer RQ1 at the level supported by the public record: \system{}
+has produced competitive task-native artifacts across multiple research settings.
+They do not show that one common model or budget was used across all arenas, and
+they do not identify which runtime mechanism caused each result.
+
+\subsection{RQ2: Research Breadth}
+
+The public research inventory contains \textbf{41} de-duplicated artifacts:
+\textbf{35 manuscripts} and \textbf{6 drafts} across six programs. The distribution
+is shown in Figure~\ref{fig:portfolio} and Table~\ref{tab:portfolio}. Multimodal and
+vision-language research is the largest program with 16 artifacts, followed by
+cognitive-bias studies with 9 and efficiency, compression, and decoding with 7.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.53\linewidth]{figures/paper_portfolio.pdf}
+  \caption{De-duplicated research-artifact inventory by program and status. The
+  chart is generated from \srcpath{evidence/paper\_inventory.json}; manuscript and
+  draft labels do not imply external acceptance.}
+  \label{fig:portfolio}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{0.82\linewidth}{@{}X r r r@{}}
+\toprule
+\textbf{Program} & \textbf{Manuscripts} & \textbf{Drafts} & \textbf{Total} \\
+\midrule
+Multimodal \& Vision-Language Models & 13 & 3 & 16 \\
+Cognitive Bias in LLMs               &  9 & 0 &  9 \\
+Efficiency, Compression \& Decoding  &  6 & 1 &  7 \\
+LLM Agent Methods                    &  3 & 2 &  5 \\
+World Models                         &  2 & 0 &  2 \\
+State Trace \& Auditability          &  2 & 0 &  2 \\
+\midrule
+\textbf{Total}                       & \textbf{35} & \textbf{6} & \textbf{41} \\
+\bottomrule
+\end{tabularx}
+\caption{Research portfolio by program and status~\citep{argus_research}.}
+\label{tab:portfolio}
+\end{table}
+
+The inventory provides evidence of sustained output and breadth across task
+classes. It does not establish that all artifacts are novel, correct, accepted, or
+of equal quality. The count is therefore reported as a production record rather
+than a publication metric.
+
+\subsection{RQ3: Evidence Maturity}
+
+Two of the six benchmark rows have artifact-digest corroboration. The nanoGPT
+speedrun record identifies an $N{=}10$ verifier-certified artifact with a mean
+training time of $79.77\pm0.06$ seconds and a valid seal. The nanochat B200 record
+identifies a frozen-scorer artifact with \code{MEAN\_VAL\_BPB=0.963634}, scorer exit
+code 0, and a valid SM100 flash-attention implementation. For both rows, the
+repository stores logical project names, artifact identifiers, verifier excerpts,
+and SHA-256 values, but not the external artifact bytes.
+
+The other four rows---SOL-ExecBench, nanochat H100, AARRI-Bench, and Arbor---remain
+website snapshots. Their public values are preserved with a retrieval timestamp and
+page hash, but they are not currently reproducible from a named commit and artifact
+bundle. Thus the answer to RQ3 is mixed: the reporting pipeline distinguishes
+evidence strength correctly, but provenance coverage is incomplete. Completing the
+artifact chain for all six arenas is the highest-priority evaluation improvement.

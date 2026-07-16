@@ -1,0 +1,109 @@
+\section{Empirical Methodology}
+\label{sec:methodology}
+
+The current evaluation is designed as a transparent empirical record rather than
+a controlled ablation study. Recent research-agent benchmarks instead hold tasks,
+evaluators, and time or resource budgets fixed to support direct comparisons
+~\citep{chan2024mlebench,wijk2024rebench,wang2026aarri,lupidi2026airsbench}. The
+present evidence asks whether the deployed runtime has produced competitive
+artifacts across heterogeneous settings, how broadly it has been used, and how much
+of the public record is independently reconstructable from committed provenance.
+
+\subsection{Research Questions}
+
+We organize the evidence around three questions.
+
+\paragraph{RQ1: Cross-domain performance.}
+What task-native results has \system{} produced across distinct benchmark arenas,
+and how do those results compare with the human or paper-reported references
+published for each arena?
+
+\paragraph{RQ2: Research breadth.}
+How many de-duplicated manuscripts and drafts has the research pipeline produced,
+and how are they distributed across research programs?
+
+\paragraph{RQ3: Evidence maturity.}
+Which public claims are supported only by a timestamped website snapshot, and
+which additionally include committed artifact identifiers, verifier excerpts,
+and cryptographic digests?
+
+The questions deliberately avoid causal language. The available records do not
+compare variants of \system{} under a shared model, task interface, random seed,
+and resource budget. Consequently, they can establish operational breadth and
+task-level outcomes, but not the isolated contribution of role separation,
+checkpointing, review, or any other individual mechanism.
+
+\subsection{Evidence Sources}
+
+The benchmark record is a snapshot of the six public result cards on the Argus
+results page~\citep{argus_results}. It was retrieved on July 14, 2026 with the final
+URL, HTTP status, and raw-page SHA-256 stored in
+\srcpath{evidence/website\_results.json}. Each card preserves the arena, protocol,
+reported result, comparison text, source URL, and corroboration status.
+
+The research-output record is a de-duplicated inventory of the public Argus paper
+collection~\citep{argus_research}, stored in
+\srcpath{evidence/paper\_inventory.json}. It distinguishes manuscripts from drafts,
+removes duplicate versions, and groups artifacts into six programs. The inventory
+is not a publication-acceptance record and is not compared with the paper output of
+other agents.
+
+The two quantitative figures in Section~\ref{sec:results} are generated
+deterministically from these JSON files. Structural diagrams are explanatory
+illustrations; they are not empirical plots. Figure provenance is summarized in
+Appendix~\ref{app:evidence-map}.
+
+\subsection{Evidence Tiers}
+
+All six benchmark values originate from the public website snapshot. A separate
+corroboration field records whether an additional artifact-digest record is
+available. Table~\ref{tab:evidence-tiers} defines the distinction used in the
+results section.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.5cm} X X@{}}
+\toprule
+\textbf{Tier} & \textbf{Available evidence} & \textbf{Permitted interpretation} \\
+\midrule
+Artifact digest & Public result card plus logical project, artifact identifier,
+verifier excerpt, and SHA-256 metadata & A reported Argus result tied to a named
+external artifact record; external bytes are not included in this repository \\
+Website snapshot & Timestamped public card plus source-page hash & A scoped public
+claim under the printed protocol, not a reproduction from a named commit \\
+External reference & Human record, paper-reported best, or published system value &
+A comparison target only; never counted as an Argus result \\
+\bottomrule
+\end{tabularx}
+\caption{Evidence tiers used for public benchmark claims.}
+\label{tab:evidence-tiers}
+\end{table}
+
+An optional Ed25519 signing path exists for isolated-scorer teammate results, but it
+is off by default and was not used for the results in this report. The reported
+evidence chain therefore does not rely on result signing.
+
+\subsection{Metrics and Comparison Policy}
+
+The six arenas use incompatible metrics: global rank, bits per byte, wall-clock
+time, solve rate, and a source-reported gap value. We do not normalize these values
+or average them into a single score. Each result is shown in its native unit with
+its own protocol and comparison. Lower is better for bits per byte and wall-clock
+time. For the Arbor comparison card, the source snapshot does not define the
+direction of the ``gap'' metric, so the values are quoted without inferring an
+ordering beyond the source text.
+
+Human records and paper-reported bests are used when the public card provides them.
+The SOL-ExecBench row instead uses global rank as its headline and retains the
+source's system comparison as secondary context. No significance test is introduced
+where the source record does not provide the underlying repeated measurements.
+
+\subsection{Portfolio Counting Policy}
+
+The paper inventory counts a research artifact once after duplicate versions are
+removed. ``Manuscript'' and ``draft'' are artifact states, not peer-review outcomes.
+The headline total therefore answers RQ2---how much research material the pipeline
+produced across programs---but does not measure novelty, correctness, acceptance,
+or scientific impact. Those questions require external review beyond the scope of
+the present evidence bundle.

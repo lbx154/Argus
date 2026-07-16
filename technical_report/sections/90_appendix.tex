@@ -1,162 +1,300 @@
-\section{Formal Notation}
+\section{Implementation Interfaces and Lifecycle}
+\label{app:interfaces}
+
+This appendix records source-level contracts and operational defaults that are
+useful for reproduction but too detailed for the main argument. The lifecycle is
+specified directly through role contracts, outcome states, persistence surfaces,
+and guard conditions; no additional conceptual diagram is required.
+
+\subsection{Role Contracts}
+
+The Manager front door uses one grounded model decision to emit six structured
+axes: \code{CONFIG}, \code{CONTROL}, \code{ROUTE}, \code{LIFETIME},
+\code{FAST\_REPLY}, and \code{NAME}. A \code{CONTROL: NO\_DISPATCH} result is
+authoritative and fails closed: the bridge may provide a read-only response but may
+not enqueue work. The Manager is also the sole writer of the current campaign
+stage.
+
+The Planner produces \code{TaskSpec} objects with explicit scope, optional DAG
+dependencies, and impact score. It authors and applies stage \code{checklist\_ops};
+the Reviewer can send \code{checklist\_feedback} but does not edit the checklist.
+The Engineer receives reservation-derived provider fences through
+\code{RunnerOptions} and returns a \code{RunnerResult} with a call identifier,
+usage-presence flags, cost, and pricing status. The Reviewer returns a
+\code{ReviewDecision} whose central fields are listed in
+Table~\ref{tab:review-interface}.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{3.3cm} X@{}}
+\toprule
+\textbf{Reviewer field} & \textbf{Meaning} \\
+\midrule
+\code{status} & \code{done}, \code{continue}, or \code{blocked}; the mission-level completion verdict \\
+\code{progress\_class} & \code{decision}, \code{evidence}, \code{setup\_only}, \code{artifact\_sync\_only}, or \code{none} \\
+\code{next\_action} & Concrete action for the next Engineer round \\
+\code{operator\_question} & At most one human-facing blocking question \\
+\code{scope, checklist} & Structured final-submission gate, evaluated fail-closed \\
+\code{skill\_ops, wiki\_ops} & Reviewer-authored retained-state edits \\
+\code{backend\_unavailable} & Infrastructure failure, never interpreted as a scientific \code{continue} \\
+\bottomrule
+\end{tabularx}
+\caption{Abridged Reviewer interface from \srcpath{core/models.py} and
+\srcpath{reviewer/reviewer\_schema.json}.}
+\label{tab:review-interface}
+\end{table}
+
+\subsection{Outcome Taxonomy}
+
+Every mission produces an explicit outcome:
+
+\begin{itemize}
+  \item \textbf{Terminal:} \code{done}, \code{max\_rounds}, \code{blocked},
+    \code{no\_progress}, \code{error}, and \code{budget\_exhausted}.
+  \item \textbf{Paused:} \code{paused\_budget},
+    \code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
+    \code{infra\_blocked}, \code{research\_incomplete},
+    \code{paused\_no\_breakthrough}, and
+    \code{exhausted\_current\_methods}.
+  \item \textbf{Control transfer:} \code{replan\_requested}; the item returns to
+    pending and passes through the normal Planner gate rather than being counted as
+    completed or failed.
+\end{itemize}
+
+\section{Persistence and Context Management}
+\label{app:persistence}
+
+The global state root defaults to \code{\textasciitilde/.argus-skill/} and can be
+overridden by \code{ARGUS\_SKILL\_HOME}. Each project is stored under a fingerprinted
+subdirectory. Table~\ref{tab:persisted-state} lists the principal files.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{3.0cm} p{2.0cm} X p{1.75cm}@{}}
+\toprule
+\textbf{Path} & \textbf{Owner} & \textbf{Content} & \textbf{Mutation} \\
+\midrule
+\code{events.jsonl} & evidence plane & Canonical typed-event timeline & append-only \\
+\code{backlog.jsonl} & scheduler & Pending, running, completed, and superseded tasks & atomic claim / CAS \\
+\code{continuous.json} & Manager / scheduler & Standing objective, route, lifetime, and identity & atomic rewrite \\
+\code{inbox.jsonl} & operator & Operator messages and answers & append + drain \\
+\code{checkpoint.json} & Reviewer & Hard-capped cross-session working state & atomic rewrite \\
+\code{daemon.pid} & daemon & Per-project concurrency lock & exclusive \\
+\code{daemon.status.json} & daemon & Liveness and handoff status & rewrite \\
+\code{skills/} & Reviewer / operator & Versioned reusable skills & versioned \\
+\bottomrule
+\end{tabularx}
+\caption{Principal persisted state. The event tape is the canonical timeline;
+other files are working state or materialized views.}
+\label{tab:persisted-state}
+\end{table}
+
+The checkpoint contains the goal, verified work, tried-and-failed approaches, one
+open blocker, the next step, and bounded environment facts. The Engineer proposes a
+handoff, and the Reviewer validates and writes the canonical \code{checkpoint.json}.
+Python-level item and character caps prevent it from becoming an append-only
+transcript. A missing or malformed candidate checkpoint preserves the last valid
+state rather than clearing memory.
+
+By default, each role thread is rolled after three rounds on that thread or when the
+preceding call reports at least 1.5 million input tokens. The next session is
+re-seeded from the checkpoint. These limits are configurable and disable at zero.
+The design keeps provider prefix caching useful over short windows while preventing
+unbounded compaction loops.
+
+Unattended execution is wrapped by
+\srcpath{daemon/life\_worker.py} (roughly 1,800 lines). The worker drains on
+\code{SIGTERM} or \code{SIGINT} at a mission boundary. Source upgrades use a
+blue/green self-handoff with a bounded generation count and persisted identity
+consisting of the objective hash, vertical, and lineage generation. A resume adopts
+only a matching identity; otherwise the Manager must perform a fresh division.
+
+\section{Evidence, Provenance, and Public Records}
+\label{app:evidence-map}
+
+\subsection{Event Catalog and Call Correlation}
+
+The canonical catalog contains \textbf{112 typed event types} across
+\textbf{11 categories}; \textbf{75} event types carry validated payload schemas in
+\srcpath{core/event\_catalog.py}. Table~\ref{tab:event-taxonomy} gives the category
+counts. The event \code{research.achievement.certified} is the sole authoritative
+record of a verified achievement.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{0.86\linewidth}{@{}p{2.3cm} r X@{}}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{Representative content} \\
+\midrule
+Lifecycle & 40 & Loop, round, mission, and budget-reservation events \\
+Skill & 20 & Match, distillation, use, and outcome events \\
+Wiki & 17 & Source ingest, page synthesis, promotion, and validation \\
+Planner & 9 & Planning start, tasks, waiting contracts, and verdicts \\
+Research & 7 & Achievement certification and research status \\
+Agent I/O & 5 & Provider-call start, stream, and completion \\
+Daemon & 5 & Start, stop, handoff, and status \\
+Idea & 3 & Idea lifecycle \\
+Provider & 3 & Provider request start, completion, and denial \\
+Usage & 2 & Presence-aware usage and cost \\
+Operator & 1 & Operator inbox event \\
+\bottomrule
+\end{tabularx}
+\caption{Event taxonomy in the current implementation.}
+\label{tab:event-taxonomy}
+\end{table}
+
+Every provider call receives a \code{call\_id} at
+\srcpath{core/run\_gateway.py}. The identifier is written to the event tape and
+returned in the runner result, allowing Reviewer prompts and later audits to locate
+the exact execution record. Usage-presence booleans distinguish a genuine zero from
+provider-omitted accounting.
+
+\subsection{Credential Handling and Optional Signing}
+
+\srcpath{core/secret\_guard.py} redacts authorization headers, API-key patterns,
+provider tokens, and generic key/value secrets before event or artifact copies are
+persisted for downstream use. A redaction emits \code{round.secret\_redacted}; a
+scan error or uncovered oversized artifact blocks unconditional certification.
+
+An optional Ed25519 signing path in \srcpath{team/result\_provenance.py} supports
+isolated-scorer teammate results. It is off by default, is not used for the results
+reported here, and is not part of their evidence chain.
+
+\subsection{Artifact-Digest Records}
+
+The nanoGPT speedrun row points to logical project
+\nolinkurl{nanogpt-speedrun-h100} and artifact
+\nolinkurl{candidate_mlp_post_only_hybrid_n10_20260617T152904Z}. Its verifier
+records \code{valid=true}, $N{=}10$, validation loss $3.2776$, one-sided
+$p(\mathrm{mean}<3.28)=0.004007$, training time $79.77\pm0.06$ seconds, and
+\code{seal=ok}. The nanochat B200 row points to logical project
+\nolinkurl{nanochat-mission-b200} and artifact
+\nolinkurl{a374_tailweighted_boundary_mixed_readout_data_bundle}; its frozen scorer
+exits 0 with \code{MEAN\_VAL\_BPB=0.963634} and a valid SM100 flash-attention kernel.
+The evidence JSON stores source/result hashes and verifier excerpts, but not the
+external bytes.
+
+Both public pages were retrieved at \code{2026-07-14T12:29:51Z}. Their complete
+raw-HTML SHA-256 values are recorded in \srcpath{evidence/website\_results.json}
+and \srcpath{evidence/paper\_inventory.json} rather than typeset inline.
+
+\subsection{Source Map}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{4.1cm} X@{}}
+\toprule
+\textbf{Subsystem} & \textbf{Primary source path(s)} \\
+\midrule
+Runtime composition and roles & \code{manager/}, \code{planner/}, \code{engineer/}, \code{reviewer/}, \code{loop.py} \\
+Mission lifecycle and daemon & \code{life/supervisor/\_core.py}, \code{daemon/life\_worker.py}, \code{daemon/handoff.py} \\
+State and memory & \code{core/paths.py}, \code{apps/\_runtime.py}, \code{engineer/checkpoint.py}, \code{life/memory.py} \\
+Execution and budgets & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
+Reliability guards & \code{engineer/runner.py}, \code{regime\_jump/} \\
+Evidence and integrity & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
+Cockpit and API & \code{webapi/server.py}, \code{frontend/tui/}, \code{frontend/web/} \\
+Public evidence & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
+\bottomrule
+\end{tabularx}
+\caption{Repository map for implementation and evidence claims.}
+\label{tab:source-map}
+\end{table}
+
+\section{Reliability, Budgets, and Deployment}
+\label{app:reliability}
+
+The guards in Table~\ref{tab:guards} define the long-running execution envelope.
+They are task-agnostic: they constrain activity and resource use, while the Reviewer
+remains responsible for scientific judgment.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{2.75cm} X p{1.3cm} p{1.55cm}@{}}
+\toprule
+\textbf{Guard} & \textbf{Trigger and action} & \textbf{Default} & \textbf{Live-call interrupt} \\
+\midrule
+Backend failure & Consecutive failures $\rightarrow$ backoff, then error & 2 / 15 s & no \\
+No-progress bail & Consecutive rounds with no Engineer message & 2 & no \\
+Decision stall & Consecutive nondecision review classes $\rightarrow$ end & 4 & no \\
+Decision-progress budget & Time since last decision/evidence $\rightarrow$ end & 1,800 s & no \\
+Soft round escalation & Ask Reviewer to return \code{blocked} & 12 & no \\
+Hard round escalation & Force terminal \code{blocked} & 24 & no \\
+Effective-progress watchdog & No file change or non-token event & 3,600 s & yes \\
+Runner hard-idle & No runner activity & 3,600 s & yes \\
+In-round compaction limit & Repeated automatic compactions & 3 & yes \\
+\bottomrule
+\end{tabularx}
+\caption{Default reliability guards in \srcpath{engineer/runner.py}. Thresholds are
+environment-overridable and disable at zero where applicable.}
+\label{tab:guards}
+\end{table}
+
+The canonical \code{resolve\_budget\_caps} path in \srcpath{core/knobs.py} resolves
+a per-mission preflight cap of \$30, a per-project daily cap of \$180, a global
+daily cap of \$30, and at most two active daemons across projects. A positive global
+cap is enforced; setting it to zero disables it. Calls reserve budget before
+execution and settle or release the reservation afterward. Unpriced calls and
+provider-fence breaches produce explicit blocked events rather than fabricated
+costs.
+
+Supervised background jobs maintain their own health cadence and report terminal
+outcomes through the operator inbox. An Engineer may explicitly emit
+\code{WAIT\_FOR\_SUBAGENT} for a healthy self-watched job; otherwise the request
+falls back to a normal reviewed round. The GPU lease tool is explicit rather than
+automatic: \code{gpu\_lease run -- <cmd>} releases parked devices, records a lease
+for the command lifetime, and restores the keep-alive only when no competing lease
+remains.
+
+The intended deployment is a per-project \code{systemd --user} service. It runs the
+daemon in the foreground, uses \code{SIGTERM}, allows up to 1,800 seconds for a clean
+mission-boundary drain, and restarts under a bounded service policy. Sandboxed
+builder roles are confined to the project working directory and may not write the
+global state root or provider configuration. The terminal and web cockpits read the
+same event tape; mutating commands and sensitive global views require an
+authorization token when configured.
+
+\section{Notation and Figure Provenance}
 \label{app:notation}
 
-The report's explanatory symbols are collected here for reference; they summarize
-design intent, not reported benchmark metrics --- $\rho_{\mathrm{DI}}(T)$ in
-particular is a lens, not an instrument (Section~\ref{sec:dense}).
-
-{\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{2.4cm} X@{}}
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabularx}{0.88\linewidth}{@{}p{2.5cm} X@{}}
 \toprule
 \textbf{Symbol} & \textbf{Meaning} \\
 \midrule
-$\rho_{\mathrm{DI}}(T)$ & explanatory dense-intelligence density over wall-clock horizon $T$ \\
-$\lambda(t)$ & rate of relevant reasoning and tool-mediated research work \\
-$\eta_d,\eta_x,\eta_v$ & decision, execution, and verification effectiveness factors \\
-$H_t$ & runtime capability state $\{M_t,S_t,A_t,V_t,R_t,Q_t\}$ \\
-$\tau_t,E_t$ & process trajectory and accepted evidence from run $t$ \\
-$\theta_t$ & underlying model parameters \\
-$C_t$ & retained verified capability set \\
-$\epsilon$ & evidence threshold in the explanatory capability-set model \\
+$o,y_0,f,B$ & Campaign objective, initial artifact, evaluator, and resource budget \\
+$\tau_t$ & Mission trajectory $(s_t,a_t,y_t,e_t,r_t)$ \\
+$\rho_I(T)$ & Dense-intelligence density over wall-clock horizon $T$ \\
+$\dot N_{\mathrm{tok}}$ & Rate of token-mediated reasoning and action \\
+$\eta_r,\eta_a,\eta_v$ & Reasoning, action, and verification conversion factors \\
+$H_t$ & Runtime state $\{M_t,S_t,A_t,V_t,R_t,Q_t\}$ \\
+$E_t$ & Evidence admitted from mission $t$ \\
+$\theta_t$ & Underlying model parameters, fixed in this report \\
+$C_t$ & Effective retained capability set \\
+$W_t,D_t(d)$ & Capability breadth and depth in domain $d$ \\
+$\epsilon$ & Evidence threshold in the idealized capability-admission rule \\
+$V_R(T)$ & Conceptual accumulated research value over horizon $T$ \\
+$\Delta I,p_{\mathrm{valid}},\eta_{\mathrm{reuse}}$ & Information gain, validity probability, and reuse efficiency \\
+$D_{\mathrm{process}}$ & Retained states, actions, evidence, feedback, and runtime-state deltas \\
 \bottomrule
 \end{tabularx}
-\par}
-
-\section{Key Interfaces and Status Taxonomy}
-\label{app:interfaces}\label{app:status}
-
-The role decision interfaces are summarized in Section~\ref{sec:roles}
-(Tables~\ref{tab:manager}--\ref{tab:reviewer}); this appendix records the status
-taxonomy they resolve into. Three enumerations govern outcomes: \code{ReviewStatus}
-(the verdict), \code{LoopStatus} (a mission's terminal or paused outcome), and
-\code{PlannerVerdictStatus} (the planner's event contract), the last carrying an
-explicit (success, recoverable) policy that determines how the scheduler reacts.
-
-\begin{table}[H]
-\centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{4.2cm} c c X@{}}
-\toprule
-\textbf{PlannerVerdictStatus} & \textbf{success} & \textbf{recoverable} & \textbf{Meaning} \\
-\midrule
-\code{planned}                   & yes & no  & a new task batch was produced \\
-\code{completed}                 & yes & no  & the project is certified complete \\
-\code{research\_incomplete}      & no  & yes & more research is required \\
-\code{paused\_budget}            & no  & yes & budget exhausted; recheck later \\
-\code{paused\_no\_breakthrough}  & no  & yes & no breakthrough this cycle \\
-\code{exhausted\_current\_methods} & no & yes & current methods exhausted \\
-\code{provider\_cooldown}        & no  & yes & provider cooldown in effect \\
-\code{provider\_fence}           & no  & yes & provider spend fence hit \\
-\code{infra\_blocked}            & no  & yes & infrastructure blocker \\
-\code{error}                     & no  & no  & unrecoverable error \\
-\bottomrule
-\end{tabularx}
-\caption{\code{PlannerVerdictStatus} and its (success, recoverable) policy
-(\code{core/planner\_verdict.py}). Legacy aliases (\code{done},
-\code{paused\_provider\_cooldown}, \code{paused\_provider\_fence}) map onto these.}
+\caption{Notation used in the main text.}
 \end{table}
 
-\noindent\textbf{ReviewStatus} (\code{core/models.py}):
-\code{done}, \code{continue}, \code{blocked}, plus the research-pause states
-\code{research\_incomplete}, \code{paused\_no\_breakthrough}, and
-\code{exhausted\_current\_methods}.
-
-\noindent\textbf{LoopStatus} (\code{core/models.py}): terminal statuses
-\code{done}, \code{max\_rounds}, \code{blocked}, \code{no\_progress}, \code{error},
-\code{budget\_exhausted}; paused statuses \code{paused\_budget},
-\code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
-\code{infra\_blocked}, \code{research\_incomplete}, \code{paused\_no\_breakthrough},
-\code{exhausted\_current\_methods}; and the control-transfer status
-\code{replan\_requested}, used only when dynamic planning requests a return to the
-Planner. Every mission yields one of these --- never an unbounded spin
-(Section~\ref{sec:runtime}).
-
-\section{Persisted State Map}
-\label{app:state}
-
-Table~\ref{tab:persist} (Section~\ref{sec:state}) lists the principal state files: the
-root layout is in \srcpath{core/paths.py} and the per-project checkpoint path in
-\srcpath{apps/\_runtime.py}. The global root \code{\textasciitilde/.argus-skill/}
-(overridable via \code{ARGUS\_SKILL\_HOME}; a legacy \code{ARGUS\_SKILL\_LIFE\_DIR}
-shim is kept for migration) holds cross-project identity, the shared skill library, and
-an operator knob store; each \code{projects/<fingerprint>/} subtree holds the
-append-only \code{events.jsonl}, \code{backlog.jsonl}, \code{continuous.json},
-\code{inbox.jsonl}, a \code{skills/} directory, \code{daemon.pid},
-\code{daemon.status.json}, and \code{checkpoint.json}. A path resolver rejects
-unresolved shell placeholders and empty, \code{.}, or \code{/} fingerprints, so a
-mis-resolved path fails loudly rather than writing to the wrong place.
-
-\section{Event Taxonomy}
-\label{app:events}
-
-Cross-component state flows through a canonical catalog of \textbf{112 typed event
-types} across \textbf{11 categories} (\srcpath{core/event\_catalog.py}), of which
-\textbf{75} carry a validated payload schema (Table~\ref{tab:events}).
-
-\begin{table}[H]
-\centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{2.2cm} c X@{}}
-\toprule
-\textbf{Category} & \textbf{Count} & \textbf{Representative events} \\
-\midrule
-\code{lifecycle} & 40 & \code{loop.start}, \code{round.main.completed}, \code{round.review.completed}, \code{budget.reservation.*}, \code{life.mission.started} \\
-\code{skill}     & 20 & \code{skill.match.*}, \code{scientist.start}, \code{skill.outcome} \\
-\code{wiki}      & 17 & wiki source/page ingest, promotion, validation \\
-\code{planner}   &  9 & \code{life.planner.start}, \code{life.planner.verdict} \\
-\code{research}  &  7 & \code{research.achievement.certified} (sole authoritative achievement) \\
-\code{agent\_io} &  5 & \code{agent.io.start}, \code{agent.io.stream}, \code{agent.io.complete} \\
-\code{daemon}    &  5 & daemon start / stop / handoff / status \\
-\code{idea}      &  3 & idea lifecycle \\
-\code{provider}  &  3 & \code{provider.request.started/completed/denied} \\
-\code{usage}     &  2 & \code{usage.recorded}, cost \\
-\code{operator}  &  1 & operator inbox event \\
-\bottomrule
-\end{tabularx}
-\caption{Event taxonomy: 112 types across 11 categories
-(\code{core/event\_catalog.py}). Budget, loop, and round events are grouped under
-\code{lifecycle}.}
-\label{tab:events}
-\end{table}
-
-\section{Evidence Map}
-\label{app:evidencemap}
-
-Every engineering claim in this report is grounded in the current
-\code{argus-skill} repository~\cite{argus_repo} rather than in transient run
-directories. Table~\ref{tab:evmap} maps each subsystem to its primary live source.
-
-\begin{table}[H]
-\centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{4.0cm} X@{}}
-\toprule
-\textbf{Subsystem (section)} & \textbf{Primary source path(s)} \\
-\midrule
-Three planes (\S\ref{sec:architecture})       & \code{docs/ARCHITECTURE.md}; \code{core/}, \code{manager/}, \code{engineer/}, \code{reviewer/} \\
-Mission lifecycle / daemon (\S\ref{sec:runtime}) & \code{life/supervisor/\_core.py}, \code{daemon/life\_worker.py}, \code{daemon/handoff.py} \\
-State \& memory (\S\ref{sec:state})           & \code{core/paths.py}, \code{apps/\_runtime.py}, \code{engineer/checkpoint.py}, \code{life/memory.py}, \code{skills/}, \code{wiki/} \\
-Role interfaces (\S\ref{sec:roles})           & \code{core/models.py}, \code{planner/planner.py}, \code{manager/\_core.py}, \code{reviewer/reviewer\_schema.json} \\
-Execution / budgets (\S\ref{sec:execution})   & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
-Reliability guards (\S\ref{sec:reliability})  & \code{engineer/runner.py}, \code{regime\_jump/} \\
-Evidence \& integrity (\S\ref{sec:evidence})  & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
-Cockpit / API (\S\ref{sec:workbench})         & \code{webapi/server.py} \\
-Deployment / security (\S\ref{sec:deploy})    & \code{deploy/argus-skill.service}, \code{core/sandbox.py}, \code{core/vault\_preflight.py} \\
-Public results \& portfolio (\S\ref{sec:results}--\ref{sec:portfolio}) & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
-\bottomrule
-\end{tabularx}
-\caption{Evidence map: subsystem to live source. This report cites repository
-paths on \code{main}, not any transient local filesystem location.}
-\label{tab:evmap}
-\end{table}
-
-\paragraph{Figure provenance.} The six structural figures are
-\code{gpt-image-2} outputs digested in \srcpath{figures/IMAGE2\_FIGURES.json};
-the two deterministic data figures (\code{public\_results},
-\code{paper\_portfolio}) come from \srcpath{figures/build\_report\_figures.py}
-and are digested in \srcpath{figures/REPORT\_FIGURES.json}.
-
-\paragraph{Paper-inventory summary.} The 41-paper portfolio
-(Section~\ref{sec:portfolio}) --- 35 manuscripts and 6 drafts across the six programs
-of Table~\ref{tab:portfolio} --- is enumerated in
-\srcpath{evidence/paper\_inventory.json}, compared only to human-authored literature.
+The paper uses three figures, each with a distinct evidentiary purpose. The first-page
+teaser, \code{argus\_teaser}, combines the exact objective--runtime--evidence--state
+flow with protocol-scoped public result cards. It is an HTML/CSS vector composition
+generated from the committed evidence JSON by
+\srcpath{figures/build\_argus\_teaser.py}; its figure brief, source hashes, editable
+HTML, and renderer are recorded in \srcpath{figures/argus\_teaser.json}. The two
+empirical figures, \code{public\_results} and \code{paper\_portfolio}, are generated
+by \srcpath{figures/build\_report\_figures.py} and digested in
+\srcpath{figures/REPORT\_FIGURES.json}. The remaining structural assets in the
+repository are intentionally not included: their content is represented more
+precisely by equations, tables, and interface definitions in this version.

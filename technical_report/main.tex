@@ -1,260 +1,224 @@
-\documentclass[11pt]{article}
+\documentclass[10pt,letterpaper]{article}
 
-% ---------------------------------------------------------------------------
-% Argus: Autonomous Research Generation and Understanding System
-% Technical Report 0.3 -- Dense Intelligence for an Expanding Research Frontier.
-% Single-column professional systems/research-engineering report.
-% Standard, widely available TeX Live packages only.
-% ---------------------------------------------------------------------------
+% Argus Technical Report 0.3
+% Academic-paper edition. Author names are intentionally omitted until the
+% final author list is confirmed; the two affiliations are shown below.
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
+\usepackage{mathptmx}
+\usepackage[scaled=0.92]{helvet}
 \usepackage{amsmath}
 \usepackage{amssymb}
-\usepackage[a4paper,margin=0.9in,headheight=15pt]{geometry}
-\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage[letterpaper,top=0.55in,bottom=0.62in,left=0.72in,right=0.72in,
+  headheight=14pt]{geometry}
+\usepackage[protrusion=true,expansion=true]{microtype}
 \usepackage{xcolor}
+\usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{array}
-\usepackage{longtable}
 \usepackage{enumitem}
-\usepackage{tcolorbox}
-\usepackage{graphicx}
 \usepackage{float}
+\usepackage{caption}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
-\usepackage{caption}
-\usepackage[hidelinks]{hyperref}
-\usepackage[htt]{hyphenat}
+\usepackage[most]{tcolorbox}
+\usepackage[round,authoryear]{natbib}
+\usepackage[colorlinks=true,allcolors=argusblue]{hyperref}
 
-\tcbuselibrary{skins,breakable}
-
-% ---- Precision Atlas palette: bone-white page, graphite ink, Argus indigo ---
-\definecolor{bonewhite}{HTML}{FBFAF6}
-\definecolor{graphite}{HTML}{24272B}
-\definecolor{graphitesoft}{HTML}{4A4F55}
-\definecolor{argusindigo}{HTML}{3B3D6E}
-\definecolor{indigosoft}{HTML}{6C6EA0}
-\definecolor{panelfill}{HTML}{F2F1EC}
-\definecolor{panelline}{HTML}{D8D6CE}
-\definecolor{calloutfill}{HTML}{EEF0F6}
-\definecolor{evidencefill}{HTML}{EAEEE8}
-\definecolor{evidenceline}{HTML}{9AAE93}
-
-% ---- Expanding-frontier accent palette (matches the report figure system) ---
-\definecolor{systemblue}{HTML}{315BCE}
-\definecolor{deepblue}{HTML}{214884}
-\definecolor{frontiergold}{HTML}{C38A20}
-\definecolor{goldsoft}{HTML}{FFF3D6}
-
-\pagecolor{bonewhite}
-\color{graphite}
+% A restrained academic palette: SJTU red for affiliation, Argus blue for
+% navigation, and neutral ink for the paper body.
+\definecolor{sjtuRed}{HTML}{C8161D}
+\definecolor{argusblue}{HTML}{315BCE}
+\definecolor{argusdeep}{HTML}{173B70}
+\definecolor{ink}{HTML}{1E2732}
+\definecolor{muted}{HTML}{5E6875}
+\definecolor{mist}{HTML}{EEF3F7}
+\definecolor{rulegray}{HTML}{D7DEE5}
+\definecolor{softgray}{HTML}{F7F8FA}
 
 \hypersetup{
-  colorlinks=true,
-  linkcolor=argusindigo,
-  urlcolor=argusindigo,
-  citecolor=argusindigo,
-  pdftitle={Argus: Autonomous Research Generation and Understanding System},
-  pdfauthor={Argus Team},
-  pdfsubject={Technical Report 0.3 -- Dense Intelligence for an Expanding Research Frontier}
+  pdftitle={Argus: Long-Horizon Autonomous Research through Persistent, Evidence-Gated Runtime Evolution},
+  pdfauthor={Shanghai Jiao Tong University; Microsoft},
+  pdfsubject={Argus Technical Report 0.3},
+  pdfkeywords={autonomous research agents, long-horizon agents, evidence, persistent state}
 }
 
-% ---- Section styling: graphite headings with a restrained indigo rule -------
-\titleformat{\section}
-  {\normalfont\Large\bfseries\color{argusindigo}}
-  {\thesection}{0.7em}{}[{\color{panelline}\titlerule[0.8pt]}]
-\titleformat{\subsection}
-  {\normalfont\large\bfseries\color{graphite}}
-  {\thesubsection}{0.6em}{}
-\titleformat{\subsubsection}
-  {\normalfont\normalsize\bfseries\color{graphitesoft}}
-  {\thesubsubsection}{0.5em}{}
-\titlespacing*{\section}{0pt}{0.85em}{0.45em}
-\titlespacing*{\subsection}{0pt}{0.65em}{0.3em}
-\titlespacing*{\subsubsection}{0pt}{0.55em}{0.2em}
-
-% ---- Header / footer --------------------------------------------------------
-\pagestyle{fancy}
-\fancyhf{}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\footrulewidth}{0pt}
-\fancyhead[L]{\footnotesize\color{graphitesoft}Argus}
-\fancyhead[R]{\footnotesize\color{graphitesoft}Technical Report 0.3}
-\fancyfoot[C]{\footnotesize\color{graphitesoft}\thepage}
-
-% ---- Caption styling --------------------------------------------------------
-\captionsetup{font={small,color=graphitesoft},labelfont={bf,color=argusindigo},
-  labelsep=period,skip=5pt}
-
-% ---- Callout box style ------------------------------------------------------
-\newtcolorbox{callout}[1][Note]{
-  enhanced, breakable,
-  colback=calloutfill, colframe=argusindigo,
-  boxrule=0.4pt, left=8pt, right=8pt, top=5pt, bottom=5pt,
-  before skip=5pt, after skip=5pt,
-  arc=1.5pt,
-  fonttitle=\bfseries\small\color{white},
-  coltitle=white,
-  title={#1}
-}
-
-% ---- Design-objective lead-in box (opens each major section) ----------------
-\newtcolorbox{designbox}[1][Design objective]{
-  enhanced, breakable,
-  colback=panelfill, colframe=panelline,
-  boxrule=0.5pt, left=8pt, right=8pt, top=4pt, bottom=4pt,
-  before skip=4pt, after skip=6pt,
-  arc=1.0pt,
-  fonttitle=\bfseries\small\color{graphitesoft},
-  coltitle=graphitesoft,
-  title={#1}
-}
-
-% Line spacing / paragraphs: short paragraphs, generous white space.
-\setlength{\parskip}{0.22em}
-\setlength{\parindent}{0pt}
-% Compact but consistent spacing around the report's many tables/figures.
-\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
-\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\color{ink}
+\setlength{\parindent}{1.05em}
+\setlength{\parskip}{0pt}
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{9pt plus 2pt minus 2pt}
 \setlength{\floatsep}{8pt plus 2pt minus 2pt}
 \setlength{\abovecaptionskip}{4pt}
-\renewcommand{\arraystretch}{1.12}
-\setlist{itemsep=1.5pt,topsep=2pt,parsep=0pt}
+\setlength{\belowcaptionskip}{0pt}
+\renewcommand{\arraystretch}{1.10}
+\setlist{leftmargin=1.45em,itemsep=1.5pt,topsep=3pt,parsep=0pt}
+\setlength{\emergencystretch}{2.5em}
 
-\newcommand{\code}[1]{\texttt{\small #1}}
-\newcommand{\srcpath}[1]{{\small\color{graphitesoft}\texttt{#1}}}
+\titleformat{\section}
+  {\sffamily\Large\bfseries\color{ink}}
+  {\color{argusblue}\thesection}{0.65em}{}
+\titleformat{\subsection}
+  {\sffamily\large\bfseries\color{ink}}
+  {\thesubsection}{0.55em}{}
+\titleformat{\subsubsection}
+  {\sffamily\normalsize\bfseries\color{ink}}
+  {\thesubsubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.15em}{0.45em}
+\titlespacing*{\subsection}{0pt}{0.85em}{0.28em}
+\titlespacing*{\subsubsection}{0pt}{0.65em}{0.2em}
 
-% ---- Act opener: light kicker / title / standfirst with a system-blue rule ---
-\newcommand{\actopener}[3]{%
-  \clearpage
-  {\small\bfseries\ttfamily\color{frontiergold} #1}\par
-  \vspace{0.35cm}
-  {\LARGE\bfseries\color{deepblue} #2}\par
-  \vspace{0.25cm}
-  {\large\color{graphitesoft} #3}\par
-  \vspace{0.35cm}
-  {\color{systemblue}\rule{\textwidth}{0.7pt}}
-  \vspace{0.25cm}
+\captionsetup{
+  font=small,
+  labelfont={bf,sf,color=ink},
+  textfont={color=ink},
+  labelsep=period
 }
-\setlength{\emergencystretch}{3em}
-\tolerance=900
-\hyphenpenalty=400
 
-% ---------------------------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.35pt}
+\fancyhead[L]{\footnotesize\sffamily\color{muted}Argus}
+\fancyhead[R]{\footnotesize\sffamily\color{muted}Long-Horizon Autonomous Research}
+\fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage}
+\fancypagestyle{firstpage}{
+  \fancyhf{}
+  \renewcommand{\headrulewidth}{0pt}
+  \fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage}
+}
+
+\newtcolorbox{abstractbox}{
+  enhanced,
+  colback=mist,
+  colframe=mist,
+  borderline west={1.8pt}{0pt}{argusblue},
+  boxrule=0pt,
+  arc=1.5pt,
+  left=9pt,right=9pt,top=7pt,bottom=7pt,
+  before skip=7pt,after skip=6pt
+}
+
+\newtcolorbox{paperbox}[1]{
+  enhanced,
+  colback=softgray,
+  colframe=rulegray,
+  boxrule=0.45pt,
+  arc=1.5pt,
+  left=8pt,right=8pt,top=6pt,bottom=6pt,
+  before skip=6pt,after skip=6pt,
+  fonttitle=\sffamily\bfseries\small\color{argusdeep},
+  title={#1}
+}
+
+\newcommand{\system}{\textsc{Argus}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\srcpath}[1]{{\small\color{muted}\texttt{#1}}}
+\newcommand{\strong}[1]{\textbf{#1}}
+
 \begin{document}
+\thispagestyle{firstpage}
 
-\thispagestyle{empty}
-\vspace*{0.6cm}
-{\small\bfseries\ttfamily\color{frontiergold} ARGUS}\\[2.0cm]
-{\Huge\bfseries\color{deepblue}
-  Autonomous Research Generation\\[0.15cm]
-  and Understanding System}\\[0.7cm]
-{\Large\color{graphite}
-  Dense Intelligence for an Expanding Research Frontier}\\[1.2cm]
-\begin{center}
-  \includegraphics[width=0.62\textwidth]{figures/master_spine.png}
-\end{center}
-\vfill
-{\color{systemblue}\rule{\textwidth}{0.7pt}}\\[0.2cm]
-{\small\ttfamily\color{systemblue} TECHNICAL REPORT 0.3 \hfill JULY 2026}
+\noindent{\color{sjtuRed}\rule{0.11\linewidth}{2.2pt}}%
+{\color{argusblue}\rule{0.89\linewidth}{2.2pt}}\par
+\vspace{0.18in}
+
+{\sffamily\small\bfseries\color{muted}
+  ARGUS TECHNICAL REPORT 0.3 \enspace\textperiodcentered\enspace JULY 2026}\par
+\vspace{0.12in}
+
+{\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
+  Argus: Long-Horizon Autonomous Research\par
+  through Persistent, Evidence-Gated\par
+  Runtime Evolution}\par
+\vspace{0.10in}
+
+% Author names will be inserted here after confirmation. For this draft, the
+% affiliation line and official marks are intentionally shown without names.
+{\sffamily\large\bfseries\color{ink}
+  Shanghai Jiao Tong University \quad Microsoft}\par
+\vspace{0.10in}
+
+\noindent
+\begin{minipage}[c]{0.48\linewidth}
+  \includegraphics[height=0.43in]{assets/sjtu-logo.png}\hspace{0.10in}%
+  \raisebox{0.08in}{\parbox[c]{2.35in}{\sffamily\small\bfseries
+    Shanghai Jiao Tong University}}
+\end{minipage}%
+\hfill
+\begin{minipage}[c]{0.26\linewidth}
+  \raggedleft\includegraphics[width=1.62in]{assets/microsoft-logo.png}
+\end{minipage}
+
+\begin{abstractbox}
+\small
+\textbf{Abstract.}
+Long-horizon autonomous research requires more than extending a single model
+session. The system must preserve objectives across restarts, turn decisions into
+real experiments, separate execution from acceptance, and retain verified lessons
+for later work. We present \system, a persistent runtime for autonomous research
+organized around four model-driven roles---Manager, Planner, Engineer, and
+Reviewer---operating over bounded missions and durable project state. The runtime
+records an append-only evidence trace, maintains curated cross-session memory, and
+updates reusable state such as skills, procedures, routing, and evaluations while
+holding the underlying model parameters fixed. We describe this mechanism as
+evidence-gated runtime evolution: a mission changes the operating state only through
+an attributable update grounded in artifacts and review. We assess the system using
+two public evidence sources: results from six heterogeneous benchmark arenas and a
+de-duplicated portfolio of 41 research artifacts across six programs. Two benchmark
+results include committed artifact-digest metadata; four are currently supported by
+public website snapshots. The evidence demonstrates that the runtime can sustain
+productive work across distinct research settings, but it does not isolate the
+causal effect of individual architectural components or establish universal
+state-of-the-art performance. We therefore report protocols, provenance tiers, and
+limitations alongside every aggregate claim.
+\end{abstractbox}
+
+\noindent
+\begin{minipage}[t]{0.66\linewidth}
+  \footnotesize\color{muted}
+  \textbf{Keywords:} autonomous research agents; long-horizon agents; persistent
+  state; evidence-grounded evaluation; agent reliability.
+\end{minipage}%
+\hfill
+\begin{minipage}[t]{0.31\linewidth}
+  \raggedleft\footnotesize\color{muted}
+  \textbf{Code:} \href{https://github.com/lbx154/argus-skill}{github.com/lbx154/argus-skill}
+\end{minipage}
+
+\vspace{0.04in}
+{\footnotesize\itshape\color{muted}
+This is a living technical report. Reported results and evidence tiers correspond
+to the public snapshot retrieved on July 14, 2026.}\par
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
+  \caption{\system{} at a glance. (A) A dense-intelligence objective enters a
+  role-separated runtime; artifacts and review evidence pass through an evidence
+  gate before updating reusable state around a fixed model. (B) The current public
+  record spans six heterogeneous arenas and 41 research artifacts. Result cards
+  preserve task-native units and evidence tiers; they are not cross-normalized.}
+  \label{fig:overview}
+\end{figure}
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_problem_formulation}
+\input{sections/04_argus_method}
+\input{sections/05_empirical_methodology}
+\input{sections/06_results}
+\input{sections/07_discussion}
+\input{sections/08_limitations}
+\input{sections/09_conclusion}
 
 \clearpage
-
-\begin{quote}
-\small\color{graphitesoft}
-Argus is a research infrastructure that operates a capable coding-and-reasoning
-model as an autonomous research system over long horizons --- hours to days ---
-against real, public benchmarks and open research problems. This report documents
-the system as engineered: a three-plane architecture, the research runtime and
-mission lifecycle, the state and knowledge systems, the agent decision interfaces,
-the experiment and resource infrastructure, the reliability and recovery model, and
-the evidence architecture that keeps every measurement auditable. It reports the
-current public results across six arenas and a 41-paper research portfolio, each a
-scoped claim under its stated protocol and evidence tier. It is an engineering
-report, not a results paper: it does not claim universal state of the art, an
-accepted autonomous publication, or correctness outside the stated protocols.
-\end{quote}
-
-\vspace{0.25cm}
-{\small\color{argusindigo}\hrulefill}\\[0.15cm]
-{\footnotesize\color{graphitesoft}\textbf{Contents}}
-\vspace{-0.35cm}
-\begingroup
-\hypersetup{linkcolor=graphite}
-\renewcommand{\contentsname}{}
-\setcounter{tocdepth}{1}
-{\small\tableofcontents}
-\endgroup
-{\small\color{argusindigo}\hrulefill}
-
-\actopener
-  {ACT I · THE DENSE-INTELLIGENCE PROBLEM}
-  {Research intelligence is sparse in time.}
-  {Long-horizon research requires continuity, execution, verification, and durable state—not merely a longer context window.}
-
-\input{sections/01_executive_thesis}
-\input{sections/02_dense_intelligence}
-\input{sections/03_episodic_agents}
-
-\actopener
-  {ACT II · THE MACHINE THAT TURNS WORK INTO CAPABILITY}
-  {Continuity requires an institution, not a longer prompt.}
-  {Argus organizes persistent objectives, bounded role contexts, real execution, independent review, and durable evidence into one research runtime.}
-
-\input{sections/04_argus_life}
-\input{sections/05_roles_planes}
-\input{sections/06_lifecycle_state}
-\input{sections/07_evidence_review}
-\input{sections/08_reliability_resources}
-
-\actopener
-  {ACT III · ONLINE RUNTIME EVOLUTION}
-  {Every run becomes capability—or evidence about what not to repeat.}
-  {Argus can update the operating state around a fixed model: memory, skills, tools, verifiers, routing, and evaluations.}
-
-\input{sections/09_runtime_evolution}
-\input{sections/10_process_data}
-\input{sections/11_ood_expansion}
-
-% Act IV and the appendix carry the report's densest tables and figures; tighten
-% table row height, paragraph lead, heading spacing, and float separation from here
-% onward to keep the evidence-heavy closing chapters within the page envelope without
-% touching earlier acts. Layout only -- no evidence, caveat, or notation is removed.
-\renewcommand{\arraystretch}{1.0}
-\setlength{\parskip}{0.10em}
-\titlespacing*{\section}{0pt}{0.5em}{0.22em}
-\titlespacing*{\subsection}{0pt}{0.4em}{0.14em}
-\titlespacing*{\subsubsection}{0pt}{0.35em}{0.1em}
-\setlength{\textfloatsep}{5pt}
-\setlength{\intextsep}{5pt}
-\setlength{\floatsep}{5pt}
-\raggedbottom
-\linespread{0.96}\selectfont
-
-\actopener
-  {ACT IV · EVIDENCE FROM THE FRONTIER}
-  {A grand thesis is only as strong as its proof points.}
-  {Six public arenas and six research programs show where Argus has produced scoped evidence—and where the evidence remains incomplete.}
-
-\input{sections/12_frontier_evidence}
-\input{sections/13_limitations_roadmap}
-
 \appendix
 \input{sections/90_appendix}
 
-\vspace{-0.3\baselineskip}
-\bibliographystyle{plain}
-\let\OLDthebibliography\thebibliography
-\renewcommand\thebibliography[1]{%
-  \footnotesize
-  \OLDthebibliography{#1}%
-  \setlength{\itemsep}{0pt}%
-  \setlength{\parsep}{0pt}%
-  \setlength{\topsep}{0pt}%
-}
+\bibliographystyle{plainnat}
 \bibliography{references}
 
 \end{document}
