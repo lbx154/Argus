@@ -121,6 +121,8 @@ class EventType(StrEnum):
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
     SKILL_OUTCOME = "skill.outcome"
+    SKILL_TRANSFER_STARTED = "skill.transfer.started"
+    SKILL_TRANSFER_COMPLETED = "skill.transfer.completed"
     SKILL_SCIENTIST_STARTED = "skill.scientist.started"
     SKILL_SCIENTIST_CREATED = "skill.scientist.created"
     SKILL_SCIENTIST_ADAPTATION_STARTED = "skill.scientist.adaptation_started"
@@ -184,6 +186,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
     EventType.SKILL_OUTCOME,
+    EventType.SKILL_TRANSFER_STARTED,
+    EventType.SKILL_TRANSFER_COMPLETED,
     EventType.SKILL_SCIENTIST_STARTED,
     EventType.SKILL_SCIENTIST_CREATED,
     EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,

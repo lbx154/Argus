@@ -125,6 +125,48 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
 
 
+def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(
+            message="- Emit exactly one concise greeting.\n- Preserve the requested tone.",
+            input_tokens=40,
+            output_tokens=12,
+        ),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    )
+
+    outcome = loop.run("say hi warmly", workdir=tmp_path)
+
+    assert outcome.successful
+    adapter_prompt, adapter_options = next(
+        (prompt, options)
+        for label, prompt, options in backend.history
+        if label == "skill-adapter"
+    )
+    assert "Closest reusable skill" in adapter_prompt
+    assert adapter_options.reasoning_effort == "low"
+    engineer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Task-adapted skill guideline" in engineer_prompt
+    assert "Emit exactly one concise greeting" in engineer_prompt
+    assert any(event.get("type") == "skill.transfer.completed" for event in events)
+
+
 def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)

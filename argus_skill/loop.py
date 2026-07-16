@@ -67,6 +67,11 @@ class SkillLoopConfig:
     engineer_reasoning_effort: str | None = "xhigh"
     reviewer_reasoning_effort: str = "xhigh"
     matcher_reasoning_effort: str | None = "high"
+    # Cheap task-conditioning pass over the closest matched skill. This is a
+    # single no-tool input/output request, not a Scientist or execution agent.
+    skill_adapter_model: str | None = None
+    skill_adapter_reasoning_effort: str = "low"
+    skill_adapter_enabled: bool = True
     max_rounds: int = 500
     no_progress_threshold: int = 2
     # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
@@ -173,6 +178,10 @@ class SkillLoopConfig:
         if env:
             return env
         return self.matcher_model or self.engineer_model
+
+    def resolved_skill_adapter_model(self) -> str:
+        env = os.environ.get("ARGUS_SKILL_ADAPTER_MODEL", "").strip()
+        return env or self.skill_adapter_model or self.engineer_model or ""
 
 
 class SkillLoop:
@@ -375,6 +384,85 @@ class SkillLoop:
             self.skill_store, primary_skills, reference_skills
         )
         skill_name = skill.name if skill else None
+        if skill is not None and self.config.skill_adapter_enabled:
+            source_skill_text = self.skill_store.render_skill(skill)
+            adapter_prompt = (
+                "You are a low-cost Skill Adapter. Rewrite the reusable skill below "
+                "into a concise guideline for the CURRENT task. Do not solve the "
+                "task, use tools, inspect files, create artifacts, or discuss the "
+                "adaptation process. Preserve the skill's valid mechanism, replace "
+                "generic placeholders with task-relevant abstractions, remove "
+                "irrelevant steps, and output only the adapted guideline in at most "
+                "12 short bullets.\n\n"
+                f"## Current task\n{skill_task}\n\n"
+                f"## Closest reusable skill: {skill.name}\n{source_skill_text}"
+            )
+            self._emit({
+                "type": EventType.SKILL_TRANSFER_STARTED,
+                "skill_name": skill.name,
+                "model": self.config.resolved_skill_adapter_model(),
+                "reasoning_effort": self.config.skill_adapter_reasoning_effort,
+                "text": f"adapting matched skill {skill.name} to current task",
+            })
+            adapter_extra_args = list(self.config.extra_args or [])
+            adapter_sandbox: str | None = "read-only"
+            if str(getattr(self.engineer_runner, "_backend_name", "") or "").lower() == "copilot":
+                adapter_sandbox = None
+                adapter_extra_args.extend([
+                    "--no-custom-instructions",
+                    "--disable-builtin-mcps",
+                    "--available-tools=",
+                ])
+            try:
+                transfer_result = gateway_run_exec(
+                    self.engineer_runner,
+                    prompt=adapter_prompt,
+                    options=RunnerOptions(
+                        model=self.config.resolved_skill_adapter_model() or None,
+                        reasoning_effort=self.config.skill_adapter_reasoning_effort,
+                        extra_args=adapter_extra_args or None,
+                        sandbox_mode=adapter_sandbox,
+                        skip_git_repo_check=True,
+                        full_auto=False,
+                        dangerous_yolo=False,
+                    ),
+                    run_label="skill-adapter",
+                    resume_thread_id=None,
+                )
+                adapted = str(
+                    getattr(transfer_result, "last_agent_message", "") or ""
+                ).strip()
+                if (
+                    int(getattr(transfer_result, "exit_code", 0) or 0) == 0
+                    and not getattr(transfer_result, "fatal_error", None)
+                    and adapted
+                ):
+                    skill_text = (
+                        "## Task-adapted skill guideline\n"
+                        f"Source skill: {skill.name}\n\n{adapted}"
+                    )
+                    distill_result = transfer_result
+                    self._emit({
+                        "type": EventType.SKILL_TRANSFER_COMPLETED,
+                        "skill_name": skill.name,
+                        "success": True,
+                        "text": f"adapted skill {skill.name} for current task",
+                    })
+                else:
+                    self._emit({
+                        "type": EventType.SKILL_TRANSFER_COMPLETED,
+                        "skill_name": skill.name,
+                        "success": False,
+                        "text": "skill adapter failed; using original skill",
+                    })
+            except Exception:  # noqa: BLE001 - original skill remains a safe fallback
+                log.debug("skill adapter failed", exc_info=True)
+                self._emit({
+                    "type": EventType.SKILL_TRANSFER_COMPLETED,
+                    "skill_name": skill.name,
+                    "success": False,
+                    "text": "skill adapter raised; using original skill",
+                })
         adaptation_file: Path | None = None
         adaptation_disabled = False
         adaptation_state: dict[str, Any] = {
@@ -1130,7 +1218,12 @@ class SkillLoop:
                 )
                 or self.config.resolved_matcher_model()
             )
-            distiller_model = str(self.config.engineer_model or "")
+            transfer_used = bool(distill_result is not None and skill is not None)
+            distiller_model = str(
+                self.config.resolved_skill_adapter_model()
+                if transfer_used and not skill_distilled
+                else (self.config.engineer_model or "")
+            )
             distiller_input_tokens = int(getattr(distill_result, "input_tokens", 0) or 0)
             distiller_cached_input_tokens = int(
                 getattr(distill_result, "cached_input_tokens", 0) or 0
@@ -1159,7 +1252,7 @@ class SkillLoop:
             }
             self._emit({
                 "type": EventType.SKILL_COST_COMPLETED,
-                "agent_layer": "scientist",
+                "agent_layer": "skill_transfer" if transfer_used else "scientist",
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
                 "matcher": matcher_usage,
