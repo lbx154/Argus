@@ -137,6 +137,28 @@ def test_scrubs_recent_text_artifacts_and_preserves_source_fixtures(
     assert "active-secret-value" in active_log.read_text(encoding="utf-8")
 
 
+def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
+    schema = tmp_path / "flipt.schema.cue"
+    schema.write_text(
+        "#GitAuthentication: {\n"
+        "  token: access_token: string\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert not report.changed
+    assert schema.read_text(encoding="utf-8") == (
+        "#GitAuthentication: {\n"
+        "  token: access_token: string\n"
+        "}\n"
+    )
+
+
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
     artifact = tmp_path / "response.txt"
     artifact.write_text("Authorization: Bearer live-token-value-123\n", encoding="utf-8")

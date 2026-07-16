@@ -93,6 +93,7 @@ _SOURCE_SUFFIXES = {
     ".c",
     ".cc",
     ".cpp",
+    ".cue",
     ".go",
     ".h",
     ".hpp",
