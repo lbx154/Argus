@@ -145,9 +145,9 @@ test('startup probe reports the backend checkout and revision', async () => {
   try {
     const probe = await probeApi('127.0.0.1', 8799);
     assert.equal(probe.state, 'compatible');
-    assert.match(
+    assert.equal(
       probe.message,
-      /\/home\/dev\/current\/argus-skill @ abc123 · release 0\.1\.1\+[a-f0-9]+ \(pid 123\)/,
+      `/home/dev/current/argus-skill @ abc123 · release ${RELEASE_ID} (pid 123)`,
     );
   } finally {
     globalThis.fetch = originalFetch;
