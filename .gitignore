@@ -104,3 +104,7 @@ docs/Argus_BP*
 /data/
 /logs/
 /paper/
+
+# proprietary binary/npm release staging
+/dist-binary/
+/.pyinstaller/

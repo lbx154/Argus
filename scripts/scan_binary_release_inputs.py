@@ -11,7 +11,7 @@ INPUTS = (
     ROOT / "argus_skill",
     ROOT / "frontend" / "tui" / "bundle",
     ROOT / "frontend" / "web" / "dist",
-    ROOT / "packaging" / "npm" / "cli",
+    ROOT / "packaging" / "npm" / "argus",
 )
 PATTERNS = {
     "private-key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),

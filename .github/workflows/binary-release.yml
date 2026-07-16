@@ -1,22 +1,19 @@
-name: Binary release
+name: Binary beta release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
+      version:
+        description: Immutable beta version, for example 0.1.1-beta.1
+        required: true
+        type: string
       publish:
-        description: Publish the audited tarballs to the npm beta channel
+        description: Publish the audited tarballs to npm
         required: true
         default: false
         type: boolean
-      version:
-        description: New immutable MAJOR.MINOR.PATCH version (required when publishing)
-        required: false
-        type: string
       confirm:
-        description: Type PUBLISH @argusbot MAJOR.MINOR.PATCH when publishing
+        description: Type PUBLISH @argusevolve/argus VERSION when publishing
         required: false
         type: string
 
@@ -24,16 +21,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: binary-release-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: npm-binary-beta-release
+  cancel-in-progress: false
 
 jobs:
   platform:
+    if: ${{ github.ref == 'refs/heads/main' }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Build on glibc 2.35 for broader compatibility than ubuntu-24.04.
+          # Build on glibc 2.35 for broader Linux compatibility.
           - os: ubuntu-22.04
             platform: linux
             binary: argus-core
@@ -55,13 +53,10 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Set immutable publish version
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+      - name: Set immutable beta build version
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          test -n "$RELEASE_VERSION"
-          python scripts/set_binary_release_version.py "$RELEASE_VERSION"
+        run: python scripts/set_binary_release_version.py "$RELEASE_VERSION"
 
       - name: Install frontend dependencies
         run: |
@@ -85,6 +80,7 @@ jobs:
             tests/core/test_release.py \
             tests/apps/test_tui_launcher.py \
             tests/daemon/test_windows_terminal_process.py \
+            tests/scripts/test_prepare_npm_binary_packages.py \
             tests/tools/test_verify_npm_tarballs.py
           npm test --prefix frontend/web
           npm test --prefix frontend/tui
@@ -100,7 +96,8 @@ jobs:
             --binary dist-binary/${{ matrix.binary }} \
             --platform ${{ matrix.platform }} \
             --arch x64 \
-            --notices dist-binary/THIRD_PARTY_NOTICES.txt
+            --notices dist-binary/THIRD_PARTY_NOTICES.txt \
+            --version '${{ inputs.version }}'
           python scripts/verify_npm_binary_packages.py
 
       - name: Pack and audit exact npm tarballs
@@ -108,11 +105,11 @@ jobs:
           mkdir -p dist-binary/packs
           npm pack \
             --pack-destination dist-binary/packs \
-            dist-binary/npm/cli-${{ matrix.platform }}-x64
+            dist-binary/npm/argus-${{ matrix.platform }}-x64
           if [ "${{ matrix.platform }}" = "linux" ]; then
             npm pack \
               --pack-destination dist-binary/packs \
-              dist-binary/npm/cli
+              dist-binary/npm/argus
           fi
           python scripts/verify_npm_tarballs.py dist-binary/packs/*.tgz
 
@@ -127,7 +124,7 @@ jobs:
             dist-binary/packs/*.tgz
 
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    if: ${{ github.ref == 'refs/heads/main' && inputs.publish }}
     needs: platform
     runs-on: ubuntu-22.04
     environment: npm-beta
@@ -146,6 +143,9 @@ jobs:
           node-version: "24"
           registry-url: https://registry.npmjs.org
 
+      - name: Pin npm trusted-publishing client
+        run: npm install --global npm@11.5.1
+
       - name: Require explicit owner confirmation
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -153,7 +153,7 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           test "$ACTOR" = "lbx154"
-          test "$CONFIRM" = "PUBLISH @argusbot $RELEASE_VERSION"
+          test "$CONFIRM" = "PUBLISH @argusevolve/argus $RELEASE_VERSION"
 
       - uses: actions/download-artifact@v4
         with:
@@ -176,23 +176,25 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           for package in \
-            @argusbot/cli-linux-x64 \
-            @argusbot/cli-win32-x64 \
-            @argusbot/cli; do
+            @argusevolve/argus-linux-x64 \
+            @argusevolve/argus-win32-x64 \
+            @argusevolve/argus; do
             if npm view "$package@$RELEASE_VERSION" version >/dev/null 2>&1; then
               echo "$package@$RELEASE_VERSION already exists; npm versions are immutable" >&2
               exit 1
             fi
           done
 
-      - name: Publish audited platform tarballs, then launcher
+      - name: Publish audited platform tarballs, then Argus
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          linux_tarball=$(find release/linux/packs -name 'argusbot-cli-linux-x64-*.tgz' -print -quit)
-          windows_tarball=$(find release/windows/packs -name 'argusbot-cli-win32-x64-*.tgz' -print -quit)
-          launcher_tarball=$(find release/linux/packs -name 'argusbot-cli-[0-9]*.tgz' -print -quit)
+          linux_tarball=$(find release/linux/packs -name 'argusevolve-argus-linux-x64-*.tgz' -print -quit)
+          windows_tarball=$(find release/windows/packs -name 'argusevolve-argus-win32-x64-*.tgz' -print -quit)
+          argus_tarball=$(find release/linux/packs -name 'argusevolve-argus-[0-9]*.tgz' -print -quit)
           test -n "$linux_tarball"
           test -n "$windows_tarball"
-          test -n "$launcher_tarball"
-          npm publish "$linux_tarball" --provenance --access public --tag beta
-          npm publish "$windows_tarball" --provenance --access public --tag beta
-          npm publish "$launcher_tarball" --provenance --access public --tag beta
+          test -n "$argus_tarball"
+          npm publish "$linux_tarball" --access public --tag beta
+          npm publish "$windows_tarball" --access public --tag beta
+          npm publish "$argus_tarball" --access public --tag beta

@@ -9,24 +9,26 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 EXPECTED_FILES = {
-    "@argusbot/cli": {
+    "@argusevolve/argus": {
         "package/package.json",
         "package/README.md",
         "package/bin/argus.mjs",
         "package/bin/argus-skill.mjs",
         "package/bin/launcher.mjs",
     },
-    "@argusbot/cli-linux-x64": {
+    "@argusevolve/argus-linux-x64": {
         "package/package.json",
         "package/README.md",
         "package/THIRD_PARTY_NOTICES.txt",
         "package/bin/argus-core",
+        "package/bin/argus-core.sha256",
     },
-    "@argusbot/cli-win32-x64": {
+    "@argusevolve/argus-win32-x64": {
         "package/package.json",
         "package/README.md",
         "package/THIRD_PARTY_NOTICES.txt",
         "package/bin/argus-core.exe",
+        "package/bin/argus-core.exe.sha256",
     },
 }
 
@@ -81,6 +83,8 @@ def verify(path: Path) -> tuple[str, str]:
             raise RuntimeError(f"{path.name}: binary preview must stay UNLICENSED")
         if not version:
             raise RuntimeError(f"{path.name}: version is empty")
+        if "-beta." not in version:
+            raise RuntimeError(f"{path.name}: version is not an npm beta")
         return package_name, version
 
 

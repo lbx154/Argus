@@ -1,7 +1,7 @@
 {
-  "name": "@argusbot/cli",
+  "name": "@argusevolve/argus",
   "version": "0.0.0-development",
-  "description": "Binary-only Argus command-line launcher.",
+  "description": "Binary-only Argus beta with terminal and Web interfaces.",
   "license": "UNLICENSED",
   "type": "module",
   "bin": {
@@ -9,7 +9,8 @@
     "argus-skill": "bin/argus-skill.mjs"
   },
   "files": [
-    "bin"
+    "bin",
+    "README.md"
   ],
   "engines": {
     "node": ">=18"
@@ -22,8 +23,8 @@
     "x64"
   ],
   "optionalDependencies": {
-    "@argusbot/cli-linux-x64": "0.0.0-development",
-    "@argusbot/cli-win32-x64": "0.0.0-development"
+    "@argusevolve/argus-linux-x64": "0.0.0-development",
+    "@argusevolve/argus-win32-x64": "0.0.0-development"
   },
   "publishConfig": {
     "access": "public"

@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+VERSION_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$"
+)
 
 
 def _replace_once(path: Path, pattern: str, replacement: str) -> None:
@@ -23,7 +25,9 @@ def _replace_once(path: Path, pattern: str, replacement: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1 or not VERSION_RE.fullmatch(args[0]):
-        raise SystemExit("usage: set_binary_release_version.py MAJOR.MINOR.PATCH")
+        raise SystemExit(
+            "usage: set_binary_release_version.py MAJOR.MINOR.PATCH-beta.NUMBER"
+        )
     version = args[0]
     _replace_once(
         ROOT / "pyproject.toml",

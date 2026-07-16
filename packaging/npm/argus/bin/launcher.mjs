@@ -6,15 +6,15 @@ import process from 'node:process';
 const require = createRequire(import.meta.url);
 
 const packages = new Map([
-  ['linux-x64', '@argusbot/cli-linux-x64'],
-  ['win32-x64', '@argusbot/cli-win32-x64'],
+  ['linux-x64', '@argusevolve/argus-linux-x64'],
+  ['win32-x64', '@argusevolve/argus-win32-x64'],
 ]);
 
 export function run(mode) {
   const target = `${process.platform}-${process.arch}`;
   const packageName = packages.get(target);
   if (!packageName) {
-    console.error(`Argus binary preview does not support ${target}.`);
+    console.error(`Argus beta does not support ${target}.`);
     process.exitCode = 1;
     return;
   }
@@ -31,7 +31,7 @@ export function run(mode) {
     } catch {
       console.error(
         `Argus platform package ${packageName} is missing. ` +
-        'Reinstall @argusbot/cli with optional dependencies enabled.',
+        'Reinstall @argusevolve/argus with optional dependencies enabled.',
       );
       process.exitCode = 1;
       return;
