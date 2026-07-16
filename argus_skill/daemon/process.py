@@ -18,7 +18,6 @@ from .state import (
     _daemon_status_payload,
     _new_boot_id,
     _point_active_daemon_log,
-    _process_alive,
     _redirect_std_to_log,
     read_daemon_status,
 )
@@ -33,6 +32,9 @@ def spawn_detached_process(
     release_spawn_lock: Callable[..., None],
     max_active_daemons: Callable[[Any], int],
     active_daemon_count: Callable[[Any], int],
+    workspace_start_error: Callable[[Any], str] | None = None,
+    acquire_workspace_lease: Callable[[Any], int | None] | None = None,
+    release_workspace_lease: Callable[..., None] | None = None,
     quiet: bool = False,
 ) -> int:
     """Fork a detached background process running the worker, then exit.
@@ -46,6 +48,7 @@ def spawn_detached_process(
     and finally enters :meth:`LifeWorker.run_forever`.
     """
     spawn_lock_fd = acquire_spawn_lock(config)
+    workspace_lease_fd: int | None = None
     try:
         # Count and fork while holding one host-wide admission lock. A second
         # launcher cannot observe the same pre-start count before this child has
@@ -59,6 +62,16 @@ def spawn_detached_process(
                 )
             release_spawn_lock(spawn_lock_fd)
             return 2
+        workspace_error = (
+            workspace_start_error(config)
+            if workspace_start_error is not None
+            else ""
+        )
+        if workspace_error:
+            if not quiet:
+                sys.stderr.write(f"argus-skill: {workspace_error}.\n")
+            release_spawn_lock(spawn_lock_fd)
+            return 3
         daemon_limit = max_active_daemons(config)
         active_count = active_daemon_count(config)
         if daemon_limit > 0 and active_count >= daemon_limit:
@@ -71,6 +84,14 @@ def spawn_detached_process(
                 )
             release_spawn_lock(spawn_lock_fd)
             return 2
+        if acquire_workspace_lease is not None:
+            try:
+                workspace_lease_fd = acquire_workspace_lease(config)
+            except Exception as exc:  # noqa: BLE001
+                if not quiet:
+                    sys.stderr.write(f"argus-skill: {exc}.\n")
+                release_spawn_lock(spawn_lock_fd)
+                return 3
         config.life_dir.mkdir(parents=True, exist_ok=True)
         boot_id = _new_boot_id()
         log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
@@ -79,6 +100,8 @@ def spawn_detached_process(
         status_path = _daemon_status_path(config.life_dir)
         pid = os.fork()
     except Exception:
+        if release_workspace_lease is not None:
+            release_workspace_lease(workspace_lease_fd)
         release_spawn_lock(spawn_lock_fd)
         raise
     if pid > 0:
@@ -87,14 +110,15 @@ def spawn_detached_process(
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
                 if pid_path.exists() and status_path.exists():
-                    try:
-                        written_pid = int(pid_path.read_text().strip())
-                    except (OSError, ValueError):
-                        written_pid = 0
-                    if written_pid and _process_alive(written_pid):
+                    status = read_daemon_status(config.life_dir)
+                    if (
+                        status.alive
+                        and status.pid is not None
+                        and not status.status_read_error
+                    ):
                         if not quiet:
                             sys.stdout.write(
-                                f"argus-skill: daemon started (pid {written_pid}, "
+                                f"argus-skill: daemon started (pid {status.pid}, "
                                 f"life_dir={config.life_dir}, log={log_path}).\n"
                             )
                         return 0
@@ -106,6 +130,11 @@ def spawn_detached_process(
                 )
             return 2
         finally:
+            if release_workspace_lease is not None:
+                # The daemon child inherited the same locked open-file
+                # description. Parent closes only its copy; unlocking here
+                # would release the child's lifetime lease too.
+                release_workspace_lease(workspace_lease_fd, unlock=False)
             release_spawn_lock(spawn_lock_fd)
 
     # The parent owns admission. Close only this inherited descriptor copy;
@@ -148,6 +177,8 @@ def spawn_detached_process(
     # so dropping the inherited table is safe and correct daemonisation.
     try:
         _keep = {0, 1, 2}
+        if workspace_lease_fd is not None:
+            _keep.add(workspace_lease_fd)
         for _name in os.listdir("/proc/self/fd"):
             try:
                 _fd = int(_name)
@@ -201,6 +232,11 @@ def spawn_detached_process(
             status_path.unlink()
         except OSError:
             pass
+        if release_workspace_lease is not None:
+            try:
+                release_workspace_lease(workspace_lease_fd)
+            except Exception:  # noqa: BLE001
+                log.exception("daemon: failed to release workspace lease")
 
     os._exit(rc)
 

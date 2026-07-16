@@ -115,6 +115,8 @@ def parse_decision_text(
         planner_report=planner_report,
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
+        # Legacy replay compatibility only. Current Reviewer schemas no longer
+        # expose these fields; live Reviewers edit the injected paths directly.
         skill_ops=_parse_skill_ops(parsed),
         wiki_ops=_parse_wiki_ops(parsed),
         checklist_feedback=_parse_checklist_feedback(parsed),
@@ -269,8 +271,8 @@ def _parse_checkpoint(parsed: dict) -> dict[str, Any]:
     """Parse the reviewer-authored curated working-memory checkpoint.
 
     Fail-soft: returns ``{}`` when absent/malformed so the runner keeps the
-    prior checkpoint rather than wiping memory on a noisy verdict. Caps are
-    re-enforced downstream by ``CheckpointState.from_dict``.
+    prior checkpoint rather than wiping memory on a noisy verdict. The live
+    runtime no longer consumes this field; it remains for old event parsing.
     """
     raw = parsed.get("checkpoint")
     if not isinstance(raw, dict):

@@ -52,6 +52,10 @@ class SessionMeta:
     created: float = 0.0
     last_active: float = 0.0
     cwd: str = ""
+    # Authoritative directory where Manager/Planner/Engineer/Reviewer execute.
+    # Kept separate from the per-session state directory and from launch_cwd,
+    # which records where the UI was opened.
+    workdir: str = ""
     objective: str = ""
     launch_cwd: str = ""
     origin: str = ""
@@ -67,10 +71,41 @@ class SessionMeta:
             created=float(d.get("created", 0.0) or 0.0),
             last_active=float(d.get("last_active", 0.0) or 0.0),
             cwd=str(d.get("cwd", "") or ""),
+            workdir=str(d.get("workdir", "") or ""),
             objective=str(d.get("objective", "") or ""),
             launch_cwd=str(d.get("launch_cwd", "") or ""),
             origin=str(d.get("origin", "") or ""),
         )
+
+
+def resolve_session_workdir(
+    meta: SessionMeta | None,
+    *,
+    state_dir: str | Path,
+) -> Path:
+    """Return the one persisted execution root for every agent role.
+
+    New sessions store ``workdir`` explicitly. Legacy sessions intentionally do
+    not reinterpret ``launch_cwd``: old Web sessions used their session ``cwd``
+    as the executor workspace, so adopting launch_cwd during an upgrade would
+    split an in-progress project across two trees.
+    """
+    fallback = Path(state_dir).expanduser().resolve()
+    explicit = str(getattr(meta, "workdir", "") or "").strip()
+    if explicit:
+        resolved = Path(explicit).expanduser().resolve(strict=True)
+        if not resolved.is_dir():
+            raise NotADirectoryError(
+                f"configured session workdir is not a directory: {resolved}"
+            )
+        return resolved
+    legacy = str(getattr(meta, "cwd", "") or "").strip()
+    if legacy:
+        resolved = Path(legacy).expanduser().resolve(strict=True)
+        if not resolved.is_dir():
+            raise NotADirectoryError(f"legacy session cwd is not a directory: {resolved}")
+        return resolved
+    return fallback
 
 
 def _meta_path(global_root: Path | None, sid: str) -> Path:
@@ -365,10 +400,11 @@ def resolve_session(
     now = time.time() if now is None else now
     if mode == "new":
         sid = new_session_id()
+        resolved_cwd = str(Path(cwd).resolve()) if cwd else str(Path.cwd())
         write_session_meta(
             global_root,
             SessionMeta(id=sid, created=now, last_active=now,
-                        cwd=str(Path(cwd).resolve()) if cwd else str(Path.cwd())),
+                        cwd=resolved_cwd, workdir=resolved_cwd),
         )
         return sid, True
     if mode == "continue":

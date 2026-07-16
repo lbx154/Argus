@@ -13,14 +13,13 @@ from argus_skill.skills import vertical_select as vs
 from argus_skill.verticals import _data_domain as dd
 
 
-def test_byte_identical_floor_when_no_project_data(tmp_path, monkeypatch):
+def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     a = tmp_path / "proj_a"
     b = tmp_path / "proj_b"
     a.mkdir()
     b.mkdir()
-    # Two fresh projects with no DOMAINS/ and no CHECKLISTS.json render identically
-    # to each other AND each contains the historical research floor items.
+    # Two undecided legacy projects keep the historical research seed.
     body_a = sc.format_full_pipeline_checklist(role="reviewer", project_root=a)
     body_b = sc.format_full_pipeline_checklist(role="reviewer", project_root=b)
     assert body_a == body_b
@@ -119,6 +118,7 @@ def test_store_custom_item_merges_with_seed_for_research_stage(tmp_path, monkeyp
     # Seed-plus-override: an authored custom item MERGES with the seed for that
     # stage (non-protected edits). Other stages keep their seed unchanged.
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    vs.persist_vertical(tmp_path, "research")
     cs.apply_checklist_ops(tmp_path, [
         {"op": "add", "stage": "research", "id": "research.custom",
          "statement": "a custom research gate", "evidence_hint": "x"},

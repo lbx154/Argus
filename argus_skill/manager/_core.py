@@ -69,6 +69,13 @@ def _manager_reasoning_effort() -> str:
     return _DEFAULT_MANAGER_REASONING_EFFORT
 
 
+def _manager_vertical_reasoning_effort() -> str:
+    return (
+        os.environ.get("ARGUS_SKILL_MANAGER_VERTICAL_REASONING_EFFORT", "low").strip()
+        or "low"
+    )
+
+
 def _manager_safe_mode() -> bool:
     raw = os.environ.get("ARGUS_SKILL_SAFE_MODE")
     if raw is None:
@@ -123,6 +130,24 @@ def manager_pipeline_lock(root: Path | str):
             timeout=_pipeline_lock_timeout_s(),
         ):
             raise TimeoutError("timed out waiting for the current mission boundary")
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def manager_session_lock(root: Path | str):
+    """Wait until no Manager LLM turn is using this session's workdir."""
+    path = Path(root)
+    path.mkdir(parents=True, exist_ok=True)
+    with (path / _SESSION_LOCK).open("a+b") as handle:
+        if fcntl is not None and not _acquire_session_lock(
+            handle,
+            timeout=_session_lock_timeout_s(),
+        ):
+            raise TimeoutError("timed out waiting for the current Manager turn")
         try:
             yield
         finally:
@@ -679,15 +704,31 @@ class Manager:
             existing_data_domains=existing,
             research_target_verticals=research_target_verticals,
         )
+        from .live_view import manager_workspace_capability_prompt
+
+        prompt = (
+            manager_workspace_capability_prompt(
+                self.project_root,
+                manifest_root=self.manager_session_root,
+            )
+            + "\n"
+            + prompt
+        )
+        vertical_extra_args = (
+            ["--no-custom-instructions", "--disable-builtin-mcps"]
+            if str(getattr(self.runner, "_backend_name", "") or "") == "copilot"
+            else None
+        )
         with self._task_usage_scope(root_task_id):
             result = gateway_run_exec(
                 backend,
                 prompt=prompt,
                 options=RunnerOptions(
-                    reasoning_effort=_manager_reasoning_effort(),
+                    reasoning_effort=_manager_vertical_reasoning_effort(),
                     working_dir=str(self.project_root),
                     sandbox_mode="read-only",
                     skip_git_repo_check=True,
+                    extra_args=vertical_extra_args,
                 ),
                 run_label="manager-vertical-decide",
             )
@@ -727,6 +768,8 @@ class Manager:
             apply_manager_rendering_response(
                 self.project_root,
                 decision.rendering_response,
+                manifest_root=self.manager_session_root,
+                null_means_clear=True,
             )
         except Exception:  # noqa: BLE001
             log.debug("manager live-view persistence failed", exc_info=True)
@@ -812,14 +855,13 @@ class Manager:
         This is also the layer where a genuinely NEW, operator-issued intent is
         dispatched, so — right after persisting the decided vertical — it
         checks whether the PREVIOUSLY-persisted vertical had already reached
-        ITS OWN terminal stage with ``status="done"``. If so, and the newly
-        decided vertical differs, the old project is finished and this call is
-        superseding it with unrelated new work: ``current_stage`` is reset to
-        the new vertical's first stage (via
+        ITS OWN terminal stage with ``status="done"``. If so, the old run is
+        finished and this call is superseding it with new work: ``current_stage``
+        is reset to the selected vertical's first stage even when the new task
+        uses the same vertical (via
         ``vertical_select.reset_stage_for_new_intent`` /
         ``stage_checklists.rollback_stage``) instead of silently inheriting a
-        stale stage whose name happens to collide with one of the new
-        vertical's own stages. This does NOT touch ``persist_vertical``'s
+        stale terminal stage. This does NOT touch ``persist_vertical``'s
         seed-only, never-reset contract for the (common) in-project
         reclassification case, where the prior vertical was not yet finished.
         """
@@ -1068,7 +1110,10 @@ class Manager:
         root_task_id: str | None = None,
         name_sink: Any = None,
         lifetime_sink: Any = None,
-        fast_reply_sink: Any = None,
+        greeting_sink: Any = None,
+        steering_sink: Any = None,
+        vertical_sink: Any = None,
+        active_mission: bool = False,
     ) -> Any:
         """One fresh call classifying all cheap front-door decisions.
 
@@ -1076,7 +1121,7 @@ class Manager:
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
         resume, no pollution), ``resume_thread_id=None``. Effort comes from
         ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a three-axis
-        label classification needs no heavy reasoning, and ``low`` is what makes
+        nine-axis classification needs no heavy reasoning, and ``low`` is what makes
         this cheap. Biases each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
 
@@ -1085,6 +1130,7 @@ class Manager:
                 return None, None, "complex"
             import os
 
+            from ..core.knobs import resolve_manager_classify_model
             from ..core.models import RunnerOptions
 
             _backend = self.runner
@@ -1097,6 +1143,7 @@ class Manager:
                     _backend,
                     prompt=prompt,
                     options=RunnerOptions(
+                        model=resolve_manager_classify_model(),
                         reasoning_effort=_effort,
                         skip_git_repo_check=True,
                     ),
@@ -1110,7 +1157,10 @@ class Manager:
                 run_exec=run_exec,
                 name_sink=name_sink,
                 lifetime_sink=lifetime_sink,
-                fast_reply_sink=fast_reply_sink,
+                greeting_sink=greeting_sink,
+                steering_sink=steering_sink,
+                vertical_sink=vertical_sink,
+                active_mission=active_mission,
             )
 
     def route(
@@ -1394,7 +1444,11 @@ class Manager:
             next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             earlier = order[:cur_idx] if cur_idx > 0 else []
             checklist_md = _format_checklist(cur, role="planner", project_root=root)
-            from .live_view import manager_rendering_prompt
+            from .live_view import (
+                manager_checkpoint_refresh_required,
+                manager_rendering_prompt,
+                repair_manager_checkpoint_response,
+            )
 
             prompt = build_stage_decision_prompt(
                 current_stage=cur,
@@ -1403,7 +1457,11 @@ class Manager:
                 checklist_md=checklist_md,
                 review=review,
                 planner_verdict=planner_verdict,
-                rendering_block=manager_rendering_prompt(root, review=review),
+                rendering_block=manager_rendering_prompt(
+                    root,
+                    review=review,
+                    manifest_root=self.manager_session_root,
+                ),
                 open_ended=open_ended,
                 continuous_objective=continuous_objective,
             )
@@ -1443,6 +1501,32 @@ class Manager:
                     _empty_retries += 1
                     time.sleep(1.0)
                     raw = extract_answer(run_exec(prompt))
+                if str(raw or "").strip() and manager_checkpoint_refresh_required(
+                    root,
+                    raw,
+                    manifest_root=self.manager_session_root,
+                ):
+                    correction_prompt = (
+                        prompt
+                        + "\n\n## Required correction\n"
+                        + "Your previous response did not refresh the Manager-owned "
+                        + "checkpoint. Return the same evidence-based stage ruling, "
+                        + "but include a substantive `.argus/live/` presentation with "
+                        + "Current node, Verified progress, Current blocker, and Next action."
+                    )
+                    candidate = extract_answer(run_exec(correction_prompt))
+                    if str(candidate or "").strip():
+                        raw = candidate
+                if str(raw or "").strip() and manager_checkpoint_refresh_required(
+                    root,
+                    raw,
+                    manifest_root=self.manager_session_root,
+                ):
+                    raw = repair_manager_checkpoint_response(
+                        root,
+                        raw,
+                        manifest_root=self.manager_session_root,
+                    )
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
                     review, current_stage=cur, stage_order=order
@@ -1455,20 +1539,35 @@ class Manager:
                     )
 
                     live_decided, _live_view = parse_live_view_response(raw)
-                    live_view = apply_manager_rendering_response(root, raw)
+                    live_view = apply_manager_rendering_response(
+                        root,
+                        raw,
+                        manifest_root=self.manager_session_root,
+                    )
                     if live_decided and on_event is not None:
                         on_event({
                             "type": "manager.live_view.updated",
                             "title": live_view.title if live_view else "",
                             "paths": list(live_view.paths) if live_view else [],
+                            "reason": live_view.reason if live_view else "",
+                            "explicit_clear": live_view is None,
                             "text": (
                                 f"Manager refreshed right sidebar: {live_view.title}"
                                 if live_view
                                 else "Manager cleared right sidebar"
                             ),
                         })
-                except Exception:  # noqa: BLE001 — rendering never blocks stage
+                except Exception as exc:  # noqa: BLE001 — rendering never blocks stage
                     log.debug("manager live-view refresh failed", exc_info=True)
+                    if on_event is not None:
+                        on_event({
+                            "type": "manager.live_view.rejected",
+                            "error": str(exc)[:500],
+                            "text": (
+                                "Manager right-sidebar update rejected; "
+                                "previous valid view preserved"
+                            ),
+                        })
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )

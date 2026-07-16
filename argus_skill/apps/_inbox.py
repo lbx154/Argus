@@ -10,6 +10,9 @@ The CLI, Web API, and cockpit all need the same inbox semantics:
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,7 @@ from ..life.event_log import JsonlEventSink
 
 INBOX_FILE = "inbox.jsonl"
 OFFSET_FILE = "inbox.offset"
+log = logging.getLogger(__name__)
 
 
 def inbox_path(life_dir: Path | str) -> Path:
@@ -35,11 +39,31 @@ def _read_offset(path: Path) -> int:
         return 0
 
 
-def _write_offset(path: Path, offset: int) -> None:
+def _write_offset(path: Path, offset: int) -> bool:
+    tmp: Path | None = None
     try:
-        path.write_text(str(max(0, offset)), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(max(0, offset)))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        return True
     except OSError:
-        return
+        log.warning("failed to persist inbox offset: %s", path)
+        return False
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -69,8 +93,8 @@ def _read_inbox_messages(
                 if not raw:
                     break
                 new_offset = fh.tell()
-                if advance:
-                    _write_offset(offset_file, new_offset)
+                if advance and not _write_offset(offset_file, new_offset):
+                    break
                 try:
                     obj = json.loads(raw.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):

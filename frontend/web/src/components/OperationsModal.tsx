@@ -56,7 +56,7 @@ export function OperationsModal({
 }) {
   const [action, setAction] = useState<QuickAction>('task');
   const [text, setText] = useState('');
-  const [launchCwd, setLaunchCwd] = useState(snap.session.launch_cwd ?? '');
+  const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
   const [skillsArgs, setSkillsArgs] = useState('ls');
   const [output, setOutput] = useState('');
   const [skillsOutput, setSkillsOutput] = useState('');
@@ -69,7 +69,7 @@ export function OperationsModal({
 
   useEffect(() => {
     if (!open) return;
-    setLaunchCwd(snap.session.launch_cwd ?? '');
+    setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
     void Promise.all([api.metrics(), api.trash()]).then(
       ([nextMetrics, nextTrash]) => {
         setMetrics(nextMetrics);
@@ -78,7 +78,7 @@ export function OperationsModal({
       },
       (error) => setOutput(errorText(error)),
     );
-  }, [open, snap.session.launch_cwd]);
+  }, [open, snap.session.cwd, snap.session.workdir]);
 
   const run = async (key: string, operation: () => Promise<unknown>, success: string | null) => {
     if (busy) return;
@@ -175,10 +175,10 @@ export function OperationsModal({
         {tab === 'runtime' ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">Runtime</h3>
           <p className="mt-1 text-xs text-ink-faint">Change where this session runs, reset Manager context, or safely reload the daemon.</p>
-          <label className="mt-3 block text-[10px] uppercase tracking-wide text-ink-faint">Launch cwd</label>
+          <label className="mt-3 block text-[10px] uppercase tracking-wide text-ink-faint">Working directory</label>
           <div className="mt-1 flex gap-2">
-            <input value={launchCwd} onChange={(event) => setLaunchCwd(event.target.value)} className="h-9 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-            <button type="button" onClick={() => void run('cwd', () => api.setLaunchCwd(sid, launchCwd), 'Launch directory updated.')} disabled={!!busy || !launchCwd.trim()} title="Apply launch directory" aria-label="Apply launch directory" className="flex h-9 w-9 items-center justify-center rounded border border-blue/50 text-xs text-blue disabled:opacity-40"><FontAwesomeIcon icon={faCheck} /></button>
+            <input value={workdir} onChange={(event) => setWorkdir(event.target.value)} className="h-9 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
+            <button type="button" onClick={() => void run('cwd', () => api.setWorkdir(sid, workdir), 'Working directory updated.')} disabled={!!busy || !workdir.trim()} title="Apply working directory" aria-label="Apply working directory" className="flex h-9 w-9 items-center justify-center rounded border border-blue/50 text-xs text-blue disabled:opacity-40"><FontAwesomeIcon icon={faCheck} /></button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => void run('reset', () => api.resetManager(sid), 'Manager context reset.')} disabled={!!busy} title="Reset Manager context" aria-label="Reset Manager context" className="flex h-9 w-9 items-center justify-center rounded border border-line text-xs text-ink-dim disabled:opacity-40"><FontAwesomeIcon icon={faRotateLeft} /></button>

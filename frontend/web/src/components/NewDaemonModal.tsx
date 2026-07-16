@@ -11,15 +11,17 @@ export function NewDaemonModal({
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onCreate: (name: string, objective: string) => Promise<boolean>;
+  onCreate: (name: string, objective: string, workdir: string) => Promise<boolean>;
 }) {
   const [name, setName] = useState('');
   const [objective, setObjective] = useState('');
+  const [workdir, setWorkdir] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (open) {
       setName('');
       setObjective('');
+      setWorkdir('');
     }
   }, [open]);
 
@@ -29,7 +31,7 @@ export function NewDaemonModal({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
-    if (await onCreate(name.trim(), objective.trim())) onClose();
+    if (await onCreate(name.trim(), objective.trim(), workdir.trim())) onClose();
   };
   const objectiveKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -63,6 +65,17 @@ export function NewDaemonModal({
             />
           </label>
           <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Output workdir <span className="normal-case tracking-normal">(optional)</span></span>
+            <input
+              value={workdir}
+              onChange={(event) => setWorkdir(event.target.value)}
+              disabled={busy}
+              placeholder="Blank → ~/.argus-skill/workspaces/<session>"
+              className="h-10 w-full rounded border border-line bg-bg/50 px-3 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-blue-deep disabled:opacity-50"
+            />
+            <span className="mt-1 block text-[10px] leading-relaxed text-ink-faint">Agents write code, papers, reports, and experiment outputs here. Internal memory stays under the session state directory.</span>
+          </label>
+          <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Objective <span className="normal-case tracking-normal">(optional)</span></span>
             <textarea
               value={objective}
@@ -77,11 +90,11 @@ export function NewDaemonModal({
           </label>
           <div className={`rounded border p-3 ${armed ? 'border-gold/40 bg-gold/5' : 'border-line bg-bg/30'}`}>
             <div className={`text-xs font-medium ${armed ? 'text-gold' : 'text-blue-sky'}`}>
-              {armed ? 'Campaign starts immediately' : 'Idle until the first message'}
+              {armed ? 'Campaign starts after session creation' : 'Idle until the first message'}
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
               {armed
-                ? 'The objective is persisted, continuous mode is armed, and the executor starts.'
+                ? 'The session opens immediately; Manager handoff and executor startup continue in the background.'
                 : 'No executor is spawned yet. The Manager will reply or dispatch work from your first message.'}
             </p>
           </div>

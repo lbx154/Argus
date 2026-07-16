@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { useProjects, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
-import { api } from './api';
+import { artifactRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
+import { api, type EventMsg, type ProjectRow } from './api';
 import { TopBar, type ThemeMode } from './components/TopBar';
 import { EventStream } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
@@ -35,6 +35,13 @@ import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { COMMANDS, parseEventViewArgs } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
+import {
+  mergeConversationEvents,
+  mergeOptimisticManagerDelta,
+  optimisticOperatorEvent,
+} from './lib/conversationEvents';
+import { createSessionFast } from './lib/createDaemonFlow';
+import { mergeProjectCosts } from './lib/projectCosts';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 type ProjectHistoryMode = 'push' | 'replace';
@@ -131,7 +138,14 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
-  const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
+  const projectCostsQ = useProjectCosts();
+  const projects = useMemo(
+    () => rankProjects(mergeProjectCosts(
+      projectsQ.data?.projects ?? [],
+      projectCostsQ.data?.projects ?? [],
+    )),
+    [projectCostsQ.data?.projects, projectsQ.data?.projects],
+  );
   const localCwd = projectsQ.data?.local_cwd ?? '';
 
   const [sid, setSid] = useState<string | null>(
@@ -170,6 +184,7 @@ export default function App() {
   const [composerDraft, setComposerDraft] = useState('');
   const [slashSelection, setSlashSelection] = useState(0);
   const [chatPending, setChatPending] = useState(false);
+  const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
   const promptedReplyRef = useRef('');
@@ -274,16 +289,66 @@ export default function App() {
     });
   }, [queryClient]);
 
-  const createDaemon = async (name: string, objective: string): Promise<boolean> => {
+  const createDaemon = async (
+    name: string,
+    objective: string,
+    workdir: string,
+  ): Promise<boolean> => {
     if (creatingDaemonRef.current) return false;
     creatingDaemonRef.current = true;
     setCreatingDaemon(true);
     try {
-      const r = await api.createDaemon(objective, name);
-      await projectsQ.refetch();
+      const { created: r, startCampaign } = await createSessionFast(
+        api,
+        name,
+        objective,
+        workdir,
+      );
+      const outputWorkdir = String(r.workdir || workdir || '');
+      queryClient.setQueryData<{
+        projects: ProjectRow[];
+        local_cwd: string;
+      }>(['projects'], (current) => ({
+        local_cwd: current?.local_cwd ?? localCwd,
+        projects: [
+          {
+            id: r.sid,
+            label: name || r.sid,
+            display_name: name,
+            objective: '',
+            launch_cwd: outputWorkdir,
+            workdir: outputWorkdir,
+            last_active: Date.now() / 1_000,
+            daemon_alive: false,
+            daemon_pid: null,
+            uptime_seconds: null,
+          },
+          ...(current?.projects ?? []).filter((project) => project.id !== r.sid),
+        ],
+      }));
       selectProject(r.sid);
+      void projectsQ.refetch();
       window.setTimeout(() => setComposerFocus((x) => x + 1), 0);
-      notify('success', 'Daemon created and selected.');
+      notify(
+        startCampaign ? 'info' : 'success',
+        startCampaign
+          ? 'Session created and selected. Campaign is starting in the background.'
+          : 'Session created and selected.',
+      );
+      if (startCampaign) {
+        void startCampaign()
+          .then(() => {
+            void queryClient.invalidateQueries({ queryKey: ['snapshot', r.sid] });
+            void projectsQ.refetch();
+            notify('success', 'Campaign started.');
+          })
+          .catch((error) => {
+            notify(
+              'error',
+              `Session was created, but the campaign could not start: ${errorText(error)}`,
+            );
+          });
+      }
       return true;
     } catch (error) {
       notify('error', `Could not create daemon: ${errorText(error)}`);
@@ -369,6 +434,14 @@ export default function App() {
   const artifactsQ = useArtifacts(loadedSid, true);
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
   const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
+  const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
+  useEffect(() => {
+    if (!loadedSid || !artifactRefreshKey) return;
+    void queryClient.invalidateQueries({
+      queryKey: ['artifacts', loadedSid],
+      exact: true,
+    });
+  }, [artifactRefreshKey, loadedSid, queryClient]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
@@ -397,35 +470,12 @@ export default function App() {
     }
   }, [activeSid, pendingReply]);
   const activityEvents = useMemo(() => {
-    const liveCounts = new Map<string, number>();
-    events.forEach((event) => {
-      const type = String(event.type ?? '');
-      if (type !== 'ui.operator' && type !== 'ui.argus') return;
-      const key = `${type}\u0000${String(event.text ?? '')}`;
-      liveCounts.set(key, (liveCounts.get(key) ?? 0) + 1);
-    });
-    const history = (transcriptQ.data ?? []).map((turn) => ({
-      type: turn.role === 'operator' ? 'ui.operator' : 'ui.argus',
-      agent_layer: turn.role === 'operator' ? 'operator' : 'manager',
-      text: turn.text,
-      ts: turn.ts,
-      message_id: `transcript-${turn.ts}-${turn.role}`,
-    }));
-    const keep = new Array(history.length).fill(true);
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-      const event = history[index];
-      const key = `${event.type}\u0000${event.text}`;
-      const count = liveCounts.get(key) ?? 0;
-      if (count > 0) {
-        keep[index] = false;
-        liveCounts.set(key, count - 1);
-      }
-    }
-    return [
-      ...history.filter((_event, index) => keep[index]),
-      ...events,
-    ].sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
-  }, [events, transcriptQ.data]);
+    return mergeConversationEvents(
+      events,
+      transcriptQ.data ?? [],
+      localConversationEvents,
+    );
+  }, [events, localConversationEvents, transcriptQ.data]);
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -438,6 +488,7 @@ export default function App() {
   useEffect(() => {
     setEventFilter('all');
     setEventQuery('');
+    setLocalConversationEvents([]);
     dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
@@ -775,6 +826,21 @@ export default function App() {
     setChatPending(true);
     setManagerPhase('');
     setManagerStartedAt(Date.now());
+    setLocalConversationEvents((current) => [
+      ...current,
+      optimisticOperatorEvent(requestSid, requestId, text),
+    ]);
+
+    const showManagerText = (reply: unknown, messageId = '') => {
+      if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
+      setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
+        current,
+        requestSid,
+        requestId,
+        reply,
+        messageId,
+      ));
+    };
 
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
@@ -808,12 +874,14 @@ export default function App() {
             onPhase: (label) => {
               if (isCurrent()) setManagerPhase(label);
             },
-            onDelta: () => {
+            onDelta: (block, messageId) => {
               if (!isCurrent()) return;
               gotDelta = true;
+              showManagerText(block, messageId);
             },
             onDone: (result) => {
               if (!isCurrent()) return;
+              showManagerText(result.reply);
               if (result.kind === 'task') dispatchTask(result);
               void transcriptQ.refetch();
             },
@@ -832,6 +900,7 @@ export default function App() {
           try {
             const result = await api.message(requestSid, text, controller.signal);
             if (!isCurrent()) return;
+            showManagerText(result.reply);
             if (result.kind === 'task') dispatchTask(result);
             void transcriptQ.refetch();
           } catch (error) {
@@ -1095,6 +1164,8 @@ export default function App() {
                 className={`min-h-0 flex-1 ${rightPanelOpen ? 'lg:flex' : 'lg:hidden'}`}
                 embedded
                 onCollapse={() => setRightPanelOpen(false)}
+                missionView={missionView}
+                activityEvents={activityEvents}
               />
               {!rightPanelOpen ? (
                 <div className="hidden h-12 items-center justify-center border-b border-line/50 text-ink-faint lg:flex">

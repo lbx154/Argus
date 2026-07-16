@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.knobs import resolve_role_reasoning_effort
+from ..core.knobs import resolve_manager_reply_model, resolve_role_reasoning_effort
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -15,8 +15,6 @@ from ._env import env_flag, env_int
 from ._runtime_backends import _Outcome
 
 _SELF_RETRYABLE_ACP_ERRORS = (
-    "acp prompt timed out",
-    "acp hard idle timeout",
     "acp restart requested",
     "acp process died",
     "stopreason=cancelled",
@@ -212,13 +210,38 @@ class SelfReplyMixin:
         self.last_thread_id = None
 
     def _manager_reply_runtime_context(self, run_label: str) -> str:
+        workspace_context = ""
+        try:
+            from ..manager.live_view import manager_workspace_capability_prompt
+
+            configured_workspace = str(
+                getattr(self._args, "operator_workspace", "")
+                or getattr(self._args, "workdir", "")
+                or ""
+            ).strip()
+            workspace = (
+                Path(configured_workspace).expanduser()
+                if configured_workspace
+                else Path.cwd()
+            )
+            state_root = (
+                Path(self._manager_session_root).expanduser()
+                if getattr(self, "_manager_session_root", None)
+                else workspace
+            )
+            workspace_context = manager_workspace_capability_prompt(
+                workspace,
+                manifest_root=state_root,
+            )
+        except Exception:  # noqa: BLE001 — context must never block a reply
+            workspace_context = ""
         try:
             runner = getattr(self._backend, "_argus_runner", None)
             if runner is None or not runner._acp_enabled(run_label):
-                return ""
+                return workspace_context
         except Exception:  # noqa: BLE001 - metadata must never block a reply
-            return ""
-        return (
+            return workspace_context
+        runtime_fact = (
             "Runtime fact (answer accurately if the operator asks): this "
             "operator-facing Manager conversation is one logical session on a "
             "long-lived Copilot ACP process. Ordinary turns use session/prompt "
@@ -228,6 +251,9 @@ class SelfReplyMixin:
             "this conversation, and the background task daemon is a separate "
             "process. A deliberate context rotation starts a new conversation "
             "session with a structured handoff."
+        )
+        return "\n\n".join(
+            part for part in (workspace_context, runtime_fact) if part
         )
 
     def _live_mission_status_block(self) -> str:
@@ -368,21 +394,22 @@ class SelfReplyMixin:
             except Exception:  # noqa: BLE001 - UI sinks never own the turn
                 pass
 
+        reply_model = resolve_manager_reply_model()
         options = RunnerOptions(
-            model=args.engineer_model,
+            model=reply_model,
             reasoning_effort=resolve_role_reasoning_effort(
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
-                default="medium",
+                default="xhigh",
             ),
             full_auto=True,
             skip_git_repo_check=True,
             dangerous_yolo=True,
             working_dir=str(workdir),
             watchdog_hard_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 180
+                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 120
             ),
             watchdog_soft_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10
+                "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 5
             ),
             inactivity_callback=_self_inactivity,
             on_agent_message=_emit_block,
@@ -459,7 +486,7 @@ class SelfReplyMixin:
                 for attempt in attempt_results
             ),
             "model": str(
-                getattr(result, "usage_model", "") or args.engineer_model or ""
+                getattr(result, "usage_model", "") or reply_model or ""
             ),
             "usage_scope": "delta",
             "last_message": last_msg,

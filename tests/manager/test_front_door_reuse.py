@@ -14,15 +14,18 @@ class _Manager:
         text: str,
         *,
         lifetime_sink=None,
-        fast_reply_sink=None,
+        greeting_sink=None,
         name_sink=None,
+        vertical_sink=None,
     ):
         if self.route == "complex" and lifetime_sink is not None:
             lifetime_sink("standing")
-        if self.route == "simple" and fast_reply_sink is not None:
-            fast_reply_sink("你好！我是 Argus。")
+        if self.route == "simple" and greeting_sink is not None:
+            greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
             name_sink("test")
+        if self.route == "complex" and vertical_sink is not None:
+            vertical_sink({"vertical": "math", "target": "publishable"})
         return None, None, self.route
 
 
@@ -38,10 +41,11 @@ def test_front_door_wrapper_caches_team_lifetime_for_dispatch() -> None:
 
     assert decision == (None, None, "complex")
     assert state["_frontdoor_lifetime"] == "standing"
-    assert "_frontdoor_fast_reply" not in state
-
-
-def test_front_door_wrapper_caches_only_safe_social_reply() -> None:
+    assert state["_frontdoor_vertical"] == {
+        "vertical": "math",
+        "target": "publishable",
+    }
+def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
     state: dict = {"_frontdoor_lifetime": "stale"}
 
     decision = _front_door_classify(
@@ -52,5 +56,20 @@ def test_front_door_wrapper_caches_only_safe_social_reply() -> None:
     )
 
     assert decision == (None, None, "simple")
-    assert state["_frontdoor_fast_reply"] == "你好！我是 Argus。"
     assert "_frontdoor_lifetime" not in state
+    assert state["_frontdoor_greeting_reply"] == "你好，我是 Argus Manager。"
+    assert "_frontdoor_fast_reply" not in state
+
+
+def test_front_door_wrapper_marks_classifier_unavailable() -> None:
+    state: dict = {}
+
+    decision = _front_door_classify(
+        object(),
+        "你好",
+        state,
+        ensure_runner=lambda *_args: None,
+    )
+
+    assert decision == (None, None, "complex")
+    assert state["_frontdoor_failure"] == "classifier unavailable"

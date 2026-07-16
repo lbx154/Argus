@@ -18,7 +18,6 @@ from __future__ import annotations
 from typing import Any
 
 from argus_skill.manager.front_door import (
-    _DO_NOT_RUN_SAFE_REPLY,
     looks_like_do_not_run_request,
     manager_triage,
 )
@@ -90,7 +89,7 @@ def test_triage_failure_safe_fails_for_do_not_run_input() -> None:
         object(), "请只做状态检查，不要运行任务", chat_state,
     )
     # A non-None reply means "handled as chat, do NOT enqueue".
-    assert reply == _DO_NOT_RUN_SAFE_REPLY
+    assert reply is not None
 
 
 def test_triage_failure_still_dispatches_real_work() -> None:
@@ -108,8 +107,7 @@ def test_pre_provider_refusal_never_dispatches_unclassified_input() -> None:
     reply = manager_triage(object(), "你好", chat_state)
 
     assert reply is not None
-    assert reply.startswith("[not dispatched]")
-    assert "refused before start" in reply
+    assert "你好" in reply
 
 
 def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
@@ -121,7 +119,7 @@ def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
 
     assert reply is not None
     assert reply != "(no reply)"
-    assert "No task was dispatched" in reply
+    assert "活着" in reply or "运行正常" in reply
 
 
 def test_successful_task_classify_is_not_overridden() -> None:

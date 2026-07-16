@@ -113,11 +113,11 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert outcome.rounds[0].review.status == "continue"
     assert outcome.rounds[1].review.status == "done"
 
-    # Reviewer next_action from round 1 must reach the engineer in round 2.
+    # Cross-round guidance lives in CHECKPOINT.md, not duplicated in the prompt.
     r2_prompt = next(
         prompt for label, prompt, _ in backend.history if label == "engineer-r2"
     )
-    assert "Print the actual greeting" in r2_prompt
+    assert "Print the actual greeting" not in r2_prompt
 
     # Skill is still present and was reused, not re-created.
     store = SkillStore(skills_dir)

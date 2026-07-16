@@ -45,8 +45,8 @@ def test_directive_trusts_and_drops_reflexive_rerun():
     # cheap fabrication floor: verify ONLY when evidence missing/contradictory
     assert "MISSING" in d
     assert "self-contradictory" in d
-    # reinvest the round in judgment + high-altitude direction
-    assert "HIGH-ALTITUDE" in d
+    # reinvest the round in judgment + useful direction
+    assert "specific NEXT work or unexplored direction" in d
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d
 
@@ -83,7 +83,7 @@ def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
     # JSON. codex --output-schema constrains only the FINAL response, so this is
     # a prompt-framing change with no robustness loss.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert "talk normally" in p
+    assert "talk normally" in p.lower()
     assert "ONLY your FINAL message is the structured handoff" in p
     assert "intermediate messages" in p
     assert "FINAL handoff JSON object" in p

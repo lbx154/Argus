@@ -8,13 +8,17 @@ environment snapshot, and even the cockpit process forgets the switch the moment
 it restarts — "一次改动以后都能读取" (change it once, have it read
 consistently from then on) was not actually true.
 
-This module is the single persisted layer under that expectation: a flat
+This module is the persisted layer for non-project operator switches: a flat
 ``ARGUS_SKILL_*`` env-var-name -> value map at ``core.paths.config_path()``
 (``~/.argus-skill/config.json``, resolved via ``ARGUS_SKILL_HOME`` like every
 other cross-project file — never a hard-coded path). Every existing resolver
 (``core.knobs.resolve_role_model``, ``cli.roles_status``'s backend/model
 display resolution, the raw ``ARGUS_SKILL_RUNNER_BACKEND`` reads in
-``apps._runtime``) is wired to check it as ONE MORE precedence layer:
+``apps._runtime``) is wired to check it as ONE MORE precedence layer. Project
+USD budgets are not stored here; they live in each project's ``budget.json``
+and do not use process-environment precedence.
+
+For the remaining knobs the precedence is:
 
     role-specific env override (this process, explicit)
         -> shared env override (this process, explicit)
@@ -98,15 +102,15 @@ def read_persisted_knobs() -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items() if isinstance(k, str)}
 
 
-def write_persisted_knob(name: str, value: str) -> None:
+def write_persisted_knob(name: str, value: str) -> bool:
     """Atomically set ONE knob in the persisted map (read-modify-write; same
     write-to-temp + ``os.replace`` pattern as ``daemon.life_worker``'s
     ``write_continuous_config``, for the same crash-safety reason: a reader
     must never observe a half-written file)."""
     name = (name or "").strip()
     if not name:
-        return
-    write_persisted_knobs({name: str(value)})
+        return False
+    return write_persisted_knobs({name: str(value)})
 
 
 def write_persisted_knobs(values: Mapping[str, str]) -> bool:

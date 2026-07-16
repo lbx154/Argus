@@ -2,13 +2,99 @@
 
 from __future__ import annotations
 
+import uuid
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from ..apps._life_actions import DEFAULT_LIFE_CONFIG, add_backlog_item
+from ..apps._life_actions import DEFAULT_LIFE_CONFIG
 from . import front_door
 
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
+
+def _stable_topological_nodes(tasks: tuple[Any, ...]) -> list[Any]:
+    ordered: list[Any] = []
+    done: set[str] = set()
+    remaining = list(tasks)
+    while remaining:
+        ready = [node for node in remaining if set(node.deps) <= done]
+        if not ready:
+            raise front_door.ManagerHandoffError("bounded Planner returned a cyclic DAG")
+        for node in ready:
+            ordered.append(node)
+            done.add(node.key)
+            remaining.remove(node)
+    return ordered
+
+
+def _plan_bounded_execution(
+    mem: Any,
+    execution_body: str,
+    chat_state: dict[str, Any],
+    *,
+    root_task_id: str | None = None,
+) -> Any:
+    runner = front_door._ensure_manager_runner(chat_state, mem)
+    backend = getattr(runner, "planner_backend", None) if runner is not None else None
+    if backend is None:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            reason="planner backend unavailable; preserve one atomic task",
+            tasks=(SimpleNamespace(
+                key="execute",
+                deps=(),
+                title=execution_body.splitlines()[0][:120],
+                objective=execution_body,
+            ),),
+            error="",
+        )
+    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..core.knobs import (
+        resolve_knob,
+        resolve_role_backend,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
+    from ..core.session import read_session_meta, resolve_session_workdir
+    from ..planner.bounded_dag import plan_bounded_dag
+
+    life_dir = Path(front_door._life_dir_for(mem))
+    global_root = getattr(mem, "global_root", None)
+    root = Path(global_root) if global_root is not None else life_dir.parent.parent
+    meta = read_session_meta(root, life_dir.name)
+    workdir = resolve_session_workdir(meta, state_dir=life_dir)
+    configured_model = resolve_knob(
+        "ARGUS_SKILL_BOUNDED_DAG_MODEL",
+        "auto",
+    ).value.strip()
+    if configured_model.lower() in {"", "auto", "inherit", "default"}:
+        planner_backend = normalize_runner_backend(resolve_role_backend("planner"))
+        model = (
+            "gpt-5.4-mini"
+            if planner_backend in {"codex", "copilot"}
+            else resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
+        )
+    else:
+        model = configured_model
+    usage_scope = getattr(runner, "task_usage_context", None)
+    scope = usage_scope(root_task_id) if callable(usage_scope) and root_task_id else nullcontext()
+    with scope:
+        plan = plan_bounded_dag(
+            backend,
+            execution_body,
+            workdir=workdir,
+            model=model,
+            reasoning_effort=resolve_role_reasoning_effort(
+                "ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT",
+                default="low",
+            ),
+        )
+    if plan.error or not plan.tasks:
+        raise front_door.ManagerHandoffError(
+            f"bounded Planner could not produce an executable DAG: {plan.error or 'empty plan'}"
+        )
+    return plan
 
 
 def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
@@ -30,9 +116,11 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
     writes land back-to-back, which is idempotent.  This is a residual low-risk
     TOCTOU; ``append_event`` atomic persistence is preserved and correct.
     """
-    from ..core.session import read_session_meta
+    from ..core.session import read_session_meta, resolve_session_workdir
     from ..life.project_lifecycle import (
         infer_observable_status,
+    )
+    from ..life.project_lifecycle import (
         resume as lifecycle_resume,
     )
     from ..life.project_lifecycle_io import (
@@ -57,11 +145,7 @@ def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
     global_root = getattr(mem, "global_root", None)
     root = Path(global_root) if global_root is not None else life_dir.parent.parent
     meta = read_session_meta(root, life_dir.name)
-    observable_root = (
-        Path(meta.launch_cwd)
-        if meta is not None and meta.launch_cwd and Path(meta.launch_cwd).exists()
-        else life_dir
-    )
+    observable_root = resolve_session_workdir(meta, state_dir=life_dir)
     status = infer_observable_status(observable_root, project_id=life_dir.name)
     status = apply_persisted_to_status(status, persisted)
     new_status, event = lifecycle_resume(
@@ -93,6 +177,7 @@ def enqueue_mission(
     max_cycles: int = 6,
     budget: float = 30.0,
     root_task_id: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[Any | None, bool, int | None]:
     """Persist one Manager-authored mission and report executor availability."""
     if chat_state.get("blocked_item_id"):
@@ -127,6 +212,7 @@ def enqueue_mission(
                 body,
                 chat_state,
                 root_task_id=root_task_id,
+                cancelled=cancelled,
             )
         except Exception:
             if pending_auto_promote:
@@ -141,18 +227,86 @@ def enqueue_mission(
         alive, pid = _daemon_status(life_dir)
         return None, alive, pid
 
-    def _persist(execution_body: str, _division: Any) -> Any:
-        pending = mem.backlog.pending()
-        head_priority = min((item.priority for item in pending), default=100)
-        item = add_backlog_item(
+    planned: dict[str, Any] = {}
+
+    def _prepare_persist(execution_body: str) -> None:
+        if callable(cancelled) and cancelled():
+            raise front_door.ManagerHandoffError(
+                "Manager request cancelled before bounded DAG planning"
+            )
+        planned["plan"] = _plan_bounded_execution(
             mem,
             execution_body,
-            item_id=root_task_id,
-            priority=min(head_priority - 1, -1),
-            iterate=iterate,
-            iteration_max_cycles=max_cycles,
-            iteration_budget_usd=budget,
+            chat_state,
+            root_task_id=root_task_id,
         )
+
+    def _persist(execution_body: str, _division: Any) -> Any:
+        if callable(cancelled) and cancelled():
+            raise front_door.ManagerHandoffError(
+                "Manager request cancelled before backlog commit"
+            )
+        pending = mem.backlog.pending()
+        head_priority = min((item.priority for item in pending), default=100)
+        plan = planned.get("plan")
+        nodes = _stable_topological_nodes(tuple(getattr(plan, "tasks", ()) or ()))
+        if not nodes:
+            raise front_door.ManagerHandoffError("bounded Planner produced no tasks")
+        from ..life.memory import BacklogItem
+
+        plan_id = f"bounded-{uuid.uuid4().hex[:12]}"
+        ids = {
+            node.key: (
+                str(root_task_id)
+                if index == 0 and root_task_id
+                else BacklogItem.new_id()
+            )
+            for index, node in enumerate(nodes)
+        }
+        items: list[BacklogItem] = []
+        priority = min(head_priority - 1, -1)
+        for index, node in enumerate(nodes):
+            item = BacklogItem.new(
+                item_id=ids[node.key],
+                title=node.title,
+                objective=node.objective,
+                priority=priority + index,
+                max_cost_usd=budget,
+                tags=["manager", "planner", "bounded_dag_node", "scope:bounded"],
+                iterate=False,
+                iteration_max_cycles=1,
+                iteration_budget_usd=budget,
+                deps=[ids[dep] for dep in node.deps],
+                plan_id=plan_id,
+                plan_version=1,
+                node_key=node.key,
+            )
+            item.original_objective = execution_body
+            items.append(item)
+        mem.backlog.add_many(items)
+        item = items[0]
+        try:
+            from ..life.event_log import JsonlEventSink
+
+            sink = JsonlEventSink(None, life_dir=Path(life_dir))
+            sink.append({
+                "type": "life.planner.verdict",
+                "reason": str(getattr(plan, "reason", "") or "bounded DAG"),
+                "plan_id": plan_id,
+                "new_tasks": len(items),
+                "text": f"bounded Planner created {len(items)} DAG node(s)",
+            })
+            for node_item in items:
+                sink.append({
+                    "type": "life.planner.task_added",
+                    "item_id": node_item.id,
+                    "title": node_item.title,
+                    "deps": list(node_item.deps),
+                    "plan_id": plan_id,
+                    "node_key": node_item.node_key,
+                })
+        except Exception:  # noqa: BLE001
+            pass
         front_door._maybe_name_session(chat_state, execution_body)
         return item
 
@@ -162,8 +316,9 @@ def enqueue_mission(
         chat_state,
         _persist,
         root_task_id=root_task_id,
+        prepare_persist=_prepare_persist,
     )
-    chat_state["last_objective"] = item.objective
+    chat_state["last_objective"] = item.original_objective or item.objective
     alive, pid = _daemon_status(life_dir)
     return item, alive, pid
 

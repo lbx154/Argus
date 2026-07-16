@@ -269,6 +269,33 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
   }
 });
 
+test('Ink retries one malformed HTTP create with the same command id', async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+  const connections: string[] = [];
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+    connections.push(new Headers(init?.headers).get('Connection') ?? '');
+    if (bodies.length === 1) {
+      return new Response('Invalid HTTP request received.', { status: 400 });
+    }
+    return Response.json({
+      sid: 's-retried', rc: 0, spawned: false, objective: '',
+      daemon: { alive: false, pid: null },
+    });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-old' });
+    const created = await api.createDaemon('', 'Retry create', '/work/retry');
+    assert.equal(created.sid, 's-retried');
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0].command_id, bodies[1].command_id);
+    assert.deepEqual(connections, ['close', 'close']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Ink /rename patches the current session name', async () => {
   const originalFetch = globalThis.fetch;
   let seenUrl = '';

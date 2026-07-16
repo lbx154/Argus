@@ -13,6 +13,7 @@ import pytest
 
 import argus_skill.daemon.life_worker as life_worker_mod
 from argus_skill.core.bootstrap import inspect_project_bootstrap
+from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.daemon.life_worker import (
     ContinuousConfigState,
     DaemonStatus,
@@ -24,6 +25,7 @@ from argus_skill.daemon.life_worker import (
     _runner_namespace,
     _strip_git_config_injection,
     _worker_runtime_context,
+    _workspace_start_error,
     read_continuous_state,
     read_daemon_status,
     resolve_effective_budget,
@@ -48,6 +50,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
     "ARGUS_SKILL_ENGINEER_MODEL",
     "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
     "ARGUS_SKILL_MAX_ROUNDS",
@@ -322,6 +325,17 @@ def test_read_daemon_status_detects_stale_pid(tmp_path: Path) -> None:
     assert read_daemon_status(tmp_path).alive is False
 
 
+def test_read_daemon_status_rejects_reused_live_pid_without_daemon_lock(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "daemon.pid").write_text(f"{os.getpid()}\n")
+
+    status = read_daemon_status(tmp_path)
+
+    assert status.alive is False
+    assert status.pid is None
+
+
 def test_read_daemon_status_treats_garbage_pid_file_as_dead(tmp_path: Path) -> None:
     (tmp_path / "daemon.pid").write_text("not-a-number\n")
     s = read_daemon_status(tmp_path)
@@ -329,33 +343,61 @@ def test_read_daemon_status_treats_garbage_pid_file_as_dead(tmp_path: Path) -> N
 
 
 def test_read_daemon_status_parses_budget_caps(tmp_path: Path) -> None:
+    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
+
     pid = os.getpid()
-    (tmp_path / "daemon.pid").write_text(f"{pid}\n")
-    (tmp_path / "daemon.status.json").write_text(
-        json.dumps(
-            {
-                "pid": pid,
-                "started_at_iso": "2024-01-01T00:00:00+00:00",
-                "backend": "memory",
-                "life_dir": str(tmp_path),
-                "per_mission_cap_usd": 12.5,
-                "daily_cap_usd": 42.25,
-                "global_daily_cap_usd": 84.5,
-            }
-        ),
-        encoding="utf-8",
-    )
-    s = read_daemon_status(tmp_path)
+    with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid"):
+        (tmp_path / "daemon.status.json").write_text(
+            json.dumps(
+                {
+                    "pid": pid,
+                    "started_at_iso": "2024-01-01T00:00:00+00:00",
+                    "backend": "memory",
+                    "life_dir": str(tmp_path),
+                    "per_mission_cap_usd": 12.5,
+                    "daily_cap_usd": 42.25,
+                    "global_daily_cap_usd": 84.5,
+                }
+            ),
+            encoding="utf-8",
+        )
+        s = read_daemon_status(tmp_path)
     assert s.alive is True
     assert s.per_mission_cap_usd == 12.5
     assert s.daily_cap_usd == 42.25
     assert s.global_daily_cap_usd == 84.5
 
 
-def test_resolve_effective_budget_falls_back_to_env_when_daemon_is_down(
+def test_read_daemon_status_rejects_sidecar_from_different_pid(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
+
+    with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid") as lock:
+        (tmp_path / "daemon.status.json").write_text(
+            json.dumps(
+                {
+                    "pid": lock.pid + 1,
+                    "backend": "stale-backend",
+                    "per_mission_cap_usd": 999,
+                }
+            ),
+            encoding="utf-8",
+        )
+        status = read_daemon_status(tmp_path)
+
+    assert status.alive is True
+    assert status.pid == lock.pid
+    assert status.backend is None
+    assert status.per_mission_cap_usd is None
+    assert "does not match lock pid" in status.status_read_error
+
+
+def test_resolve_effective_budget_migrates_env_once_when_daemon_is_down(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "global"))
     monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "7.5")
     monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "19.25")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "55.0")
@@ -377,9 +419,80 @@ def test_resolve_effective_budget_falls_back_to_env_when_daemon_is_down(
     assert budget.daily_cap_usd == 19.25
     assert budget.global_daily_cap_usd == 55.0
 
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "999")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "999")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "999")
+    restarted = resolve_effective_budget(status)
+
+    assert restarted == budget
+
+
+def test_life_worker_start_does_not_rewrite_existing_budget_files(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.core.project_budget import (
+        GlobalBudget,
+        ProjectBudget,
+        global_budget_path,
+        write_global_budget,
+        write_project_budget,
+    )
+
+    project = tmp_path / "projects" / "demo"
+    write_project_budget(project, ProjectBudget(7, 17))
+    write_global_budget(tmp_path, GlobalBudget(27))
+    project_path = project / "budget.json"
+    global_path = global_budget_path(tmp_path)
+    before = {
+        project_path: (project_path.read_bytes(), project_path.stat().st_mtime_ns),
+        global_path: (global_path.read_bytes(), global_path.stat().st_mtime_ns),
+    }
+
+    config = LifeWorkerConfig(
+        life_dir=project,
+        global_root=tmp_path,
+        backend="memory",
+        per_mission_cap_usd=999,
+        daily_cap_usd=999,
+        global_daily_cap_usd=999,
+    )
+    LifeWorker(config)
+
+    assert config.per_mission_cap_usd == 7
+    assert config.daily_cap_usd == 17
+    assert config.global_daily_cap_usd == 27
+    for path, (content, mtime_ns) in before.items():
+        assert path.read_bytes() == content
+        assert path.stat().st_mtime_ns == mtime_ns
+
 
 def test_stop_daemon_returns_1_when_no_daemon(tmp_path: Path) -> None:
     assert stop_daemon(tmp_path) == 1
+
+
+def test_stop_daemon_does_not_sigkill_after_pid_identity_is_lost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.daemon import state as daemon_state
+
+    statuses = iter(
+        [
+            DaemonStatus(True, 123, None, None, tmp_path),
+            DaemonStatus(True, 123, None, None, tmp_path),
+            DaemonStatus(False, None, None, None, tmp_path),
+        ]
+    )
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(daemon_state, "read_daemon_status", lambda _path: next(statuses))
+    monkeypatch.setattr(
+        daemon_state.os,
+        "kill",
+        lambda pid, sig: signals.append((pid, sig)),
+    )
+
+    assert life_worker_mod.stop_daemon(tmp_path, timeout=1.0, force=True) == 0
+    assert signals == [(123, daemon_state.signal.SIGTERM)]
 
 
 def _spawn_fake_daemon(tmp_path: Path, pre_ready: str, post_ready: str) -> int:
@@ -398,12 +511,16 @@ def _spawn_fake_daemon(tmp_path: Path, pre_ready: str, post_ready: str) -> int:
     ready = tmp_path / "fake_daemon.ready"
     pid_path = life_worker_mod._daemon_pid_path(tmp_path)
     script = (
-        "import signal, time, sys, os, pathlib\n"
+        "import fcntl, signal, time, sys, os, pathlib\n"
         "if os.fork() > 0:\n"
         "    os._exit(0)\n"  # immediate child exits -> grandchild reparented to init
         "os.setsid()\n"
         + pre_ready
-        + f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+        + f"_pid_path = {str(pid_path)!r}\n"
+        + "_pid_fd = os.open(_pid_path, os.O_CREAT | os.O_RDWR, 0o600)\n"
+        + "fcntl.flock(_pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        + "os.ftruncate(_pid_fd, 0)\n"
+        + "os.write(_pid_fd, str(os.getpid()).encode())\n"
         + f"pathlib.Path({str(ready)!r}).write_text('1')\n"
         + post_ready
     )
@@ -707,6 +824,69 @@ def test_runner_namespace_uses_global_skills_root(
     assert ns.workdir == str(tmp_path / "repo")
     assert ns.engineer_reasoning_effort == "xhigh"
     assert ns.reviewer_reasoning_effort == "xhigh"
+
+
+def test_workspace_start_rejects_another_live_session_on_same_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "state"
+    target_life = root / "projects" / "s-target"
+    owner_life = root / "projects" / "s-owner"
+    workdir = tmp_path / "repo"
+    target_life.mkdir(parents=True)
+    owner_life.mkdir(parents=True)
+    workdir.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(id="s-target", cwd=str(target_life), workdir=str(workdir)),
+    )
+    write_session_meta(
+        root,
+        SessionMeta(id="s-owner", cwd=str(owner_life), workdir=str(workdir)),
+    )
+
+    def status(path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            alive=Path(path) == owner_life,
+            pid=321,
+            project_workdir="",
+        )
+
+    monkeypatch.setattr(life_worker_mod, "read_daemon_status", status)
+    error = _workspace_start_error(LifeWorkerConfig(
+        life_dir=target_life,
+        global_root=root,
+        project_workdir=workdir,
+        project_fingerprint="s-target",
+    ))
+
+    assert "already owned by active session s-owner" in error
+
+
+def test_workspace_start_rejects_stale_config_after_workdir_change(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "state"
+    life_dir = root / "projects" / "s-target"
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    life_dir.mkdir(parents=True)
+    old.mkdir()
+    new.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(id="s-target", cwd=str(life_dir), workdir=str(new)),
+    )
+
+    error = _workspace_start_error(LifeWorkerConfig(
+        life_dir=life_dir,
+        global_root=root,
+        project_workdir=old,
+        project_fingerprint="s-target",
+    ))
+
+    assert "workdir changed during daemon startup" in error
 
 
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:

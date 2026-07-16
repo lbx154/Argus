@@ -41,24 +41,32 @@ def _front_door_classify(
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     accepts_keyword: Callable[[Any, str], bool] | None = None,
+    active_mission: bool = False,
 ) -> "tuple[Any, str | None, str]":
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    Reuses that same call's task-lifetime verdict and optional lightweight SELF
-    reply, avoiding another provider turn when the model can decide safely.
+    Reuses that same call's task-lifetime and vertical verdicts. It never treats
+    classifier output as an operator-facing reply: every SELF message reaches
+    the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
     so the message flows through the normal task path unchanged (never swallow
     real work on a classify hiccup)."""
     suggested_names: list[str] = []
     lifetime_decisions: list[str] = []
-    fast_replies: list[str] = []
+    greeting_replies: list[str] = []
+    steering_directives: list[str] = []
+    vertical_decisions: list[dict[str, str]] = []
     chat_state.pop("_frontdoor_lifetime", None)
-    chat_state.pop("_frontdoor_fast_reply", None)
+    chat_state.pop("_frontdoor_greeting_reply", None)
+    chat_state.pop("_frontdoor_failure", None)
+    chat_state.pop("_frontdoor_steering_directive", None)
+    chat_state.pop("_frontdoor_vertical", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
         if mgr is None or not hasattr(mgr, "classify_front_door"):
+            chat_state["_frontdoor_failure"] = "classifier unavailable"
             return None, None, "complex"
         accepts = accepts_keyword or _accepts_keyword
         kwargs: dict[str, Any] = {}
@@ -71,8 +79,14 @@ def _front_door_classify(
             kwargs["name_sink"] = suggested_names.append
         if accepts(mgr.classify_front_door, "lifetime_sink"):
             kwargs["lifetime_sink"] = lifetime_decisions.append
-        if accepts(mgr.classify_front_door, "fast_reply_sink"):
-            kwargs["fast_reply_sink"] = fast_replies.append
+        if accepts(mgr.classify_front_door, "greeting_sink"):
+            kwargs["greeting_sink"] = greeting_replies.append
+        if accepts(mgr.classify_front_door, "steering_sink"):
+            kwargs["steering_sink"] = steering_directives.append
+        if accepts(mgr.classify_front_door, "vertical_sink"):
+            kwargs["vertical_sink"] = vertical_decisions.append
+        if accepts(mgr.classify_front_door, "active_mission"):
+            kwargs["active_mission"] = bool(active_mission)
         decision = mgr.classify_front_door(text, **kwargs)
         if isinstance(decision, tuple) and len(decision) == 4:
             intent, control, route, suggested_name = decision
@@ -96,18 +110,38 @@ def _front_door_classify(
             if lifetime:
                 chat_state["_frontdoor_lifetime"] = lifetime
         elif intent is None and control not in {"abort", "no_dispatch", "steer"}:
-            fast_reply = next(
-                (str(value).strip() for value in fast_replies if str(value).strip()),
+            greeting_reply = next(
+                (
+                    str(value).strip()
+                    for value in greeting_replies
+                    if str(value).strip()
+                ),
                 "",
             )
-            if fast_reply:
-                chat_state["_frontdoor_fast_reply"] = fast_reply
+            if greeting_reply:
+                chat_state["_frontdoor_greeting_reply"] = greeting_reply
+        if control == "steer":
+            directive = next(
+                (
+                    str(value).strip()
+                    for value in steering_directives
+                    if str(value).strip()
+                ),
+                "",
+            )
+            if directive:
+                chat_state["_frontdoor_steering_directive"] = directive
+        if normalized_route == "complex" and vertical_decisions:
+            decision = vertical_decisions[0]
+            if isinstance(decision, dict) and decision.get("vertical"):
+                chat_state["_frontdoor_vertical"] = dict(decision)
         return (
             intent,
             control if control in {"abort", "no_dispatch", "steer"} else None,
             normalized_route,
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
+        chat_state["_frontdoor_failure"] = "classifier failed"
         return None, None, "complex"
     finally:
         _maybe_name_session(
@@ -170,12 +204,18 @@ def _maybe_handle_config_intent(
 def _apply_config_intent(
     mem: Any, intent: Any, chat_state: dict[str, Any], *, on_confirm: Any = None
 ) -> bool:
-    """Apply a parsed ConfigIntent: set the env var(s), persist via knob_store
-    (so a running daemon reads the switch immediately), confirm, and ground the
-    Manager with a note. Returns True iff a change was applied."""
-    from ..core.knob_store import write_persisted_knob
+    """Apply a parsed ConfigIntent and persist it to its authoritative file.
+
+    Backend/model/effort switches use knob_store; project USD budgets use the
+    project's budget.json and never mutate process environment.
+    """
+    from ..core.knob_store import write_persisted_knobs
 
     theme = chat_state.get("theme")
+
+    def _project_state_dir() -> Any:
+        project = getattr(mem, "project", None)
+        return getattr(project, "root", None) or getattr(mem, "root", None)
 
     def _confirm(line: str) -> None:
         if callable(on_confirm):
@@ -191,9 +231,12 @@ def _apply_config_intent(
         except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
             pass
 
-    def _set(env_var: str, value: str) -> None:
-        os.environ[env_var] = value
-        write_persisted_knob(env_var, value)
+    def _set(values: dict[str, str]) -> bool:
+        if not write_persisted_knobs(values):
+            _confirm("Could not persist configuration; nothing changed.")
+            return False
+        os.environ.update(values)
+        return True
 
     knob = intent.knob
     roles = list(intent.roles)
@@ -203,11 +246,12 @@ def _apply_config_intent(
 
         value = normalize_runner_backend(intent.value)
         if roles:
-            for role in roles:
-                _set(_ROLE_BACKEND_ENVS[role], value)
+            if not _set({_ROLE_BACKEND_ENVS[role]: value for role in roles}):
+                return True
             _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
         else:
-            _set("ARGUS_SKILL_RUNNER_BACKEND", value)
+            if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
+                return True
             _confirm(f"Set Argus default CLI backend to {value} "
                      "(roles without their own backend follow).")
         chat_state.pop("manager_runner", None)
@@ -216,11 +260,12 @@ def _apply_config_intent(
     if knob == "model":
         value = intent.value
         if roles:
-            for env_var in {_ROLE_MODEL_ENVS[role] for role in roles}:
-                _set(env_var, value)
+            if not _set({_ROLE_MODEL_ENVS[role]: value for role in roles}):
+                return True
             _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {value}.")
         else:
-            _set("ARGUS_SKILL_MODEL", value)
+            if not _set({"ARGUS_SKILL_MODEL": value}):
+                return True
             _confirm(f"Set Argus default model to {value} "
                      "(roles without their own model follow).")
         chat_state.pop("manager_runner", None)
@@ -240,8 +285,8 @@ def _apply_config_intent(
             _confirm(f"Current model ({models}) is non-reasoning — reasoning effort "
                      "does not apply, so I left it unchanged.")
             return True
-        for role in applicable:
-            _set(_ROLE_EFFORT_ENVS[role], value)
+        if not _set({_ROLE_EFFORT_ENVS[role]: value for role in applicable}):
+            return True
         _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
         chat_state.pop("manager_runner", None)
         return True
@@ -250,10 +295,18 @@ def _apply_config_intent(
         m = re.search(r"\d+(?:\.\d+)?", intent.value)
         if m is None:
             return False
-        env_var = ("ARGUS_SKILL_PER_MISSION_CAP_USD" if knob == "per_mission_cap"
-                   else "ARGUS_SKILL_DAILY_CAP_USD")
-        _set(env_var, m.group(0))
-        _confirm(f"Set {env_var} = {m.group(0)}.")
+        project_state_dir = _project_state_dir()
+        if project_state_dir is None:
+            return False
+        from ..core.project_budget import update_project_budget
+
+        field = (
+            "per_mission_cap_usd"
+            if knob == "per_mission_cap"
+            else "daily_cap_usd"
+        )
+        update_project_budget(project_state_dir, **{field: m.group(0)})
+        _confirm(f"Set project {field} = {m.group(0)} in budget.json.")
         return True
 
     quota_knobs = {
@@ -270,7 +323,8 @@ def _apply_config_intent(
         from ..core.knobs import normalize_cockpit_knob_value
 
         value = normalize_cockpit_knob_value(env_var, m.group(0))
-        _set(env_var, value)
+        if not _set({env_var: value}):
+            return True
         _confirm(f"Set {env_var} = {value}.")
         return True
 
@@ -288,7 +342,8 @@ def _apply_config_intent(
         if on == off:  # neither recognized, or contradictory — don't guess
             return False
         val = "1" if on else "0"
-        _set(env_var, val)
+        if not _set({env_var: val}):
+            return True
         _confirm(f"Set {env_var} = {val} ({'on' if on else 'off'}).")
         return True
 

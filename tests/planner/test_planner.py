@@ -532,11 +532,29 @@ def test_dag_teaching_section_in_role() -> None:
     text = load_builtin_skill_text("argus-planner-role.md")
     assert "DAG" in text
     assert "`key`" in text and "`deps`" in text
+    assert "Prefer a small DAG" in text
+    assert "flat task only when" in text
+    assert "short-horizon Engineer mission" in text
+    assert "discovery, implementation, independent verification, and" in text
+    assert "synthesis" in text
     # Self-contained objective requirement is taught.
     assert "self-contained" in text
-    assert "exact artifact paths" in text
+    assert "exact artifacts" in text
+    assert "explicitly read the artifacts" in text
     # Cap rule was raised to 6.
-    assert "at most six tasks" in text
+    assert "exceeds six nodes" in text
+
+
+def test_planner_role_defines_coherent_short_node_boundaries() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    assert "one clear outcome" in text
+    assert "one decisive acceptance check" in text
+    assert "natural artifact" in text
+    assert "Avoid both monoliths and meaningless microtasks" in text
+    # Mission sizing is semantic, not an arbitrary wall-clock/token cutoff.
+    lower = text.lower()
+    assert "minutes per node" not in lower
+    assert "tokens per node" not in lower
 
 
 def test_planner_schema_accepts_dag_and_flat_tasks() -> None:

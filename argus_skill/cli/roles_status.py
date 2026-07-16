@@ -38,7 +38,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -404,11 +404,13 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
     life_dir = Path(life_dir)
     events = _tail_jsonl(life_dir / "events.jsonl")
     latest: dict[str, dict[str, Any]] = {}
-    for ev in events:
+    latest_order: dict[str, int] = {}
+    for index, ev in enumerate(events):
         role = _event_role(ev)
         if role is None:
             continue
         latest[role] = ev
+        latest_order[role] = index
 
     out: dict[str, RoleActivity] = {}
     for role in ROLES:
@@ -433,6 +435,15 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
         out[role] = RoleActivity(role=role, active=active,
                                  label=label or "idle",
                                  status=status, age_s=age)
+    pipeline_roles = [
+        role for role in ("planner", "engineer", "reviewer")
+        if out[role].active
+    ]
+    if len(pipeline_roles) > 1:
+        winner = max(pipeline_roles, key=lambda role: latest_order.get(role, -1))
+        for role in pipeline_roles:
+            if role != winner:
+                out[role] = replace(out[role], active=False)
     return out
 
 

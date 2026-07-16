@@ -10,6 +10,7 @@ from argus_skill.daemon.commands import (
     COMMAND_LOG_FILE,
     COMMAND_STATE_FILE,
     DaemonCommandStateError,
+    claim_daemon_command,
     daemon_command_snapshot,
     execute_daemon_command,
     submit_daemon_command,
@@ -111,6 +112,53 @@ def test_concurrent_duplicate_has_one_claimant(tmp_path: Path) -> None:
     assert receipts[0].status == "applied"
 
 
+def test_different_lifecycle_commands_execute_serially(tmp_path: Path) -> None:
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+    receipts = []
+
+    def first_handler():
+        first_entered.set()
+        release_first.wait(timeout=5)
+        return {"rc": 0}
+
+    def second_handler():
+        second_entered.set()
+        return {"rc": 0}
+
+    first = threading.Thread(
+        target=lambda: receipts.append(
+            execute_daemon_command(
+                tmp_path,
+                operation="start",
+                handler=first_handler,
+                command_id="cmd-start-serial",
+            )
+        )
+    )
+    second = threading.Thread(
+        target=lambda: receipts.append(
+            execute_daemon_command(
+                tmp_path,
+                operation="stop",
+                handler=second_handler,
+                command_id="cmd-stop-serial",
+            )
+        )
+    )
+    first.start()
+    assert first_entered.wait(timeout=2)
+    second.start()
+    assert not second_entered.wait(timeout=0.1)
+    release_first.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert second_entered.is_set()
+    assert [receipt.status for receipt in receipts] == ["applied", "applied"]
+
+
 def test_handler_failure_is_persisted_and_replayed(tmp_path: Path) -> None:
     def broken():
         raise RuntimeError("cannot signal daemon")
@@ -129,6 +177,52 @@ def test_handler_failure_is_persisted_and_replayed(tmp_path: Path) -> None:
     )
     assert failed.status == replayed.status == "failed"
     assert "cannot signal daemon" in replayed.error
+
+
+def test_nonzero_handler_rc_is_persisted_as_failed(tmp_path: Path) -> None:
+    failed = execute_daemon_command(
+        tmp_path,
+        operation="start",
+        handler=lambda: {"rc": 2, "error": "daemon failed to start"},
+        command_id="cmd-nonzero",
+    )
+    replayed = execute_daemon_command(
+        tmp_path,
+        operation="start",
+        handler=lambda: {"rc": 0},
+        command_id="cmd-nonzero",
+    )
+
+    assert failed.status == replayed.status == "failed"
+    assert failed.result["rc"] == 2
+    assert failed.error == "daemon failed to start"
+
+
+def test_running_command_is_reclaimed_after_owner_process_dies(
+    tmp_path: Path,
+) -> None:
+    submitted = submit_daemon_command(
+        tmp_path,
+        operation="start",
+        command_id="cmd-orphaned",
+    )
+    assert claim_daemon_command(tmp_path, submitted.command_id)
+    state_path = tmp_path / COMMAND_STATE_FILE
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["commands"][submitted.command_id]["owner_pid"] = 2_000_000_000
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    calls: list[str] = []
+
+    recovered = execute_daemon_command(
+        tmp_path,
+        operation="start",
+        command_id=submitted.command_id,
+        handler=lambda: calls.append("run") or {"rc": 0},
+    )
+
+    assert calls == ["run"]
+    assert recovered.status == "applied"
+    assert recovered.result == {"rc": 0}
 
 
 def test_command_log_and_events_are_versioned(tmp_path: Path) -> None:

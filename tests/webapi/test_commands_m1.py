@@ -6,6 +6,7 @@ Daemon start/stop are monkeypatched so no real subprocess is spawned.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -743,6 +744,38 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     assert not life.exists()
 
 
+def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
+    root, sid, _life = ctx
+    closed: list[str] = []
+    state = manager_bridge._chat_state_for(sid)
+    state["manager_runner"] = SimpleNamespace(
+        _backend=SimpleNamespace(
+            close_acp_clients=lambda: closed.append("acp"),
+        ),
+        reset_chat_session=lambda: closed.append("session"),
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+
+    response = TestClient(server.create_app(global_root=root)).delete(
+        f"/api/projects/{sid}"
+    )
+
+    assert response.status_code == 200
+    assert closed == ["acp", "session"]
+    assert sid not in manager_bridge._STATES
+
+
 def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
     root, sid, life = ctx
     monkeypatch.setattr(
@@ -884,8 +917,28 @@ def test_config_set_persists_cockpit_knob(ctx, monkeypatch) -> None:
     ).status_code == 400
 
 
-def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> None:
+def test_config_set_does_not_report_success_when_persistence_fails(
+    ctx, monkeypatch,
+) -> None:
+    from argus_skill.core import knob_store
+
     root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
+    monkeypatch.setattr(knob_store, "write_persisted_knob", lambda *_args: False)
+
+    response = TestClient(server.create_app(global_root=root)).post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "model", "value": "gpt-test"},
+    )
+
+    assert response.status_code == 500
+    assert "could not be persisted" in response.json()["detail"]
+    assert "ARGUS_SKILL_MODEL" not in os.environ
+
+
+def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     client = TestClient(server.create_app(global_root=root))
 
@@ -895,7 +948,7 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
     )
     assert ok.status_code == 200
     assert ok.json()["value"] == "12.5"
-    assert json.loads((root / "config.json").read_text())["ARGUS_SKILL_DAILY_CAP_USD"] == "12.5"
+    assert json.loads((life / "budget.json").read_text())["daily_cap_usd"] == 12.5
 
     invalid = client.post(
         f"/api/projects/{sid}/config/set",
@@ -905,8 +958,42 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
     assert "finite non-negative" in invalid.json()["detail"]
 
 
+def test_config_get_reads_budget_files_not_changed_environment(ctx, monkeypatch) -> None:
+    from argus_skill.core.project_budget import (
+        GlobalBudget,
+        ProjectBudget,
+        write_global_budget,
+        write_project_budget,
+    )
+
+    root, sid, life = ctx
+    write_project_budget(life, ProjectBudget(11, 22))
+    write_global_budget(root, GlobalBudget(33))
+    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "111")
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "222")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "333")
+
+    response = TestClient(server.create_app(global_root=root)).get(
+        f"/api/projects/{sid}/config"
+    )
+
+    assert response.status_code == 200
+    knobs = {row["name"]: row for row in response.json()["operator_knobs"]}
+    assert knobs["ARGUS_SKILL_PER_MISSION_CAP_USD"]["value"] == "11.0"
+    assert (
+        knobs["ARGUS_SKILL_PER_MISSION_CAP_USD"]["source"]
+        == "project:budget.json"
+    )
+    assert knobs["ARGUS_SKILL_DAILY_CAP_USD"]["value"] == "22.0"
+    assert knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["value"] == "33.0"
+    assert (
+        knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["source"]
+        == "global:global_budget.json"
+    )
+
+
 def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
-    root, sid, _ = ctx
+    root, sid, life = ctx
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     client = TestClient(server.create_app(global_root=root))
     values = {
@@ -931,12 +1018,16 @@ def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
     )
     assert saved.status_code == 200
     persisted = json.loads((root / "config.json").read_text())
-    assert persisted["ARGUS_SKILL_PER_MISSION_CAP_USD"] == "20"
+    project_budget = json.loads((life / "budget.json").read_text())
+    global_budget = json.loads((root / "global_budget.json").read_text())
+    assert project_budget["per_mission_cap_usd"] == 20
+    assert project_budget["daily_cap_usd"] == 60
+    assert global_budget["global_daily_cap_usd"] == 120
     assert persisted["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP"] == "300"
 
 
 def test_budget_config_does_not_report_success_when_persistence_fails(
-    monkeypatch,
+    monkeypatch, tmp_path,
 ) -> None:
     from argus_skill.core import knob_store
 
@@ -949,7 +1040,9 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
             "codex_daily_requests": "400",
             "copilot_daily_requests": "800",
             "copilot_daily_premium": "300",
-        })
+        }, project_state_dir=tmp_path / "project", global_root=tmp_path)
+    assert not (tmp_path / "project" / "budget.json").exists()
+    assert not (tmp_path / "global_budget.json").exists()
 
 
 def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:

@@ -40,5 +40,30 @@ def test_abort_endpoint_helper_is_idle_safe(tmp_path) -> None:
     assert not (life / "mission_abort_request.json").exists()
 
 
+def test_abort_endpoint_helper_surfaces_persistence_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from argus_skill.tools import mission_control
+
+    life = tmp_path / "projects" / "s-fail"
+    life.mkdir(parents=True)
+    backlog = LifeMemory.open(life).backlog
+    item = backlog.add(BacklogItem.new(title="task", objective="work"))
+    backlog.mark_running(item.id)
+    monkeypatch.setattr(
+        mission_control.os,
+        "replace",
+        lambda *_args: (_ for _ in ()).throw(OSError("read-only filesystem")),
+    )
+
+    result = abort_project_mission("s-fail", global_root=tmp_path)
+
+    assert result is not None
+    assert result["requested"] is False
+    assert result["item_id"] == item.id
+    assert result["error"] == "mission abort request could not be persisted"
+
+
 def test_abort_is_a_declared_webapi_capability() -> None:
     assert "mission.abort.v1" in API_CAPABILITIES

@@ -32,7 +32,7 @@ from .models import AgentRunResult, InactivitySnapshot
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_MANAGER_TIMEOUT_S = 300.0
 _CANCEL_GRACE_S = 5.0
-_DEFAULT_SESSION_RECYCLE = 50
+_DEFAULT_SESSION_RECYCLE = 12
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
 _TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
 
@@ -133,10 +133,13 @@ class CopilotAcpClient:
         agent_bin: str,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        *,
+        lean: bool = False,
     ) -> None:
         self._agent_bin = agent_bin
         self._model = model
         self._reasoning_effort = reasoning_effort
+        self._lean = bool(lean)
         self._proc: subprocess.Popen[str] | None = None
         self._reader: threading.Thread | None = None
         self._alive = False
@@ -152,6 +155,7 @@ class CopilotAcpClient:
         self._front_door_uses = 0
         self._session_premium_totals: dict[str, float] = {}
         self._session_premium_multipliers: dict[str, float] = {}
+        self._session_models: dict[str, str] = {}
         self._agent_caps: dict[str, Any] = {}
         self._active_turn: _Turn | None = None
 
@@ -168,6 +172,14 @@ class CopilotAcpClient:
             cmd += ["--model", self._model]
         if self._reasoning_effort:
             cmd += ["--reasoning-effort", self._reasoning_effort]
+        if self._lean:
+            # Classifier prompts are self-contained and tool-free. Repository
+            # instructions and built-in MCPs only inflate their input context.
+            cmd += [
+                "--no-custom-instructions",
+                "--disable-builtin-mcps",
+                "--available-tools=",
+            ]
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -185,6 +197,7 @@ class CopilotAcpClient:
         self._front_door_uses = 0
         self._session_premium_totals.clear()
         self._session_premium_multipliers.clear()
+        self._session_models.clear()
         self._active_turn = None
         self._reader = threading.Thread(
             target=self._reader_loop,
@@ -215,6 +228,7 @@ class CopilotAcpClient:
         self._front_door_uses = 0
         self._session_premium_totals.clear()
         self._session_premium_multipliers.clear()
+        self._session_models.clear()
 
     def close(self) -> None:
         """Terminate the warm ACP subprocess and release all session state."""
@@ -234,6 +248,13 @@ class CopilotAcpClient:
                     except Exception:  # noqa: BLE001
                         pass
             self._on_dead()
+
+    def prewarm(self, cwd: str, *, front_door_session: bool = False) -> None:
+        """Start transport/session state without spending a model turn."""
+        with self._turn_lock:
+            self._ensure_started()
+            if front_door_session:
+                self._session_for(None, cwd, _FRONT_DOOR_LABEL)
 
     # ── reader / dispatch ────────────────────────────────────────────────────
     def _reader_loop(self, proc: subprocess.Popen[str]) -> None:
@@ -499,11 +520,13 @@ class CopilotAcpClient:
             break
         self._session_premium_multipliers[sid] = multiplier
         self._session_premium_totals.setdefault(sid, 0.0)
+        self._session_models[sid] = current
 
     def _invalidate_session(self, sid: str) -> None:
         """Prevent late packets from a cancelled prompt contaminating its successor."""
         self._invalid_sessions.add(sid)
         self._sessions.pop(sid, None)
+        self._session_models.pop(sid, None)
         if self._front_door_sid == sid:
             self._front_door_sid = None
             self._front_door_uses = 0
@@ -772,6 +795,7 @@ class CopilotAcpClient:
                     or (f"stopReason={stop_reason}" if stop_reason else "acp turn incomplete")
                 ),
                 tool_activity_observed=turn.tool_activity_observed,
+                usage_model=self._session_models.get(sid, self._model or ""),
             )
 
     def _fail_result(
@@ -794,13 +818,13 @@ class CopilotAcpClient:
             turn_failed=True,
             fatal_error=msg,
             tool_activity_observed=tool_activity_observed,
+            usage_model=self._session_models.get(sid, self._model or ""),
         )
 
 
-# Module-level singletons, keyed by (agent_bin, model, effort): one warm process
-# per execution configuration so changing a Manager's effort takes effect without
-# mutating an already-live Copilot process.
-_CLIENTS: dict[tuple[str, str, str], CopilotAcpClient] = {}
+# Module-level registry. ``scope`` isolates OS processes between Managers while
+# still reusing classifier/reply transports inside one Manager.
+_CLIENTS: dict[tuple[str, str, str, bool, str], CopilotAcpClient] = {}
 _CLIENTS_LOCK = threading.Lock()
 
 
@@ -808,14 +832,40 @@ def get_client(
     agent_bin: str,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    *,
+    lean: bool = False,
+    scope: str = "shared",
 ) -> CopilotAcpClient:
-    key = (agent_bin, model or "", reasoning_effort or "")
+    key = (
+        agent_bin,
+        model or "",
+        reasoning_effort or "",
+        bool(lean),
+        str(scope or "shared"),
+    )
     with _CLIENTS_LOCK:
         client = _CLIENTS.get(key)
         if client is None:
-            client = CopilotAcpClient(agent_bin, model, reasoning_effort)
+            client = CopilotAcpClient(
+                agent_bin,
+                model,
+                reasoning_effort,
+                lean=lean,
+            )
             _CLIENTS[key] = client
         return client
+
+
+def close_clients_for_scope(scope: str) -> None:
+    target = str(scope or "shared")
+    with _CLIENTS_LOCK:
+        keys = [key for key in _CLIENTS if key[4] == target]
+        clients = [_CLIENTS.pop(key) for key in keys]
+    for client in clients:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def close_all_clients() -> None:
@@ -832,4 +882,9 @@ def close_all_clients() -> None:
 atexit.register(close_all_clients)
 
 
-__all__ = ["CopilotAcpClient", "close_all_clients", "get_client"]
+__all__ = [
+    "CopilotAcpClient",
+    "close_all_clients",
+    "close_clients_for_scope",
+    "get_client",
+]

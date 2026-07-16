@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import shlex
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,20 +117,40 @@ def _read_offset(life_dir: Path) -> int | None:
         return None
 
 
-def _write_offset(life_dir: Path, offset: int) -> None:
+def _write_offset(life_dir: Path, offset: int) -> bool:
+    path = _offset_path(life_dir)
+    tmp: Path | None = None
     try:
-        _offset_path(life_dir).write_text(str(offset), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(offset))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        return True
     except OSError:
         log.warning("failed to persist telegram offset")
+        return False
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
-def _fast_forward(token: str, life_dir: Path) -> int:
+def _fast_forward(token: str, life_dir: Path) -> int | None:
     """Skip all pending updates and return the next offset."""
     resp = _api_call(token, "getUpdates", {"offset": -1, "limit": 1, "timeout": 0}, timeout=10)
     if resp and resp.get("ok") and resp.get("result"):
         offset = resp["result"][-1]["update_id"] + 1
-        _write_offset(life_dir, offset)
-        return offset
+        return offset if _write_offset(life_dir, offset) else None
     return 0
 
 
@@ -743,6 +764,9 @@ class TelegramPoller:
         if offset is None:
             log.info("telegram poller: first boot, fast-forwarding updates")
             offset = _fast_forward(self.token, self.life_dir)
+            if offset is None:
+                log.error("telegram poller: cannot persist initial offset")
+                return
 
         backoff = 1.0
 
@@ -765,8 +789,12 @@ class TelegramPoller:
 
                 for update in updates:
                     uid = update.get("update_id", 0)
-                    offset = uid + 1
-                    _write_offset(self.life_dir, offset)
+                    next_offset = uid + 1
+                    if not _write_offset(self.life_dir, next_offset):
+                        self._stop.wait(timeout=min(backoff, 30))
+                        backoff = min(backoff * 2, 60)
+                        break
+                    offset = next_offset
 
                     msg = update.get("message") or {}
                     text = (msg.get("text") or "").strip()

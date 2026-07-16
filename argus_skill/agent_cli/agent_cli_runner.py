@@ -48,9 +48,9 @@ _DEFAULT_CAPTURE_STDERR_LINES = 256
 _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
 _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
-_DEFAULT_ENGINEER_TURN_MAX_SECONDS = 300
+_DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
 _SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
-_DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 120
+_DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -237,6 +237,40 @@ class AgentCliRunner:
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
         self.before_exec = before_exec
+        self._acp_scope = f"runner:{id(self):x}"
+
+    def set_acp_scope(self, scope: str) -> None:
+        target = str(scope or "").strip() or f"runner:{id(self):x}"
+        if target == self._acp_scope:
+            return
+        from .copilot_acp import close_clients_for_scope
+
+        close_clients_for_scope(self._acp_scope)
+        self._acp_scope = target
+
+    def prewarm_acp_client(
+        self,
+        *,
+        model: str | None,
+        reasoning_effort: str | None,
+        lean: bool,
+        cwd: str,
+        front_door_session: bool = False,
+    ) -> None:
+        from .copilot_acp import get_client
+
+        get_client(
+            self.agent_bin,
+            model,
+            reasoning_effort,
+            lean=lean,
+            scope=self._acp_scope,
+        ).prewarm(cwd, front_door_session=front_door_session)
+
+    def close_acp_clients(self) -> None:
+        from .copilot_acp import close_clients_for_scope
+
+        close_clients_for_scope(self._acp_scope)
 
     def run_exec(
         self,
@@ -615,6 +649,8 @@ class AgentCliRunner:
                 self.agent_bin,
                 options.model,
                 options.reasoning_effort,
+                lean=run_label == "manager-frontdoor-classify",
+                scope=self._acp_scope,
             )
 
             def _emit(text: str) -> None:

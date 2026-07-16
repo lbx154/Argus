@@ -1,6 +1,6 @@
 {
   "name": "argus-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "React web cockpit for the argus-skill autonomous-research daemon — a client of the argus-skill webapi.",
@@ -14,7 +14,6 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
-    "@fontsource-variable/noto-sans-sc": "^5.2.10",
     "@fortawesome/fontawesome-svg-core": "^7.3.0",
     "@fortawesome/free-solid-svg-icons": "^7.3.0",
     "@fortawesome/react-fontawesome": "^3.4.0",

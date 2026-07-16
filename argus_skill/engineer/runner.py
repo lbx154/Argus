@@ -6,9 +6,6 @@ This is the heart of the argus-skill v0.1 integration:
     (initial task + optional skill block + optional reviewer next_action
     from prior round).
   * Call the reviewer to render a structured verdict.
-  * The engineer may explicitly defer one low-value intermediate review when
-    its next execution step is already clear; the following work round is
-    reviewed normally.
   * If ``done``, stop. If ``continue``, capture ``next_action`` and loop.
     If ``blocked``, stop and surface the reason.
 
@@ -64,7 +61,7 @@ from .background_subagents import (
     render_background_subagents_advisory,
     wait_for_subagent_cadence,
 )
-from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
+from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
 
 log = logging.getLogger(__name__)
 
@@ -140,23 +137,14 @@ _DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
 _DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
-# Coarse upper bound on the input-token size a single resumed thread may reach
-# before it is rolled. Live Erdős #5 accounting showed that an eight-round
-# thread consumed 14M input tokens in one mission, with resumed rounds reaching
-# 2.2–3.6M each despite useful work being captured in the reviewer checkpoint.
-# Fresh/post-roll rounds were ~0.65–0.92M; 1.5M leaves headroom for heavier static
-# prompts while cutting off the measured bloat zone. Tunable via
-# ARGUS_SKILL_THREAD_TOKEN_LIMIT (0 disables the token roll).
-_DEFAULT_THREAD_TOKEN_LIMIT = 1_500_000
+# Compatibility defaults for the retired resumed-thread policy. Autonomous
+# Engineer/Reviewer calls are always fresh, so no token roll is needed.
+_DEFAULT_THREAD_TOKEN_LIMIT = 0
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
-# A single engineer round should essentially never reach Codex auto-compaction:
-# the runner proactively rolls the session every ``shift_round_limit`` rounds
-# and at ``thread_token_limit`` input tokens precisely to stay below it. So a
-# handful of ``compacted`` events *within one round* means that anti-amnesia
-# design has already been defeated and the round is in the re-read/re-emit
-# amnesia loop. We keep the default at 3 (not 1) to tolerate an occasional
-# benign compaction. Set ARGUS_SKILL_ROUND_COMPACTION_LIMIT=0 to disable.
+# A handful of ``compacted`` events within one fresh Engineer turn indicates an
+# in-turn re-read/re-emit loop. Keep this emergency detector independent of the
+# cross-round policy; every next round is fresh regardless.
 _DEFAULT_ROUND_COMPACTION_LIMIT = 3
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
@@ -696,29 +684,21 @@ class SupervisedConfig:
     # byte-for-byte unchanged. The engineer's shell commands land in the
     # ``text`` field of each ``engineer.progress`` event in this file.
     engineer_log_path: str = ""
-    # Curated-memory checkpoint: how many rounds a single Codex thread may live
-    # before it is proactively rolled (dropped) so the next round starts a
-    # fresh session seeded only by the checkpoint. Bounds per-session context
-    # growth to prevent the repeated auto-compaction amnesia loop. 0 disables
-    # the proactive roll (e.g. tests / interactive chat). Env override:
-    # ARGUS_SKILL_SHIFT_ROUND_LIMIT.
+    # Retained as a compatibility knob for callers that still construct the
+    # config explicitly. Autonomous Engineer/Reviewer calls now always start a
+    # fresh provider session, so the value is no longer consulted by the loop.
     shift_round_limit: int = field(
-        default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 3)
+        default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 1)
     )
-    # Cross-mission context bound. The Codex thread is resumed across (often
-    # short) missions, so the per-mission ``shift_round_limit`` counter resets
-    # before it can fire and the thread grows unbounded until codex performs a
-    # lossy auto-compaction (the amnesia/re-read loop). This caps the thread by
-    # the previous round's reported input-token count instead of round count,
-    # so an inherited bloated thread is dropped on its first round. 0 disables.
-    # Env override: ARGUS_SKILL_THREAD_TOKEN_LIMIT.
+    # Compatibility-only alongside ``shift_round_limit``; fresh-per-round calls
+    # do not carry a thread whose token count needs policing.
     thread_token_limit: int = field(
         default_factory=lambda: _env_int(
             _THREAD_TOKEN_LIMIT_ENV, _DEFAULT_THREAD_TOKEN_LIMIT
         )
     )
-    # Where to persist the curated checkpoint (cross-mission / crash
-    # continuity). None = in-memory only for this mission.
+    # Ordinary Markdown file edited directly by Engineer and Reviewer. None
+    # disables the shared checkpoint for callers that intentionally opt out.
     checkpoint_path: Path | None = None
     # Kill a live Codex subprocess if it keeps emitting heartbeat/token
     # noise but makes no effective progress for a long time. Effective
@@ -763,10 +743,9 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
-    # Let the engineer explicitly take one additional execution slice before
-    # invoking the reviewer when the next local step is already obvious.
-    # A real reviewer verdict resets the allowance; 0 disables the path.
-    review_deferral_limit: int = 1
+    # Every Engineer turn is followed by a Reviewer turn. Retained only for
+    # source compatibility with older callers.
+    review_deferral_limit: int = 0
 
 
 @dataclass(frozen=True)
@@ -839,8 +818,8 @@ class _EffectiveProgressWatchdog:
             self._interrupt_reason = (
                 "compaction thrash: codex auto-compaction amnesia loop — "
                 f"{self._compaction_count} compactions within one round "
-                f"(limit {self.compaction_limit}); rolling to a fresh "
-                "checkpoint-seeded session"
+                f"(limit {self.compaction_limit}); stopping this turn so the "
+                "next fresh session can continue from CHECKPOINT.md"
             )
             self._emit_compaction_thrash_event()
             return self._interrupt_reason
@@ -1181,18 +1160,10 @@ class SupervisedEngineer:
         """Run the supervised loop.
 
         ``engineer_prompt_builder(next_action, include_static)`` is called once
-        per round. On round 1, ``next_action`` is ``None``; on subsequent rounds,
-        it is the reviewer's ``next_action`` from the previous round. ``include_static``
-        is True on round 1 / after a session roll / after a codex compaction — the
-        builder then returns the full STATIC preamble + DELTA; otherwise it returns
-        the per-round DELTA only (the resumed thread already holds the static),
-        which restores the gpt-5.5 prefix-cache discount on resume rounds (F5).
-
-        Codex session continuity: round N+1 reuses round N's
-        ``thread_id`` as ``resume_thread_id``. ``seed_thread_id`` (if
-        provided) seeds round 1, allowing higher layers (e.g.
-        life chat) to thread continuity *across* missions, not just
-        across rounds.
+        per round with ``include_static=True``. Engineer and Reviewer both start
+        fresh provider sessions every round. Their continuity is the ordinary
+        shared Markdown checkpoint that they edit in sequence on disk; raw model
+        threads are never carried across a round or mission boundary.
 
         Returns ``(status, rounds, final_message, reason, last_thread_id)``.
         """
@@ -1210,9 +1181,6 @@ class SupervisedEngineer:
             on_event = _redacted_on_event
         rounds: list[RoundRecord] = []
         last_engineer_message = ""
-        last_next_action: str | None = None
-        engineer_selected_next_step: str | None = None
-        review_deferral_streak = 0
         no_progress_streak = 0
         semantic_stall_streak = 0
         plan_reconsider_streak = 0
@@ -1220,53 +1188,10 @@ class SupervisedEngineer:
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
         pending_secret_guard_notes: list[str] = []
-        # F7: the reviewer resumes its OWN persisted codex thread across rounds so
-        # it re-sends only the per-round DELTA (not the ~50KB static rubric) each
-        # round. Mirrors the engineer thread state below and REUSES the same
-        # thread_token_limit / shift_round_limit roll knobs (no new config). These
-        # are LOCAL to run(): the reviewer thread never crosses a mission boundary
-        # (its static preamble's objective anchor is fixed only within a mission).
-        reviewer_thread_id: str | None = None
-        reviewer_rounds_on_thread = 0
-        reviewer_last_input_tokens = 0
-        reviewer_static_fingerprint = ""
-        current_thread_id: str | None = seed_thread_id
-        # Curated working-memory checkpoint. Loaded once (cross-mission / crash
-        # continuity), carried in memory across rounds, re-authored by the
-        # reviewer each round, and persisted after each verdict. It is what a
-        # *fresh* engineer session reads after a session roll — so a rolled
-        # session resumes from a small curated handoff, never the giant
-        # compacted history that caused the amnesia loop.
-        checkpoint = load_checkpoint(supervised_config.checkpoint_path)
-        # Meta-control context reset: if the planner convened a regime jump since
-        # the last engineer session, drop the saturated LOCAL trajectory
-        # (active_line / maturing) so this session opens the new regime fresh
-        # instead of re-anchoring on the frozen basin. Consume-once + fail-soft:
-        # any error leaves the checkpoint untouched (unchanged behaviour).
-        try:
-            from ..regime_jump.ledger import consume_jump_pending
-            from ..skills.harness_overlay import resolve_project_root as _rpr
-
-            if consume_jump_pending(_rpr()):
-                checkpoint = checkpoint.cleared_for_jump()
-        except Exception:  # noqa: BLE001 — meta reset must never break the loop
-            pass
-        # Rounds the current Codex thread has lived for *this mission*. We
-        # proactively roll (drop) the thread once it reaches the shift limit so
-        # no single session accumulates enough history to repeatedly trigger
-        # codex's lossy auto-compaction. NOTE: this counter resets each mission,
-        # so it only bounds *within-mission* growth. The cross-mission bound
-        # (a thread resumed across many short missions) is the token-size roll
-        # in the loop below — see ``thread_token_limit``.
-        rounds_on_thread = 0
-        # Input-token count reported by the previous engineer round. Used by the
-        # token-size session roll to detect (and drop) a thread that has grown
-        # past the model's usable context. 0 on the first round of a mission, so
-        # a normally-sized inherited thread is still resumed.
-        last_input_tokens = 0
-        # F5: when the previous round triggered a codex auto-compaction, force a
-        # full STATIC re-send next round (the compaction may have discarded it).
-        last_round_had_compaction = False
+        # ``seed_thread_id`` is intentionally ignored: autonomous role calls are
+        # one turn per provider session. The checkpoint file is the baton.
+        _ = seed_thread_id
+        checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             # F3: mid-mission cost circuit-breaker. Before doing any work this
@@ -1275,8 +1200,8 @@ class SupervisedEngineer:
             # entry); a misconfigured cap<=0 is a no-op via ``exceeded()``. This is
             # a hard STOP, NOT a completion — the supervisor leaves the item pending
             # and journals a budget_pause; the reviewer stays the sole done-ness
-            # authority (anti-cheat). The thread is kept (budget_exhausted is not
-            # poisoned) so the paused mission resumes from its checkpoint.
+            # authority (anti-cheat). CHECKPOINT.md stays on disk for the next
+            # fresh mission attempt.
             if (
                 per_mission_budget is not None
                 and round_index > 1
@@ -1300,102 +1225,23 @@ class SupervisedEngineer:
                     rounds,
                     last_engineer_message,
                     f"per-mission cap ${_cap:.2f} reached (spent ${_spent:.2f})",
-                    current_thread_id,
+                    None,
                 )
-            # F5: apply the session rolls FIRST — before building the prompt — so
-            # the post-roll thread state is known when we decide include_static.
-            # The roll bodies are UNCHANGED: they only mutate current_thread_id /
-            # rounds_on_thread and emit session.roll.
-            # Token-size session roll: the cross-mission counterpart to the
-            # round-count roll below. A thread resumed across many short
-            # missions carries the entire cross-mission transcript while
-            # ``rounds_on_thread`` keeps resetting, so the round-count roll
-            # never fires and the thread bloats past the model's usable
-            # context — forcing codex's *lossy* auto-compaction and the
-            # amnesia/re-read loop. Bounding by the previous round's reported
-            # input-token count catches an inherited bloated thread on its first
-            # round and drops it; subsequent rounds (and missions) then continue
-            # on fresh, small threads. ``last_input_tokens`` is 0 on round 1 of
-            # a fresh mission, so a normally-sized inherited thread is resumed.
-            token_limit = int(getattr(supervised_config, "thread_token_limit", 0) or 0)
-            if (
-                token_limit > 0
-                and current_thread_id is not None
-                and last_input_tokens >= token_limit
-            ):
-                if on_event:
-                    on_event({
-                        "type": "session.roll",
-                        "round": round_index,
-                        "reason": "token_limit",
-                        "input_tokens": last_input_tokens,
-                        "text": (
-                            f"rolling codex session: prior round used "
-                            f"{last_input_tokens} input tokens (>= {token_limit}) "
-                            "— fresh session resumes from checkpoint"
-                        ),
-                    })
-                current_thread_id = None
-                rounds_on_thread = 0
-            # Proactive session roll: once the current Codex thread has lived
-            # for the shift limit, drop it so THIS round starts a fresh session
-            # seeded only by the curated checkpoint (appended below), not the
-            # accumulated history. This is the structural bound that prevents
-            # the repeated-auto-compaction amnesia loop — no watchdog needed.
-            shift_limit = int(getattr(supervised_config, "shift_round_limit", 0) or 0)
-            if (
-                shift_limit > 0
-                and current_thread_id is not None
-                and rounds_on_thread >= shift_limit
-            ):
-                if on_event:
-                    on_event({
-                        "type": "session.roll",
-                        "round": round_index,
-                        "reason": "shift_limit",
-                        "rounds_on_thread": rounds_on_thread,
-                        "text": (
-                            f"rolling codex session after {rounds_on_thread} "
-                            "rounds — fresh session resumes from checkpoint"
-                        ),
-                    })
-                current_thread_id = None
-                rounds_on_thread = 0
-            # F5: send the byte-stable STATIC preamble only when the thread is
-            # fresh — round 1 (even a seeded mission, which must send its OWN
-            # static), a just-rolled/cleared thread, or right after a codex
-            # compaction (anti-amnesia hedge, HARD CONSTRAINT). Otherwise the
-            # resumed thread already holds the static, so send DELTA only.
-            include_static = (
-                round_index == 1
-                or current_thread_id is None
-                or last_round_had_compaction
-            )
             if on_event:
                 try:
                     emit_subagent_cost_events(workdir, on_event)
                 except Exception:  # noqa: BLE001
                     log.debug("subagent cost scan ignored an error", exc_info=True)
-            engineer_prompt = engineer_prompt_builder(last_next_action, include_static)
-            # F5: the per-round changing blocks are APPENDED (not prepended) so the
-            # STATIC prefix stays byte-stable in front for the prefix-cache. They
-            # are sent EVERY round (both full and resume) — the checkpoint
-            # especially must reach a fresh post-roll session.
+            # Cross-round role context comes from CHECKPOINT.md, not duplicated
+            # free-form reviewer prose in the next Engineer prompt.
+            engineer_prompt = engineer_prompt_builder(None, True)
             delta_tail: list[str] = []
-            # Curated working-memory block — the engineer's only memory of prior
-            # rounds once the session has been rolled.
-            checkpoint_block = checkpoint.render_for_engineer()
+            checkpoint_block = shared_checkpoint_instructions(
+                checkpoint_path,
+                role="engineer",
+            )
             if checkpoint_block:
                 delta_tail.append(checkpoint_block)
-            if engineer_selected_next_step:
-                delta_tail.append(
-                    "## Engineer-selected next step\n"
-                    "Independent review was deferred for this one bounded "
-                    "transition because the next execution step was already "
-                    "clear. Continue with:\n\n"
-                    f"{engineer_selected_next_step}\n\n"
-                    "After this turn, hand the accumulated work to the Reviewer."
-                )
             background_advisory = (
                 render_background_subagents_advisory(workdir)
                 if supervised_config.background_subagent_advisory
@@ -1412,23 +1258,17 @@ class SupervisedEngineer:
                     # Kept for readers of the historical event schema.
                     "round": round_index,
                     "round_max": supervised_config.max_rounds,
-                    "text": f"engineer round {round_index}"
-                            + (" (resuming codex session)" if current_thread_id else ""),
+                    "text": f"engineer round {round_index} (fresh session)",
                 })
             round_started_at = time.time()
-            engineer_result, round_compactions = self._run_engineer(
+            engineer_result, _round_compactions = self._run_engineer(
                 prompt=engineer_prompt,
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
-                resume_thread_id=current_thread_id,
+                resume_thread_id=None,
                 supervised_config=supervised_config,
                 on_event=on_event,
             )
-            # F5: remember whether codex compacted this round, so the NEXT round
-            # re-sends the full STATIC preamble (the compaction may have dropped it).
-            last_round_had_compaction = round_compactions > 0
-            # Capture thread_id so the next round (and the next mission,
-            # via the return value) can resume the same codex session.
             new_tid = getattr(engineer_result, "thread_id", None)
             fatal_error = getattr(engineer_result, "fatal_error", None)
             safe_fatal_error = redact_secrets_text(
@@ -1438,7 +1278,7 @@ class SupervisedEngineer:
             stop_kind = normalize_stop_kind(
                 getattr(engineer_result, "stop_kind", None)
             )
-            round_thread_id = new_tid or current_thread_id
+            round_thread_id = new_tid
             raw_engineer_message = engineer_result.last_agent_message or ""
             engineer_message = redact_secrets_text(
                 raw_engineer_message,
@@ -1458,8 +1298,6 @@ class SupervisedEngineer:
                 pending_secret_guard_notes.append(secret_guard_reviewer_note)
                 del pending_secret_guard_notes[:-8]
             last_engineer_message = engineer_message or last_engineer_message
-            # Feed the token-size session roll at the top of the next round.
-            last_input_tokens = int(getattr(engineer_result, "input_tokens", 0) or 0)
 
             # Phase-2 instrumentation: emit ``round.main.completed`` so the
             # supervisor's _CostTrackingSink can fold engineer-side token
@@ -1490,24 +1328,6 @@ class SupervisedEngineer:
                     ),
                     "usage_scope": "delta",
                 })
-
-            if should_clear_thread_id_after_outcome(
-                status="",
-                fatal_error=fatal_error,
-                stop_kind=stop_kind,
-            ):
-                # Context-pressure / poisoned-session / backend-failure roll.
-                # The checkpoint carries memory across this drop, so a cleared
-                # thread is a clean rebirth, not amnesia.
-                current_thread_id = None
-                rounds_on_thread = 0
-            elif new_tid:
-                if new_tid == current_thread_id:
-                    rounds_on_thread += 1
-                else:
-                    # Brand-new thread id (fresh session this round).
-                    rounds_on_thread = 1
-                current_thread_id = new_tid
 
             if fatal_error_looks_like_daemon_stop_request(fatal_error):
                 review = daemon_stop_review_decision(
@@ -1710,7 +1530,6 @@ class SupervisedEngineer:
                             ),
                         })
                     time.sleep(backoff_seconds)
-                last_next_action = review.next_action
                 continue
 
             # Agent-driven cadence yield: if the engineer's entire action this
@@ -1740,50 +1559,8 @@ class SupervisedEngineer:
                     # no-progress streak and re-assess fresh next round (the next
                     # round's advisory reflects the post-wait registry state).
                     no_progress_streak = 0
-                    last_next_action = None
                     continue
 
-            requested_next_step = parse_continue_work_request(raw_engineer_message)
-            deferral_limit = min(
-                1,
-                max(
-                    0,
-                    int(
-                        getattr(supervised_config, "review_deferral_limit", 0) or 0
-                    ),
-                ),
-            )
-            if (
-                requested_next_step
-                and not fatal_error
-                and getattr(engineer_result, "exit_code", 1) == 0
-                and review_deferral_streak < deferral_limit
-                and round_index < supervised_config.max_rounds
-            ):
-                review_deferral_streak += 1
-                engineer_selected_next_step = requested_next_step
-                backend_failure_streak = 0
-                no_progress_streak = 0
-                last_next_action = None
-                if on_event:
-                    on_event({
-                        "type": EventType.ROUND_REVIEW_DEFERRED,
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "next_step": requested_next_step,
-                        "deferral_count": review_deferral_streak,
-                        "deferral_limit": deferral_limit,
-                        "text": (
-                            "Engineer continues before review: "
-                            f"{requested_next_step}"
-                        ),
-                    })
-                continue
-
-            # The continuation reached a trustworthy round that will now be
-            # reviewed. Keep this pending across background waits and backend
-            # retries, but do not leak it beyond the resulting review.
-            engineer_selected_next_step = None
             backend_failure_streak = 0
             if not _runner_result_has_successful_work_signal(
                 engineer_result, engineer_message=engineer_message
@@ -1791,16 +1568,6 @@ class SupervisedEngineer:
                 no_progress_streak += 1
             else:
                 no_progress_streak = 0
-
-            prev_round = rounds[-1] if rounds else None
-            prev_review = getattr(prev_round, "review", None) if prev_round else None
-            prev_review_summary = ""
-            if prev_review is not None:
-                prev_review_summary = (
-                    getattr(prev_review, "round_summary_markdown", "")
-                    or getattr(prev_review, "reason", "")
-                    or ""
-                )
 
             if prepare_review_context is not None:
                 try:
@@ -1849,55 +1616,6 @@ class SupervisedEngineer:
             # the (cheap) reviewer leg — NOT discard the round and re-run the
             # (xhigh) engineer turn. We leave this inner loop with a real verdict,
             # or by failing loud once the reviewer-backend streak hits threshold.
-            #
-            # F7: proactively roll the reviewer's OWN thread on the same knobs as
-            # the engineer (token-size + shift-count) so it never accrues enough
-            # history to trigger codex's lossy auto-compaction; then resume what
-            # survives. ``reviewer_resume_id`` is read by every evaluate below
-            # (incl. the F8 retries) and dropped to None on backend death.
-            _rv_token_limit = int(
-                getattr(supervised_config, "thread_token_limit", 0) or 0
-            )
-            if (
-                _rv_token_limit > 0
-                and reviewer_thread_id
-                and reviewer_last_input_tokens >= _rv_token_limit
-            ):
-                if on_event:
-                    on_event({
-                        "type": "session.roll",
-                        "round_index": round_index,
-                        "reason": "reviewer_token_limit",
-                        "text": (
-                            f"reviewer thread reached {reviewer_last_input_tokens} "
-                            f"input tokens (>= {_rv_token_limit}); starting a fresh "
-                            "reviewer session"
-                        ),
-                    })
-                reviewer_thread_id = None
-                reviewer_rounds_on_thread = 0
-            _rv_shift_limit = int(
-                getattr(supervised_config, "shift_round_limit", 0) or 0
-            )
-            if (
-                _rv_shift_limit > 0
-                and reviewer_thread_id
-                and reviewer_rounds_on_thread >= _rv_shift_limit
-            ):
-                if on_event:
-                    on_event({
-                        "type": "session.roll",
-                        "round_index": round_index,
-                        "reason": "reviewer_shift_limit",
-                        "text": (
-                            f"reviewer thread reached {reviewer_rounds_on_thread} "
-                            f"rounds (>= {_rv_shift_limit}); starting a fresh "
-                            "reviewer session"
-                        ),
-                    })
-                reviewer_thread_id = None
-                reviewer_rounds_on_thread = 0
-            reviewer_resume_id = reviewer_thread_id
             while True:
                 reviewer_background_context = ""
                 if supervised_config.background_subagent_advisory:
@@ -1931,9 +1649,9 @@ class SupervisedEngineer:
                             self.reviewer_config,
                             working_dir=str(workdir),
                         ),
-                        prev_review_summary=prev_review_summary,
+                        prev_review_summary="",
                         scope=scope,
-                        prior_checkpoint=checkpoint.to_dict(),
+                        checkpoint_path=str(checkpoint_path or ""),
                         background_context=reviewer_background_context,
                         escalate_hint=escalate_hint,
                         engineer_log_path=supervised_config.engineer_log_path,
@@ -1948,8 +1666,8 @@ class SupervisedEngineer:
                             )
                             else ""
                         ),
-                        resume_thread_id=reviewer_resume_id,
-                        prior_static_fingerprint=reviewer_static_fingerprint,
+                        resume_thread_id=None,
+                        prior_static_fingerprint="",
                     )
                 except Exception as exc:  # noqa: BLE001
                     msg = f"reviewer raised {type(exc).__name__}: {exc}"
@@ -2002,7 +1720,7 @@ class SupervisedEngineer:
                         rounds,
                         last_engineer_message,
                         review.reason,
-                        current_thread_id,
+                        None,
                     )
                 if (
                     getattr(review, "backend_unavailable", False)
@@ -2112,34 +1830,7 @@ class SupervisedEngineer:
                 # ``status="blocked"`` verdict (e.g. "blocked on GPU quota"), which
                 # is a real model judgment and is handled normally by ``_classify``.
                 if not getattr(review, "backend_unavailable", False):
-                    # A real reviewer verdict arrived — leave the retry loop and
-                    # handle it on the normal path below. F7: update the reviewer
-                    # thread state so the NEXT round resumes this thread and sends
-                    # only the delta. A changed/absent thread_id resets the count.
-                    reviewer_static_fingerprint = (
-                        getattr(review, "static_fingerprint", "")
-                        or reviewer_static_fingerprint
-                    )
-                    _rtid = getattr(review, "thread_id", None)
-                    if _rtid:
-                        if _rtid == reviewer_thread_id:
-                            reviewer_rounds_on_thread += 1
-                        else:
-                            reviewer_rounds_on_thread = 1
-                        reviewer_thread_id = _rtid
-                    else:
-                        reviewer_thread_id = None
-                        reviewer_rounds_on_thread = 0
-                    reviewer_last_input_tokens = int(
-                        getattr(review, "input_tokens", 0) or 0
-                    )
                     break
-                # F7×F8: the reviewer thread we just tried may be poisoned (codex
-                # died / out-of-room). Drop it so the retry below opens a FRESH
-                # reviewer session instead of resuming the dead thread.
-                reviewer_thread_id = None
-                reviewer_rounds_on_thread = 0
-                reviewer_resume_id = None
                 reviewer_backend_failure_streak += 1
                 rb_threshold = max(
                     1, int(supervised_config.backend_failure_threshold or 1)
@@ -2217,7 +1908,6 @@ class SupervisedEngineer:
                 continue
             # A real reviewer verdict arrived — reset the reviewer-backend streak.
             reviewer_backend_failure_streak = 0
-            review_deferral_streak = 0
             pending_secret_guard_notes.clear()
             progress_class = _review_progress_class(review)
             next_semantic_stall_streak = _next_decision_stall_streak(
@@ -2256,13 +1946,6 @@ class SupervisedEngineer:
                 if progress_class in _DECISION_PROGRESS_CLASSES
                 else last_decision_progress_at
             )
-            # Update curated working memory from the reviewer-authored
-            # checkpoint. Fail-soft: an empty/malformed checkpoint keeps the
-            # prior one rather than wiping memory on a noisy verdict.
-            new_checkpoint = CheckpointState.from_dict(getattr(review, "checkpoint", {}))
-            if not new_checkpoint.is_empty():
-                checkpoint = new_checkpoint.stamped(round_no=round_index)
-                save_checkpoint(supervised_config.checkpoint_path, checkpoint)
             if on_event:
                 on_event(_review_event_payload(
                     review,
@@ -2384,33 +2067,21 @@ class SupervisedEngineer:
                     rounds,
                     last_engineer_message,
                     reason,
-                    None
-                    if should_clear_thread_id_after_outcome(
-                        status=terminal_status,
-                        fatal_error=fatal_error,
-                    )
-                    else current_thread_id,
+                    None,
                 )
 
-            last_next_action = review.next_action or ""
             if continue_adaptor is not None:
                 try:
-                    adaptive_guidance = str(continue_adaptor(rounds) or "").strip()
+                    continue_adaptor(rounds)
                 except Exception:  # noqa: BLE001 — adaptation is advisory
                     log.debug("continue adaptor failed", exc_info=True)
-                    adaptive_guidance = ""
-                if adaptive_guidance:
-                    last_next_action = (
-                        last_next_action + "\n\n## New Scientist strategy\n"
-                        + adaptive_guidance
-                    ).strip()
 
         return (
             "max_rounds",
             rounds,
             last_engineer_message,
             f"Hit max_rounds={supervised_config.max_rounds} without reviewer-confirmed completion.",
-            current_thread_id,
+            None,
         )
 
     def _run_engineer(

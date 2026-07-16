@@ -11,17 +11,21 @@ import types
 from argus_skill.manager import domain_tidy as dt
 from argus_skill.manager import source_writeback
 from argus_skill.skills import checklist_store as cs
+from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals import _data_domain as dd
 
 
 def _seed_proven_domain(tmp_path):
     dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    persist_vertical(tmp_path, "robotics_sim")
     cs.apply_checklist_ops(tmp_path, [
         {"op": "add", "stage": "scope", "id": "scope.obj", "statement": "state the objective", "evidence_hint": "scope/OBJ.md"},
         {"op": "add", "stage": "simulate", "id": "simulate.seeds", "statement": "run >=3 seeds", "evidence_hint": "runs/"},
     ])
     state = tmp_path / "research" / "PIPELINE_STATE.json"
-    state.write_text(json.dumps({"current_stage": "simulate", "stages": {"scope": {"status": "done"}}}))
+    payload = json.loads(state.read_text())
+    payload.update({"current_stage": "simulate", "stages": {"scope": {"status": "done"}}})
+    state.write_text(json.dumps(payload))
 
 
 def test_disabled_by_default(tmp_path, monkeypatch):

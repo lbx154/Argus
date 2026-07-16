@@ -26,6 +26,7 @@ MISSION_TIMELINE_LIMIT = 120
 MISSION_BOOTSTRAP_MAX_BYTES = 8 * 1024 * 1024
 
 _ROLE_NAMES = ("manager", "planner", "engineer", "reviewer")
+_PIPELINE_ROLE_NAMES = frozenset({"planner", "engineer", "reviewer"})
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 
@@ -47,6 +48,8 @@ def empty_mission_view() -> dict[str, Any]:
             "started_at": None,
             "completed_at": None,
             "elapsed_seconds": 0.0,
+            "campaign_started_at": None,
+            "campaign_elapsed_seconds": 0.0,
         },
         "stage": {"id": "", "label": ""},
         "round": {"current": 0, "max": 0},
@@ -126,6 +129,9 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     for key, value in storage_defaults.items():
         storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
+    mission = payload.setdefault("mission", {})
+    mission.setdefault("campaign_started_at", None)
+    mission.setdefault("campaign_elapsed_seconds", 0.0)
     achievement = payload.get("achievement")
     if (
         isinstance(achievement, dict)
@@ -286,6 +292,18 @@ def _set_role(view: dict[str, Any], role: str, status: str, label: str, ts: floa
     if role not in _ROLE_NAMES:
         return
     roles = view.setdefault("roles", [])
+    if status == "active" and role in _PIPELINE_ROLE_NAMES:
+        for existing in roles:
+            if (
+                existing.get("role") in _PIPELINE_ROLE_NAMES
+                and existing.get("role") != role
+                and existing.get("status") == "active"
+            ):
+                existing.update({
+                    "status": "done",
+                    "label": "Handed off",
+                    "updated_at": ts,
+                })
     patch = {"role": role, "status": status, "label": label, "updated_at": ts}
     _upsert(roles, "role", role, patch)
     if status == "active":
@@ -461,6 +479,8 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         )
 
     elif event_type == EventType.LIFE_MISSION_STARTED:
+        if not mission.get("campaign_started_at"):
+            mission["campaign_started_at"] = ts
         mission.update({
             "id": _text(event, "item_id"),
             "title": _text(event, "title", 240),
@@ -966,6 +986,26 @@ def merge_mission_view_snapshot(
         view["stage"] = {"id": "", "label": ""}
 
     role_rows = view.setdefault("roles", [])
+    active_names = [
+        str(role.get("role") or "")
+        for role in roles
+        if role.get("active") and str(role.get("role") or "") in _ROLE_NAMES
+    ]
+    if active_names:
+        active_name = active_names[-1]
+        for existing in role_rows:
+            if (
+                existing.get("role") in _PIPELINE_ROLE_NAMES
+                and existing.get("role") != active_name
+                and existing.get("status") == "active"
+            ):
+                existing.update({"status": "done", "label": "Handed off"})
+        view["active_role"] = active_name
+    else:
+        for existing in role_rows:
+            if existing.get("status") == "active":
+                existing.update({"status": "waiting", "label": "Waiting"})
+        view["active_role"] = ""
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:
@@ -981,7 +1021,6 @@ def merge_mission_view_snapshot(
                 "effort": role.get("effort"),
             }
             _upsert(role_rows, "role", name, patch)
-            view["active_role"] = name
         else:
             for existing in role_rows:
                 if existing.get("role") == name:
@@ -1006,6 +1045,16 @@ def merge_mission_view_snapshot(
         })
 
     now = time.time()
+    campaign_started_at = (
+        mission.get("campaign_started_at")
+        or session.get("created")
+        or mission.get("started_at")
+    )
+    if campaign_started_at:
+        mission["campaign_started_at"] = float(campaign_started_at)
+        mission["campaign_elapsed_seconds"] = max(
+            0.0, now - float(campaign_started_at)
+        )
     if mission.get("started_at") and mission.get("status") == "working":
         mission["elapsed_seconds"] = max(0.0, now - float(mission["started_at"]))
     elif mission.get("started_at") and mission.get("completed_at"):

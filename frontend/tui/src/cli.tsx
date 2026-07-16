@@ -142,14 +142,7 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     setPhase('live');
   };
 
-  const onResume = async (selected: ProjectRow) => {
-    try {
-      await base.setProjectLaunchCwd(selected.id, launchCwd);
-    } catch (error) {
-      setErr(`could not bind ${selected.id} to ${launchCwd}: ${(error as Error).message}`);
-      setPhase('error');
-      return;
-    }
+  const onResume = (selected: ProjectRow) => {
     destination.current = 'live';
     setProject(selected.id);
     setInitialNotice(`resumed ${selected.label || selected.id}`);

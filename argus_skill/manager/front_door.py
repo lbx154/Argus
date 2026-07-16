@@ -84,18 +84,10 @@ def _operator_workspace(chat_state: dict[str, Any], session_root: Any) -> Path:
     global_root = chat_state.get("global_root")
     if not sid or global_root is None:
         return fallback
-    try:
-        from ..core.session import read_session_meta
+    from ..core.session import read_session_meta, resolve_session_workdir
 
-        meta = read_session_meta(Path(global_root).expanduser(), sid)
-        raw = str(
-            (getattr(meta, "launch_cwd", "") if meta is not None else "")
-            or (getattr(meta, "cwd", "") if meta is not None else "")
-        ).strip()
-        workspace = Path(raw).expanduser().resolve(strict=True)
-        return workspace if workspace.is_dir() else fallback
-    except (OSError, RuntimeError, ValueError):
-        return fallback
+    meta = read_session_meta(Path(global_root).expanduser(), sid)
+    return resolve_session_workdir(meta, state_dir=fallback)
 
 
 def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
@@ -105,14 +97,10 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
     chat, to reply in-band BEFORE anything reaches the backlog. It is built
     once per Manager session and cached on ``chat_state["manager_runner"]``.
 
-    Returns the runner, or ``None`` when front-end triage is not available
-    (memory backend, or a build failure — in which case all free text falls
-    through to the task path unchanged).
+    Returns the runner, or ``None`` when front-end triage is not available.
+    The memory backend is permanently marked unavailable; transient build
+    failures are not cached so the next operator turn can recover.
     """
-    cached = chat_state.get("manager_runner")
-    if cached is not None:
-        return None if cached is _MANAGER_RUNNER_UNAVAILABLE else cached
-
     backend = chat_state.get("backend")
     # The memory backend has no real LLM runner; never triage — every line is
     # a task (preserves existing memory-backend behaviour and its tests).
@@ -139,6 +127,16 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         # GLOBAL ``~/.argus-skill`` root — do not conflate the two.
         session_root = getattr(mem, "project_root", None)
         operator_workspace = _operator_workspace(chat_state, session_root)
+        workspace_key = str(operator_workspace)
+        cached = chat_state.get("manager_runner")
+        if (
+            cached is not None
+            and chat_state.get("manager_runner_workdir") == workspace_key
+        ):
+            return None if cached is _MANAGER_RUNNER_UNAVAILABLE else cached
+        if cached is not None:
+            chat_state.pop("manager_runner", None)
+            chat_state.pop("manager_runner_workdir", None)
         ns = argparse.Namespace(
             backend=backend or "codex",
             engineer_model=resolve_role_model(
@@ -158,13 +156,9 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             plan_mode="auto",
             plan_model=None,
             max_rounds=500,
-            # A web-created session has no operator-selected repository.  Keep
-            # every Manager artifact (vertical, pipeline state, authored domain)
-            # in the same isolated project root the daemon will execute in.
-            # Leaving this as None made the web process use its launch cwd while
-            # the detached daemon used cwd=/, splitting one mission across two
-            # unrelated trees.
-            workdir=str(session_root) if session_root else None,
+            # The Manager uses the same persisted workdir as Planner, Engineer,
+            # and Reviewer. Session state remains rooted at session_root.
+            workdir=workspace_key,
             operator_workspace=str(operator_workspace),
             manager_session_root=str(session_root) if session_root else None,
             project_state_dir=str(session_root) if session_root else None,
@@ -174,11 +168,15 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         from ..apps._runtime import build_life_runner
 
         runner = build_life_runner(ns)
-    except Exception:  # noqa: BLE001 — triage is best-effort; fall back to task path
-        chat_state["manager_runner"] = _MANAGER_RUNNER_UNAVAILABLE
+        manager_backend = getattr(runner, "_backend", None)
+        set_acp_scope = getattr(manager_backend, "set_acp_scope", None)
+        if callable(set_acp_scope):
+            set_acp_scope(f"manager:{chat_state.get('session_id') or workspace_key}")
+    except Exception:  # noqa: BLE001 — retry on the next operator turn
         return None
 
     chat_state["manager_runner"] = runner
+    chat_state["manager_runner_workdir"] = str(operator_workspace)
     return runner
 
 
@@ -359,13 +357,45 @@ def prepare_manager_execution_task(
                 runner=None,
             )
 
-        if root_task_id is None or not _accepts_keyword(
-            manager.decide_vertical,
-            "root_task_id",
-        ):
-            decision = manager.decide_vertical(body)
-        else:
-            decision = manager.decide_vertical(body, root_task_id=root_task_id)
+        cached_vertical = chat_state.pop("_frontdoor_vertical", None)
+        decision = None
+        if isinstance(cached_vertical, dict):
+            from ..skills import vertical_select
+
+            vertical = str(cached_vertical.get("vertical") or "").strip().lower()
+            target = str(cached_vertical.get("target") or "").strip().lower()
+            if vertical in vertical_select.VERTICALS:
+                from ..verticals._base import (
+                    load_vertical,
+                    vertical_research_target_levels,
+                    )
+
+                manager_project_root = (
+                    getattr(manager, "project_root", None)
+                    or getattr(mem, "project_root", None)
+                )
+                levels = set(vertical_research_target_levels(
+                    load_vertical(vertical, project_root=manager_project_root)
+                ))
+                if levels and target not in levels:
+                    decision = None
+                else:
+                    from .domain_author import VerticalDecision
+
+                    decision = VerticalDecision(
+                        choice="existing",
+                        vertical=vertical,
+                        execution_task=body.strip(),
+                        research_target_level=target if levels else "",
+                    )
+        if decision is None:
+            if root_task_id is None or not _accepts_keyword(
+                manager.decide_vertical,
+                "root_task_id",
+            ):
+                decision = manager.decide_vertical(body)
+            else:
+                decision = manager.decide_vertical(body, root_task_id=root_task_id)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,
@@ -451,6 +481,7 @@ def manager_bounded_handoff(
     *,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+    prepare_persist: Callable[[str], None] | None = None,
 ) -> Any:
     """Commit Manager state and durable task enqueue under one pipeline lock."""
     prepared = prepare_manager_execution_task(
@@ -463,6 +494,8 @@ def manager_bounded_handoff(
     lock_factory = getattr(prepared.manager, "pipeline_lock", None)
     pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
     try:
+        if prepare_persist is not None:
+            prepare_persist(prepared.execution_task)
         with pipeline_lock:
             division = prepared.commit(acquire_lock=False)
             result = persist(prepared.execution_task, division)
@@ -482,6 +515,7 @@ def manager_continuous_handoff(
     *,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous objective."""
     from ..daemon.state import (
@@ -504,6 +538,8 @@ def manager_continuous_handoff(
     committed: dict[str, Any] = {}
 
     def _commit() -> None:
+        if callable(cancelled) and cancelled():
+            raise ManagerHandoffError("Manager request cancelled before commit")
         committed["division"] = prepared.commit(acquire_lock=False)
 
     try:

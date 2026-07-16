@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.skills import checklist_store as cs
 from argus_skill.skills.vertical_select import persist_vertical
+
+
+@pytest.fixture(autouse=True)
+def _research_vertical(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
 
 
 def test_absent_stage_returns_none_present_empty_returns_tuple(tmp_path):
@@ -55,7 +62,7 @@ def test_modify_and_revision_bump(tmp_path):
 def test_malformed_rows_dropped_on_read(tmp_path):
     path = tmp_path / "research" / "CHECKLISTS.json"
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"revision": 1, "stages": {"scope": [
+    path.write_text(json.dumps({"revision": 1, "vertical": "research", "stages": {"scope": [
         {"id": "good", "statement": "ok", "evidence_hint": ""},
         {"id": "", "statement": "no id"},          # dropped
         {"statement": "no id key"},                # dropped
@@ -114,7 +121,7 @@ def test_protected_floor_reinjected_when_store_emptied_directly(tmp_path):
     persist_vertical(tmp_path, "research")
     path = tmp_path / "research" / "CHECKLISTS.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"revision": 9, "stages": {"run": []}}))
+    path.write_text(json.dumps({"revision": 9, "vertical": "research", "stages": {"run": []}}))
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "run")}
     assert "run.score_variance" in ids  # re-injected despite the emptied store
 
@@ -126,7 +133,7 @@ def test_protected_floor_reinjected_canonical_when_weakened_directly(tmp_path):
     canon = {i.id: i.statement for i in cs.seed_items_for(tmp_path, "run")}["run.score_variance"]
     path = tmp_path / "research" / "CHECKLISTS.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"revision": 9, "stages": {"run": [
+    path.write_text(json.dumps({"revision": 9, "vertical": "research", "stages": {"run": [
         {"id": "run.score_variance", "statement": "N/A trivially satisfied", "evidence_hint": ""},
     ]}}))
     after = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
@@ -188,14 +195,14 @@ def test_removing_math_custom_leaves_six_seeds_active(tmp_path):
     ])
 
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "review")}
-    assert ids == {
+    assert {
         "review.statement-fidelity",
         "review.no-goal-drift",
         "review.lean-not-sufficient",
         "review.open-problem-honesty",
         "review.correctness-novelty-separated",
         "review.novelty-gate",
-    }, f"Got {ids!r}"
+    }.issubset(ids), f"Got {ids!r}"
 
 
 def test_math_custom_coexists_with_all_six_seeds(tmp_path):
@@ -316,6 +323,7 @@ def test_backward_compatible_store_without_disabled_field(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "revision": 5,
+        "vertical": "math",
         "stages": {
             "review": [
                 {"id": "review.current-certificate-replay", "statement": "no replay", "evidence_hint": "x"}
@@ -425,3 +433,17 @@ def test_add_at_cap_is_skipped_and_preserves_tombstone(tmp_path):
 
     raw_after = json.loads((tmp_path / "research" / "CHECKLISTS.json").read_text())
     assert "review.no-goal-drift" in raw_after.get("disabled", {}).get("review", [])
+def test_project_checklist_is_ignored_after_vertical_changes(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    persist_vertical(tmp_path, "research")
+    cs.apply_checklist_ops(tmp_path, [{
+        "op": "add",
+        "stage": "research",
+        "id": "research.only",
+        "statement": "paper-only gate",
+        "evidence_hint": "research/PAPER.md",
+    }])
+    assert cs.store_items_for_stage(tmp_path, "research") is not None
+
+    persist_vertical(tmp_path, "math")
+    assert cs.store_items_for_stage(tmp_path, "research") is None

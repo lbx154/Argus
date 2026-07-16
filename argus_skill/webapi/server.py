@@ -40,6 +40,7 @@ import shlex
 import shutil
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,7 @@ from ..core.session import (
     SessionMeta,
     normalize_session_name,
     read_session_meta,
+    resolve_session_workdir,
     session_lifecycle_lock,
     session_meta_lock,
     update_session_meta,
@@ -70,8 +72,12 @@ from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
+    _acquire_daemon_spawn_lock,
     _active_daemon_count,
+    _active_workspace_owner,
     _max_active_daemons,
+    _release_daemon_spawn_lock,
+    _workspace_start_error,
     read_continuous_state,
     read_daemon_status,
     spawn_detached_daemon,
@@ -95,6 +101,7 @@ _settled_spend = project_state.settled_spend
 _stat_signature = project_state.stat_signature
 build_snapshot = project_state.build_snapshot
 list_projects = project_state.list_projects
+list_project_costs = project_state.list_project_costs
 project_life_dir = project_state.project_life_dir
 _artifact_metadata = artifacts.artifact_metadata
 _latest_evidence_files = artifacts.latest_evidence_files
@@ -109,11 +116,13 @@ list_project_artifacts = artifacts.list_project_artifacts
 __all__ = [
     "DaemonStatus",
     "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
+    "list_project_costs",
     "enqueue_task", "enqueue_nudge", "answer_pending_question",
     "start_project_daemon", "stop_project_daemon",
     "replace_project_daemon", "list_running_daemons",
     "update_project", "delete_project", "list_trashed_projects",
     "restore_trashed_project", "upgrade_project_daemon",
+    "set_project_workdir",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
     "get_doctor", "get_config",
@@ -368,15 +377,19 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         resolve_role_reasoning_effort,
     )
 
-    budget = resolve_budget_caps()
+    budget = resolve_budget_caps(
+        project_state_dir=life_dir,
+        global_root=global_root,
+    )
+    meta = read_session_meta(global_root, life_dir.name)
+    project_workdir = resolve_session_workdir(meta, state_dir=life_dir)
 
     return LifeWorkerConfig(
         life_dir=life_dir,
         global_root=global_root,
-        # Web/TUI sessions are isolated workspaces.  Detached daemons chdir to
-        # `/`, so relying on process cwd makes vertical and stage resolution
-        # diverge from the Manager front-door.  Pin execution to the session.
-        project_workdir=life_dir,
+        # All four roles use the same persisted execution root. Internal daemon
+        # state remains under life_dir regardless of where project work happens.
+        project_workdir=project_workdir,
         backend=resolve_role_backend(""),
         engineer_model=resolve_role_model(
             "engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL",
@@ -567,6 +580,11 @@ def start_project_daemon(
         "already_alive": False,
         "daemon": _daemon_dict(read_daemon_status(life_dir)),
     }
+    if rc == 3:
+        result["error"] = _workspace_start_error(config) or (
+            "workdir changed or is already owned by another active session"
+        )
+        return result
     if rc != 0:
         active_count = _active_daemon_count(config)
         if daemon_limit > 0 and active_count >= daemon_limit:
@@ -709,7 +727,9 @@ def create_daemon(
     first real task (via POST /message), so an empty daemon leaves no idle
     executor. When an objective IS given, it's armed as a self-directed campaign
     and the daemon starts immediately when admission capacity is available (the
-    web equivalent of ``--new --continuous --objective``). At the host-wide
+    web equivalent of ``--new --continuous --objective``). Without an explicit
+    workdir, output goes to ``<ARGUS_SKILL_HOME>/workspaces/<sid>`` — never the
+    Argus source checkout or process cwd. At the host-wide
     daemon cap, the session and objective stay persisted and the response carries
     replacement candidates for an explicit operator choice. Blocking-ish (fs +
     fork) — call from a threadpool. Returns the new sid + daemon status.
@@ -723,17 +743,23 @@ def create_daemon(
     now = _time.time()
     requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
-    effective_launch_cwd = (
-        str(Path(launch_cwd).expanduser().resolve())
-        if launch_cwd
-        else str(Path.cwd().resolve())
-    )
+    if launch_cwd:
+        effective_launch_cwd = str(
+            Path(launch_cwd).expanduser().resolve(strict=True)
+        )
+    else:
+        default_workdir = root / "workspaces" / sid
+        default_workdir.mkdir(parents=True, exist_ok=True)
+        effective_launch_cwd = str(default_workdir.resolve(strict=True))
+    if not Path(effective_launch_cwd).is_dir():
+        raise ValueError(f"workdir is not a directory: {effective_launch_cwd}")
     meta = SessionMeta(
         id=sid,
         display_name=normalize_session_name(name),
         created=now,
         last_active=now,
         cwd=str(life_dir),
+        workdir=effective_launch_cwd,
         objective="",
         launch_cwd=effective_launch_cwd,
         origin="web",
@@ -782,6 +808,7 @@ def create_daemon(
         "spawned": bool(start_result is not None and rc == 0),
         "daemon": daemon,
         "objective": obj,
+        "workdir": effective_launch_cwd,
     }
     if start_result is not None:
         response["start"] = start_result
@@ -791,11 +818,18 @@ def create_daemon(
 def set_project_launch_cwd(
     sid: str, launch_cwd: str, *, global_root: Path | str | None = None,
 ) -> bool | None:
+    """Update UI launch-location metadata without changing execution workdir."""
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
     root = _global_root(global_root)
-    resolved_cwd = str(Path(launch_cwd).expanduser().resolve())
+    try:
+        resolved_path = Path(launch_cwd).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    if not resolved_path.is_dir():
+        return False
+    resolved_cwd = str(resolved_path)
 
     def _set_launch_cwd(meta: SessionMeta) -> None:
         now = time.time()
@@ -813,6 +847,93 @@ def set_project_launch_cwd(
         _set_launch_cwd,
         create=True,
     ) is not None
+
+
+def set_project_workdir(
+    sid: str,
+    workdir: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Atomically change a stopped session's exclusive execution workdir."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    root = _global_root(global_root)
+    try:
+        target = Path(workdir).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": f"workdir is unavailable: {exc}"}
+    if not target.is_dir():
+        return {"ok": False, "error": f"workdir is not a directory: {target}"}
+
+    config = LifeWorkerConfig(
+        life_dir=life_dir,
+        global_root=root,
+        project_workdir=target,
+        project_fingerprint=sid,
+    )
+    from ..manager._core import manager_pipeline_lock, manager_session_lock
+
+    with (
+        session_lifecycle_lock(root, sid),
+        manager_session_lock(life_dir),
+        manager_pipeline_lock(life_dir),
+    ):
+        spawn_lock = _acquire_daemon_spawn_lock(config)
+        workspace_lease = None
+        try:
+            meta = read_session_meta(root, sid)
+            current = resolve_session_workdir(meta, state_dir=life_dir)
+            status = read_daemon_status(life_dir)
+            if status.alive:
+                if current == target:
+                    return {"ok": True, "workdir": str(target), "unchanged": True}
+                return {
+                    "ok": False,
+                    "error": "cannot change workdir while this daemon is running",
+                }
+            owner = _active_workspace_owner(config, target_workdir=target)
+            if owner is not None:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"workdir is already owned by active session {owner['sid']} "
+                        f"(pid {owner['pid']})"
+                    ),
+                }
+            from ..core.workspace_lease import (
+                WorkspaceLeaseBusy,
+                acquire_workspace_lease,
+                release_workspace_lease,
+            )
+
+            try:
+                workspace_lease = acquire_workspace_lease(
+                    target,
+                    owner={"sid": sid, "operation": "set-workdir"},
+                )
+            except WorkspaceLeaseBusy as exc:
+                return {"ok": False, "error": str(exc)}
+
+            def _set_workdir(current_meta: SessionMeta) -> None:
+                now = time.time()
+                if not current_meta.created:
+                    current_meta.created = now
+                if not current_meta.last_active:
+                    current_meta.last_active = now
+                if not current_meta.cwd:
+                    current_meta.cwd = str(life_dir)
+                current_meta.workdir = str(target)
+
+            updated = update_session_meta(root, sid, _set_workdir, create=True)
+            if updated is None:
+                return None
+            return {"ok": True, "workdir": str(target), "unchanged": current == target}
+        finally:
+            if workspace_lease is not None:
+                release_workspace_lease(workspace_lease)
+            _release_daemon_spawn_lock(spawn_lock)
 
 
 def stop_project_daemon(
@@ -912,33 +1033,37 @@ def delete_project(
     lifecycle_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     """Reversibly remove a stopped session by moving it to projects_trash."""
+    from .manager_bridge import manager_context_lock, release_manager_context
+
     root = _global_root(global_root)
     lock_root = _global_root(lifecycle_root) if lifecycle_root is not None else root
-    with session_lifecycle_lock(lock_root, sid):
-        with session_meta_lock(root, sid):
-            life_dir = project_life_dir(sid, global_root=root)
-            if life_dir is None:
-                return None
-            status = read_daemon_status(life_dir)
-            if status.alive:
-                return {
-                    "ok": False,
-                    "sid": sid,
-                    "error": "pause the daemon before deleting this session",
-                }
+    with manager_context_lock(sid):
+        with session_lifecycle_lock(lock_root, sid):
+            with session_meta_lock(root, sid):
+                life_dir = project_life_dir(sid, global_root=root)
+                if life_dir is None:
+                    return None
+                status = read_daemon_status(life_dir)
+                if status.alive:
+                    return {
+                        "ok": False,
+                        "sid": sid,
+                        "error": "pause the daemon before deleting this session",
+                    }
 
-            date = time.strftime("%Y%m%d", time.localtime())
-            dest_parent = root / "projects_trash" / date
-            dest_parent.mkdir(parents=True, exist_ok=True)
-            dest = dest_parent / sid
-            if dest.exists():
-                dest = dest_parent / f"{sid}.{int(time.time())}"
-            shutil.move(str(life_dir), str(dest))
-            return {
-                "ok": True,
-                "sid": sid,
-                "trash_path": str(dest.relative_to(root)),
-            }
+                date = time.strftime("%Y%m%d", time.localtime())
+                dest_parent = root / "projects_trash" / date
+                dest_parent.mkdir(parents=True, exist_ok=True)
+                dest = dest_parent / sid
+                if dest.exists():
+                    dest = dest_parent / f"{sid}.{int(time.time())}"
+                shutil.move(str(life_dir), str(dest))
+                release_manager_context(sid)
+                return {
+                    "ok": True,
+                    "sid": sid,
+                    "trash_path": str(dest.relative_to(root)),
+                }
 
 
 def list_trashed_projects(
@@ -1203,6 +1328,13 @@ def abort_project_mission(
             "item_id": item_id,
             "message": f"Stop requested for running task {item_id}.",
         }
+    if item_id is not None:
+        return {
+            "requested": False,
+            "item_id": item_id,
+            "message": f"Could not persist stop request for running task {item_id}.",
+            "error": "mission abort request could not be persisted",
+        }
     return {
         "requested": False,
         "item_id": None,
@@ -1257,10 +1389,42 @@ def get_doctor(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
     return {"checks": rows, "recommended": recommended, "log_tail": _daemon_log_tail(life_dir)}
 
 
-def get_config(*, global_root: Path | str | None = None) -> dict[str, Any]:  # noqa: ARG001
-    """Runtime settings snapshot — /config: per-role backend/model/effort + every
-    ARGUS_* knob. Env/process-global (not per-project). Reuses build_config_snapshot."""
-    return build_config_snapshot(env=os.environ)
+def get_config(
+    *,
+    project_state_dir: Path | str | None = None,
+    global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Runtime settings snapshot with project-file-backed USD budgets."""
+    snapshot = build_config_snapshot(env=os.environ)
+    if project_state_dir is None:
+        return snapshot
+    from ..core.knobs import resolve_budget_caps
+
+    budget = resolve_budget_caps(
+        project_state_dir=project_state_dir,
+        global_root=global_root,
+    )
+    values = {
+        "ARGUS_SKILL_PER_MISSION_CAP_USD": (
+            budget.per_mission_cap_usd,
+            "project:budget.json",
+        ),
+        "ARGUS_SKILL_DAILY_CAP_USD": (
+            budget.daily_cap_usd,
+            "project:budget.json",
+        ),
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": (
+            budget.global_daily_cap_usd,
+            "global:global_budget.json",
+        ),
+    }
+    for row in snapshot.get("operator_knobs", []):
+        name = row.get("name")
+        if name in values:
+            value, source = values[name]
+            row["value"] = str(value)
+            row["source"] = source
+    return snapshot
 
 
 def get_identity(sid: str, *, global_root: Path | str | None = None) -> str | None:
@@ -1287,6 +1451,8 @@ _CONFIG_ALIASES = {
     "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",
     "planner_model": "ARGUS_SKILL_PLAN_MODEL",
     "manager_model": "ARGUS_SKILL_MODEL",
+    "manager_reply_model": "ARGUS_SKILL_MANAGER_REPLY_MODEL",
+    "frontdoor_model": "ARGUS_SKILL_FRONTDOOR_MODEL",
     "engineer_effort": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -1305,7 +1471,13 @@ _CONFIG_ALIASES = {
 }
 
 
-def set_operator_config(name: str, value: str) -> dict[str, Any]:
+def set_operator_config(
+    name: str,
+    value: str,
+    *,
+    project_state_dir: Path | str | None = None,
+    global_root: Path | str | None = None,
+) -> dict[str, Any]:
     from ..core.knob_store import write_persisted_knob
     from ..core.knobs import cockpit_editable_names, normalize_cockpit_knob_value
 
@@ -1315,7 +1487,39 @@ def set_operator_config(name: str, value: str) -> dict[str, Any]:
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
-    write_persisted_knob(env_name, val)
+    budget_fields = {
+        "ARGUS_SKILL_PER_MISSION_CAP_USD": "per_mission_cap_usd",
+        "ARGUS_SKILL_DAILY_CAP_USD": "daily_cap_usd",
+    }
+    if env_name in budget_fields:
+        if project_state_dir is None:
+            raise ValueError("project budget requires a project state directory")
+        from ..core.project_budget import update_project_budget
+
+        update_project_budget(
+            project_state_dir,
+            **{budget_fields[env_name]: val},
+        )
+        return {
+            "name": env_name,
+            "value": val,
+            "source": "project:budget.json",
+            "restart_required": True,
+        }
+    if env_name == "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD":
+        if global_root is None:
+            raise ValueError("global budget requires a global root")
+        from ..core.project_budget import update_global_budget
+
+        update_global_budget(global_root, global_daily_cap_usd=val)
+        return {
+            "name": env_name,
+            "value": val,
+            "source": "global:global_budget.json",
+            "restart_required": True,
+        }
+    if not write_persisted_knob(env_name, val):
+        raise RuntimeError(f"config setting could not be persisted: {env_name}")
     os.environ[env_name] = val
     return {"name": env_name, "value": val, "restart_required": True}
 
@@ -1330,7 +1534,12 @@ _BUDGET_BATCH_ALIASES = frozenset({
 })
 
 
-def set_budget_config(values: dict[str, str]) -> dict[str, Any]:
+def set_budget_config(
+    values: dict[str, str],
+    *,
+    project_state_dir: Path | str,
+    global_root: Path | str,
+) -> dict[str, Any]:
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import normalize_cockpit_knob_value
 
@@ -1346,10 +1555,33 @@ def set_budget_config(values: dict[str, str]) -> dict[str, Any]:
             env_name,
             str(values[alias]),
         )
+    from ..core.project_budget import write_project_budget
+
+    project_values = {
+        "per_mission_cap_usd": normalized.pop("ARGUS_SKILL_PER_MISSION_CAP_USD"),
+        "daily_cap_usd": normalized.pop("ARGUS_SKILL_DAILY_CAP_USD"),
+    }
+    global_value = normalized.pop("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD")
     if not write_persisted_knobs(normalized):
         raise RuntimeError("budget settings could not be persisted")
-    os.environ.update(normalized)
-    return {"values": normalized, "restart_required": True}
+    from ..core.project_budget import write_global_budget
+
+    global_budget = write_global_budget(
+        global_root,
+        {"global_daily_cap_usd": global_value},
+    )
+    project_budget = write_project_budget(project_state_dir, project_values)
+    return {
+        "values": {
+            **normalized,
+            "ARGUS_SKILL_PER_MISSION_CAP_USD": str(project_budget.per_mission_cap_usd),
+            "ARGUS_SKILL_DAILY_CAP_USD": str(project_budget.daily_cap_usd),
+            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": str(
+                global_budget.global_daily_cap_usd
+            ),
+        },
+        "restart_required": True,
+    }
 
 
 def set_identity(
@@ -1615,6 +1847,16 @@ def create_app(
                 sid = str(project.get("id") or "")
                 if not sid or sid in seen:
                     continue
+                # The Web sidebar is a session picker, not a raw life-store
+                # browser. Legacy cwd-fingerprint/internal project dirs remain
+                # resumable through the CLI, but without session.json they have
+                # no stable label/workdir contract and surface as mysterious hex
+                # rows in investor/demo sessions.
+                if (
+                    not sid.startswith("s-")
+                    and not (root / "projects" / sid / "session.json").is_file()
+                ):
+                    continue
                 projects.append(project)
             # Routing uses the first root containing an ID, so reserve every ID
             # from that root even when its session is empty or outside `limit`.
@@ -1624,6 +1866,31 @@ def create_app(
             reverse=True,
         )
         return projects[:limit]
+
+    def _machine_project_costs(*, limit: int) -> list[dict[str, Any]]:
+        costs: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for root in roots:
+            try:
+                root_session_ids = {
+                    path.name
+                    for path in (root / "projects").iterdir()
+                    if path.is_dir()
+                }
+            except OSError:
+                root_session_ids = set()
+            root_limit = limit + len(seen.intersection(root_session_ids))
+            for row in list_project_costs(
+                global_root=root,
+                limit=root_limit,
+                include_empty=False,
+            ):
+                sid = str(row.get("id") or "")
+                if not sid or sid in seen:
+                    continue
+                costs.append(row)
+            seen.update(root_session_ids)
+        return costs[:limit]
 
     def _404_if_none(value, sid: str):
         if value is None:
@@ -1660,6 +1927,9 @@ def create_app(
 
     class _LaunchCwdIn(BaseModel):
         launch_cwd: str
+
+    class _WorkdirIn(BaseModel):
+        workdir: str
 
     class _StopIn(_CommandIn):
         drain: bool = False
@@ -1737,6 +2007,15 @@ def create_app(
         return {
             "projects": _machine_projects(limit=limit, include_empty=include_empty),
             "local_cwd": str(Path.cwd().resolve()),
+        }
+
+    @app.get("/api/projects/costs", dependencies=[Depends(_require_auth)])
+    def _project_costs(
+        limit: int = Query(100, ge=1, le=2000),
+    ) -> dict[str, Any]:
+        return {
+            "projects": _machine_project_costs(limit=limit),
+            "generated_at": time.time(),
         }
 
     @app.get("/api/trash", dependencies=[Depends(_require_auth)])
@@ -1853,7 +2132,26 @@ def create_app(
         )
         if updated is None:
             raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
+        if not updated:
+            raise HTTPException(
+                status_code=400,
+                detail="launch_cwd must be an existing directory",
+            )
         return {"ok": True}
+
+    @app.post("/api/projects/{sid}/workdir", dependencies=[Depends(_require_auth)])
+    async def _set_workdir(sid: str, body: _WorkdirIn) -> dict[str, Any]:
+        result = await run_in_threadpool(
+            set_project_workdir,
+            sid,
+            body.workdir,
+            global_root=_project_root_or_404(sid),
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"unknown project: {sid}")
+        if not result.get("ok"):
+            raise HTTPException(status_code=409, detail=str(result.get("error") or "workdir update failed"))
+        return result
 
     @app.patch("/api/projects/{sid}", dependencies=[Depends(_require_auth)])
     async def _update_project(sid: str, body: _ProjectUpdateIn) -> dict[str, Any]:
@@ -1888,6 +2186,16 @@ def create_app(
         events_limit: int = Query(80, ge=1, le=500),
         compact: bool = Query(False),
     ) -> dict[str, Any]:
+        if compact:
+            try:
+                from .manager_bridge import schedule_manager_prewarm
+
+                schedule_manager_prewarm(
+                    sid,
+                    global_root=_project_root_or_404(sid),
+                )
+            except Exception:  # noqa: BLE001 - snapshot must remain read-available
+                pass
         return _404_if_none(
             build_snapshot(
                 sid,
@@ -2114,6 +2422,7 @@ def create_app(
         from .manager_bridge import manager_message, record_task_dispatch_ack
 
         q: "queue.Queue[dict | None]" = queue.Queue()
+        cancel_event = threading.Event()
 
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
@@ -2124,10 +2433,15 @@ def create_app(
                     body.text,
                     global_root=project_root,
                     on_fragment=_on_fragment,
+                    cancelled=cancel_event.is_set,
                 )
                 # Mirror the blocking endpoint: a task classification lazily spawns
                 # the executor so streamed dispatch behaves like /message + /tasks.
-                if result.get("kind") == "task" and not result.get("daemon_alive"):
+                if (
+                    not cancel_event.is_set()
+                    and result.get("kind") == "task"
+                    and not result.get("daemon_alive")
+                ):
                     try:
                         result["daemon"] = start_project_daemon(
                             sid,
@@ -2162,11 +2476,14 @@ def create_app(
         threading.Thread(target=_run, name=f"manager-stream-{sid}", daemon=True).start()
 
         def _gen():
-            for item in _iter_manager_stream_items(
-                q,
-                heartbeat_s=_manager_stream_heartbeat_seconds(),
-            ):
-                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            try:
+                for item in _iter_manager_stream_items(
+                    q,
+                    heartbeat_s=_manager_stream_heartbeat_seconds(),
+                ):
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            finally:
+                cancel_event.set()
 
         return StreamingResponse(
             _gen(),
@@ -2337,7 +2654,10 @@ def create_app(
         dependencies=[Depends(_require_auth)],
     )
     def _config(sid: str) -> dict[str, Any]:
-        return get_config(global_root=_project_root_or_404(sid))
+        return get_config(
+            project_state_dir=_resolve_or_404(sid),
+            global_root=_project_root_or_404(sid),
+        )
 
     @app.get(
         "/api/projects/{sid}/identity",
@@ -2397,20 +2717,33 @@ def create_app(
 
     @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(_require_auth)])
     def _config_set(sid: str, body: _ConfigSetIn) -> dict[str, Any]:
-        _project_root_or_404(sid)
+        project_state_dir = _resolve_or_404(sid)
+        root = _project_root_or_404(sid)
         try:
-            return set_operator_config(body.name, body.value)
+            return set_operator_config(
+                body.name,
+                body.value,
+                project_state_dir=project_state_dir,
+                global_root=root,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post(
         "/api/projects/{sid}/config/budget",
         dependencies=[Depends(_require_auth)],
     )
     def _budget_set(sid: str, body: _BudgetSetIn) -> dict[str, Any]:
-        _project_root_or_404(sid)
+        project_state_dir = _resolve_or_404(sid)
+        root = _project_root_or_404(sid)
         try:
-            return set_budget_config(body.values)
+            return set_budget_config(
+                body.values,
+                project_state_dir=project_state_dir,
+                global_root=root,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2456,15 +2789,19 @@ def create_app(
     @app.post("/api/projects/{sid}/mission/abort", dependencies=[Depends(_require_auth)])
     def _abort_mission(sid: str, body: _AbortMissionIn | None = None) -> dict[str, Any]:
         request = body or _AbortMissionIn()
-        return _404_if_none(
+        project_root = _project_root_or_404(sid)
+        result = _404_if_none(
             abort_project_mission(
                 sid,
                 reason=request.reason,
                 requested_by="operator",
-                global_root=global_root,
+                global_root=project_root,
             ),
             sid,
         )
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/stop", dependencies=[Depends(_require_auth)])
     def _stop_item(sid: str, item_id: str) -> dict[str, Any]:
@@ -2494,11 +2831,32 @@ def create_app(
         if life_dir is None:
             await ws.close(code=4404, reason="unknown project")
             return
+        iterator = tail_events(
+            life_dir,
+            replay_limit=max(0, min(replay, 200)),
+        ).__aiter__()
+        event_task = asyncio.create_task(anext(iterator))
+        receive_task = asyncio.create_task(ws.receive())
         try:
-            async for ev in tail_events(life_dir, replay_limit=max(0, min(replay, 200))):
-                if view == "ui" and not _event_visible_in_web_ui(ev):
-                    continue
-                await ws.send_json(ev)
+            while True:
+                done, _pending = await asyncio.wait(
+                    {event_task, receive_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if receive_task in done:
+                    message = receive_task.result()
+                    if message.get("type") == "websocket.disconnect":
+                        return
+                    receive_task = asyncio.create_task(ws.receive())
+                if event_task in done:
+                    try:
+                        ev = event_task.result()
+                    except StopAsyncIteration:
+                        return
+                    event_task = asyncio.create_task(anext(iterator))
+                    if view == "ui" and not _event_visible_in_web_ui(ev):
+                        continue
+                    await ws.send_json(ev)
         except WebSocketDisconnect:
             return
         except Exception:  # noqa: BLE001 — a stream error must not crash the server
@@ -2506,6 +2864,12 @@ def create_app(
                 await ws.close(code=1011)
             except Exception:  # noqa: BLE001
                 pass
+        finally:
+            for task in (event_task, receive_task):
+                task.cancel()
+            await asyncio.gather(event_task, receive_task, return_exceptions=True)
+            with suppress(Exception):
+                await iterator.aclose()
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),

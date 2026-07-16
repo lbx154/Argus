@@ -69,3 +69,26 @@ Preserve any descriptive source while materializing `Main.lean`,
 success without a fresh real compilation, proof-hole scan, axiom audit, and
 side-by-side statement audit. Lean compilation verifies only the encoded
 theorem, not fidelity or novelty.
+
+If the task is a mechanism-overlap audit, search narrowly but systematically:
+exact mechanism terms, problem synonyms, closest recent primary sources,
+backward/forward citations, and classic adjacent-field terminology. Otherwise,
+when this round introduces a materially new theorem, operator, proof mechanism,
+or certificate, record the resulting novelty debt in the claim ledger and
+CHECKPOINT; do not self-certify novelty or expand the current node into an
+unbounded literature review.
+
+Apply AI4M methods proportionally:
+- New candidates first face the cheapest counterexample or premise-consistency
+  test; preserve the witness and narrow the claim before attempting proof.
+- For construction problems, use bounded enumeration only to propose a
+  canonical witness, then check its admissible form independently before proving
+  it. A circular witness that merely encodes the target is invalid even if Lean
+  compiles.
+- For dependency-heavy arguments, maintain a compact premise/lemma graph that
+  separates retrieved known results from genuinely new bridge lemmas.
+- For formal work, back-translate the encoded statement and compare it with the
+  original before proof search; compiler feedback repairs proof code, not
+  statement meaning.
+- Keep candidate generation and verification separate. Do not let the same
+  unverified model judgment serve as both proposal and proof.

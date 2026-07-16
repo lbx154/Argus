@@ -23,7 +23,7 @@ def _isolate_project_vertical_env(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv("ARGUS_SKILL_PROJECT_ROOT", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
     monkeypatch.chdir(tmp_path)
 
 

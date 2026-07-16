@@ -118,6 +118,27 @@ def test_current_abort_targets_existing_running_item(tmp_path: Path) -> None:
     assert pop_pending_mission_abort(tmp_path) == "operator stop"
 
 
+def test_current_abort_reports_persistence_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.tools import mission_control
+
+    item = _running_item(tmp_path)
+    monkeypatch.setattr(
+        mission_control.os,
+        "replace",
+        lambda *_args: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    requested, item_id = request_current_mission_abort(tmp_path, reason="stop")
+
+    assert requested is False
+    assert item_id == item.id
+    assert not (tmp_path / "mission_abort_request.json").exists()
+    assert list(tmp_path.glob("mission_abort_request.*.tmp")) == []
+
+
 def test_targeted_abort_cannot_kill_a_later_mission(tmp_path: Path) -> None:
     backlog = LifeMemory.open(tmp_path).backlog
     first = backlog.add(BacklogItem.new(title="first", objective="first"))

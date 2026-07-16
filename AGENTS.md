@@ -6,6 +6,30 @@
 
 `argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、miss 时调用 Scientist 生成并立即持久化 project-layer skill、L1 engineer 执行、L2 reviewer 验收并基于真实轨迹提出 skill 更新或归档。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
 
+**Token-efficiency rule:** prompt 改动先看边际效果/token。禁止为了“更稳”重复注入同义
+角色规则；优先用文件状态、按需 checklist 和一个权威短契约。必须保留关键证据/gate，
+但新增长文案前先测 prompt 大小，并为常见路径设置回归预算。
+
+**Checklist ownership:** vertical/framework 提供 seed；Planner 通过
+`checklist_ops` 独占项目 checklist 写权限；Reviewer 只有 `checklist_feedback`；Engineer
+不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前
+项目 vertical 不一致时完全忽略。
+
+**Math novelty trigger:** math 不增加固定 literature stage。仅当 solve 工作产生或实质改写
+新定理、算子、证明机制、障碍证书或渐近路线时，Planner 才派独立短 DAG 节点完成
+`research/MECHANISM_OVERLAP_AUDIT.md`（精确/同义词查询、最近 primary、前后向引用和
+相邻基础领域）。该审计缺失时 bounded correctness 可完成，但 novelty 必须保持
+unverified，publishable/doctoral 与最终 review 不得完成。
+
+**Math AI4M triggers:** 只按题型启用 verifier-guided 方法：新猜想先做最便宜反例搜索；
+构造题使用 Enumerate→Conjecture→Prove 并独立检查 witness admissibility；依赖密集证明维护
+premise/lemma graph；形式化采用 informal→formal→back-translation/fidelity 闭环。生成与
+验证必须分离，不得把这些方法全量注入每个数学任务。
+
+**Budget ownership:** per-mission / project-daily USD 预算唯一来源是 project-state
+`budget.json`；host-global daily cap 在全局配置文件。启动代码只在文件缺失时做一次旧
+配置迁移，禁止用环境变量或默认值覆盖已有文件。
+
 主链路：
 
 ```text
@@ -42,7 +66,9 @@ argus-skill / python -m argus_skill
   - **入口硬门禁（`_lifetime_entry_error`）**：默认进 cockpit / 启动 daemon 时只要求至少有一个受信任的 special prompt（`life/special_prompts.py`）；允许空 objective 等待首条真实任务。首条 TEAM task 由 Manager 判断 `STANDING` / `BOUNDED` 并生成 execution objective，STANDING objective 原子持久化到 `continuous.json`。没有机器规则仍 `exit 2`。只读 / admin flag（`--status`、`--watch`、`--skill-stats`…）不受门禁限制。
   - **默认 lifetime**：chat/simple 请求在前门直接处理；其余 TEAM task 默认 `STANDING`（7×24），只有 Manager 明确判断有自然一次性终点时才 `BOUNDED`。`--bounded` 仍可作为直接 daemon 启动的 operator override。
 - `argus_skill/webapi/manager_bridge.py`: Ink/Web cockpit 的统一 Manager 接口；`manager/front_door.py` 管分类与 handoff，`manager/dispatch.py` 管 lifetime 与持久化入队。Python line REPL 已删除。
-- Manager front-door 的一次模型调用同时输出 `CONFIG` / `CONTROL` / `ROUTE` 三个结构化轴。`CONTROL: NO_DISPATCH` 是 Manager 对 operator 明确“只读 / 不派任务 / 不启动 daemon”约束的权威裁决：bridge 强制走 SELF，inline 回复失败也 fail-closed，不得入 backlog。harness 不扫 operator prose 关键词来改判。SELF 回合用 read-only sandbox；session 的 `launch_cwd` 仅作为 grounding workspace/cwd 注入，pipeline/artifact/session state 仍留在 project state root，不能混为一处。
+- Manager front-door 的一次模型调用同时输出 `CONFIG` / `CONTROL` / `ROUTE` 三个结构化轴。`CONTROL: NO_DISPATCH` 是 Manager 对 operator 明确“只读 / 不派任务 / 不启动 daemon”约束的权威裁决：bridge 强制走 SELF，inline 回复失败也 fail-closed，不得入 backlog。harness 不扫 operator prose 关键词来改判。SELF 回合用 read-only sandbox。session 明确区分两根目录：持久化 `workdir` 是四个角色唯一的项目执行目录；project state root 只保存 backlog/events/budget/skills 等内部状态。`launch_cwd` 仅记录 UI 从哪里打开，不能被运行时另行猜成 workspace。旧 session 没有 `workdir` 时继续使用其旧 `cwd`，禁止升级时自动切到 `launch_cwd`。恢复 session 不得重绑 workdir；切换只能在 daemon 停止且 Manager 空闲时完成。daemon 全生命周期持有 canonical-workdir lease，同一主机上任何 session/state root 都不能并发写同一目录。
+- Operator 永远只与 Manager 交互。活跃 mission 的方向调整由 front-door Manager 生成专业 `STEER_DIRECTIVE` 后写入团队 inbox，禁止把 operator 原话直接透传成 Engineer 微操。Front-door classify 使用轻量模型/low；真正的 Manager SELF 回复继承当前最强 Manager 模型并使用 xhigh。Web/TUI 通过 SSE 流式显示 classify、steer、assistant block 和 5s 静默 heartbeat。SELF 默认 120s hard-idle fail-visible，不在超时后再追加一次长等待。
+- Manager 判定为 `BOUNDED` 的 TEAM 请求不会直接入队成一个巨型 mission：先经过紧凑的 bounded-DAG Planner，原子写入 1–6 个带真实 `key/deps/plan_id` 的 backlog 节点。每个节点强制 direct workflow、最多一次 Engineer→Reviewer round；不得在节点内重新写计划、初始化 Git/worktree、commit 或拉 subagent。`STANDING` 请求仍走 L4 continuous Planner。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。只有 operator 通过 Manager front-door 发送的自由文本才会被分类；planner / backlog / daemon 的任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
   - `--resume-continuous` 只采用与 Manager handoff identity（objective hash +
@@ -97,55 +123,27 @@ L1 engineer round loop 在 `argus_skill/engineer/runner.py`。
 
 - 每轮调用 backend runner。
 - backend failure / auth failure / context poisoned / effective progress timeout。
-- 是否清掉 carried Codex thread id。
-- **Curated-memory checkpoint + 结构化 session roll**（见下）。
+- Engineer 和 Reviewer 每轮都使用全新 provider session，不跨轮 resume。
+- **共享 `CHECKPOINT.md` 直接编辑接力**（见下）。
 - **Background-subagent advisory + cadence wait**（见下）。
-- `round.main.completed`、`round.review.completed`、`session.roll` 等事件。
+- `round.main.completed`、`round.review.completed` 等事件。
 
-### Curated working-memory checkpoint（上下文管理 / 反 amnesia loop）
+### Shared CHECKPOINT.md（上下文管理 / 反 amnesia loop）
 
-背景：一个 mission 的 Codex session 会被逐轮 `resume`，长 horizon 任务里它会
-涨到几亿 token、被 codex 自动有损压缩上百次，每次压缩丢失工作记忆 → 模型反复
-重读同一批 skill 文档空转（amnesia loop）。修复哲学：**不靠看门狗**，而是让
-session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值记忆」。
+Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮都是 fresh session，
+跨轮状态通过项目根目录的一份普通 `CHECKPOINT.md` 传递。
 
 实现（`argus_skill/engineer/checkpoint.py` + `runner.py` + `argus_skill/reviewer/_core.py`）：
 
-- `CheckpointState`：小而**硬上限**的工作记忆（goal / done[] / tried_and_failed[]
-  / open_blocker / next_step）。上限在 Python 里强制（不只在 prompt/schema），
-  上限本身就是强制「遗忘/筛选」的机制——删除是解毒，不是丢失（地面真相在磁盘
-  artifact 里，可重新召回）。
-- **作者 = reviewer（记忆审计员）**：reviewer schema 增加 `checkpoint` 对象。
-  engineer 在 turn 末尾按 prompt 输出一段 `HANDOFF:` 提案；reviewer 校验它
-  （对照 evidence/artifacts）并 CRUD 出下一份 canonical checkpoint。engineer 提议、
-  reviewer 验证落定。
-- **消费**：runner 每轮把 checkpoint 渲染成「Curated working memory」块 prepend 到
-  engineer prompt（同 failed-tool advisory 的拼接方式，`loop.py` 不动）。
-- **Session roll**：`SupervisedConfig.shift_round_limit`（env
-  `ARGUS_SKILL_SHIFT_ROUND_LIMIT`，默认 3，0=禁用）或前一轮 input 达到
-  `ARGUS_SKILL_THREAD_TOKEN_LIMIT`（默认 1,500,000，0=禁用）。一个 thread 达到任一
-  边界就主动
-  drop，下一轮从 checkpoint 重新播种一个**全新 session**，per-session 上下文有界 →
-  上百次压缩的 runaway 不可能发生。已有的 context-pressure / poisoned-session 清
-  thread 路径现在也带着 checkpoint = 重生而非失忆。
-- **无进展**复用已有的 `planner_report.forward_progress`（reviewer 对照前后
-  checkpoint 整体判断），不新增看门狗。
-- fail-soft：reviewer 漏写/写坏 checkpoint → runner 保留上一份，绝不清空记忆。
-- 持久化：`SupervisedConfig.checkpoint_path`（None=mission 内内存）。当前 `loop.py`
-  未传 path，所以是 mission 内内存级（已足够修复单 mission 内的 amnesia loop）；
-  要跨 mission 续接，给它传一个 project-state 路径即可。
-- 测试：`tests/test_checkpoint.py`、`tests/test_checkpoint_loop.py`。
-
-### Dynamic review cadence（简单、agent 主导）
-
-默认仍是每个 Engineer round 后由 Reviewer 独立验收。若 Engineer 已落地真实增量、
-下一步局部执行非常明确、此时 Review 只会重复转述，它可以把
-`CONTINUE_WORK: <specific next step>` 作为回复的最后一行，申请先再做一个 round。
-
-- 最多连续跳过一次 Reviewer；下一个工作 round 强制回到 Reviewer。
-- 真 Reviewer verdict 后额度重置；最后一个可用 round 永不跳过 Reviewer。
-- `done` 仍只能由 Reviewer 裁决。harness 不从 prose 猜是否该跳过，只响应这个显式请求。
-- 相关实现：`engineer/runner.py`、`loop.py`；事件：`round.review.deferred`。
+- Engineer 先读取上一位 Reviewer 留下的文件，执行工作后直接修改同一个文件。
+- Reviewer 紧接着读取 Engineer 修改后的文件与真实 artifacts/log，直接纠正、删除、补充。
+- Reviewer 是每轮最后编辑者；下一轮 fresh Engineer 从它留下的版本继续。
+- checkpoint 是当前状态便签，不是追加日志。没有 patch、commit、revision、JSON schema、
+  机械压缩或硬大小限制；Agent 使用普通文件工具原地维护。
+- Reviewer 的结构化 verdict 不再要求输出 `checkpoint` JSON。
+- 每个 Engineer round 都必须经过 Reviewer，不再支持 `CONTINUE_WORK` 跳审。
+- `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
+- 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。
 
 ### Backlog-native Dynamic Plan（默认关闭）
 
@@ -174,7 +172,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   文本 artifact。
 - 脱敏不裁决科研质量；若改写了 artifact，会通过 `round.secret_redacted` 告知
   Reviewer 重建相关 hash/provenance。扫描错误或大文本未覆盖也会显式阻止无条件认证。
-- raw Engineer 文本只保留给 `WAIT_FOR_SUBAGENT` / `CONTINUE_WORK` 控制解析；进入事件、
+- raw Engineer 文本只保留给 `WAIT_FOR_SUBAGENT` 控制解析；进入事件、
   usage、Reviewer prompt 的副本必须已脱敏。
 
 ### Background-subagent cadence wait（别空转盯长实验）
@@ -209,8 +207,8 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 - reviewer prompt。
 - `reviewer_schema.json` 结构化输出。
 - `parse_decision_text` / JSON verdict。
-- 对近完成论文任务自动注入 `academic-paper-peer-review-benchmark.md`：注入与否**按结构化 stage/scope 裁决**（`is_final_submission or stage in {review, submission}`），不再用关键词扫 objective/evidence 里的 `main.pdf`/`references.bib` 之类 token。`draft` 阶段不注入,避免初稿阶段被过早套上终审标准。
-- reviewer-to-engineer handoff skill：`reviewer-engineer-handoff.md`。
+- 近完成论文任务按结构化 stage/scope 注入一份**精简** peer-review contract；不再每轮塞入完整 `academic-paper-peer-review-benchmark.md`。
+- Reviewer role、handoff、project-venv、wiki-curator 都使用短契约；长源 skill 从 matcher 排除，避免重复注入。
 
 > **不再有 harness 关键词改判，也不再从 prose 猜 scope。** 历史上 `reviewer.py` 有个
 > `_coerce_decision_against_main_summary`，会用关键词正则扫 engineer 的 summary，
@@ -222,8 +220,8 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 
 如果 reviewer 老是误判：
 
-- 先看 `Reviewer._build_prompt` 和固定 role skill。
-- 再看 `argus_skill/builtin_skills/reviewer/argus-reviewer-role.md`、`academic-paper-peer-review-benchmark.md`。
+- 先看 `Reviewer._build_prompt` 的精简固定契约和当前 stage checklist。
+- 再看对应长源 skill 是否仍有某条真正缺失的规则；不要整份重新注入。
 - 最后才改 schema；schema 改动会影响 tests 和所有 verdict parser。
 
 ## 外层 LifeSupervisor
@@ -464,11 +462,10 @@ ARGUS_SKILL_RUNNER_BIN=/path/to/codex
 ARGUS_SKILL_RUNNER_EXTRA_ARGS="..."
 ARGUS_SKILL_SAFE_MODE=1
 ARGUS_SKILL_SKILL_OPS=0|1
-ARGUS_SKILL_PER_MISSION_CAP_USD=30
-ARGUS_SKILL_DAILY_CAP_USD=180
-ARGUS_SKILL_GLOBAL_DAILY_CAP_USD=30
 ARGUS_SKILL_MAX_ACTIVE_DAEMONS=2
 ```
+
+项目 USD budget 不属于 env；读写 project-state `budget.json`。
 
 ## 事件和观测
 

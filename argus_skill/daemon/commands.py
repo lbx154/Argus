@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover
 COMMAND_LOG_FILE = "daemon.commands.jsonl"
 COMMAND_STATE_FILE = "daemon.command-state.json"
 COMMAND_LOCK_FILE = "daemon.command-state.lock"
+COMMAND_EXEC_LOCK_FILE = "daemon.command-exec.lock"
 COMMAND_SCHEMA_VERSION = 1
 COMMAND_OPERATIONS = frozenset(
     {"create", "start", "stop", "drain", "kill", "replace", "upgrade"}
@@ -95,6 +96,35 @@ def _locked(root: Path) -> Iterator[None]:
                 except OSError:
                     pass
             os.close(fd)
+
+
+@contextmanager
+def _execution_lock(root: Path, *, blocking: bool) -> Iterator[bool]:
+    path = root / COMMAND_EXEC_LOCK_FILE
+    key = str(path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    if not lock.acquire(blocking=blocking):
+        yield False
+        return
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = True
+    try:
+        if fcntl is not None:
+            try:
+                flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+                fcntl.flock(fd, flags)
+            except BlockingIOError:
+                acquired = False
+        yield acquired
+    finally:
+        if acquired and fcntl is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(fd)
+        lock.release()
 
 
 def _read_state(root: Path) -> dict[str, Any]:
@@ -275,17 +305,30 @@ def submit_daemon_command(
     return _receipt(row)
 
 
-def claim_daemon_command(root: Path | str, command_id: str) -> bool:
+def claim_daemon_command(
+    root: Path | str,
+    command_id: str,
+    *,
+    reclaim_running: bool = False,
+) -> bool:
     path = Path(root).expanduser()
     with _locked(path):
         state = _read_state(path)
         row = state["commands"].get(command_id)
-        if not isinstance(row, dict) or row.get("status") != "accepted":
+        if not isinstance(row, dict):
+            return False
+        status = row.get("status")
+        if status == "running":
+            if not reclaim_running:
+                return False
+        elif status != "accepted":
             return False
         state["revision"] = int(state["revision"]) + 1
         row["status"] = "running"
         row["revision"] = state["revision"]
-        row["updated_at"] = time.time()
+        row["owner_pid"] = os.getpid()
+        row["running_at"] = time.time()
+        row["updated_at"] = row["running_at"]
         state["commands"][command_id] = row
         _write_state(path, state)
     return True
@@ -356,23 +399,56 @@ def execute_daemon_command(
     )
     if receipt.status in {"applied", "failed", "rejected"}:
         return receipt
-    if not claim_daemon_command(root, receipt.command_id):
-        return command_status(root, receipt.command_id) or receipt
-    try:
-        result = handler()
-    except Exception as exc:  # noqa: BLE001 - persist failure ACK, then return
+    path = Path(root).expanduser()
+    with _execution_lock(
+        path,
+        blocking=receipt.status != "running",
+    ) as acquired:
+        if not acquired:
+            return command_status(root, receipt.command_id) or receipt
+        current = command_status(root, receipt.command_id) or receipt
+        if current.status in {"applied", "failed", "rejected"}:
+            return current
+        if not claim_daemon_command(
+            root,
+            receipt.command_id,
+            reclaim_running=True,
+        ):
+            return command_status(root, receipt.command_id) or current
+        try:
+            result = handler()
+        except Exception as exc:  # noqa: BLE001 - persist failure ACK, then return
+            return ack_daemon_command(
+                root,
+                receipt.command_id,
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        if not isinstance(result, dict):
+            return ack_daemon_command(
+                root,
+                receipt.command_id,
+                status="failed",
+                error="daemon command handler returned no result",
+            )
+        try:
+            rc = int(result.get("rc") or 0)
+        except (TypeError, ValueError):
+            rc = 2
+        if rc != 0:
+            return ack_daemon_command(
+                root,
+                receipt.command_id,
+                status="failed",
+                result=result,
+                error=str(result.get("error") or f"{operation} returned rc={rc}"),
+            )
         return ack_daemon_command(
             root,
             receipt.command_id,
-            status="failed",
-            error=f"{type(exc).__name__}: {exc}",
+            status="applied",
+            result=result,
         )
-    return ack_daemon_command(
-        root,
-        receipt.command_id,
-        status="applied",
-        result=result,
-    )
 
 
 def daemon_command_snapshot(root: Path | str) -> dict[str, Any]:
@@ -393,6 +469,7 @@ def daemon_command_snapshot(root: Path | str) -> dict[str, Any]:
 
 __all__ = [
     "COMMAND_LOCK_FILE",
+    "COMMAND_EXEC_LOCK_FILE",
     "COMMAND_LOG_FILE",
     "COMMAND_OPERATIONS",
     "COMMAND_SCHEMA_VERSION",

@@ -66,6 +66,7 @@ class AgentRunResult:
     turn_completed: bool
     turn_failed: bool
     fatal_error: str | None = None
+    usage_model: str = ""
 
 
 class AgentCliRunner:
@@ -150,6 +151,7 @@ def _make_argus_result(
     fatal_error: str | None = None,
     stdout_lines: list[str] | None = None,
     stderr_lines: list[str] | None = None,
+    usage_model: str = "",
 ) -> AgentRunResult:
     return AgentRunResult(
         command=list(command or ["codex", "exec", "-"]),
@@ -162,6 +164,7 @@ def _make_argus_result(
         turn_completed=exit_code == 0,
         turn_failed=exit_code != 0,
         fatal_error=fatal_error,
+        usage_model=usage_model,
     )
 
 
@@ -730,6 +733,56 @@ def test_full_agent_io_batches_raw_stream_writes(
     )
 
 
+def test_full_io_persists_prompt_once_not_as_user_message_echo(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
+    backend = AgentCliBackend(backend="copilot")
+    prompt = "large prompt body that must be stored exactly once"
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        assert self.event_callback is not None
+        self.event_callback(
+            "stdout",
+            json.dumps({
+                "type": "user.message",
+                "data": {"content": kwargs["prompt"]},
+            }),
+        )
+        self.event_callback(
+            "stdout",
+            json.dumps({
+                "type": "assistant.message_delta",
+                "data": {"deltaContent": "ok"},
+            }),
+        )
+        return _make_argus_result(
+            agent_messages=["ok"],
+            thread_id="prompt-once",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        fake_run_exec,
+        raising=True,
+    )
+    backend.run_exec(
+        prompt=prompt,
+        options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
+        run_label="engineer-r1",
+    )
+
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    start = next(row for row in rows if row["type"] == "agent.io.start")
+    streams = [row for row in rows if row["type"] == "agent.io.stream"]
+    assert start["prompt"] == prompt
+    assert len(streams) == 1
+    assert "assistant.message_delta" in streams[0]["line"]
+
+
 def test_copilot_run_exec_uses_exact_session_store_tokens(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -797,6 +850,54 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert event["usage"]["models"][0]["session_id"] == "session-1"
     assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
     assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
+
+
+def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="copilot")
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda self, **kwargs: _make_argus_result(
+            agent_messages=["OK"],
+            thread_id="session-mini",
+            usage_model="gpt-5.4-mini",
+        ),
+        raising=True,
+    )
+    mislabeled = CopilotCallUsage((CopilotModelUsage(
+        row_id=2,
+        session_id="session-mini",
+        turn_index=0,
+        model="gpt-5.6-sol",
+        input_tokens=100,
+        output_tokens=5,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        reasoning_tokens=0,
+        total_nano_aiu=10,
+        request_multiplier=0.33,
+        created_at="2026-07-15T10:00:00Z",
+    ),))
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda cursor, session_id: mislabeled,
+    )
+
+    result = backend.run_exec(
+        prompt="classify",
+        options=RunnerOptions(model="gpt-5.4-mini", working_dir=str(tmp_path)),
+        run_label="manager-frontdoor-classify",
+    )
+
+    assert result.usage_model == "gpt-5.4-mini"
+    assert result.model_usage[0]["model"] == "gpt-5.4-mini"
 
 
 def test_usage_context_prefers_canonical_project_event_log(

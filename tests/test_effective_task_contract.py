@@ -29,7 +29,7 @@ def test_engineer_prompt_includes_shared_effective_task_contract() -> None:
 
     assert _contract() in prompt
     assert "non-negotiable north star" not in prompt
-    assert "under the Effective task contract" in prompt
+    assert "Higher-priority live operator instructions" in prompt
 
 
 def test_reviewer_prompt_includes_shared_effective_task_contract() -> None:

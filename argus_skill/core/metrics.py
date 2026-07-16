@@ -236,27 +236,31 @@ def _day_start(timestamp: float) -> float:
 
 def _records(root: Path, since: float) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    with _metrics_lock(root):
-        paths = [*_archive_paths(root), root / METRICS_FILE]
-        for path in paths:
-            try:
-                handle = path.open("r", encoding="utf-8")
-            except OSError:
-                continue
-            with handle:
-                for raw in handle:
-                    try:
-                        row = json.loads(raw)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    if not isinstance(row, dict):
-                        continue
-                    try:
-                        ts = float(row.get("ts") or 0.0)
-                    except (TypeError, ValueError):
-                        continue
-                    if ts >= since:
-                        rows.append(row)
+    # Metrics files are append-only JSONL. Reading without the writer/rotation
+    # lock is safe: an already-open archive inode remains readable after rename,
+    # and a concurrent partial final line is simply ignored as invalid JSON.
+    # Holding the writer lock while scanning a large daily log made unrelated
+    # HTTP responses wait for observability aggregation to finish.
+    paths = [*_archive_paths(root), root / METRICS_FILE]
+    for path in paths:
+        try:
+            handle = path.open("r", encoding="utf-8")
+        except OSError:
+            continue
+        with handle:
+            for raw in handle:
+                try:
+                    row = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    ts = float(row.get("ts") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if ts >= since:
+                    rows.append(row)
     return rows
 
 

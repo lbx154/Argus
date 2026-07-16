@@ -6,15 +6,29 @@ import { cacheProjectName } from './lib/projectName';
 
 /* ------------------------------------------------------------------ REST */
 
+export const PROJECT_POLL_MS = 15_000;
+export const PROJECT_COST_POLL_MS = 5_000;
+export const SNAPSHOT_POLL_MS = 8_000;
+export const ARTIFACTS_POLL_MS = 10_000;
+export const GIT_DIFF_POLL_MS = 10_000;
+
 export const useProjects = () =>
-  useQuery({ queryKey: ['projects'], queryFn: api.projectIndex, refetchInterval: 5_000 });
+  useQuery({ queryKey: ['projects'], queryFn: api.projectIndex, refetchInterval: PROJECT_POLL_MS });
+
+export const useProjectCosts = () =>
+  useQuery({
+    queryKey: ['project-costs'],
+    queryFn: ({ signal }) => api.projectCosts(signal),
+    refetchInterval: PROJECT_COST_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
 
 export const useSnapshot = (sid: string | null) =>
   useQuery({
     queryKey: ['snapshot', sid],
     queryFn: ({ signal }) => api.snapshot(sid!, signal),
     enabled: !!sid,
-    refetchInterval: 4_000,
+    refetchInterval: SNAPSHOT_POLL_MS,
   });
 
 export const useStatus = (sid: string | null, enabled = true) =>
@@ -50,15 +64,18 @@ export const useArtifacts = (sid: string | null, enabled = true) =>
     queryKey: ['artifacts', sid],
     queryFn: ({ signal }) => api.artifacts(sid!, signal),
     enabled: !!sid && enabled,
-    refetchInterval: enabled ? 3_000 : false,
+    refetchInterval: enabled ? ARTIFACTS_POLL_MS : false,
   });
 
-export const useArtifact = (sid: string | null, path: string | null) =>
+export const useArtifact = (
+  sid: string | null,
+  path: string | null,
+  version: string | number | null = null,
+) =>
   useQuery({
-    queryKey: ['artifact', sid, path],
+    queryKey: ['artifact', sid, path, version],
     queryFn: ({ signal }) => api.artifact(sid!, path!, signal),
     enabled: !!sid && !!path,
-    refetchInterval: sid && path ? 3_000 : false,
   });
 
 export const useGitDiff = (sid: string | null, enabled = true) =>
@@ -66,7 +83,7 @@ export const useGitDiff = (sid: string | null, enabled = true) =>
     queryKey: ['git-diff', sid],
     queryFn: ({ signal }) => api.gitDiff(sid!, signal),
     enabled: !!sid && enabled,
-    refetchInterval: enabled ? 5_000 : false,
+    refetchInterval: enabled ? GIT_DIFF_POLL_MS : false,
   });
 
 export const useBacklogItem = (sid: string | null, itemId: string | null) =>
@@ -169,6 +186,30 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
 export interface StreamHandle {
   events: EventMsg[];
   connected: boolean;
+}
+
+const ARTIFACT_REFRESH_EVENT_TYPES = new Set([
+  'manager.live_view.updated',
+  'research.artifact.registered',
+  'round.review.completed',
+  'life.mission.completed',
+]);
+
+/** Return a stable key when a streamed event can change the right-side preview.
+ * Polling remains a low-frequency safety net; this key drives the immediate path.
+ */
+export function artifactRefreshEventKey(events: EventMsg[]): string {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    const type = String(event.type ?? '');
+    if (
+      ARTIFACT_REFRESH_EVENT_TYPES.has(type)
+      || (type === 'engineer.progress' && event.kind === 'file_change')
+    ) {
+      return eventKey(event, i);
+    }
+  }
+  return '';
 }
 
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with

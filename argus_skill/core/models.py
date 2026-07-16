@@ -224,39 +224,18 @@ class ReviewDecision:
     # before routing the next mission. Fail-soft: empty dict when the reviewer
     # omitted it or the round errored before a verdict.
     planner_report: dict[str, Any] = field(default_factory=dict)
-    # Curated working-memory checkpoint authored by the reviewer (the memory
-    # auditor) from the engineer's end-of-turn handoff proposal. Carried across
-    # session rolls so a fresh engineer session resumes from a small, curated
-    # handoff instead of a giant compacted history. Shape:
+    # Legacy structured checkpoint field retained for event/parser compatibility.
+    # The live runtime now uses a directly edited CHECKPOINT.md file instead.
+    # Historical shape:
     # ``{"goal", "done": [...], "tried_and_failed": [...], "open_blocker",
     # "next_step"}``. Fail-soft: empty dict when the reviewer omitted it or the
     # round errored before a verdict (runner then keeps the prior checkpoint).
     checkpoint: dict[str, Any] = field(default_factory=dict)
-    # Skill-memory operations the reviewer requests for THIS round (success or
-    # failure). The reviewer is the SOLE authority — there is no Manager
-    # approval gate. ``create``/``update`` persist an immediately active,
-    # versioned project-layer capability playbook after structural validation;
-    # later task trajectories inform Reviewer-authored updates or retirement.
-    # ``delete``/``archive`` retire a matched skill the reviewer found wrong or
-    # harmful. Each item: ``{"op": "create|update|delete|archive", "name": str,
-    # "content": str, "why": str}``. Empty list when this round warrants no
-    # skill change.
+    # Legacy replay field. Current Reviewer schemas do not expose skill_ops;
+    # executable Reviewers edit the injected project skill path directly.
     skill_ops: list[dict[str, Any]] = field(default_factory=list)
-    # Wiki-memory operations the reviewer requests for THIS round — the
-    # project idea-wiki's structured counterpart to ``skill_ops`` above, both
-    # applied by the harness with NO Manager gate (the reviewer is the sole
-    # authority here too). ``create_page``/``update_page`` PROPOSE a page
-    # (``body`` markdown); every cited ``evidence`` span is mechanically
-    # verified to quote an immutable wiki source verbatim (anti-fabrication —
-    # see ``skills.provenance.verify_evidence``), so a fabricated citation is
-    # rejected regardless of the reviewer's judgment. ``retire_page`` tombstones
-    # a page (never a hard delete — always reversible). Each item:
-    # ``{"op": "create_page|update_page|retire_page", "id": str,
-    # "card_type": str, "title": str, "status": str, "body": str,
-    # "evidence": [{"source_id": str, "quote": str, "locator": str}],
-    # "tags": [str], "related_runs": [str], "related_projects": [str],
-    # "why": str}``. Empty list when this round warrants no wiki change, or
-    # when the project has no initialized wiki.
+    # Legacy replay field. Current Reviewer schemas do not expose wiki_ops;
+    # executable Reviewers edit injected project wiki paths directly.
     wiki_ops: list[dict[str, Any]] = field(default_factory=list)
     # Reviewer → Planner checklist feedback (ADVISORY; the reviewer is
     # feedback-only and NEVER writes the checklist store). When the reviewer

@@ -22,18 +22,19 @@ def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
+
     monkeypatch.delenv("ARGUS_SKILL_SOURCE_ROOT", raising=False)
     payload = _daemon_status_payload(
         LifeWorkerConfig(life_dir=tmp_path, backend="memory"),
         started_at_iso="2026-07-11T00:00:00+00:00",
     )
-    (tmp_path / "daemon.pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
-    (tmp_path / "daemon.status.json").write_text(
-        json.dumps(payload),
-        encoding="utf-8",
-    )
-
-    status = read_daemon_status(tmp_path)
+    with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid"):
+        (tmp_path / "daemon.status.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+        status = read_daemon_status(tmp_path)
 
     assert status.protocol_name == DAEMON_PROTOCOL_NAME
     assert status.protocol_major == DAEMON_PROTOCOL_MAJOR

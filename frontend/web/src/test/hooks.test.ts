@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { streamReducer } from '../hooks';
+import {
+  ARTIFACTS_POLL_MS,
+  GIT_DIFF_POLL_MS,
+  PROJECT_COST_POLL_MS,
+  PROJECT_POLL_MS,
+  SNAPSHOT_POLL_MS,
+  artifactRefreshEventKey,
+  streamReducer,
+} from '../hooks';
 import type { EventMsg } from '../api';
 
 describe('project-scoped event stream', () => {
+  it('keeps background polling below interaction-jank cadence', () => {
+    expect(PROJECT_POLL_MS).toBeGreaterThanOrEqual(15_000);
+    expect(PROJECT_COST_POLL_MS).toBeGreaterThanOrEqual(4_000);
+    expect(PROJECT_COST_POLL_MS).toBeLessThan(PROJECT_POLL_MS);
+    expect(SNAPSHOT_POLL_MS).toBeGreaterThanOrEqual(8_000);
+    expect(ARTIFACTS_POLL_MS).toBeGreaterThanOrEqual(10_000);
+    expect(GIT_DIFF_POLL_MS).toBeGreaterThanOrEqual(10_000);
+  });
   it('ignores events from a stale project generation', () => {
     const initial = {
       sid: 's-current',
@@ -51,5 +67,21 @@ describe('project-scoped event stream', () => {
     expect(replayedOldEvent.events).toHaveLength(2_000);
     expect(replayedOldEvent.events[1_999].event_id).toBe('0');
     expect(replayedOldEvent.seen.size).toBe(2_000);
+  });
+
+  it('requests an immediate artifact refresh for live-view and file events', () => {
+    const unchanged = artifactRefreshEventKey([
+      { type: 'engineer.progress', kind: 'assistant_message', ts: 1 } as EventMsg,
+    ]);
+    const manager = artifactRefreshEventKey([
+      { type: 'manager.live_view.updated', ts: 2 } as EventMsg,
+    ]);
+    const file = artifactRefreshEventKey([
+      { type: 'engineer.progress', kind: 'file_change', ts: 3 } as EventMsg,
+    ]);
+
+    expect(unchanged).toBe('');
+    expect(manager).not.toBe('');
+    expect(file).not.toBe('');
   });
 });

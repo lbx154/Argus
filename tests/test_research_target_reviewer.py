@@ -56,18 +56,6 @@ def _schema_verdict(result: dict) -> dict:
         "checklist": [
             {"item": "review", "satisfied": True, "evidence": "independently checked"}
         ],
-        "checkpoint": {
-            "goal": "close bounded review",
-            "done": ["six gates certified"],
-            "tried_and_failed": [],
-            "maturing": [],
-            "open_blocker": "",
-            "next_step": "",
-            "active_line": None,
-            "env_facts": [],
-        },
-        "skill_ops": [],
-        "wiki_ops": [],
         "checklist_feedback": None,
         "step_back": None,
     }
@@ -98,9 +86,11 @@ class _SchemaReviewerBackend:
     def __init__(self, verdict: dict) -> None:
         self.verdict = verdict
         self.options = None
+        self.prompt = ""
 
     def run_exec(self, **kwargs) -> RunnerResult:
         self.options = kwargs["options"]
+        self.prompt = kwargs["prompt"]
         return RunnerResult(
             exit_code=0,
             agent_messages=[json.dumps(self.verdict)],
@@ -243,7 +233,7 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
     verdict = _schema_verdict(result)
     schema = json.loads(Path(RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8"))
     validate(verdict, schema)
-    persist_vertical(tmp_path, "math")
+    persist_vertical(tmp_path, "math", research_target_level="doctoral")
     backend = _SchemaReviewerBackend(verdict)
 
     decision = Reviewer(backend).evaluate(
@@ -259,6 +249,7 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
 
     assert backend.options is not None
     assert backend.options.output_schema_path == RESEARCH_SCHEMA_PATH
+    assert "Never use `research_incomplete` solely because the whole project" in backend.prompt
     assert decision.status == "done"
     assert decision.research_result == result
     issue = research_completion_issue(

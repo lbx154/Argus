@@ -1,9 +1,9 @@
-"""Per-project harness self-evolution overlay.
+"""Per-project prompt-rule self-evolution overlay.
 
-The stage checklists and reviewer/engineer/planner prompt rules historically
-lived only in Python code, so the agent could not adapt them at runtime the way
-it adapts skills. This module adds a **per-project overlay** that layers on top
-of the immutable framework defaults:
+Role-specific prompt rules may be adapted per project. Checklist ownership is
+separate and unambiguous: framework/vertical code provides the seed floor, the
+Planner is the only runtime editor through ``checklist_ops``, and the Reviewer
+is feedback-only.
 
     <project_root>/.argus/harness/
         active.json     # applied to prompts (read fresh every prompt build)
@@ -13,9 +13,8 @@ of the immutable framework defaults:
 Design contract (operator: each project owns its own interface so it can both
 *recover* and *apply*):
 
-* Framework code is the **immutable floor**. The overlay can only ADD items /
-  ANNOTATE (strengthen) existing items / add house rules. It can never delete or
-  weaken a :data:`PROTECTED_ITEM_IDS` floor item.
+* Legacy ``checklist_items`` rows are ignored and cannot be added or promoted.
+  Project checklist edits belong exclusively to the Planner store.
 * Reads are **fail-open**: a missing/corrupt overlay is ignored (the floor still
   renders) and the corruption is recorded in the journal.
 * Writes are **atomic** (tmp+rename) and carry a monotonically increasing
@@ -194,22 +193,10 @@ def active_checklist_items(
     stage: str,
     role: str,
 ) -> list[dict[str, Any]]:
-    """Active checklist overlay entries that apply to ``stage`` and ``role``."""
+    """Legacy API: checklist overlays are disabled; Planner owns edits."""
 
-    overlay = load_overlay(project_root, state="active")
-    stage_n = (stage or "").strip().lower()
-    role_n = (role or "").strip().lower()
-    out: list[dict[str, Any]] = []
-    for it in overlay.get("checklist_items", []):
-        if not isinstance(it, dict):
-            continue
-        if (it.get("stage") or "").strip().lower() != stage_n:
-            continue
-        it_role = (it.get("role") or "engineer").strip().lower()
-        if it_role != role_n:
-            continue
-        out.append(it)
-    return out
+    _ = (project_root, stage, role)
+    return []
 
 
 def active_prompt_rules(
@@ -372,31 +359,13 @@ def add_checklist_item(
     known_stages: frozenset[str],
     known_item_ids: frozenset[str],
 ) -> dict[str, Any]:
-    """Validate and persist a checklist mutation. Returns the stored entry
-    (annotated with the state it landed in and timestamp)."""
+    """Checklist overlays are retired; use Planner ``checklist_ops``."""
 
-    _validate_item(item, known_stages=known_stages, known_item_ids=known_item_ids)
-    state = route_state_for_change(role=item.get("role") or "engineer", op=item.get("op"))
-    overlay = load_overlay(project_root, state=state)
-    items = overlay["checklist_items"]
-    if len(items) >= MAX_ITEMS:
-        raise OverlayValidationError(f"overlay item cap reached ({MAX_ITEMS})")
-
-    entry = dict(item)
-    entry["role"] = (item.get("role") or "engineer").strip().lower()
-    entry["stage"] = (item.get("stage") or "").strip().lower()
-    entry["op"] = (item.get("op") or "").strip().lower()
-    entry["created_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
-    entry["state"] = state
-
-    # Replace an existing entry with the same id (re-proposal) rather than dup.
-    items = [e for e in items if not (isinstance(e, dict) and e.get("id") == entry["id"])]
-    items.append(entry)
-    overlay["checklist_items"] = items
-    overlay["revision"] = int(overlay.get("revision", 0)) + 1
-    _atomic_write_json(_state_path(project_root, state=state), overlay)
-    journal(project_root, "checklist_item_added", state=state, id=entry["id"], op=entry["op"], revision=overlay["revision"])
-    return entry
+    _ = (project_root, item, known_stages, known_item_ids)
+    raise OverlayValidationError(
+        "checklist ownership belongs to the Planner; use reviewer "
+        "checklist_feedback or Planner checklist_ops"
+    )
 
 
 def add_prompt_rule(
@@ -490,6 +459,8 @@ def promote(project_root: Path | str | None, *, entry_id: str) -> bool:
     if moved is None:
         return False
     key, entry = moved
+    if key == "checklist_items":
+        return False
     # Active-first then pending-remove: a crash between the two writes leaves a
     # harmless active+pending duplicate rather than losing the entry entirely.
     active = load_overlay(project_root, state="active")

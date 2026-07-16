@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -16,11 +17,26 @@ from ...core.stop_kinds import (
 from ...core.usage import UsageLedger, UsageRecord
 from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
-from ._constants import PLANNER_SCOPE_FINAL_SUBMISSION
+from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
 from ._cost import _CostTrackingSink
 from ._helpers import _normalize_planner_text
 
 log = logging.getLogger(__name__)
+
+
+def bounded_dag_node_max_rounds() -> int:
+    """Small repair budget for one Planner DAG node.
+
+    A short node should not become a long campaign, but Reviewer ``continue``
+    must have somewhere to go. Session rotation is controlled independently by
+    ``ARGUS_SKILL_SHIFT_ROUND_LIMIT``; one fresh session per round does not mean
+    one round per mission.
+    """
+    raw = os.environ.get("ARGUS_SKILL_BOUNDED_DAG_NODE_MAX_ROUNDS", "3")
+    try:
+        return max(2, min(8, int(raw)))
+    except ValueError:
+        return 3
 
 
 class MissionExecutionMixin:
@@ -166,6 +182,15 @@ class MissionExecutionMixin:
                     execute_kwargs["mission_id"] = item.id
                 if "usage_mission_id" in params or _accepts_kw:
                     execute_kwargs["usage_mission_id"] = usage_attempt_id
+                tags = {
+                    str(tag).strip().lower()
+                    for tag in getattr(item, "tags", [])
+                }
+                if "bounded_dag_node" in tags:
+                    if "max_rounds_override" in params or _accepts_kw:
+                        execute_kwargs["max_rounds_override"] = (
+                            bounded_dag_node_max_rounds()
+                        )
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
                 execute_kwargs["per_mission_budget"] = mission_budget
@@ -302,9 +327,30 @@ class MissionExecutionMixin:
             if isinstance(stage_transition, dict)
             else ""
         )
+        normalized_tags = {
+            str(tag).strip().lower().replace("-", "_")
+            for tag in getattr(item, "tags", [])
+        }
+        planner_bounded_node = (
+            "planner" in normalized_tags
+            and self._planner_scope_from_item(item) == PLANNER_SCOPE_BOUNDED
+        )
+        # ``research_incomplete`` is project-level: it says the persisted final
+        # research target is not finished. It must NOT cancel a Manager-certified
+        # intermediate stage transition. A scope mission can legitimately end
+        # with project-level research still incomplete while the Manager advances
+        # ``scope -> solve`` (or rolls back to repair an earlier stage). In that
+        # case the same bounded item stays pending and continues automatically.
+        # Explicit failures, holds, budget/provider pauses, and infrastructure
+        # blocks do not enter this path.
+        project_incomplete_but_stage_progressed = (
+            status == "research_incomplete"
+            and stage_action in {"advance", "rollback"}
+        )
         staged_item_continues = (
-            success
+            (success or project_incomplete_but_stage_progressed)
             and not self.config.continuous
+            and not planner_bounded_node
             and isinstance(stage_transition, dict)
             and bool(stage_transition)
             and stage_action != "complete"
@@ -335,6 +381,22 @@ class MissionExecutionMixin:
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
             }
+
+        # Planner-authored bounded DAG nodes are separate acceptance units: once
+        # the Manager has certified ``advance`` for the current project stage,
+        # that node is complete even if the Reviewer described the WHOLE project
+        # as ``research_incomplete``. Close the node so its solve/review dependent
+        # can unlock. A HOLD remains incomplete; a ROLLBACK is not silently
+        # treated as node success.
+        planner_node_stage_completed = (
+            planner_bounded_node
+            and status == "research_incomplete"
+            and stage_action == "advance"
+        )
+        if planner_node_stage_completed:
+            success = True
+            status = "done"
+            stop_reason = ""
 
         research_pause = status in {
             "research_incomplete",

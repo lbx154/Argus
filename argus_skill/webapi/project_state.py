@@ -42,7 +42,7 @@ _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
-_METRICS_CACHE_TTL_SECONDS = 5.0
+_METRICS_CACHE_TTL_SECONDS = 60.0
 
 
 def _project_index_text(value: Any, limit: int, *, single_line: bool = False) -> str:
@@ -56,17 +56,28 @@ def resolve_global_root(value: Path | str | None) -> Path:
     return Path(value) if value is not None else core_paths.global_root()
 
 
-def _cached_metrics_snapshot(root: Path) -> dict[str, Any]:
-    """Reuse the host-wide metrics projection across rapid project switches."""
+def _cached_metrics_snapshot(
+    root: Path,
+    *,
+    nonblocking: bool = False,
+) -> dict[str, Any] | None:
+    """Reuse the host-wide projection without blocking compact UI snapshots."""
     key = str(root.resolve())
     now = time.monotonic()
     with _METRICS_CACHE_LOCK:
         cached = _METRICS_CACHE.get(key)
         if cached is not None and cached[0] > now:
             return cached[1]
-        value = metrics_snapshot(root=root)
+        if nonblocking:
+            # Compact snapshots are the cockpit's first-paint path. Even a
+            # background JSON aggregation contends for the GIL and delayed the
+            # UI by ~500 ms on large daily logs. Serve stale data when present;
+            # otherwise omit observability until a full snapshot requests it.
+            return cached[1] if cached is not None else None
+    value = metrics_snapshot(root=root)
+    with _METRICS_CACHE_LOCK:
         _METRICS_CACHE[key] = (now + _METRICS_CACHE_TTL_SECONDS, value)
-        return value
+    return value
 
 
 def project_life_dir(
@@ -173,16 +184,20 @@ def session_dict(meta: SessionMeta | None, sid: str) -> dict[str, Any]:
             "id": sid,
             "display_name": "",
             "objective": "",
+            "created": 0.0,
             "last_active": 0.0,
             "cwd": "",
+            "workdir": "",
             "launch_cwd": "",
         }
     return {
         "id": meta.id,
         "display_name": meta.display_name,
         "objective": meta.objective,
+        "created": meta.created,
         "last_active": meta.last_active,
         "cwd": meta.cwd,
+        "workdir": meta.workdir,
         "launch_cwd": meta.launch_cwd,
     }
 
@@ -215,7 +230,7 @@ def current_stage_for_session(
 ) -> str:
     from ..skills.stage_checklists import current_stage
 
-    candidates = [session.get("launch_cwd"), session.get("cwd"), life_dir]
+    candidates = [session.get("workdir"), session.get("cwd"), life_dir]
     for raw in candidates:
         if not raw:
             continue
@@ -427,7 +442,7 @@ def build_snapshot(
         diagnostics.append(diagnostic("daemon_commands", exc))
 
     try:
-        observability = _cached_metrics_snapshot(root)
+        observability = _cached_metrics_snapshot(root, nonblocking=compact)
     except Exception as exc:  # noqa: BLE001
         observability = None
         diagnostics.append(diagnostic("observability", exc))
@@ -515,6 +530,36 @@ def list_projects(
     return out
 
 
+def list_project_costs(
+    *,
+    global_root: Path | str | None = None,
+    limit: int | None = None,
+    include_empty: bool = False,
+) -> list[dict[str, Any]]:
+    """Return a compact, cache-backed spend feed for the Web daemon picker."""
+    root = resolve_global_root(global_root)
+    out: list[dict[str, Any]] = []
+    for meta in list_sessions(root, include_empty=include_empty):
+        life_dir = root / "projects" / meta.id
+        spend = settled_spend(None, life_dir)
+        try:
+            updated_at = (life_dir / "usage.jsonl").stat().st_mtime
+        except OSError:
+            updated_at = 0.0
+        out.append({
+            "id": meta.id,
+            "spend_usd": spend.cost_usd,
+            "known_cost_usd": spend.known_cost_usd,
+            "spend_status": spend.pricing_status,
+            "usage_calls": spend.call_count,
+            "premium_requests": spend.premium_requests,
+            "updated_at": updated_at,
+        })
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
 __all__ = [
     "DAEMON_ADMISSION_FILE",
     "build_snapshot",
@@ -522,6 +567,7 @@ __all__ = [
     "daemon_dict",
     "diagnostic",
     "list_projects",
+    "list_project_costs",
     "project_life_dir",
     "read_daemon_admission",
     "resolve_global_root",

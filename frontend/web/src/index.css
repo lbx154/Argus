@@ -452,7 +452,7 @@ body {
 }
 
 @keyframes argus-web-splash-exit {
-  0%, 68% { opacity: 1; }
+  0%, 25% { opacity: 1; }
   100% { opacity: 0; }
 }
 
@@ -471,7 +471,7 @@ body {
   justify-content: center;
   overflow: hidden;
   background: rgb(var(--bg));
-  animation: argus-web-splash-exit 650ms ease-out forwards;
+  animation: argus-web-splash-exit 180ms ease-out forwards;
   will-change: opacity;
 }
 
@@ -494,7 +494,7 @@ body {
   font-weight: 600;
   line-height: 1.08;
   user-select: none;
-  animation: argus-web-splash-color 650ms linear;
+  animation: argus-web-splash-color 180ms linear;
   will-change: background-position;
 }
 

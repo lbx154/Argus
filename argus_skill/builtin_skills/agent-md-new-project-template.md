@@ -517,7 +517,10 @@ A task is complete only when:
 The full project is complete only when the L2 reviewer certifies `done` for `scope: final_submission` against the full pipeline checklist on the current workspace, with every checklist item satisfied and backed by concrete evidence, and that verdict is quoted in completion evidence.
 
 ## Harness self-evolution
-When the SAME class of mistake recurs and a skill alone has not fixed it (e.g. you keep mis-setting RL hyperparameters like `max_completion_length`/learning rate, or the reviewer keeps accepting single-seed deltas), adapt the harness itself with `python -m argus_skill.tools.harness_evolve` (see the `harness-self-evolution` skill). You can ADD a stage checklist item, ANNOTATE/strengthen an existing one, or ADD a role house rule. Changes are per-project, hot-reloaded with no restart, and fully revertible. Additive only — you can tighten the bar, never relax a protected integrity item; engineer changes activate immediately while reviewer/planner changes stay `pending` until `promote`.
+Recurring role-behavior failures may be encoded as reversible prompt rules with
+`python -m argus_skill.tools.harness_evolve add-rule`. Checklist changes belong
+only to Planner `checklist_ops`; Reviewer supplies feedback and Engineer never
+edits checklist content.
 ````
 
 ## Generality check

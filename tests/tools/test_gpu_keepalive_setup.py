@@ -29,6 +29,7 @@ def test_build_keepalive_config_shape() -> None:
 
 def test_render_prompt_mentions_lease_protocol_and_devices() -> None:
     body = _wizard._render_gpu_keepalive_prompt("0,1,2,3")
+    assert body.startswith("---\nscope: paper\n---")
     assert "0,1,2,3" in body
     assert "gpu_lease run" in body
     assert "park" in body
@@ -136,6 +137,7 @@ def test_gpu_load_arg_defaults() -> None:
 
 def test_experiment_api_prompt_content() -> None:
     body = _wizard._render_experiment_api_prompt()
+    assert body.startswith("---\nscope: paper\n---")
     assert "reward" in body.lower()
     assert "judge" in body.lower()
     assert "OPENAI_API_KEY" in body

@@ -1,8 +1,5 @@
 """The reviewer output-schema MUST be a valid OpenAI/codex strict structured-output
-schema, or EVERY reviewer call fails with ``invalid_json_schema`` (exit 1) — which
-on 2026-06-26 took down a whole teammate fleet (the reviewer's ``--output-schema``
-was rejected by the API: ``skill_ops.items`` listed only ``["op"]`` in ``required``
-and the root ``required`` omitted ``skill_ops``).
+schema, or every reviewer call fails with ``invalid_json_schema`` (exit 1).
 
 The strict-mode contract the API enforces: for EVERY object that declares
 ``properties``, the ``required`` array must list EVERY property key, and
@@ -84,17 +81,18 @@ def test_legacy_research_schema_remains_compatible_with_old_daemons() -> None:
     assert not list(_strict_violations(legacy))
 
 
-def test_skill_ops_items_require_all_keys():
-    # Pin the exact spot that broke on 2026-06-26 so a revert is caught by name.
+def test_reviewer_schemas_stay_token_efficient() -> None:
+    assert Path(SCHEMA_PATH).stat().st_size < 11_500
+    assert Path(RESEARCH_SCHEMA_PATH).stat().st_size < 14_000
+    assert Path(LEGACY_RESEARCH_SCHEMA_PATH).stat().st_size < 13_000
+
+
+def test_reviewer_schema_has_no_memory_proposal_fields() -> None:
     schema = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
-    items = schema["properties"]["skill_ops"]["items"]
-    assert set(items["required"]) == set(items["properties"]) == {
-        "op",
-        "name",
-        "content",
-        "why",
-    }
-    assert "skill_ops" in schema["required"]
+    assert "skill_ops" not in schema["properties"]
+    assert "wiki_ops" not in schema["properties"]
+    assert "skill_ops" not in schema["required"]
+    assert "wiki_ops" not in schema["required"]
 
 
 def test_control_object_requires_all_keys_in_active_schemas() -> None:

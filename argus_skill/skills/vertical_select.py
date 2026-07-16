@@ -265,6 +265,31 @@ def _is_project_data_domain(value: str | None, project_root: object) -> bool:
         return False
 
 
+def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
+    """Return the Manager-decided vertical, or ``None`` without a fallback."""
+    env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
+    persisted = _persisted_vertical(project_root)
+    if _is_project_data_domain(persisted, project_root):
+        return persisted
+    if env is not None:
+        return env
+    return persisted
+
+
+def resolve_checklist_vertical(project_root: object = ".") -> str | None:
+    """Resolve the vertical that owns this project's checklist.
+
+    The persisted project decision wins over a process-level env value. This
+    prevents a stale/bootstrap ``ARGUS_SKILL_VERTICAL=research`` from injecting
+    research gates into a project the Manager has committed to math or another
+    vertical. Env is used only before a project decision exists.
+    """
+    persisted = _persisted_vertical(project_root)
+    if persisted is not None:
+        return persisted
+    return _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
+
+
 def resolve_vertical(project_root: object = ".") -> str:
     """Resolve the active vertical (cheap, deterministic, no LLM).
 
@@ -284,14 +309,9 @@ def resolve_vertical(project_root: object = ".") -> str:
     or a conversational mission). Still deterministic, never spends a token, and
     never mutates state.
     """
-    env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
-    persisted = _persisted_vertical(project_root)
-    if _is_project_data_domain(persisted, project_root):
-        return persisted
-    if env is not None:
-        return env
-    if persisted is not None:
-        return persisted
+    decided = resolve_vertical_if_decided(project_root)
+    if decided is not None:
+        return decided
     # FAIL-SOFT (was fail-hard): the Manager is meant to DECIDE and PERSIST a
     # vertical at mission bootstrap, but a rigid rule must never hard-crash a
     # whole mission (and block the daemon) just because a read raced ahead of the
@@ -486,8 +506,8 @@ def reset_stage_for_new_intent(
     new_vertical: str,
 ) -> bool:
     """Reset ``current_stage`` to ``new_vertical``'s first stage when a
-    genuinely NEW, operator-issued intent supersedes a DIFFERENT,
-    already-finished prior vertical.
+    genuinely NEW, operator-issued intent supersedes an already-finished prior
+    run, whether the newly selected vertical is different or the same.
 
     Call this AFTER ``persist_vertical(project_root, new_vertical)`` has
     already run, so the stage machinery (``current_stage`` /
@@ -503,26 +523,25 @@ def reset_stage_for_new_intent(
     stage name foreign to the new vertical is still real progress that must
     be preserved. But when the OLD vertical had already reached ITS OWN
     terminal stage with ``status="done"`` (fully completed on its own stage
-    list) and a brand-new intent now assigns a DIFFERENT vertical, that stale
-    stage is leftover from an unrelated, closed-out project. If its name
-    happens to collide with a stage name in the NEW vertical's order (e.g.
-    both call a stage "review"), ``current_stage()`` would silently accept it
-    as real progress on the new project — a false stage advance with zero
-    underlying evidence. This function detects exactly that case and rolls
-    the state back to the new vertical's first stage via
+    list) and a brand-new intent arrives, that terminal stage belongs to the
+    closed-out prior run. This is true even when both intents resolve to the
+    same vertical: leaving (for example) ``math/review=done`` or
+    ``research/submission=done`` in place makes the Planner immediately declare
+    the new task complete. For a different vertical, a same-named stage can
+    similarly look like false progress. This function detects both cases and
+    rolls the state back to the selected vertical's first stage via
     ``stage_checklists.rollback_stage`` (audited, ``rolled_back_by="manager"``),
     without touching ``persist_vertical``'s own never-reset contract.
 
     Returns ``True`` iff a reset was actually applied. No-op (returns
-    ``False``) when: there is no prior vertical, the vertical is unchanged
-    (same evolving project — preserve stage), the prior vertical was not
+    ``False``) when: there is no prior vertical, the prior vertical was not
     actually finished, or the rollback primitive rejects the target stage
     (e.g. the stale stage was never even a member of the new vertical's
     order, in which case ``current_stage()`` already falls back safely on its
     own). Fail-open: any error is treated as "nothing to reset" so a probe or
     rollback hiccup never blocks the Manager's division.
     """
-    if not old_vertical or old_vertical == new_vertical:
+    if not old_vertical:
         return False
     if not vertical_reached_own_terminal_stage(project_root, old_vertical):
         return False
@@ -547,10 +566,9 @@ def reset_stage_for_new_intent(
             reason=(
                 f"prior vertical {old_vertical!r} had already reached its own "
                 f"terminal stage (done); a genuinely new operator-issued "
-                f"intent assigned a different vertical {new_vertical!r} — "
+                f"intent assigned vertical {new_vertical!r} — "
                 f"resetting current_stage to its first stage rather than "
-                f"silently inheriting the old, unrelated vertical's "
-                f"same-named stale stage."
+                f"silently inheriting the completed prior run's stale stage."
             ),
             rolled_back_by="manager",
         )
@@ -574,6 +592,8 @@ __all__ = [
     "UnknownVerticalError",
     "explicit_builtin_vertical",
     "require_vertical",
+    "resolve_checklist_vertical",
+    "resolve_vertical_if_decided",
     "resolve_vertical",
     "persist_vertical",
     "vertical_reached_own_terminal_stage",

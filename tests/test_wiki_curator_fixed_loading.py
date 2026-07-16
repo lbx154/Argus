@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.models import RunnerResult
 from argus_skill.reviewer import Reviewer, _load_wiki_curator_skill_if_present
+from argus_skill.reviewer._core import ReviewerConfig
+from argus_skill.skills.store import SkillStore
 from argus_skill.wiki.bootstrap import init_wiki
 
 
@@ -75,6 +80,9 @@ def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
 
     assert "Wiki curator (fixed when a wiki exists" in prompt
     assert "wiki-curator" in prompt.lower() or "Wiki Curator" in prompt
+    assert str(tmp_path / ".autors" / "demo" / "wiki") in prompt
+    assert "directly edit" in prompt
+    assert "no `skill_ops` or `wiki_ops`" in prompt
 
 
 def test_reviewer_prompt_uses_configured_workdir_for_wiki(
@@ -104,3 +112,114 @@ def test_reviewer_prompt_uses_configured_workdir_for_wiki(
     )
 
     assert "Wiki curator (fixed when a wiki exists" in prompt
+    assert str(project / ".autors" / "demo" / "wiki") in prompt
+
+
+def test_reviewer_prompt_injects_project_skill_path_for_direct_edits(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    project = tmp_path / "project"
+    skill_dir = tmp_path / "state" / "skills"
+    project.mkdir()
+    skill_dir.mkdir(parents=True)
+    persist_vertical(project, "research")
+    store = SimpleNamespace(
+        project=SimpleNamespace(skills_dir=skill_dir),
+        global_=SimpleNamespace(skills_dir=tmp_path / "global-skills"),
+        find_relevant=lambda *args, **kwargs: ([], 0),
+    )
+    reviewer = Reviewer(runner=object(), skill_store=store)
+
+    prompt = reviewer._build_prompt(
+        objective="review the trajectory",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id="m1",
+        main_summary="summary",
+        main_error=None,
+        working_dir=project,
+    )
+
+    assert f"Project skill directory (project layer only): {skill_dir.resolve()}" in prompt
+    assert str((tmp_path / "global-skills").resolve()) not in prompt
+    assert "/home/argustest" not in prompt
+    assert "edit the project memory directly BEFORE your final verdict" in prompt
+
+
+def test_reviewer_directly_edits_skill_and_wiki_before_final_verdict(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    project = tmp_path / "project"
+    skill_dir = tmp_path / "state" / "skills"
+    project.mkdir()
+    skill_dir.mkdir(parents=True)
+    wiki_root = init_wiki("demo", base=project)
+    persist_vertical(project, "direct")
+
+    class DirectEditRunner:
+        def run_exec(self, **kwargs):
+            prompt = kwargs["prompt"]
+            assert str(skill_dir.resolve()) in prompt
+            assert str(wiki_root.resolve()) in prompt
+            (skill_dir / "trajectory-lesson.md").write_text(
+                "---\nname: Trajectory Lesson\ndescription: Reuse verified trajectory "
+                "lessons.\ncategory: learning\nversion: 1\n---\n\n# Lesson\n",
+                encoding="utf-8",
+            )
+            (wiki_root / "pages" / "patterns" / "trajectory-lesson.md").write_text(
+                "---\nid: trajectory-lesson\ntype: pattern\nstatus: scratch\n---\n\n"
+                "# Trajectory lesson\n",
+                encoding="utf-8",
+            )
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[json.dumps({
+                    "status": "continue",
+                    "reason": "Reusable learning was persisted directly.",
+                    "next_action": "Apply the corrected method.",
+                    "operator_question": None,
+                    "round_summary_markdown": "# Review\n",
+                    "completion_summary_markdown": "",
+                    "achievement": None,
+                    "failure_cause": "method_failure",
+                    "progress_class": "evidence",
+                    "scope": "bounded",
+                    "planner_report": {
+                        "forward_progress": True,
+                        "headline": "lesson persisted",
+                        "blocker": "",
+                        "recommended_next": "apply it",
+                        "plan_signal": "continue",
+                        "plan_signal_reason": "",
+                        "evidence_files": [],
+                    },
+                    "checklist": [],
+                    "checklist_feedback": None,
+                    "step_back": None,
+                })],
+            )
+
+    reviewer = Reviewer(DirectEditRunner(), skill_store=SkillStore(skill_dir))
+    decision = reviewer.evaluate(
+        objective="review the trajectory",
+        round_index=1,
+        session_id="m1",
+        main_summary="summary",
+        main_error=None,
+        config=ReviewerConfig(
+            model="test",
+            reasoning_effort="high",
+            working_dir=str(project),
+        ),
+    )
+
+    assert decision.status == "continue"
+    assert decision.skill_ops == []
+    assert decision.wiki_ops == []
+    assert (skill_dir / "trajectory-lesson.md").is_file()
+    assert (wiki_root / "pages" / "patterns" / "trajectory-lesson.md").is_file()

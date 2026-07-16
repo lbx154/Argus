@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import queue
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.webapi import manager_bridge, project_state, server
@@ -76,15 +78,51 @@ def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None
     assert body["reply"] == "你好呀 👋"
 
 
-def test_pure_social_fast_reply_skips_second_manager_call(
+def test_queued_manager_message_cannot_resurrect_deleted_project(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    sid = "s-fast-chat"
+    sid = "s-delete-race"
+    life = _make_project(tmp_path, sid)
+    waiting = threading.Event()
+    original_lock_for = manager_bridge._lock_for
+
+    def marked_lock_for(project_sid: str):
+        lock = original_lock_for(project_sid)
+        if project_sid == sid:
+            waiting.set()
+        return lock
+
+    monkeypatch.setattr(manager_bridge, "_lock_for", marked_lock_for)
+    trash = tmp_path / "trash" / sid
+    trash.parent.mkdir(parents=True)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with manager_bridge.manager_context_lock(sid):
+            waiting.clear()
+            future = pool.submit(
+                manager_bridge.manager_message,
+                sid,
+                "hello",
+                global_root=tmp_path,
+            )
+            assert waiting.wait(timeout=2)
+            life.rename(trash)
+        result = future.result(timeout=2)
+
+    assert result["kind"] == "error"
+    assert "no longer exists" in result["reply"]
+    assert not life.exists()
+
+
+def test_pure_greeting_uses_one_frontdoor_model_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-one-call-greeting"
     life = _make_project(tmp_path, sid)
     manager_bridge._STATES.clear()
 
     def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_fast_reply"] = "你好！我是 Argus。"
+        chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
@@ -92,13 +130,204 @@ def test_pure_social_fast_reply_skips_second_manager_call(
         front_door,
         "manager_triage",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("pure social reply must not make a second model call")
+            AssertionError("pure greeting must not make a second model call")
         ),
     )
 
     result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
 
-    assert result == {"kind": "chat", "reply": "你好！我是 Argus。"}
+    assert result == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-greeting-no-cache"
+    _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    classify_calls = 0
+
+    def classify(mem, text, chat_state, **kwargs):
+        nonlocal classify_calls
+        classify_calls += 1
+        chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("pure greeting must not make a second model call")
+        ),
+    )
+
+    first = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+    second = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+
+    expected = {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
+    assert first == expected
+    assert second == expected
+    assert classify_calls == 2
+
+
+def test_contextual_greeting_calls_real_manager(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-context-greeting"
+    _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    triage_calls: list[str] = []
+
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "simple"),
+    )
+
+    def triage(mem, body, chat_state, **kwargs):
+        triage_calls.append(body)
+        return "当前任务仍在推进。"
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "你好，项目现在进展怎么样？",
+        global_root=tmp_path,
+    )
+
+    assert triage_calls == ["你好，项目现在进展怎么样？"]
+    assert result == {"kind": "chat", "reply": "当前任务仍在推进。"}
+
+
+def test_classifier_explanation_cannot_escape_as_manager_reply(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-fast-leak"
+    _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    triage_calls: list[str] = []
+
+    def classify(mem, text, chat_state, **kwargs):
+        # Even a custom/legacy classifier trying to smuggle a reply through
+        # chat_state cannot bypass the actual Manager turn.
+        chat_state["_frontdoor_fast_reply"] = (
+            "这是需要结合具体上下文的反思性问题，不属于通用闲聊，需在对话中实质回应。"
+        )
+        return None, None, "simple"
+
+    def triage(mem, body, chat_state, **kwargs):
+        triage_calls.append(body)
+        return "有加深，具体体现在对核心障碍的理解上。"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "你觉得你对这个问题的理解是否有加深？",
+        global_root=tmp_path,
+    )
+
+    assert triage_calls == ["你觉得你对这个问题的理解是否有加深？"]
+    assert result == {
+        "kind": "chat",
+        "reply": "有加深，具体体现在对核心障碍的理解上。",
+    }
+
+
+def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-classify-fail"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    def failed_classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_failure"] = "classifier failed"
+        return None, None, "complex"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "请介绍当前状态",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["reply"].startswith("[not dispatched]")
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_cancelled_manager_request_cannot_dispatch_after_classification(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-cancelled"
+    life = _make_project(tmp_path, sid)
+    cancelled = threading.Event()
+
+    def classify(*args, **kwargs):
+        cancelled.set()
+        return None, None, "complex"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("cancelled request must stop before triage/dispatch")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "start a long task",
+        global_root=tmp_path,
+        cancelled=cancelled.is_set,
+    )
+
+    assert result["kind"] == "cancelled"
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_cancel_during_handoff_stops_before_backlog_commit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-cancel-commit"
+    life = _make_project(tmp_path, sid)
+    cancelled = threading.Event()
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        dispatch,
+        "maybe_promote_to_continuous",
+        lambda *args, **kwargs: False,
+    )
+
+    def handoff(mem, body, state, persist, **kwargs):
+        cancelled.set()
+        return persist("safe task", None)
+
+    monkeypatch.setattr(front_door, "manager_bounded_handoff", handoff)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "start a long task",
+        global_root=tmp_path,
+        cancelled=cancelled.is_set,
+    )
+
+    assert result["kind"] == "cancelled"
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -108,11 +337,14 @@ def test_manager_steer_persists_high_priority_live_directive(
     sid = "s-manager-steer"
     life = _make_project(tmp_path, sid)
     manager_bridge._STATES.clear()
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, "steer", "simple"),
-    )
+    def classify(_mem, _text, chat_state, **_kwargs):
+        chat_state["_frontdoor_steering_directive"] = (
+            "暂停当前形式化路线；先检索最接近的前人研究，再由 Planner "
+            "根据来源证据安排下一节点。"
+        )
+        return None, "steer", "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(
         front_door,
         "manager_triage",
@@ -129,12 +361,14 @@ def test_manager_steer_persists_high_priority_live_directive(
 
     assert result["kind"] == "control"
     assert result["control"] == "steer"
+    assert "我已调整团队方向" in result["reply"]
     inbox = [
         json.loads(line)
         for line in (life / "inbox.jsonl").read_text().splitlines()
     ]
     assert "MANAGER STEERING" in inbox[-1]["text"]
-    assert "发明新的数学工具" in inbox[-1]["text"]
+    assert "检索最接近的前人研究" in inbox[-1]["text"]
+    assert "发明新的数学工具" not in inbox[-1]["text"]
 
 
 def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> None:
@@ -299,6 +533,38 @@ def test_no_dispatch_control_fails_closed_when_inline_reply_fails(
     result = manager_bridge.manager_message(
         sid,
         "read only and do not dispatch",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["reply"].startswith("[not dispatched]")
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-simple-fail"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "simple"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        dispatch,
+        "enqueue_mission",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("simple reply failure must never enqueue")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "请分析当前状态",
         global_root=tmp_path,
     )
 
@@ -582,7 +848,9 @@ def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:
 def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) -> None:
     """A streamed chat turn: the endpoint forwards each on_fragment(phase|delta)
     live, then a final ``done`` frame carrying the classification + reply."""
-    def _streaming(sid, text, *, global_root=None, on_fragment=None):
+    def _streaming(
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+    ):
         assert on_fragment is not None  # the stream endpoint MUST pass a sink
         on_fragment("phase", {"role": "manager", "label": "Manager · reading events.jsonl"})
         on_fragment("delta", {"text": "你好", "message_id": "m1"})
@@ -605,7 +873,9 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
 def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch) -> None:
     """A streamed TEAM classification lazily spawns the executor (like /message)
     and the done frame carries the enqueued item."""
-    def _streaming(sid, text, *, global_root=None, on_fragment=None):
+    def _streaming(
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+    ):
         return {"kind": "task", "reply": None,
                 "item": {"id": "x9", "title": "optimize kernel"}, "daemon_alive": False}
 
@@ -629,7 +899,9 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
 def test_message_stream_standing_task_starts_continuous_executor(
     client: TestClient, monkeypatch,
 ) -> None:
-    def _streaming(sid, text, *, global_root=None, on_fragment=None):
+    def _streaming(
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+    ):
         return {
             "kind": "task",
             "reply": None,
@@ -656,7 +928,7 @@ def test_message_stream_standing_task_starts_continuous_executor(
 
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     """A triage crash surfaces as an ``error`` frame, not a wedged stream."""
-    def _boom(sid, text, *, global_root=None, on_fragment=None):
+    def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None):
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _boom)
@@ -894,6 +1166,46 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.reviewer_reasoning_effort == "xhigh"
     assert cfg.planner_task_iteration_max_cycles == 9
     assert cfg.planner_task_iteration_budget_usd == 1234.0
+
+
+def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> None:
+    sid = "s-workdir1"
+    life_dir = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life_dir.mkdir(parents=True)
+    workspace.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(
+            id=sid,
+            cwd=str(life_dir),
+            workdir=str(workspace),
+            launch_cwd=str(workspace),
+        ),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+
+    assert cfg.life_dir == life_dir
+    assert cfg.project_workdir == workspace.resolve()
+
+
+def test_web_daemon_config_does_not_migrate_legacy_launch_cwd(
+    tmp_path: Path,
+) -> None:
+    sid = "s-legacy-workdir"
+    life_dir = tmp_path / "projects" / sid
+    launch = tmp_path / "old-launch"
+    life_dir.mkdir(parents=True)
+    launch.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, cwd=str(life_dir), launch_cwd=str(launch)),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+
+    assert cfg.project_workdir == life_dir.resolve()
 
 
 def test_web_daemon_config_honors_persisted_runner_backend(

@@ -49,7 +49,11 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
 
     # Turns 1..4 stay on the same session (thread resumed, no handoff).
     for _ in range(4):
-        r = manager_bridge.manager_message("s-rot00001", "hi", global_root=tmp_path)
+        r = manager_bridge.manager_message(
+            "s-rot00001",
+            "checking in",
+            global_root=tmp_path,
+        )
         assert r["kind"] == "chat"
     events = [
         json.loads(line)
@@ -112,7 +116,11 @@ def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None
     monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _fake_triage)
 
     for _ in range(4):  # turns 1..4 — no rotation yet
-        manager_bridge.manager_message("s-rot00003", "hi", global_root=tmp_path)
+        manager_bridge.manager_message(
+            "s-rot00003",
+            "checking in",
+            global_root=tmp_path,
+        )
     assert runner.reset_calls == 0
     assert runner._next_seed_thread_id == "old-thread"
 

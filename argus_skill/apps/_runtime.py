@@ -110,27 +110,16 @@ def _resolve_global_root(args: argparse.Namespace) -> Path:
     return resolve_life_root(getattr(args, "life_dir", None))
 
 
-def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
-    """Per-project curated-checkpoint file in the project state dir.
-
-    Lives next to ``events.jsonl`` under
-    ``<global_root>/projects/<fingerprint>/checkpoint.json`` so the reviewer's
-    per-round handoff survives across missions and daemon restarts, never the
-    git work-tree (which the agent might commit). Set
-    ``ARGUS_SKILL_CHECKPOINT_PERSIST=0`` to opt back into in-memory-only.
-    """
+def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | None:
+    """Resolve the existing per-project runtime state directory."""
     if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
         return None
     try:
-        # Composition roots that already know the canonical session state dir
-        # pass it explicitly. Never hash a Web session workdir such as
-        # `projects/s-...`: that produced a second phantom fingerprint dir and
-        # sent the Reviewer to a nonexistent events.jsonl.
         explicit_state_dir = getattr(args, "project_state_dir", None)
         if explicit_state_dir:
             state_dir = Path(explicit_state_dir).expanduser()
             state_dir.mkdir(parents=True, exist_ok=True)
-            return state_dir / "checkpoint.json"
+            return state_dir
 
         from ..core.project import project_fingerprint
 
@@ -138,7 +127,18 @@ def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None
         fingerprint = project_fingerprint(workdir).fingerprint
         state_dir = global_root / "projects" / fingerprint
         state_dir.mkdir(parents=True, exist_ok=True)
-        return state_dir / "checkpoint.json"
+        return state_dir
+    except Exception:  # noqa: BLE001 — never let path resolution break a mission
+        return None
+
+
+def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
+    """Shared checkpoint in internal project state, never the output workdir."""
+    if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
+        return None
+    try:
+        state_dir = _project_state_dir_for(args, workdir)
+        return state_dir / "CHECKPOINT.md" if state_dir is not None else None
     except Exception:  # noqa: BLE001 — never let path resolution break a mission
         return None
 
@@ -604,6 +604,8 @@ class _SkillLoopRunner(SelfReplyMixin):
         preplanned: bool = False,
         mission_id: str | None = None,
         usage_mission_id: str | None = None,
+        max_rounds_override: int | None = None,
+        workflow_mode_override: str = "",
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -641,7 +643,11 @@ class _SkillLoopRunner(SelfReplyMixin):
                 "reviewer_reasoning_effort",
                 "xhigh",
             ),
-            "max_rounds": args.max_rounds,
+            "max_rounds": (
+                max(1, int(max_rounds_override))
+                if max_rounds_override is not None
+                else args.max_rounds
+            ),
             "skill_ops_enabled": _env_flag(
                 "ARGUS_SKILL_SKILL_OPS",
                 default=True,
@@ -668,9 +674,9 @@ class _SkillLoopRunner(SelfReplyMixin):
             # Filled from the resolved vertical below.  Fail-safe default: an
             # undecided task is bounded/non-paper.
             "paper_mission": False,
-            # Persist the curated working-memory checkpoint to the per-project
-            # state dir so the reviewer handoff survives across missions and
-            # daemon restarts (cross-session continuity).
+            # Shared Markdown checkpoint in internal project state. Engineer
+            # and Reviewer receive its absolute path and edit it in sequence;
+            # output workdirs contain deliverables only.
             "checkpoint_path": _checkpoint_path_for(
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
@@ -679,18 +685,16 @@ class _SkillLoopRunner(SelfReplyMixin):
             # Process-correctness audit: the reviewer runs in the project
             # work-tree and only sees the engineer's final summary. Give it the
             # ABSOLUTE path to this project's engineer execution log
-            # (``<life_dir>/events.jsonl``, which lives next to checkpoint.json in
-            # the per-project state dir — NOT the git work-tree) so it can grep
-            # HOW the result was produced. Empty string when checkpoint
-            # persistence is off (no resolvable life_dir) → reviewer prompt keeps
-            # its legacy shape, byte-for-byte. Filled below once we resolve the
-            # checkpoint path.
+            # (``<life_dir>/events.jsonl``) so it can grep HOW the result was
+            # produced. This runtime log remains outside the worktree.
         }
-        _eng_log_ckpt = _checkpoint_path_for(
+        _project_state_dir = _project_state_dir_for(
             args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
         config_kwargs["engineer_log_path"] = (
-            str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
+            str(_project_state_dir / "events.jsonl")
+            if _project_state_dir is not None
+            else ""
         )
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
@@ -712,7 +716,10 @@ class _SkillLoopRunner(SelfReplyMixin):
         config_kwargs["paper_mission"] = (
             _paper_allowed and _paper_mission_for_project_root(_proot)
         )
-        config_kwargs["workflow_mode"] = _workflow_mode_for_project_root(_proot)
+        config_kwargs["workflow_mode"] = (
+            workflow_mode_override.strip().lower()
+            or _workflow_mode_for_project_root(_proot)
+        )
         if config_kwargs["workflow_mode"] == "direct":
             config_kwargs["skill_ops_enabled"] = False
             config_kwargs["wiki_ops_enabled"] = False
@@ -735,9 +742,8 @@ class _SkillLoopRunner(SelfReplyMixin):
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
-        # The per-project state dir (life_dir) holds inbox.jsonl + events.jsonl,
-        # next to the reviewer checkpoint.json; derive both from the checkpoint.
-        operator_checkpoint_path = _checkpoint_path_for(args, workdir)
+        # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
+        operator_state_dir = _project_state_dir_for(args, workdir)
         # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
         # messages EACH engineer round — not just at mission start — so the
         # operator can steer a long in-flight mission instead of being locked out
@@ -745,11 +751,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # ``extra_guidance_provider`` hook; shares ``inbox.offset`` with the
         # supervisor's mission-start drain, so each message is delivered exactly
         # once with no duplication. Never raises into a mission.
-        inbox_life_dir = (
-            operator_checkpoint_path.parent
-            if operator_checkpoint_path is not None
-            else None
-        )
+        inbox_life_dir = operator_state_dir
 
         def _inbox_guidance_provider() -> list[str]:
             msgs: list[str] = []

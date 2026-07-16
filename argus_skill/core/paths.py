@@ -8,12 +8,14 @@ Current runtime layout::
 
     ~/.argus-skill/
     ├─ identity.md
+    ├─ global_budget.json
     ├─ skills/
     │   └─ *_archive/
     └─ projects/
         └─ <fingerprint>/
             ├─ events.jsonl
             ├─ backlog.jsonl
+            ├─ budget.json
             ├─ skills/
             ├─ continuous.json
             ├─ events.jsonl
@@ -138,8 +140,8 @@ def config_path() -> Path:
     """``~/.argus-skill/config.json`` — persisted operator knob overrides
     (backend / model / reasoning-effort switches made via natural language or
     ``/backend``, ``/config``), read by :mod:`argus_skill.core.knob_store`.
-    Global (not per-project), same footing as ``identity_path`` — these are
-    cross-project operator preferences, not project-scoped state."""
+    Global (not per-project), same footing as ``identity_path``. Project USD
+    budgets live separately in ``projects/<id>/budget.json``."""
     return global_root() / "config.json"
 
 

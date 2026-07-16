@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.skills.missions import EngineerMission, ReviewerMission
 from argus_skill.skills.role_match import match_role_skills, render_skill_playbook
 from argus_skill.skills.store import Skill, SkillStore
 
@@ -63,6 +64,12 @@ def test_canonical_playbook_renderer_injects_all_high_fit_skills(tmp_path: Path)
     assert "### Candidate skill: Beta Skill" in multi
 
     assert render_skill_playbook(store, []) == ""
+
+
+def test_long_role_skills_are_excluded_from_per_round_matching() -> None:
+    assert "argus-engineer-role.md" in EngineerMission.default_exclude
+    assert "argus-reviewer-role.md" in ReviewerMission.default_exclude
+    assert "reviewer-engineer-handoff.md" in ReviewerMission.default_exclude
 
 
 class _CountingBackend(MemoryBackend):

@@ -456,6 +456,51 @@ class LifeWorker:
     """
 
     def __init__(self, config: LifeWorkerConfig) -> None:
+        # budget.json is authoritative even when a handoff payload carries stale
+        # in-memory caps from the previous process.
+        from ..core.project_budget import (
+            GlobalBudget,
+            ProjectBudget,
+            budget_path,
+            global_budget_path,
+            read_project_budget,
+            write_global_budget,
+            write_project_budget,
+        )
+
+        if budget_path(config.life_dir).exists():
+            read_project_budget(config.life_dir)
+        else:
+            write_project_budget(
+                config.life_dir,
+                ProjectBudget(
+                    per_mission_cap_usd=config.per_mission_cap_usd,
+                    daily_cap_usd=config.daily_cap_usd,
+                ),
+            )
+        budget_global_root = (
+            Path(config.global_root).expanduser()
+            if config.global_root is not None
+            else (
+                config.life_dir.parent.parent
+                if config.life_dir.parent.name == "projects"
+                else config.life_dir
+            )
+        )
+        if not global_budget_path(budget_global_root).exists():
+            write_global_budget(
+                budget_global_root,
+                GlobalBudget(config.global_daily_cap_usd),
+            )
+        from ..core.knobs import resolve_budget_caps
+
+        caps = resolve_budget_caps(
+            project_state_dir=config.life_dir,
+            global_root=budget_global_root,
+        )
+        config.per_mission_cap_usd = caps.per_mission_cap_usd
+        config.daily_cap_usd = caps.daily_cap_usd
+        config.global_daily_cap_usd = caps.global_daily_cap_usd
         self.config = config
         self._stop = threading.Event()
         self._mission_stop = threading.Event()
@@ -1770,6 +1815,108 @@ def _daemon_global_root(config: LifeWorkerConfig) -> Path:
     )
 
 
+def _active_workspace_owner(
+    config: LifeWorkerConfig,
+    *,
+    target_workdir: Path | None = None,
+) -> dict[str, Any] | None:
+    """Return another live daemon that owns the canonical workdir."""
+    raw_target = target_workdir or config.project_workdir
+    if raw_target is None:
+        return None
+    try:
+        target = Path(raw_target).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    root = _daemon_global_root(config)
+    projects = root / "projects"
+    try:
+        candidates = [path for path in projects.iterdir() if path.is_dir()]
+    except OSError:
+        return None
+    own_life_dir = Path(config.life_dir).expanduser().resolve()
+    from ..core.session import read_session_meta, resolve_session_workdir
+
+    for life_dir in candidates:
+        try:
+            if life_dir.resolve() == own_life_dir:
+                continue
+            status = read_daemon_status(life_dir)
+            if not status.alive:
+                continue
+            if status.project_workdir:
+                owner_workdir = Path(status.project_workdir).expanduser().resolve(
+                    strict=True
+                )
+            else:
+                meta = read_session_meta(root, life_dir.name)
+                owner_workdir = resolve_session_workdir(meta, state_dir=life_dir)
+            if owner_workdir == target:
+                return {
+                    "sid": life_dir.name,
+                    "pid": status.pid,
+                    "workdir": str(target),
+                }
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return None
+
+
+def _workspace_start_error(config: LifeWorkerConfig) -> str:
+    """Validate workdir SSOT and exclusivity while holding spawn admission."""
+    if config.project_workdir is None:
+        return ""
+    try:
+        configured = Path(config.project_workdir).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        return f"configured workdir is unavailable: {exc}"
+    root = _daemon_global_root(config)
+    from ..core.session import read_session_meta, resolve_session_workdir
+
+    meta = read_session_meta(root, Path(config.life_dir).name)
+    if meta is not None:
+        try:
+            authoritative = resolve_session_workdir(meta, state_dir=config.life_dir)
+        except (OSError, RuntimeError) as exc:
+            return f"persisted workdir is unavailable: {exc}"
+        if authoritative != configured:
+            return (
+                "session workdir changed during daemon startup; retry with "
+                f"{authoritative}"
+            )
+    owner = _active_workspace_owner(config, target_workdir=configured)
+    if owner is not None:
+        return (
+            f"workdir {configured} is already owned by active session "
+            f"{owner['sid']} (pid {owner['pid']})"
+        )
+    return ""
+
+
+def _acquire_daemon_workspace_lease(config: LifeWorkerConfig) -> int | None:
+    if config.project_workdir is None:
+        return None
+    from ..core.workspace_lease import acquire_workspace_lease
+
+    return acquire_workspace_lease(
+        config.project_workdir,
+        owner={
+            "sid": str(config.project_fingerprint or Path(config.life_dir).name),
+            "life_dir": str(config.life_dir),
+        },
+    )
+
+
+def _release_daemon_workspace_lease(
+    fd: int | None,
+    *,
+    unlock: bool = True,
+) -> None:
+    from ..core.workspace_lease import release_workspace_lease
+
+    release_workspace_lease(fd, unlock=unlock)
+
+
 def _active_daemon_count(config: LifeWorkerConfig) -> int:
     projects = _daemon_global_root(config) / "projects"
     try:
@@ -1823,6 +1970,9 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
         release_spawn_lock=_release_daemon_spawn_lock,
         max_active_daemons=_max_active_daemons,
         active_daemon_count=_active_daemon_count,
+        workspace_start_error=_workspace_start_error,
+        acquire_workspace_lease=_acquire_daemon_workspace_lease,
+        release_workspace_lease=_release_daemon_workspace_lease,
         quiet=quiet,
     )
 

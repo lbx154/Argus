@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+import argus_skill.core.metrics as metrics_module
 from argus_skill.core.metrics import (
     http_route_template,
     metrics_snapshot,
@@ -82,6 +83,21 @@ def test_empty_metrics_are_healthy_and_do_not_invent_failures(tmp_path: Path) ->
     assert snapshot["web"]["error_rate_5xx"] == 0.0
     assert snapshot["event_validation_failures"] == 0
     assert snapshot["slo"] == {"status": "healthy", "violations": []}
+
+
+def test_metrics_snapshot_never_takes_the_writer_lock(tmp_path: Path, monkeypatch) -> None:
+    record_metric(
+        tmp_path,
+        "web.request",
+        labels={"method": "GET", "path": "/api/projects", "status": 200},
+    )
+
+    def forbidden_lock(_root):
+        raise AssertionError("snapshot reads must not block metric writers")
+
+    monkeypatch.setattr(metrics_module, "_metrics_lock", forbidden_lock)
+
+    assert metrics_snapshot(root=tmp_path)["web"]["requests"] == 1
 
 
 def test_metric_labels_bucket_unbounded_values(tmp_path: Path) -> None:

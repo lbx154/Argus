@@ -260,6 +260,27 @@ ControlIntent = Literal["abort", "no_dispatch", "steer"]
 LifetimeIntent = Literal["bounded", "standing"]
 
 
+_GREETING_REPLIES = {
+    "zh": "你好，我是 Argus Manager。",
+    "ja": "こんにちは、Argus Managerです。",
+    "ko": "안녕하세요, Argus Manager입니다.",
+    "default": "Hi, I'm Argus Manager.",
+}
+
+
+def _greeting_reply(message: str) -> str:
+    text = message or ""
+    if any("\u3040" <= ch <= "\u30ff" for ch in text):
+        language = "ja"
+    elif any("\uac00" <= ch <= "\ud7af" for ch in text):
+        language = "ko"
+    elif any("\u3400" <= ch <= "\u9fff" for ch in text):
+        language = "zh"
+    else:
+        language = "default"
+    return _GREETING_REPLIES[language]
+
+
 def build_config_intent_prompt(text: str) -> str:
     return (
         "You decide whether an operator's message asks to CHANGE one of Argus's "
@@ -385,110 +406,84 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
     return None
 
 
-def build_front_door_prompt(text: str) -> str:
+def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
+    from ..skills.vertical_select import VERTICAL_PURPOSES
+
     cleaned = (text or "").strip()
+    hints = {
+        "direct": "bounded one-off deliverable",
+        "research": "research paper pipeline",
+        "math": "proofs, conjectures, open mathematics",
+        "physics": "physical theory/simulation/data",
+        "quant": "finance factor research",
+        "speedrun": "generic metric optimization",
+        "nanochat": "nanochat val_bpb optimization",
+        "nanogpt_speedrun": "nanogpt training speed",
+        "kernelbench": "GPU kernel correctness/speed",
+        "learning": "ingest material into skills/wiki",
+        "ale_last_exam": "long-horizon professional sandbox task",
+        "fiction_writing": "fiction",
+        "classical_poetry": "classical Chinese poetry",
+        "modern_poetry": "modern free verse",
+        "prose": "literary prose",
+        "literary_editor": "edit existing literary text",
+    }
+    verticals = ", ".join(
+        f"{name}={hints.get(name, name.replace('_', ' '))}"
+        for name in VERTICAL_PURPOSES
+    )
     return (
-        "Classify one operator message on SIX independent axes.\n\n"
-        "AXIS 1 — CONFIG: does the message ask to CHANGE one of Argus's own "
-        "runtime settings (its cockpit knobs), as opposed to a research task, a "
-        "question, or small talk?\n"
-        "Argus has four roles — manager, planner, engineer, reviewer. The "
-        "operator-changeable settings are:\n"
-        "  PER-ROLE (may name one role, several, or ALL / the shared default):\n"
-        "    backend  — which agent CLI runs a role: codex | claude | copilot\n"
-        "    model    — which model a role calls, e.g. gpt-5.5, claude-sonnet-5, "
-        "o3, gemini-3.5 (any id the backend supports)\n"
-        "    effort   — a role's reasoning effort: low | medium | high | max | xhigh\n"
-        "  GLOBAL (no role):\n"
-        "    per_mission_cap — the STANDING default USD cap applied to EVERY "
-        'future mission. A budget for ONE specific / current run ("这轮就给 '
-        '200", "for this mission only") is a TASK constraint, NOT a settings '
-        "write — CONFIG is NONE.\n"
-        "    daily_cap       — the STANDING default USD cap per local day\n"
-        "    max_daemons     — maximum background daemons running at once\n"
-        "    codex_daily_requests — host-wide Codex provider-call cap per day\n"
-        "    copilot_daily_requests — host-wide Copilot provider-call cap per day\n"
-        "    copilot_daily_premium — host-wide Copilot premium-request cap per day\n"
-        "    safe_mode       — extra-conservative guardrails: on | off\n"
-        "    show_reasoning  — stream the agent's reasoning to the cockpit: on | off\n"
-        "    telegram        — the Telegram notification bridge: on | off\n"
-        'CONFIG is NONE if the message is a real task, a question ("should I use '
-        'X?" / "which model is better?"), small talk, or merely MENTIONS a '
-        "model/backend/setting without asking to change the STANDING default. A "
-        'model/backend/effort/budget asked for WITHIN a single task ("这轮" / '
-        '"do THIS on claude with high effort") is part of the task — CONFIG is '
-        "NONE. When in doubt, NONE.\n\n"
-        "AXIS 2 — CONTROL: does the operator clearly constrain what Argus may do "
-        "with this message?\n"
-        "  ABORT = immediately stop the current in-flight mission. This is an "
-        "operator control action, never a new task.\n"
-        "  NO_DISPATCH = the operator explicitly says not to create, queue, or "
-        "dispatch a task/mission, not to start a daemon, or to keep the request "
-        "read-only with no persistent side effect. Handle it entirely as inline "
-        "Manager SELF work, even when answering requires inspecting the current "
-        "workspace with read-only tools. If it cannot be satisfied without a "
-        "persistent side effect, explain that and ask for authorization; never "
-        "turn it into TEAM work.\n"
-        "  STEER = change the direction, priorities, method, or constraints of "
-        "the mission already running (for example: stop formal checking and "
-        "focus on inventing a mathematical tool). This is a durable Manager "
-        "directive to the active Engineer/Planner, never a new mission.\n"
-        "  NONE = every other message, including questions about how stopping "
-        "works, requests to implement a stop feature, and tasks that merely "
-        "mention stopping something as part of their objective.\n"
-        "  When in doubt, answer NONE. If CONTROL is ABORT, NO_DISPATCH, or STEER, ROUTE "
-        "must be SELF.\n\n"
-        "AXIS 3 — ROUTE: SELF or TEAM?\n"
-        "  SELF = conversational or read-only Manager work: a greeting, ack, "
-        "capability/status question, source/workspace inspection with no durable "
-        "side effect, explanation, or an operator control action.\n"
-        "  TEAM = any request to create or modify a persistent file/artifact, "
-        "run commands, or perform research/engineering. Small one-shot artifacts "
-        "still use TEAM; the `direct` workflow keeps them lean.\n"
-        "  When in doubt, answer TEAM — never route work that needs review to a "
-        "lone worker.\n\n"
-        "AXIS 4 — LIFETIME: for TEAM work only, is this BOUNDED or STANDING?\n"
-        "  BOUNDED = one concrete goal with a natural finish line, such as fixing "
-        "one bug, adding one feature, proving one stated result, or running one "
-        "benchmark.\n"
-        "  STANDING = open-ended work with no natural finish line that should keep "
-        "running autonomously until the operator stops it, such as continuously "
-        "improving, searching, monitoring, or optimizing as many cases as possible.\n"
-        "  For SELF messages answer NONE. For TEAM ambiguity answer STANDING; only "
-        "choose BOUNDED when the one-mission finish line is clear.\n\n"
-        "AXIS 5 — FAST_REPLY: optionally answer a lightweight SELF turn in this "
-        "same call. Write a brief one-line reply in the message's language for a "
-        "greeting, thanks, acknowledgement, farewell, small talk, or a generic "
-        "identity/capability question that can be answered only from these fixed "
-        "facts: Argus Manager is the operator's interface to an autonomous system; "
-        "it can answer read-only questions inline and route durable research or "
-        "engineering work to Planner, Engineer, and Reviewer. For questions about "
-        "the current model/backend/configuration, live mission status, workspace "
-        "or source contents, prior conversation, or any action/config/control/TEAM "
-        "task answer NONE because the full Manager must inspect real state. This "
-        "field never changes ROUTE.\n\n"
-        "AXIS 6 — NAME: create a concise conversation title from the core intent "
-        "of this message. This title is required for SELF, TEAM, config, control, "
-        "and conversational messages alike. Use the message's language. Distill "
-        "the subject and requested action instead of copying polite framing such "
-        "as 'please' or 'help me'. Prefer 2-12 Chinese characters or 2-8 words; "
-        "use a short noun phrase, with no quotes, trailing punctuation, or session "
-        "ID.\n\n"
-        "Reply with EXACTLY six lines and nothing else:\n"
+        "Classify ONLY the current operator message on nine independent axes.\n"
+        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
+        "CONFIG: SET only when the operator asks to change an Argus STANDING "
+        "cockpit default. Role knobs: backend|model|effort for "
+        "manager,planner,engineer,reviewer or ALL. Global knobs: "
+        "per_mission_cap,daily_cap,max_daemons,codex_daily_requests,"
+        "copilot_daily_requests,copilot_daily_premium,safe_mode,show_reasoning,"
+        "telegram. Questions, mentions, recommendations, and settings/budgets "
+        "limited to this one task are NONE. Default NONE.\n\n"
+        "CONTROL: ABORT only for an explicit request to stop the current mission. "
+        "NO_DISPATCH only when the operator explicitly forbids queueing/starting "
+        "work or requires no persistent side effect. STEER only when "
+        "ACTIVE_MISSION=YES and the message changes that mission's direction, "
+        "priority, method, evidence, or constraints; criticism such as 'search how "
+        "others solved it' still counts. Questions about stopping and tasks merely "
+        "mentioning stop are NONE. Any control forces ROUTE SELF.\n\n"
+        "STEER_DIRECTIVE: only for STEER, write the Manager's concise professional "
+        "team instruction. Preserve the goal while choosing method, evidence, scope, "
+        "and stopping condition. Never copy insults/raw wording. Else NONE.\n\n"
+        "ROUTE: SELF for conversation, read-only inspection/explanation/status, or "
+        "control. TEAM for persistent file/artifact changes, commands, research, or "
+        "engineering. Small one-shot artifacts are TEAM. If unsure, TEAM.\n\n"
+        "LIFETIME: TEAM only. BOUNDED has one concrete natural finish line. STANDING "
+        "is open-ended continuous improvement/search/monitoring. SELF=>NONE; "
+        "ambiguous TEAM=>STANDING.\n\n"
+        "GREETING: GREETING only when the entire message is a pure greeting with "
+        "no question, request, context reference, or other content. Otherwise NONE. "
+        "This is a control token, never prose, and never changes ROUTE.\n\n"
+        "NAME: concise title in the message language; 2-12 Chinese characters or "
+        "2-8 words, core subject/action only, no polite framing, quotes, punctuation, "
+        "or session id.\n\n"
+        "VERTICAL: for TEAM work, choose one built-in below only when the message "
+        "clearly fits from its own words; otherwise AUTO so the grounded Manager "
+        "can inspect the workspace. SELF=>NONE.\n"
+        f"{verticals}\n\n"
+        "TARGET: only when VERTICAL declares a research target contract, choose "
+        "EXPLORATORY for bounded/known/local evidence, PUBLISHABLE when a verified "
+        "original publishable result is required, or DOCTORAL only when the operator "
+        "explicitly requires thesis/doctoral-level originality. Else NONE.\n\n"
+        "Reply with EXACTLY nine lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
+        "STEER_DIRECTIVE: <Manager-authored team directive | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "LIFETIME: <BOUNDED | STANDING | NONE>\n"
-        "FAST_REPLY: <brief one-line lightweight SELF reply | NONE>\n"
+        "GREETING: <GREETING | NONE>\n"
         "NAME: <concise conversation title>\n"
-        "  For a SET line: <knob> = backend | model | effort | per_mission_cap | "
-        "daily_cap | max_daemons | codex_daily_requests | "
-        "copilot_daily_requests | copilot_daily_premium | safe_mode | "
-        "show_reasoning | telegram; <roles> = a "
-        "comma-separated list from manager,planner,engineer,reviewer or ALL "
-        "(role knobs), or a single dash - (global knobs); <value> = the target "
-        "verbatim (backend name / model id / effort / dollar amount / on | off).\n\n"
+        "VERTICAL: <built-in vertical | AUTO | NONE>\n"
+        "TARGET: <EXPLORATORY | PUBLISHABLE | DOCTORAL | NONE>\n"
+        "SET syntax: SET <knob> <comma-separated roles|ALL|-> <verbatim value>.\n\n"
         f"Message:\n{cleaned}\n\n"
         "Answer:\n"
     )
@@ -500,19 +495,23 @@ def classify_front_door(
     run_exec: Callable[[str], Any],
     name_sink: Callable[[str], None] | None = None,
     lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
-    fast_reply_sink: Callable[[str], None] | None = None,
+    greeting_sink: Callable[[str], None] | None = None,
+    steering_sink: Callable[[str], None] | None = None,
+    vertical_sink: Callable[[dict[str, str]], None] | None = None,
+    active_mission: bool = False,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
 
-    The return shape stays backward-compatible; optional sinks expose the
-    lifetime verdict and a strictly social one-line reply so callers can avoid
-    otherwise redundant model turns.
+    The return shape stays backward-compatible; optional sinks expose reusable
+    routing metadata. The classifier never writes an operator-facing reply.
     """
     cleaned = (text or "").strip()
     if not cleaned:
         return None, None, "complex"
     try:
-        result = run_exec(build_front_door_prompt(cleaned))
+        result = run_exec(
+            build_front_door_prompt(cleaned, active_mission=active_mission)
+        )
     except Exception:  # noqa: BLE001
         return None, None, "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
@@ -520,10 +519,13 @@ def classify_front_door(
     answer = _extract_answer(result)
     config_line = _line_after_prefix(answer, "CONFIG:")
     control_line = _line_after_prefix(answer, "CONTROL:")
+    steering_line = _line_after_prefix(answer, "STEER_DIRECTIVE:")
     route_line = _line_after_prefix(answer, "ROUTE:")
     lifetime_line = _line_after_prefix(answer, "LIFETIME:")
-    fast_reply_line = _line_after_prefix(answer, "FAST_REPLY:")
+    greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
+    vertical_line = _line_after_prefix(answer, "VERTICAL:")
+    target_line = _line_after_prefix(answer, "TARGET:")
     intent = _parse_config_line(config_line) if config_line is not None else None
     control_token = (
         str(control_line or "").strip().upper().replace("-", "_")
@@ -554,26 +556,49 @@ def classify_front_door(
             lifetime_sink(lifetime)
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing
             pass
-    fast_reply = str(fast_reply_line or "").strip()
-    fast_reply_token = fast_reply.rstrip(".。!！").upper()
+    greeting_token = str(greeting_line or "").strip().upper()
     if (
-        callable(fast_reply_sink)
+        callable(greeting_sink)
+        and greeting_token == "GREETING"
         and route == "simple"
         and intent is None
         and control is None
-        and fast_reply
-        and fast_reply_token not in {"NONE", "N/A", "NA", "NULL"}
-        and len(fast_reply) <= 500
     ):
         try:
-            fast_reply_sink(fast_reply)
-        except Exception:  # noqa: BLE001 - optional latency fast-path only
+            greeting_sink(_greeting_reply(cleaned))
+        except Exception:  # noqa: BLE001 - optional one-call greeting path only
+            pass
+    steering = str(steering_line or "").strip()
+    steering_token = steering.rstrip(".。!！").upper()
+    if (
+        callable(steering_sink)
+        and control == "steer"
+        and steering
+        and steering_token not in {"NONE", "N/A", "NA", "NULL"}
+        and len(steering) <= 1600
+    ):
+        try:
+            steering_sink(steering)
+        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
             pass
     if callable(name_sink) and name_line:
         try:
             name_sink(name_line)
         except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
             pass
+    if callable(vertical_sink) and route == "complex":
+        from ..skills.vertical_select import VERTICAL_PURPOSES
+
+        vertical = str(vertical_line or "").strip().split(maxsplit=1)[0].lower()
+        vertical = vertical.strip("`'\".,:;()[]{}")
+        target = _first_alpha_token(target_line).lower()
+        if vertical in VERTICAL_PURPOSES:
+            if target not in {"exploratory", "publishable", "doctoral"}:
+                target = ""
+            try:
+                vertical_sink({"vertical": vertical, "target": target})
+            except Exception:  # noqa: BLE001 - advisory routing metadata
+                pass
     return intent, control, route
 
 

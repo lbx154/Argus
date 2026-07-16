@@ -24,6 +24,28 @@ def test_count_pending_does_not_advance(tmp_path: Path) -> None:
     assert mb.drain(tmp_path, "tm-1")[0]["text"] == "x"
 
 
+def test_offset_failure_does_not_drop_or_duplicate_confirmed_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mb.send(tmp_path, to="tm-1", frm="lead", text="first", now=1.0)
+    mb.send(tmp_path, to="tm-1", frm="lead", text="second", now=2.0)
+    original = mb._write_offset
+    calls = 0
+
+    def fail_second(path: Path, offset: int) -> bool:
+        nonlocal calls
+        calls += 1
+        return False if calls == 2 else original(path, offset)
+
+    monkeypatch.setattr(mb, "_write_offset", fail_second)
+
+    assert [row["text"] for row in mb.drain(tmp_path, "tm-1")] == ["first"]
+    monkeypatch.setattr(mb, "_write_offset", original)
+    assert [row["text"] for row in mb.drain(tmp_path, "tm-1")] == ["second"]
+    assert mb.drain(tmp_path, "tm-1") == []
+
+
 def test_broadcast_one_copy_each(tmp_path: Path) -> None:
     mb.broadcast(tmp_path, ["a", "b"], frm="lead", text="go", now=1.0)
     assert mb.drain(tmp_path, "a")[0]["text"] == "go"

@@ -2,7 +2,7 @@
 name: Math Research Review
 description: Independently review mathematical correctness, novelty, significance, statement fidelity, and real Lean evidence against the requested research target.
 category: math-research-review
-version: 1
+version: 3
 ---
 
 MISSION TYPE: MATHEMATICS. Independently check correctness and fidelity to the
@@ -27,3 +27,20 @@ that bounded item's explicit acceptance criteria; it does not certify the
 doctoral project target. Keep the structured result classification honest, and
 do not let an unmet project-level novelty or significance target veto a
 completed bounded item unless that item explicitly requires it.
+
+Treat a materially new theorem, operator, proof mechanism, obstruction
+certificate, or asymptotic route as a trigger for a separate mechanism-level
+overlap audit. If that audit is missing, a bounded construction node may still
+be `done` on correctness, but keep novelty `unverified` and require the Planner's
+next DAG node to search exact/synonym terms, closest primary sources,
+backward/forward citations, and foundational adjacent fields. Final review,
+publishable, or doctoral completion must `continue` until the audit is closed.
+
+Apply verifier separation by problem type. A new conjecture needs a decisive
+falsification attempt; a construction needs an independent admissibility check
+plus proof; a formal statement needs back-translation/semantic fidelity plus
+compilation. Reject circular witnesses, supplied-answer substitution in a true
+construction task, flat premise lists that hide a missing bridge lemma, and any
+workflow where the same unsupported model judgment acts as both generator and
+verifier. These checks are conditional—do not demand construction machinery for
+a theorem-proving task or formalization when it would not reduce uncertainty.

@@ -21,7 +21,7 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
-      package_version: '0.1.0',
+      package_version: '0.1.1',
       source_root: '/home/dev/current/argus-skill',
       configured_source_root: '/home/dev/current/argus-skill',
       source_root_matches_config: true,
@@ -112,7 +112,7 @@ test('startup probe reports the backend checkout and revision', async () => {
     assert.equal(probe.state, 'compatible');
     assert.match(
       probe.message,
-      /\/home\/dev\/current\/argus-skill @ abc123 · release 0\.1\.0\+[a-f0-9]+ \(pid 123\)/,
+      /\/home\/dev\/current\/argus-skill @ abc123 · release 0\.1\.1\+[a-f0-9]+ \(pid 123\)/,
     );
   } finally {
     globalThis.fetch = originalFetch;

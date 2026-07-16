@@ -64,6 +64,28 @@ def _reserve(root: Path, project: Path, call_id: str, **overrides):
     )
 
 
+def test_global_file_cap_applies_to_call_without_project_context(tmp_path: Path) -> None:
+    from argus_skill.core.project_budget import GlobalBudget, write_global_budget
+
+    write_global_budget(tmp_path, GlobalBudget(1.25))
+
+    reservation, reason = reserve_call_budget(
+        call_id="global-only",
+        project_root=None,
+        mission_id=None,
+        provider="codex",
+        model="gpt-5.6-sol",
+        run_label="global-utility",
+        global_root=tmp_path,
+        per_call_cap_usd=5,
+    )
+
+    assert reason == ""
+    assert reservation is not None
+    assert reservation.amount_usd == pytest.approx(1.25)
+    reservation.release(reason="test")
+
+
 def test_atomic_reservation_blocks_concurrent_use_of_same_budget(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)

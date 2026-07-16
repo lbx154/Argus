@@ -3,13 +3,15 @@
 The declaration deliberately contains only *which project files matter now*.
 It does not encode paper/code/data product semantics: the grounded Manager
 chooses the files after inspecting the workspace, and the Web client renders
-their actual MIME type. Keeping this as project-local data also lets the view
-survive Web/API restarts without adding another service-side state machine.
+their actual MIME type. The manifest is session-state data while selected files
+remain workspace-relative, so sequential sessions sharing one repository never
+inherit each other's sidebar choice.
 """
 from __future__ import annotations
 
 import json
 import os
+import shlex
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -69,6 +71,71 @@ class ManagerPresentation:
 
     path: str
     content: str
+
+
+def manager_workspace_context(
+    project_root: Path | str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> dict[str, object]:
+    """Return the exact path/capability card shared by every Manager surface."""
+    workspace = Path(project_root).expanduser().resolve()
+    state_root = Path(manifest_root or workspace).expanduser().resolve()
+    wiki_dirs: list[str] = []
+    try:
+        from ..wiki.auto_hooks import discover_wikis
+
+        wiki_dirs = [str(path.resolve()) for path in discover_wikis(workspace)]
+    except Exception:  # noqa: BLE001 — capability context is fail-soft
+        wiki_dirs = []
+    return {
+        "workspace": str(workspace),
+        "state_root": str(state_root),
+        "checkpoint": str(state_root / "CHECKPOINT.md"),
+        "project_skill_dir": str(state_root / "skills"),
+        "wiki_dirs": wiki_dirs,
+        "live_view_manifest": str(state_root / LIVE_VIEW_MANIFEST),
+        "presentation_root": str(workspace / MANAGER_LIVE_DIR),
+        "artifact_path_rule": "all selected paths are workspace-relative",
+        "manager_live_view_tool": (
+            "python -m argus_skill.tools.manager_live_view "
+            f"--workspace {workspace} --state-dir {state_root}"
+        ),
+    }
+
+
+def manager_workspace_capability_prompt(
+    project_root: Path | str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> str:
+    context = manager_workspace_context(
+        project_root,
+        manifest_root=manifest_root,
+    )
+    tool = str(context["manager_live_view_tool"])
+    workspace_q = shlex.quote(str(context["workspace"]))
+    state_q = shlex.quote(str(context["state_root"]))
+    tool = (
+        "python -m argus_skill.tools.manager_live_view "
+        f"--workspace {workspace_q} --state-dir {state_q}"
+    )
+    return (
+        "## Manager workspace and rendering authority\n"
+        f"{json.dumps(context, ensure_ascii=False)}\n"
+        "The canonical workspace is where project outputs live and where every render path "
+        "is resolved. The state_root is private session memory/control state; never "
+        "select a state-root file as a workspace artifact. You own the right-side "
+        "content choice. Inspect current files, choose the most useful existing "
+        "artifact, or author a presentation under the presentation_root. For an "
+        "operator-facing chat turn, inspect or change the view with:\n"
+        f"- `{tool} status`\n"
+        f"- `{tool} set --title <title> --reason <reason> --path <workspace-relative-path> [--path ...]`\n"
+        f"- `{tool} clear`\n"
+        "Path order is presentation order and the first selected Manager artifact "
+        "is the default right-side content. Never claim rendering succeeded until "
+        "the tool returns `ok: true` with `exists: true`.\n"
+    )
 
 
 def normalize_live_view_path(value: object) -> str | None:
@@ -135,9 +202,13 @@ def parse_live_view(value: object) -> LiveViewDecision | None:
     return LiveViewDecision(title=title or "Live project view", paths=tuple(paths), reason=reason)
 
 
-def load_live_view_decision(project_root: Path | str) -> LiveViewDecision | None:
+def load_live_view_decision(
+    project_root: Path | str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> LiveViewDecision | None:
     """Load the latest Manager declaration, failing closed on malformed data."""
-    manifest = Path(project_root) / LIVE_VIEW_MANIFEST
+    manifest = Path(manifest_root or project_root) / LIVE_VIEW_MANIFEST
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
@@ -165,13 +236,17 @@ def _response_payload(raw_text: str) -> dict[str, object] | None:
 
 def parse_live_view_response(
     raw_text: str,
+    *,
+    null_means_clear: bool = False,
 ) -> tuple[bool, LiveViewDecision | None]:
     """Parse the optional ``live_view`` key from a Manager JSON response."""
     payload = _response_payload(raw_text)
     if payload is None or "live_view" not in payload:
         return False, None
+    if payload.get("live_view") is None:
+        return bool(payload.get("clear_live_view") is True or null_means_clear), None
     view = parse_live_view(payload.get("live_view"))
-    decided = payload.get("live_view") is None or view is not None
+    decided = view is not None
     return decided, view
 
 
@@ -202,6 +277,153 @@ def parse_manager_presentations(raw_text: str) -> tuple[ManagerPresentation, ...
     return tuple(presentations)
 
 
+def _manager_progress_context(
+    project_root: Path | str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> dict[str, object]:
+    try:
+        from ..core.mission_view import load_mission_view
+
+        view = load_mission_view(manifest_root or project_root)
+    except Exception:  # noqa: BLE001 — rendering context is fail-soft
+        return {}
+    dag = [row for row in view.get("dag", []) if isinstance(row, dict)]
+    active = next(
+        (
+            row for row in dag
+            if str(row.get("status") or "")
+            in {"running", "in_progress", "claimed"}
+        ),
+        None,
+    )
+    pending = next(
+        (row for row in dag if str(row.get("status") or "") == "pending"),
+        None,
+    )
+    mission = view.get("mission", {}) if isinstance(view.get("mission"), dict) else {}
+    return {
+        "stage": view.get("stage", {}),
+        "round": view.get("round", {}),
+        "active_role": view.get("active_role", ""),
+        "current_node": {
+            "title": str((active or {}).get("title") or mission.get("title") or ""),
+            "status": str((active or {}).get("status") or mission.get("status") or ""),
+        },
+        "completed_nodes": [
+            str(row.get("title") or "")
+            for row in dag
+            if str(row.get("status") or "") == "done"
+        ][-6:],
+        "next_node": str((pending or {}).get("title") or ""),
+        "verified_artifacts": [
+            str(row.get("title") or row.get("path") or "")
+            for row in view.get("artifacts", [])
+            if isinstance(row, dict) and row.get("exists")
+        ][-6:],
+    }
+
+
+def _useful_manager_presentation(content: str) -> bool:
+    lines = [line.strip() for line in str(content or "").splitlines() if line.strip()]
+    return len(str(content or "").encode("utf-8")) >= 160 and len(lines) >= 5
+
+
+def manager_checkpoint_refresh_required(
+    project_root: Path | str,
+    raw_text: str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> bool:
+    """Whether a stage ruling failed to maintain its Manager-owned checkpoint."""
+    current = load_live_view_decision(project_root, manifest_root=manifest_root)
+    if current is None or not any(
+        path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+        for path in current.paths
+    ):
+        return False
+    payload = _response_payload(raw_text)
+    if payload is None or payload.get("clear_live_view") is True:
+        return False
+    _decided, selected = parse_live_view_response(raw_text)
+    target = selected or current
+    manager_paths = [
+        path for path in target.paths
+        if path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+    ]
+    if not manager_paths:
+        return False
+    presentations = {item.path: item.content for item in parse_manager_presentations(raw_text)}
+    return any(
+        not _useful_manager_presentation(presentations.get(path, ""))
+        for path in manager_paths
+    )
+
+
+def repair_manager_checkpoint_response(
+    project_root: Path | str,
+    raw_text: str,
+    *,
+    manifest_root: Path | str | None = None,
+) -> str:
+    """Guarantee a substantive boundary checkpoint from Manager + mission state."""
+    payload = _response_payload(raw_text)
+    current = load_live_view_decision(project_root, manifest_root=manifest_root)
+    if payload is None or current is None or payload.get("clear_live_view") is True:
+        return raw_text
+    _decided, selected = parse_live_view_response(raw_text)
+    target = selected or current
+    manager_paths = [
+        path for path in target.paths
+        if path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+    ]
+    if not manager_paths:
+        return raw_text
+    context = _manager_progress_context(project_root, manifest_root=manifest_root)
+    current_node = context.get("current_node") if isinstance(context.get("current_node"), dict) else {}
+    completed = [str(item) for item in context.get("completed_nodes", []) if str(item)]
+    artifacts = [str(item) for item in context.get("verified_artifacts", []) if str(item)]
+    next_node = str(context.get("next_node") or "")
+    lines = [
+        f"# {target.title}",
+        "",
+        "## Current node",
+        f"- {str(current_node.get('title') or 'No active DAG node')}"
+        f" — `{str(current_node.get('status') or 'idle')}`",
+        f"- Active role: `{str(context.get('active_role') or 'none')}`",
+        "",
+        "## Verified progress",
+    ]
+    lines.extend(f"- {item}" for item in completed[-5:])
+    lines.extend(f"- Artifact: `{item}`" for item in artifacts[-4:])
+    if not completed and not artifacts:
+        lines.append("- No reviewed increment has been registered yet.")
+    lines.extend([
+        "",
+        "## Current blocker",
+        f"- {str(payload.get('reason') or target.reason or 'Awaiting the next verified result.')}",
+        "",
+        "## Next action",
+        f"- {next_node or 'Finish the current node and hand it to Reviewer.'}",
+        "",
+    ])
+    content = "\n".join(lines)
+    payload["live_view"] = {
+        "title": target.title,
+        "reason": target.reason,
+        "paths": list(target.paths),
+    }
+    existing = {
+        item.path: item.content for item in parse_manager_presentations(raw_text)
+        if _useful_manager_presentation(item.content)
+    }
+    payload["presentations"] = [
+        {"path": path, "content": existing.get(path, content)}
+        for path in manager_paths
+    ]
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _manager_argus_root(project_root: Path | str) -> Path:
     root = Path(project_root).expanduser().resolve()
     argus_dir = root / ".argus"
@@ -220,14 +442,92 @@ def _manager_live_root(project_root: Path | str) -> Path:
     return live_dir
 
 
+def _write_manager_presentation(target: Path, content: str) -> None:
+    """Atomically replace one harness-owned presentation file."""
+    tmp = target.with_name(
+        f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    )
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, target)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _workspace_artifact_exists(project_root: Path | str, relative_path: str) -> bool:
+    """Check one selected artifact against the canonical execution workspace."""
+    root = Path(project_root).expanduser().resolve()
+    try:
+        target = (root / relative_path).resolve(strict=True)
+        target.relative_to(root)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        return False
+    return target.is_file() and not target.is_symlink()
+
+
+def _fallback_manager_presentation(
+    payload: dict[str, object],
+    view: LiveViewDecision,
+    path: str,
+) -> str:
+    """Build a minimal truthful page when Manager selected a new text view but
+    accidentally omitted its ``presentations`` entry.
+
+    This contains only fields already authored by Manager in the same response;
+    it never manufactures research claims or edits task artifacts.
+    """
+    suffix = Path(path).suffix.casefold()
+    if suffix not in {".md", ".markdown", ".txt"}:
+        raise ValueError(
+            "missing Manager presentation content for non-text live view"
+        )
+    action = str(payload.get("action") or "").strip()
+    target_stage = str(payload.get("target_stage") or "").strip()
+    decision_reason = str(payload.get("reason") or "").strip()
+    if suffix == ".txt":
+        lines = [view.title]
+        if view.reason:
+            lines.extend(("", view.reason))
+        if action or target_stage or decision_reason:
+            lines.extend(("", "Latest Manager decision"))
+            if action:
+                lines.append(f"Action: {action}")
+            if target_stage:
+                lines.append(f"Stage: {target_stage}")
+            if decision_reason:
+                lines.append(f"Reason: {decision_reason}")
+        return "\n".join(lines).rstrip() + "\n"
+    lines = [f"# {view.title}"]
+    if view.reason:
+        lines.extend(("", view.reason))
+    if action or target_stage or decision_reason:
+        lines.extend(("", "## Latest Manager decision"))
+        if action:
+            lines.append(f"- Action: `{action}`")
+        if target_stage:
+            lines.append(f"- Stage: `{target_stage}`")
+        if decision_reason:
+            lines.append(f"- Reason: {decision_reason}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def apply_manager_rendering_response(
     project_root: Path | str,
     raw_text: str,
+    *,
+    manifest_root: Path | str | None = None,
+    null_means_clear: bool = False,
 ) -> LiveViewDecision | None:
     """Confined writer for Manager-authored presentation content + manifest."""
     payload = _response_payload(raw_text)
     if payload is None:
-        return load_live_view_decision(project_root)
+        return load_live_view_decision(
+            project_root,
+            manifest_root=manifest_root,
+        )
     raw_presentations = payload.get("presentations")
     if raw_presentations is not None and (
         not isinstance(raw_presentations, list)
@@ -239,8 +539,16 @@ def apply_manager_rendering_response(
         raise ValueError("invalid Manager presentation entry")
     if len({item.path for item in presentations}) != len(presentations):
         raise ValueError("duplicate Manager presentation path")
-    decided, view = parse_live_view_response(raw_text)
-    if "live_view" in payload and not decided:
+    clear_value = payload.get("clear_live_view")
+    if clear_value not in {None, False, True}:
+        raise ValueError("invalid clear_live_view flag")
+    if clear_value is True and payload.get("live_view") is not None:
+        raise ValueError("clear_live_view conflicts with a selected live_view")
+    decided, view = parse_live_view_response(
+        raw_text,
+        null_means_clear=null_means_clear,
+    )
+    if payload.get("live_view") is not None and not decided:
         raise ValueError("invalid Manager live_view")
     raw_view = payload.get("live_view")
     if isinstance(raw_view, dict):
@@ -257,32 +565,67 @@ def apply_manager_rendering_response(
         or any(item.path not in view.paths for item in presentations)
     ):
         raise ValueError("Manager presentations must be selected in live_view")
+    if view is not None:
+        presented_paths = {item.path for item in presentations}
+        materialized_paths = [
+            path
+            for path in view.paths
+            if (
+                path in presented_paths
+                or (
+                    path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+                    and Path(path).suffix.casefold() in {
+                        ".md", ".markdown", ".txt",
+                    }
+                )
+                or _workspace_artifact_exists(project_root, path)
+            )
+        ]
+        if not materialized_paths:
+            raise ValueError(
+                "Manager live_view has no materialized artifact in the canonical workspace"
+            )
     if decided or presentations:
         live_dir = _manager_live_root(project_root)
         for presentation in presentations:
             target = live_dir / Path(presentation.path).name
-            tmp = target.with_name(
-                f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp"
-            )
-            try:
-                tmp.write_text(presentation.content, encoding="utf-8")
-                os.replace(tmp, target)
-            finally:
-                try:
-                    tmp.unlink()
-                except FileNotFoundError:
-                    pass
-    apply_live_view_decision(project_root, decided=decided, view=view)
-    return view if decided else load_live_view_decision(project_root)
+            _write_manager_presentation(target, presentation.content)
+        presented_paths = {item.path for item in presentations}
+        if view is not None:
+            for path in view.paths:
+                if (
+                    not path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+                    or path in presented_paths
+                ):
+                    continue
+                target = live_dir / Path(path).name
+                _write_manager_presentation(
+                    target,
+                    _fallback_manager_presentation(payload, view, path),
+                )
+    apply_live_view_decision(
+        project_root,
+        decided=decided,
+        view=view,
+        manifest_root=manifest_root,
+    )
+    return view if decided else load_live_view_decision(
+        project_root,
+        manifest_root=manifest_root,
+    )
 
 
 def manager_rendering_prompt(
     project_root: Path | str,
     *,
     review: object | None = None,
+    manifest_root: Path | str | None = None,
 ) -> str:
     """Prompt block making right-sidebar presentation Manager-owned."""
-    current = load_live_view_decision(project_root)
+    current = load_live_view_decision(
+        project_root,
+        manifest_root=manifest_root,
+    )
     current_text = (
         json.dumps(
             {
@@ -297,7 +640,16 @@ def manager_rendering_prompt(
     )
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+    progress_context = _manager_progress_context(
+        project_root,
+        manifest_root=manifest_root,
+    )
     return (
+        manager_workspace_capability_prompt(
+            project_root,
+            manifest_root=manifest_root,
+        )
+        + "\n"
         "## Right-sidebar presentation — MANAGER ownership\n"
         "You alone own what Argus Web renders in the right sidebar. Do not assign "
         "rendering work, Manager paths, or presentation-only files to Engineer.\n"
@@ -311,14 +663,35 @@ def manager_rendering_prompt(
         f"Current live view: {current_text}\n"
         f"Latest reviewer status: {status or '(none)'}\n"
         f"Latest reviewer reason: {reason or '(none)'}\n"
-        "Choose 1-6 safe workspace-relative files, or null when no side view helps. "
+        "Current event-sourced progress: "
+        f"{json.dumps(progress_context, ensure_ascii=False)}\n"
+        "All existing artifact paths are resolved relative to the canonical "
+        "workspace shown by your working directory, never the session state/life "
+        "directory. Do not use `manager_live/...`; use an existing workspace path "
+        "such as `research/...`, or author content under `.argus/live/` through "
+        "`presentations`. A selection with zero materialized workspace artifacts is "
+        "rejected and the prior view is preserved. "
+        "At every stage decision, if the current view uses `.argus/live/`, refresh "
+        "that checkpoint in `presentations`. It must contain substantive sections "
+        "for `Current node`, `Verified progress`, `Current blocker`, and `Next action`; "
+        "a slogan, a restatement of the mission, or stale prose is invalid. "
+        "Choose 1-6 safe workspace-relative files. If this turn has no better "
+        "view, set `live_view` to null and the last valid view is preserved. Set "
+        "`clear_live_view` to true only when keeping the prior view would actively "
+        "mislead the operator. "
         "You may select existing Markdown, HTML, JSON, CSV/TSV, text/code, image, "
         "PDF, audio, or video artifacts. You may also CREATE the operator-facing "
         "view yourself under `.argus/live/` as Markdown, sandboxed HTML, JSON, "
         "CSV/TSV, or text; the harness supplies safe transport, not content choices. "
+        "Every `.argus/live/` path newly selected in `live_view.paths` MUST have a "
+        "matching entry in `presentations` in the same response. Never name a new "
+        "Manager path without its content. If you omit that content for an existing "
+        "`.argus/live/` path, the harness replaces it with a minimal status page "
+        "from this response so the sidebar never displays stale prose. "
         "In your final JSON include:\n"
         '"live_view": null | {"title": "<short title>", "reason": "<why this is '
         'useful now>", "paths": ["<existing artifact or .argus/live/file>", ...]},\n'
+        '"clear_live_view": false | true,\n'
         '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
         '"content": "<Manager-authored presentation>"}]\n'
     )
@@ -329,6 +702,7 @@ def apply_live_view_decision(
     *,
     decided: bool,
     view: LiveViewDecision | None,
+    manifest_root: Path | str | None = None,
 ) -> None:
     """Atomically persist (or explicitly clear) the Manager's latest choice.
 
@@ -339,7 +713,9 @@ def apply_live_view_decision(
     """
     if not decided:
         return
-    manifest = _manager_argus_root(project_root) / LIVE_VIEW_MANIFEST.name
+    manifest = _manager_argus_root(
+        manifest_root or project_root
+    ) / LIVE_VIEW_MANIFEST.name
     if view is None:
         try:
             manifest.unlink()
@@ -374,9 +750,13 @@ __all__ = [
     "apply_manager_rendering_response",
     "apply_live_view_decision",
     "load_live_view_decision",
+    "manager_checkpoint_refresh_required",
     "manager_rendering_prompt",
+    "manager_workspace_capability_prompt",
+    "manager_workspace_context",
     "normalize_live_view_path",
     "parse_manager_presentations",
     "parse_live_view",
     "parse_live_view_response",
+    "repair_manager_checkpoint_response",
 ]

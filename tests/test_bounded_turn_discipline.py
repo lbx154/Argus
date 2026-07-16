@@ -1,12 +1,8 @@
 """Regression: the engineer mission prompt must instruct bounded-progress turns.
 
-Root cause of the cost/latency blowup: a single mission ran one codex `exec`
-for ~3400 internal turns, growing context until codex auto-compacted ~1094
-times (the rollout was 1.16 GB, 95% compaction snapshots). The existing
-session-roll (shift_round_limit) never engaged because the whole mission was a
-single round. The fix makes each turn land one bounded increment and yield, so
-the round ends, the reviewer updates the checkpoint, and the session rolls with
-a small context instead of bloating.
+Each fresh Engineer turn should land a coherent increment, update the shared
+checkpoint, and yield. This file also guards the fixed prompt against token
+re-bloat.
 
 These tests lock in that the turn-discipline / bounded-progress contract is
 present in the engineer prompt, for both paper and non-paper missions.
@@ -40,16 +36,23 @@ def test_bounded_turn_discipline_present_for_paper_mission():
         "evidence package and resolve all readiness blockers.",
         paper_mission=True,
     )
-    assert "## Turn discipline" in out
+    assert "## This turn" in out
     # Must tell the engineer to stop after a bounded increment and yield.
     assert "yield" in out.lower()
-    assert "one concrete increment" in out.lower()
-    # Must warn that pure exploration risks the no-progress abort.
-    assert "no forward progress" in out.lower()
+    assert "one coherent, verifiable increment" in out.lower()
+    assert "pure reading" in out.lower()
 
 
 def test_turn_discipline_present_even_for_nonpaper_task():
     # The bounded-progress contract is universal (it guards context growth for
     # any mission), not gated on the paper-objective heuristic.
     out = _prompt("Refactor the data loader and add unit tests.")
-    assert "## Turn discipline" in out
+    assert "## This turn" in out
+    assert "do not write planning/spec/brief" in out.lower()
+    assert "initialize git" in out.lower()
+    assert "commit" in out.lower()
+    assert "spawn subagents" in out.lower()
+
+
+def test_engineer_fixed_prompt_stays_token_efficient():
+    assert len(_prompt("Refactor the data loader and add unit tests.")) < 1_600

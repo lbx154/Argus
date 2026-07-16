@@ -243,17 +243,29 @@ export class ApiClient {
     commandId = randomUUID(),
   ): Promise<CreatedDaemon> {
     const path = '/api/daemons';
-    const r = await fetch(`${this.httpBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({
+    const body = JSON.stringify({
         objective,
         name,
         launch_cwd: launchCwd,
         command_id: commandId,
         expected_revision: expectedRevision,
-      }),
     });
+    const send = () => fetch(`${this.httpBase}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Connection: 'close',
+        ...this.authHeaders(),
+      },
+      body,
+    });
+    let r = await send();
+    if (
+      r.status === 400
+      && /Invalid HTTP request received/i.test(await r.clone().text())
+    ) {
+      r = await send();
+    }
     await ensureResponseOk(r, 'POST', path);
     return (await r.json()) as CreatedDaemon;
   }
@@ -279,6 +291,16 @@ export class ApiClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify({ launch_cwd: launchCwd }),
+    });
+    await ensureResponseOk(r, 'POST', path);
+  }
+
+  async setProjectWorkdir(project: string, workdir: string): Promise<void> {
+    const path = `/api/projects/${encodeURIComponent(project)}/workdir`;
+    const r = await fetch(`${this.httpBase}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ workdir }),
     });
     await ensureResponseOk(r, 'POST', path);
   }

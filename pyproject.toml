@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "argus-skill"
-version = "0.1.0"
+version = "0.1.1"
 description = "Argus — Autonomous Research Generation & Understanding System. A 7x24 agent that autonomously produces academic papers from idea to submission."
 readme = "README.md"
 license = { text = "MIT" }

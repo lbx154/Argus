@@ -334,6 +334,11 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
         "started_at_iso": started_at_iso,
         "backend": backend,
         "life_dir": str(config.life_dir),
+        "project_workdir": (
+            str(config.project_workdir)
+            if getattr(config, "project_workdir", None) is not None
+            else ""
+        ),
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
         "global_daily_cap_usd": config.global_daily_cap_usd,
@@ -348,6 +353,7 @@ class DaemonStatus:
     started_at_iso: str | None
     uptime_seconds: float | None
     life_dir: Path
+    project_workdir: str = ""
     backend: str | None = None
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
@@ -361,10 +367,16 @@ class DaemonStatus:
     pid_path: Path | None = None
 
 
-def _daemon_budget_from_env() -> LifeBudget:
+def _daemon_budget_from_project(
+    project_state_dir: Path | str | None,
+    global_root: Path | str | None = None,
+) -> LifeBudget:
     from ..core.knobs import resolve_budget_caps
 
-    budget = resolve_budget_caps()
+    budget = resolve_budget_caps(
+        project_state_dir=project_state_dir,
+        global_root=global_root,
+    )
 
     return LifeBudget(
         per_mission_cap_usd=budget.per_mission_cap_usd,
@@ -377,9 +389,8 @@ def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
     """Return the live budget caps for operator surfaces.
 
     When the daemon has published caps in its status sidecar, use those
-    exact values. Otherwise fall back to the current env/default caps so
-    stopped-daemon status commands still show what a new launch would
-    enforce.
+    exact values. Otherwise read the project and global budget files so a
+    stopped-daemon status command shows what the next launch will enforce.
     """
     alive = bool(getattr(status, "alive", False))
     per_mission = getattr(status, "per_mission_cap_usd", None)
@@ -394,7 +405,10 @@ def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
             )
     except (TypeError, ValueError):
         pass
-    return _daemon_budget_from_env()
+    return _daemon_budget_from_project(
+        getattr(status, "life_dir", None),
+        _status_global_root(status),
+    )
 
 
 def _status_global_root(status: Any | None) -> Path | None:
@@ -444,10 +458,9 @@ def format_budget_status(
 def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     """Read the daemon's pid file and return a structured status.
 
-    ``alive=True`` only if both the pid file exists AND the process is
-    still running (verified via ``os.kill(pid, 0)``). A stale pid file
-    from a hard kill returns ``alive=False`` so callers know the lock
-    is reclaimable.
+    ``alive=True`` only if the recorded process exists and still holds the
+    daemon pid-file lock. Checking the lock prevents a stale PID from being
+    mistaken for a daemon after the OS reuses that PID for another process.
     """
     if life_dir is None:
         from ..core import paths as core_paths
@@ -468,8 +481,11 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
             uptime_seconds=None, life_dir=life_dir, pid_path=pid_path,
         )
     alive = _process_alive(pid)
+    if alive and _daemon_pid_lock_held(pid_path) is False:
+        alive = False
     started_iso: str | None = None
     backend: str | None = None
+    project_workdir = ""
     per_mission_cap_usd: float | None = None
     daily_cap_usd: float | None = None
     global_daily_cap_usd: float | None = None
@@ -484,8 +500,14 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     if sidecar.exists():
         try:
             data = json.loads(sidecar.read_text(encoding="utf-8"))
+            raw_status_pid = data.get("pid")
+            if raw_status_pid is not None and int(raw_status_pid) != pid:
+                raise ValueError(
+                    f"status pid {raw_status_pid!r} does not match lock pid {pid}"
+                )
             started_iso = data.get("started_at_iso")
             backend = data.get("backend")
+            project_workdir = str(data.get("project_workdir") or "")
             raw_per_mission = data.get("per_mission_cap_usd")
             raw_daily = data.get("daily_cap_usd")
             raw_global_daily = data.get("global_daily_cap_usd")
@@ -521,6 +543,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         started_at_iso=started_iso,
         uptime_seconds=uptime,
         life_dir=life_dir,
+        project_workdir=project_workdir,
         backend=backend,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
@@ -564,6 +587,39 @@ def _process_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
+    """Return whether another open file description holds the daemon lock.
+
+    ``None`` means the platform or filesystem could not answer reliably; the
+    caller then keeps the conservative PID-only fallback.
+    """
+    if fcntl is None:  # pragma: no cover - Windows fallback
+        return None
+    try:
+        fd = os.open(str(pid_path), os.O_RDWR)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        except OSError:
+            return None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        return False
+    finally:
+        os.close(fd)
+
+
+def _same_daemon_alive(life_dir: Path, pid: int) -> bool:
+    current = read_daemon_status(life_dir)
+    return bool(current.alive and current.pid == pid)
 
 
 def stop_daemon(
@@ -625,6 +681,10 @@ def stop_daemon(
         )
         sys.stdout.flush()
 
+    if not _same_daemon_alive(resolved_dir, pid):
+        if drain:
+            clear_daemon_drain_request(resolved_dir, pid=pid)
+        return 1
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -636,7 +696,7 @@ def stop_daemon(
     deadline = time.monotonic() + wait_for
     next_heartbeat = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        if not _process_alive(pid):
+        if not _same_daemon_alive(resolved_dir, pid):
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
@@ -652,6 +712,11 @@ def stop_daemon(
         time.sleep(0.2)
 
     if force:
+        if not _same_daemon_alive(resolved_dir, pid):
+            if drain:
+                clear_daemon_drain_request(resolved_dir, pid=pid)
+            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
+            return 0
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:

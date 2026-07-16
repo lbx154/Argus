@@ -14,6 +14,7 @@ import type {
 } from './types.js';
 
 const ROLE_NAMES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
+const PIPELINE_ROLES = new Set(['planner', 'engineer', 'reviewer']);
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
 
 const S = (event: EventMsg, key: string): string => String(event[key] ?? '').trim();
@@ -38,6 +39,8 @@ export function emptyMissionView(): MissionView {
       started_at: null,
       completed_at: null,
       elapsed_seconds: 0,
+      campaign_started_at: null,
+      campaign_elapsed_seconds: 0,
     },
     stage: { id: '', label: '' },
     round: { current: 0, max: 0 },
@@ -79,6 +82,13 @@ function upsert<T extends Record<string, unknown>>(rows: T[], key: keyof T, valu
 
 function setRole(view: MissionView, role: string, status: string, label: string, ts: number): void {
   if (!ROLE_NAMES.includes(role as typeof ROLE_NAMES[number])) return;
+  if (status === 'active' && PIPELINE_ROLES.has(role)) {
+    view.roles.forEach((candidate) => {
+      if (PIPELINE_ROLES.has(candidate.role) && candidate.role !== role && candidate.status === 'active') {
+        Object.assign(candidate, { status: 'done', label: 'Handed off', updated_at: ts });
+      }
+    });
+  }
   const patch: MissionRoleView = { role, status, label, updated_at: ts };
   upsert(view.roles as Array<MissionRoleView & Record<string, unknown>>, 'role', role, patch as MissionRoleView & Record<string, unknown>);
   if (status === 'active') view.active_role = role;
@@ -188,6 +198,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     setRole(view, 'planner', 'done', 'Research branch added', ts);
     addTimeline(view, event, 'planner', 'Research branch added', node.title, 'info');
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
+    view.mission.campaign_started_at ??= ts;
     view.mission = {
       ...view.mission,
       id: S(event, 'item_id'),
@@ -473,7 +484,8 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     const row = view.roles.find((candidate) => candidate.role === role.role);
     if (row) Object.assign(row, { backend: role.backend, model: role.model, effort: role.effort });
   });
-  view.active_role = snapshot.roles.find((role) => role.active)?.role ?? '';
+  const activeRoles = snapshot.roles.filter((role) => role.active);
+  view.active_role = activeRoles[activeRoles.length - 1]?.role ?? '';
   snapshot.backlog.forEach((item) => {
     const node: MissionDagNode = {
       id: item.id,
@@ -498,6 +510,13 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     });
   });
   const now = Date.now() / 1000;
+  const campaignStartedAt = view.mission.campaign_started_at
+    ?? snapshot.session.created
+    ?? view.mission.started_at;
+  if (campaignStartedAt) {
+    view.mission.campaign_started_at = campaignStartedAt;
+    view.mission.campaign_elapsed_seconds = Math.max(0, now - campaignStartedAt);
+  }
   if (view.mission.started_at && view.mission.status === 'working') {
     view.mission.elapsed_seconds = Math.max(0, now - view.mission.started_at);
   } else if (view.mission.started_at && view.mission.completed_at) {

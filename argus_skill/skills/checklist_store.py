@@ -2,15 +2,20 @@
 
 Historically the per-stage checklist was a frozen Python constant
 (``stage_checklists.STAGE_CHECKLISTS`` + each vertical's ``CHECKLIST_ITEMS``).
-That floor is now a *reference seed*: the Planner AUTHORS the checklist for the
-current task, per stage, and this module is where those authored items live —
+That floor is now a *reference seed*: the Planner is the sole runtime author of
+the current task's checklist, per stage, and this module stores it —
 ``<project_root>/research/CHECKLISTS.json``.
+
+The file is bound to one explicit ``vertical``. A store authored for research
+is ignored after the Manager changes the project to math (and vice versa); stage
+names or gates never leak across verticals.
 
 Read path: :func:`store_items_for_stage` is consulted by
 ``stage_checklists.format_stage_checklist`` / ``format_full_pipeline_checklist``
 BEFORE the seed constants. It returns:
 
-* a tuple of items when the store has an entry for the stage (the Planner has
+* a tuple of items when the store vertical matches the committed project
+  vertical and has an entry for the stage (the Planner has
   authored that stage) — used as the checklist base;
 * ``()`` when the stage key is present but the list is empty (the Planner
   deliberately emptied it — honored);
@@ -67,9 +72,23 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             pass
 
 
+def _current_vertical(project_root: object) -> str | None:
+    try:
+        from .vertical_select import resolve_checklist_vertical
+
+        return resolve_checklist_vertical(project_root)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _load_raw(project_root: object) -> dict[str, Any]:
-    """Return ``{"revision": int, "stages": {stage: [item-dict, ...]}, "disabled": {stage: [id, ...]}}`` fail-open."""
-    empty: dict[str, Any] = {"revision": 0, "stages": {}, "disabled": {}}
+    """Return the vertical-bound checklist store, fail-open."""
+    empty: dict[str, Any] = {
+        "revision": 0,
+        "vertical": "",
+        "stages": {},
+        "disabled": {},
+    }
     try:
         payload = json.loads(_store_path(project_root).read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -96,6 +115,7 @@ def _load_raw(project_root: object) -> dict[str, Any]:
                 ]
     return {
         "revision": int(rev) if isinstance(rev, (int, float)) else 0,
+        "vertical": str(payload.get("vertical") or "").strip(),
         "stages": stages,
         "disabled": disabled,
     }
@@ -140,13 +160,14 @@ def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] 
     stage_n = (stage or "").strip().lower()
     if not stage_n:
         return None
+    current = _current_vertical(project_root)
     raw = _load_raw(project_root)
+    if current is None or raw["vertical"] != current:
+        return None
     stages = raw["stages"]
     disabled_map = raw["disabled"]
-
     stage_in_store = stage_n in stages
     tombstoned: set[str] = set(disabled_map.get(stage_n, []))
-
     if not stage_in_store and not tombstoned:
         # No project management of this stage → caller falls back to seed constant.
         return None
@@ -182,7 +203,11 @@ def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] 
 
 def load_checklist_store(project_root: object) -> dict[str, list[Any]]:
     """Return ``{stage: [ChecklistItem, ...]}`` for every stage present (fail-open)."""
-    stages = _load_raw(project_root)["stages"]
+    current = _current_vertical(project_root)
+    raw = _load_raw(project_root)
+    if current is None or raw["vertical"] != current:
+        return {}
+    stages = raw["stages"]
     out: dict[str, list[Any]] = {}
     for stage, rows in stages.items():
         if not isinstance(rows, list):
@@ -313,16 +338,35 @@ def apply_checklist_ops(
     Atomic write, ``revision`` bumped. Fail-soft: any
     error leaves the store untouched. Returns ``{applied, skipped, revision}``.
     """
+    current_vertical = _current_vertical(project_root)
+    raw_now = _load_raw(project_root)
+    if current_vertical is None:
+        return {
+            "applied": 0,
+            "skipped": len(ops or []),
+            "revision": raw_now["revision"],
+        }
     if not ops:
-        return {"applied": 0, "skipped": 0, "revision": _load_raw(project_root)["revision"]}
+        return {"applied": 0, "skipped": 0, "revision": raw_now["revision"]}
 
     seed_fn = seed_lookup or (lambda stage: seed_items_for(project_root, stage))
     protected = _paper_gate_protected_ids(project_root)
 
     try:
         raw = _load_raw(project_root)
-        stages: dict[str, Any] = dict(raw["stages"])
-        disabled: dict[str, list[str]] = {k: list(v) for k, v in raw["disabled"].items()}
+        # A checklist authored for another vertical is unrelated state. Start a
+        # clean project checklist for the committed vertical instead of mixing
+        # stage names or requirements across domains.
+        stages: dict[str, Any] = (
+            dict(raw["stages"])
+            if raw["vertical"] == current_vertical
+            else {}
+        )
+        disabled: dict[str, list[str]] = (
+            {k: list(v) for k, v in raw["disabled"].items()}
+            if raw["vertical"] == current_vertical
+            else {}
+        )
         # Normalize existing stage lists to plain lists we can mutate.
         for k, v in list(stages.items()):
             stages[k] = list(v) if isinstance(v, list) else []
@@ -431,7 +475,11 @@ def apply_checklist_ops(
                         skipped += 1
 
         revision = int(raw["revision"]) + 1
-        payload: dict[str, Any] = {"revision": revision, "stages": stages}
+        payload: dict[str, Any] = {
+            "revision": revision,
+            "vertical": current_vertical,
+            "stages": stages,
+        }
         # Only persist 'disabled' when it is non-empty (keeps old format for clean stores).
         clean_disabled = {k: v for k, v in disabled.items() if v}
         if clean_disabled:

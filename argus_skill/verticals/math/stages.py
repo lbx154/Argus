@@ -128,6 +128,64 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="a claim ledger with result class, correctness, novelty, and limitations",
         ),
+        ChecklistItem(
+            id="solve.mechanism-overlap-audit",
+            statement=(
+                "When solve work introduces or materially refines a theorem, operator, "
+                "proof mechanism, obstruction certificate, or asymptotic route that may "
+                "be advanced as new, a separate bounded theorem-overlap audit is completed "
+                "before treating it as novelty-bearing or advancing it toward review. The "
+                "audit checks the closest recent primary sources, their citation chains, "
+                "and foundational adjacent-field terminology. If no such mechanism emerged, "
+                "the claim ledger explicitly records that this trigger did not fire."
+            ),
+            evidence_hint=(
+                "research/MECHANISM_OVERLAP_AUDIT.md with trigger, exact queries, dated "
+                "primary sources, backward/forward citations, overlap mapping, and remaining "
+                "uncertainty; or an explicit not-triggered claim-ledger entry"
+            ),
+        ),
+        ChecklistItem(
+            id="solve.counterexample-guided-refinement",
+            statement=(
+                "When a new conjecture, intermediate lemma, asymptotic generalization, "
+                "or strengthened bound is proposed, the cheapest decisive falsification "
+                "test is run before investing in a full proof. Counterexamples refine the "
+                "statement or assumptions rather than being discarded. If no new candidate "
+                "statement was proposed, this trigger is explicitly not applicable."
+            ),
+            evidence_hint=(
+                "a smallest-counterexample search, bounded exhaustive/symbolic test, or "
+                "adversarial premise audit linked to the candidate and its refined form"
+            ),
+        ),
+        ChecklistItem(
+            id="solve.construction-admissibility",
+            statement=(
+                "For construction or existential-answer problems, candidate generation is "
+                "separated from proof: bounded examples may suggest a canonical witness, "
+                "but the final witness must satisfy an explicit admissible vocabulary/shape "
+                "and must not circularly restate the target property. If the problem supplies "
+                "the object and asks only for a proof, this trigger is not applicable."
+            ),
+            evidence_hint=(
+                "enumeration trace, explicit conjectured witness, independent admissibility "
+                "check, and proof that the admitted witness satisfies the original statement"
+            ),
+        ),
+        ChecklistItem(
+            id="solve.relational-premise-map",
+            statement=(
+                "When the argument depends on a nontrivial library or literature of prior "
+                "lemmas, the proof records a compact dependency graph: retrieved premises, "
+                "their exact role, the missing bridge lemmas, and which nodes are known versus "
+                "new. Routine self-contained proofs may mark this trigger not applicable."
+            ),
+            evidence_hint=(
+                "research/LEMMA_GRAPH.md or an equivalent claim-ledger dependency section "
+                "with premise sources, edges, and unresolved bridge nodes"
+            ),
+        ),
     ),
     "review": (
         ChecklistItem(
@@ -182,6 +240,33 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="novelty audit or an explicit non-terminal classification",
         ),
+        ChecklistItem(
+            id="review.mechanism-overlap-debt",
+            statement=(
+                "Every strongest claim based on a newly introduced theorem, operator, proof "
+                "mechanism, or certificate has a mechanism-level primary-source overlap audit. "
+                "Without it, correctness may be certified for a bounded item, but novelty "
+                "remains unverified and publishable or doctoral completion is blocked."
+            ),
+            evidence_hint=(
+                "the mechanism-overlap audit linked to the strongest claim, or a bounded "
+                "Reviewer verdict that preserves novelty-unverified status and routes the "
+                "missing audit as the next DAG node"
+            ),
+        ),
+        ChecklistItem(
+            id="review.ai4m-verifier-separation",
+            statement=(
+                "Generated conjectures, witnesses, and formal statements are judged by a "
+                "separate verifier appropriate to their type: falsification for candidates, "
+                "admissibility plus proof for constructions, and semantic back-translation "
+                "for formalization. Passing one verifier is not substituted for another."
+            ),
+            evidence_hint=(
+                "separate candidate-generation and verification artifacts with explicit "
+                "falsification, admissibility, statement-fidelity, or compiler results"
+            ),
+        ),
     ),
 }
 
@@ -194,6 +279,7 @@ def role_banner(role: str) -> str:
         "planner": "planner/math-research-planning.md",
         "engineer": "engineer/math-research-execution.md",
         "reviewer": "reviewer/math-research-review.md",
+        "scientist_create": "scientist/math-research-distillation.md",
         "scientist": "scientist/math-research-adaptation.md",
     }.get(role_name)
     if skill_name is None:

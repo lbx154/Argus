@@ -98,23 +98,25 @@ class SkillScientist:
 
 
 def _build_scientist_prompt(task: str, role_banner: str = "") -> str:
+    task_context = str(task or "").strip()
     prompt = (
-        "You are the Scientist / Distiller role for argus-skill. The skill "
-        "matcher found no reusable engineer playbook for the task below. Write "
-        "ONE reusable skill that can help the Engineer execute this "
-        "task now and a FAMILY of similar future tasks.\n\n"
-        "Rules:\n"
-        "- Do not solve the task directly; write the playbook the Engineer should "
-        "use.\n"
-        "- Make it general: use placeholders such as <path>, <command>, <metric>, "
-        "and do not hardcode one-off mission IDs or local absolute paths unless "
-        "the family genuinely requires them.\n"
-        "- Include enough operational detail for an Engineer to act without a "
-        "second explanation.\n"
-        "- Before writing, use live web search to check current primary sources; "
-        "do not invent facts or citations.\n"
-        "- If there is truly no reusable pattern, output exactly NONE.\n\n"
-        "Required markdown shape:\n"
+        "You are Argus's Skill Distiller. The matcher found no reusable Engineer "
+        "playbook for the task below. Your single goal is to distill exactly one "
+        "high-quality reusable skill that helps an Engineer execute this task and "
+        "future tasks from the same family. Read the complete task context before "
+        "deciding what capability and method the skill must teach.\n\n"
+        "Hard boundaries:\n"
+        "- Do not solve the current task or write/modify project files.\n"
+        "- Do not invoke skills or plugins. Do not launch subagents. Do not create "
+        "todos, plans, tests, SQL queries, shell commands, or meta-workflows.\n"
+        "- Do not assume a prior failed method or invent reviewer evidence.\n"
+        "- Use live web search as much as needed to verify current primary sources "
+        "and make the reusable method accurate.\n"
+        "- Generalize with placeholders such as <path>, <source>, and <criterion>; "
+        "omit mission IDs, local absolute paths, and one-off project details.\n"
+        "- Return the final Markdown only. If no reusable method is defensible, "
+        "output exactly NONE.\n\n"
+        "Output shape:\n"
         "# <skill title>\n"
         "## Description\n"
         "<what capability this skill provides>\n"
@@ -128,7 +130,7 @@ def _build_scientist_prompt(task: str, role_banner: str = "") -> str:
         "1. ...\n"
         "## Pitfalls\n"
         "- ...\n\n"
-        f"## Task\n{task.strip()}\n"
+        f"## Complete task context (read-only; do not execute)\n{task_context}\n"
     )
     return _prepend_role_banner(prompt, role_banner)
 
@@ -141,10 +143,14 @@ def _build_alternative_prompt(
     current_skill: str = "",
     method_history: str = "",
 ) -> str:
+    task_context = str(task or "").strip()
     prompt = (
         "You are the Scientist / Distiller role for argus-skill. A matched "
         "playbook has repeatedly failed independent review. Use live web search "
         "and author ONE genuinely different reusable playbook for the task family.\n\n"
+        "Do not invoke skills/plugins, "
+        "launch subagents, create todos/plans/tests/SQL, run shell commands, or "
+        "modify project files. Use web search as much as needed.\n\n"
         "Do not merely rephrase the existing approach. Treat the reviewer evidence "
         "as failed mechanisms to avoid. Changing only constants, bounds, prompts, "
         "search depth, or other parameters is NOT a new mechanism. Do not solve the "
@@ -156,7 +162,7 @@ def _build_alternative_prompt(
         "Previous mechanism: <failed mechanism>\n"
         "Replacement mechanism: <different mechanism>\n"
         "Structural difference: <why this is not a parameter change>\n\n"
-        f"## Task\n{task.strip()}\n\n"
+        f"## Complete task context\n{task_context}\n\n"
         f"## Current playbook\n{current_skill.strip() or '(none)'}\n\n"
         f"## Prior method ledger\n{method_history.strip() or '(none)'}\n\n"
         f"## Reviewer evidence from failed rounds\n{reviewer_evidence.strip()}\n"

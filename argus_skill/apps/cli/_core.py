@@ -147,7 +147,37 @@ def _resolve_project_bundle(args: argparse.Namespace):
     sid, _is_new = _resolve_session_id(args, global_root, default_to_new=False)
     if sid is None:
         return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
-    return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root, fingerprint=sid)
+    from ...core.session import (
+        SessionMeta,
+        read_session_meta,
+        resolve_session_workdir,
+        write_session_meta,
+    )
+
+    state_dir = Path(global_root) / "projects" / sid
+    meta = read_session_meta(global_root, sid)
+    if meta is None:
+        # Legacy cwd-fingerprint projects had no session.json. The explicit
+        # resume cwd is their only trustworthy worktree signal; persist it once
+        # so every later CLI/Web role uses the same root.
+        workdir = Path.cwd().resolve()
+        meta = SessionMeta(
+            id=sid,
+            cwd=str(workdir),
+            workdir=str(workdir),
+        )
+        write_session_meta(global_root, meta)
+    try:
+        workdir = resolve_session_workdir(meta, state_dir=state_dir)
+    except (OSError, RuntimeError) as exc:
+        raise core_paths.PathResolutionError(
+            f"session {sid} workdir is unavailable: {exc}"
+        ) from exc
+    return MemoryBundle.for_cwd(
+        workdir,
+        global_root=global_root,
+        fingerprint=sid,
+    )
 
 
 def _lifetime_entry_error(args: argparse.Namespace) -> str:
@@ -387,12 +417,15 @@ def _build_worker_config(args: argparse.Namespace):
         resolve_role_reasoning_effort,
     )
 
-    budget = resolve_budget_caps()
+    budget = resolve_budget_caps(
+        project_state_dir=bundle.project.root,
+        global_root=bundle.global_root,
+    )
 
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
         global_root=bundle.global_root,
-        project_workdir=Path.cwd(),
+        project_workdir=bundle.project_worktree,
         project_fingerprint=bundle.project.fingerprint,
         project_label=bundle.project.label,
         backend=backend,

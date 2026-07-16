@@ -2,8 +2,8 @@
 
 A :class:`RoleMission` bundles the *policy* a role applies when it matches
 skills: which on-disk pools are its own vs read-only references, which
-builtin skills it already injects verbatim (and so must exclude from the
-matcher to avoid double-injection), and the role identity threaded into the
+builtin policies are already covered by the fixed prompt contract (and so must
+be excluded from matching), and the role identity threaded into the
 matcher prompt and cache. The actual matching/rendering primitive lives in
 :mod:`argus_skill.skills.role_match`; the mission decides *how* it is called
 for this role.
@@ -25,15 +25,15 @@ class RoleMission:
     """Base class for a single role's skill-matching mission.
 
     Subclasses set :attr:`role` and, optionally, :attr:`default_exclude`
-    (builtin skills the role injects verbatim elsewhere, so the matcher must
-    never re-surface them). Everything else — pool scoping, primary/reference
+    (builtin policies already represented in the fixed role prompt, so the
+    matcher must never re-surface their long source skills). Everything else — pool scoping, primary/reference
     partitioning, token accounting — is inherited from the shared matcher.
     """
 
     #: Role identity. Subclasses MUST override.
     role: ClassVar[str] = ""
-    #: Builtin skill filenames this role injects verbatim and so excludes
-    #: from its matcher pool (avoids double-injection). Subclasses may set.
+    #: Builtin policy files already represented by the compact fixed prompt and
+    #: excluded from matching to avoid expensive duplicate injection.
     default_exclude: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(
@@ -77,13 +77,16 @@ class EngineerMission(RoleMission):
     """Engineer role: own pool {engineer, general}, references {reviewer}."""
 
     role = "engineer"
+    # The round prompt already carries the compact Engineer contract. Never let
+    # the matcher re-inject the 14KB legacy role skill as a task playbook.
+    default_exclude = frozenset({"argus-engineer-role.md"})
 
 
 class ReviewerMission(RoleMission):
     """Reviewer role: own pool {reviewer}, references {engineer}.
 
-    The three reviewer skills that ``Reviewer`` injects verbatim into every
-    prompt are excluded from the matcher so they are never double-injected.
+    The Reviewer prompt carries compact equivalents of these fixed contracts;
+    exclude their long source skills so the matcher cannot re-inject them.
     """
 
     role = "reviewer"

@@ -6,20 +6,17 @@ review round. Its fixed instruction prose had grown to restate the same ideas
 planner-report / checkpoint / step-back prose roughly in half while preserving
 every consumed JSON field and every anti-cheat guardrail.
 
-This test pins a CHARACTER BUDGET on the built non-measured prompt for a fixed
-small input so the prose cannot silently regrow back to its pre-compression
-size. It is intentionally generous (well above the post-compression size, well
-below the pre-compression size): a new genuinely-needed block can fit, but a
-wholesale re-expansion of the legislative prose trips it.
+This test pins a CHARACTER BUDGET on the built non-measured prompt so fixed
+policy prose cannot silently regrow. Task-specific checklists remain allowed;
+role/routing/schema explanations must stay compact.
 """
 from __future__ import annotations
 
 from argus_skill.reviewer import Reviewer
 
-# Post-compression a fixed non-measured prompt measures ~42.5k chars; the
-# pre-compression baseline was ~51.5k. Cap at 46k: leaves ~3.5k headroom for a
-# legitimately-added block, but catches a regression back toward the old size.
-NON_MEASURED_BUDGET = 46_000
+# The token-efficiency pass reduced this representative prompt from ~40k to
+# ~10k chars. Keep modest headroom without permitting role-policy re-bloat.
+NON_MEASURED_BUDGET = 14_000
 
 
 def _build(measured: bool, monkeypatch) -> str:

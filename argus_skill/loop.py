@@ -8,18 +8,17 @@ This is the new code that argus-skill exists to deliver. It composes:
     is satisfied.
 
 Skill AND wiki memory are REVIEWER-owned: there is no separate authoring
-agent and no Manager approval gate — the reviewer is the sole authority. The
-reviewer emits ``skill_ops`` (create/update/delete/archive on the reusable
-skill library) and ``wiki_ops`` (create_page/update_page/retire_page on the
-project idea-wiki) per round; the loop applies both at mission end via
-``SkillRouter`` / ``WikiRouter`` respectively.
+agent and no Manager approval gate. The executable Reviewer receives the exact
+project skill/wiki paths and directly edits durable reusable memory before its
+final verdict. Legacy ``skill_ops`` / ``wiki_ops`` parsing remains only for old
+event replay and compatibility.
 
 End-to-end shape:
 
     task → matcher/Scientist → engineer round-loop (engineer turn → reviewer)
-            outcome → record skill use, apply skill_ops/wiki_ops
+            outcome → record skill use and preserve direct Reviewer edits
             continue → inject next_action, next round
-            blocked → stop with reason; still apply skill_ops/wiki_ops
+            blocked → stop with reason; direct memory edits remain persisted
 """
 from __future__ import annotations
 
@@ -83,17 +82,11 @@ class SkillLoopConfig:
     adaptive_rejection_threshold: int = 2
     adaptive_skill_max_triggers: int = 2
     adaptive_skill_max_cost_usd: float = 5.0
-    # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
-    # (create/update/delete/archive) and the loop applies them via
-    # SkillRouter — no Manager approval gate. Off by default; the daemon
-    # enables it.
+    # Legacy proposal compatibility only. Current Reviewers edit the injected
+    # project skill path directly and their output schema has no skill_ops.
     skill_ops_enabled: bool = False
-    # Reviewer-owned project wiki memory: the wiki's structured counterpart
-    # to ``skill_ops_enabled`` above. The reviewer emits ``wiki_ops``
-    # (create_page/update_page/retire_page) per round and the loop applies
-    # them via WikiRouter — also no Manager gate. A no-op whenever the
-    # project has no initialized wiki (see ``wiki.auto_hooks.discover_wikis``).
-    # Off by default; the daemon enables it.
+    # Legacy proposal compatibility only. Current Reviewers edit injected wiki
+    # paths directly; deterministic post-mission hooks still maintain indexes.
     wiki_ops_enabled: bool = False
     # Bootstrap one project wiki before the first mission so every vertical can
     # use reviewer-owned wiki_ops without a separate learning-only setup step.
@@ -120,11 +113,8 @@ class SkillLoopConfig:
     # long-horizon paper execution contract. Replaces the old keyword-based
     # objective sniffing; callers (e.g. the life runner) set it explicitly.
     paper_mission: bool = False
-    # Where to persist the curated working-memory checkpoint so the reviewer's
-    # per-round handoff (goal / done / tried-and-failed / open-blocker /
-    # next-step) survives across missions AND daemon restarts. None = in-memory
-    # only for the current mission (legacy behaviour; e.g. tests / chat). The
-    # life runner sets this to the per-project state-dir checkpoint file.
+    # Ordinary Markdown file edited directly by Engineer and Reviewer as the
+    # shared baton between fresh per-round sessions. None disables it.
     checkpoint_path: Path | None = None
     # Absolute path to this project's engineer execution log
     # (``<life_dir>/events.jsonl``), threaded down to SupervisedConfig so the
@@ -273,7 +263,14 @@ class SkillLoop:
         active_vertical = resolve_vertical(workdir)
         vertical_module = load_vertical(active_vertical, project_root=workdir)
         engineer_role_banner = vertical_role_banner(vertical_module, "engineer")
-        scientist_role_banner = vertical_role_banner(vertical_module, "scientist")
+        scientist_create_banner = vertical_role_banner(
+            vertical_module,
+            "scientist_create",
+        )
+        scientist_adaptation_banner = vertical_role_banner(
+            vertical_module,
+            "scientist",
+        )
         if self.config.wiki_ops_enabled and not direct_workflow:
             from .wiki.lifecycle import ensure_project_wiki
 
@@ -331,7 +328,7 @@ class SkillLoop:
                     self.engineer_runner,
                     model=self.config.engineer_model,
                     reasoning_effort=self.config.engineer_reasoning_effort,
-                    role_banner=scientist_role_banner,
+                    role_banner=scientist_create_banner,
                 )
                 raw_skill = scientist.distill(skill_task)
                 distill_result = scientist.last_result
@@ -516,7 +513,7 @@ class SkillLoop:
                 self.engineer_runner,
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
-                role_banner=scientist_role_banner,
+                role_banner=scientist_adaptation_banner,
                 max_budget_usd=remaining_cost,
             )
             raw_skill = scientist.distill_alternative(
@@ -823,14 +820,10 @@ class SkillLoop:
             continue_adaptor=adapt_after_rejections,
         )
 
-        # Step 4: learn from the OUTCOME. The REVIEWER owns skill AND wiki
-        # memory: it emits ``skill_ops`` (create/update/delete/archive on the
-        # skill library) and ``wiki_ops`` (create_page/update_page/retire_page
-        # on the project wiki) per round — no Manager approval gate for
-        # either. The loop only applies what the reviewer requested; there is
-        # no separate author. Skills are active immediately; reviewed outcomes
-        # are recorded as use evidence, while later update/archive ops express
-        # the Reviewer's judgment about what to retain.
+        # Step 4: learn from the OUTCOME. The executable Reviewer has already
+        # received and directly edited the project skill/wiki paths when durable
+        # learning existed. Here we record effectiveness evidence and keep the
+        # legacy proposal path available only for old replay compatibility.
         if skill is not None:
             try:
                 if status == "done":
@@ -1053,11 +1046,8 @@ class SkillLoop:
         include_static: bool = True,
         role_banner: str = "",
     ) -> str:
-        # STATIC = byte-stable prefix (constant within a mission: task / skill)
-        # → restores gpt-5.5 prefix-cache. DELTA = the per-round changing tail
-        # (reviewer next_action). On a RESUMED thread we send DELTA only;
-        # STATIC is re-sent on round 1 / after a session roll / after a compaction
-        # (the anti-amnesia hedge). See SupervisedEngineer.run (F5).
+        # STATIC remains byte-stable for provider prefix caching. Autonomous
+        # Engineer calls are always fresh and receive the full prompt.
         sections: list[str] = []
         delta_sections: list[str] = []
         sections.append(EFFECTIVE_TASK_CONTRACT)
@@ -1067,11 +1057,9 @@ class SkillLoop:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         if original_request.strip():
             sections.append(
-                "## Original operator request (root substantive anchor)\n"
-                "This is the user's original ask before planner/reviewer/prelude "
-                "rewrites. Interpret it under the Effective task contract above: "
-                "live operator instructions may clarify or override it, while "
-                "lower-authority guidance may not silently narrow or expand it.\n\n"
+                "## Original operator request\n"
+                "Higher-priority live operator instructions may update this; "
+                "lower-authority guidance may not silently change it.\n\n"
                 + original_request.strip()
             )
         sections.append("## Current mission task\n" + task)
@@ -1083,61 +1071,27 @@ class SkillLoop:
                 + next_action
             )
         sections.append(
-            "## Turn discipline — bounded progress, then yield\n"
-            "Do NOT try to finish this whole stage in a single turn. A turn\n"
-            "that runs for hundreds of internal steps overflows the context\n"
-            "window, forces repeated lossy auto-compaction, and burns the\n"
-            "budget re-summarizing itself instead of working.\n\n"
-            "Instead, each turn: advance ONE concrete increment — land a\n"
-            "checklist item (or a few tightly-coupled blockers), create or\n"
-            "modify a real artifact — then STOP and emit your status block.\n"
-            "You WILL be resumed; the curated checkpoint block injected at the\n"
-            "top of this prompt carries your goal, what is done, what failed,\n"
-            "the open blocker, and the next step across turns, so you lose\n"
-            "nothing by stopping. Treat ~30-40 tool calls as a soft ceiling\n"
-            "for one turn.\n\n"
-            "Use the lightest useful handoff. Normally, stop and let the\n"
-            "Reviewer judge the increment. If you have landed real work, the\n"
-            "next local execution step is already obvious, and an independent\n"
-            "review right now would only repeat your own plan, you may request\n"
-            "ONE additional Engineer turn by making the final non-empty line:\n"
-            "`CONTINUE_WORK: <specific next step>`\n"
-            "The following turn is reviewed normally. Do not use this when you\n"
-            "think the mission is done, need acceptance criteria interpreted,\n"
-            "need a strategy pivot, are uncertain about evidence, or are\n"
-            "blocked.\n\n"
-            "Every turn MUST land a concrete, checkpoint-worthy increment with\n"
-            "verification output below. A turn that ships and MEASURES a change\n"
-            "— even one that scores temporarily WORSE — or that makes a real\n"
-            "build step toward a declared NEW mechanism named in your checkpoint\n"
-            "(a profile run, a researched technique applied, a kernel/precision\n"
-            "edit that compiles) IS a landed increment, NOT no-progress. Only a\n"
-            "turn that SOLELY reads/explores and stops with nothing built or\n"
-            "measured is judged as no forward progress and, repeated, aborts the\n"
-            "mission. If the stage gate is genuinely within a couple of quick\n"
-            "items, finish them rather than stopping artificially.\n"
+            "## This turn\n"
+            "This is a fresh session. Land one coherent, verifiable increment; "
+            "directly update CHECKPOINT.md; then yield to Reviewer. Do not rely on "
+            "this thread continuing. A measured failure or real build step is "
+            "progress; pure reading with no artifact or measurement is not.\n"
+            "Work directly in the current directory. Unless the mission explicitly "
+            "requires it, do not write planning/spec/brief documents, initialize Git, "
+            "create branches/worktrees, commit, spawn subagents, or invoke meta-workflow "
+            "playbooks."
         )
         sections.append(
             "## Required output\n"
-            "Make concrete progress: read files, run commands, edit code as\n"
-            "needed.\n\n"
-            "End your response with a fenced markdown section titled\n"
-            "**`## Verification (verbatim)`** containing the *literal stdout*\n"
-            "of every acceptance command you ran this round — pytest summary\n"
-            "line, ruff result, mypy result, coverage table, `ls` output,\n"
-            "etc. Quote the actual lines, not paraphrases. Use a fenced\n"
-            "code block. The reviewer is text-only and must see the real\n"
-            "command output to judge completion; without it the round will\n"
-            "be marked `continue` and burn another cycle.\n\n"
-            "Below the verification block, add a short `## Summary`\n"
-            "section (≤8 bullets) describing what you changed."
+            "End with `## Verification (verbatim)` containing literal decisive "
+            "command output in a fenced block, then `## Summary` with at most 8 "
+            "bullets. Do not paraphrase verification evidence."
         )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)
         if include_static:
-            # Full send (round 1 / post-roll / post-compaction): STATIC then DELTA.
             return static_text + ("\n\n" + delta_text if delta_text else "")
-        # Resume send: DELTA only (may be "" when nothing changed this round).
+        # Kept for source compatibility; autonomous calls always request full text.
         return delta_text
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

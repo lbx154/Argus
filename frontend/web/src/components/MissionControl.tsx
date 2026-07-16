@@ -148,7 +148,7 @@ export function MissionControl({
         {objective.length > 600 ? <details className="mt-2 text-xs text-ink-faint"><summary className="cursor-pointer hover:text-ink">Show full objective</summary><p className="mt-2 whitespace-pre-wrap text-ink-dim">{objective}</p></details> : null}
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
           <div><div className="text-ink-faint">Stage</div><div className="mt-0.5 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
-          <div><div className="text-ink-faint">Elapsed</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.elapsed_seconds)}</div></div>
+          <div><div className="text-ink-faint">Campaign</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
           <div><div className="text-ink-faint">Round</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
           <div><div className="text-ink-faint">Best</div><div className={`mt-0.5 font-mono ${metric?.verification_status === 'accepted' ? 'text-ok' : 'text-warn'}`}>{metricDisplay(metric)}{improvement == null ? '' : ` · ${improvement >= 0 ? '↑' : '↓'}${Math.abs(improvement).toFixed(2)}${metric?.unit || ''}`}</div></div>
         </div>

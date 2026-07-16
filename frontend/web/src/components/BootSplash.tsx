@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { ArgusMark, Wordmark } from './Wordmark';
 
-export const WEB_SPLASH_DURATION_MS = 650;
+export const WEB_SPLASH_DURATION_MS = 180;
 
 export function BootSplash({ onDone }: { onDone: () => void }) {
   const finished = useRef(false);

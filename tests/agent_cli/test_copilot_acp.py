@@ -265,6 +265,31 @@ def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
     assert len(prompts) == 2  # both prompts ran on the warm process
 
 
+def test_prewarm_starts_lean_process_and_session_without_model_turn(
+    monkeypatch,
+) -> None:
+    proc = _FakeAcpProc(_happy_script)
+    commands: list[list[str]] = []
+
+    def _popen(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return proc
+
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", _popen)
+    client = CopilotAcpClient("copilot-bin", "fast-model", "low", lean=True)
+
+    client.prewarm("/workspace", front_door_session=True)
+
+    methods = [w.get("method") for w in proc.written if w.get("method")]
+    assert methods == ["initialize", "session/new"]
+    assert commands == [[
+        "copilot-bin", "--acp", "--model", "fast-model",
+        "--reasoning-effort", "low",
+        "--no-custom-instructions", "--disable-builtin-mcps",
+        "--available-tools=",
+    ]]
+
+
 def test_manager_chat_is_isolated_then_resumed_on_same_process(monkeypatch) -> None:
     proc = _FakeAcpProc(_multi_session_script)
     monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
@@ -706,3 +731,27 @@ def test_acp_fresh_session_mode(monkeypatch) -> None:
     )
     news = [w for w in proc.written if w.get("method") == "session/new"]
     assert len(news) == 2  # a fresh session per call in fresh mode
+
+
+def test_acp_registry_isolates_manager_scopes() -> None:
+    first = copilot_acp.get_client(
+        "copilot-bin", "model", "low", scope="manager:s-a",
+    )
+    same = copilot_acp.get_client(
+        "copilot-bin", "model", "low", scope="manager:s-a",
+    )
+    second = copilot_acp.get_client(
+        "copilot-bin", "model", "low", scope="manager:s-b",
+    )
+
+    assert first is same
+    assert first is not second
+
+    copilot_acp.close_clients_for_scope("manager:s-a")
+    replaced = copilot_acp.get_client(
+        "copilot-bin", "model", "low", scope="manager:s-a",
+    )
+    assert replaced is not first
+    assert copilot_acp.get_client(
+        "copilot-bin", "model", "low", scope="manager:s-b",
+    ) is second

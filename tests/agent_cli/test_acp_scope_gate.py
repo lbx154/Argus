@@ -114,6 +114,7 @@ def test_copilot_manager_acp_defaults_on_with_explicit_rollback(monkeypatch) -> 
 def test_front_door_label_takes_acp_and_never_spawns_cli(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
     acp_proc = _FakeAcpProc()
+    commands: list[list[str]] = []
 
     # NOTE: copilot_acp.subprocess and agent_cli_runner.subprocess are the SAME
     # module object, so ONE patched Popen must dispatch by argv: an ``--acp``
@@ -121,6 +122,7 @@ def test_front_door_label_takes_acp_and_never_spawns_cli(monkeypatch) -> None:
     # NOT happen for the front-door label).
     def _popen(cmd, *a, **k):
         if "--acp" in cmd:
+            commands.append(cmd)
             return acp_proc
         raise AssertionError("front-door classify must NOT spawn the copilot CLI")
 
@@ -135,6 +137,13 @@ def test_front_door_label_takes_acp_and_never_spawns_cli(monkeypatch) -> None:
     )
     assert r.exit_code == 0 and r.turn_completed
     assert r.agent_messages == ["CONFIG: NONE\nROUTE: SELF"]
+    assert commands == [[
+        "copilot-bin",
+        "--acp",
+        "--no-custom-instructions",
+        "--disable-builtin-mcps",
+        "--available-tools=",
+    ]]
     assert any(w.get("method") == "session/prompt" for w in acp_proc.written)
 
 

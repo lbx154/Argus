@@ -1,13 +1,4 @@
-"""F7: the reviewer resumes its OWN persisted codex thread across rounds and
-re-sends only the per-round DELTA (not the ~50KB static rubric), with an
-anti-rubber-stamp RE-EVALUATE guard and a static-fingerprint freshness guard.
-
-Two layers:
-  * evaluate/_render unit tests — the static/delta split, the fingerprint guard,
-    and the side-channel thread_id/static_fingerprint fields.
-  * full-loop integration tests — the runner threads the reviewer's own thread
-    across rounds and drops it on backend death (F7×F8).
-"""
+"""Reviewer prompt splitting and fresh-per-round session behavior."""
 from __future__ import annotations
 
 import json
@@ -111,39 +102,32 @@ def test_reviewer_runner_receives_configured_working_dir(tmp_path: Path) -> None
     assert options.working_dir == str(tmp_path)
 
 
-def test_resumed_reviewer_prompt_is_delta_only() -> None:
+def test_resume_request_is_ignored_and_full_prompt_is_sent() -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
-    first = _evaluate(r)  # round 1: full send, learns the fingerprint
-    # Round 2: resume the same thread with the matching fingerprint → delta only.
+    first = _evaluate(r)
     _evaluate(
         r, round_index=2, main_summary="ROUND TWO WORK",
         resume_thread_id="rv1", prior_static_fingerprint=first.static_fingerprint,
     )
     prompts = [p for label, p, _ in backend.history if label == "reviewer"]
     r2 = prompts[1]
-    assert _STATIC_MARKER not in r2            # static rubric omitted (in thread)
-    assert _REEVALUATE in r2                   # anti-rubber-stamp guard present
+    assert _STATIC_MARKER in r2                # fresh call receives full rubric
+    assert _REEVALUATE not in r2
     assert _DELTA_HEADER in r2                 # this round's evidence re-attached
     assert "ROUND TWO WORK" in r2              # this round's summary re-attached
-    # And the backend was actually asked to resume the thread.
     resumes = [t for label, t in backend.resume_history if label == "reviewer"]
-    assert resumes == [None, "rv1"]
+    assert resumes == [None, None]
 
 
-def test_stage_change_forces_full_resend() -> None:
-    """When the static preamble drifts mid-mission (here: the objective anchor
-    changes → different fingerprint), the resume is REFUSED and the full rubric is
-    re-sent — the freshness guard against a stale resumed rubric."""
+def test_stage_change_still_uses_a_fresh_full_prompt() -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
     first = _evaluate(r, objective="objective A")
-    # Same resume id + prior fingerprint, but a DIFFERENT objective → new static
-    # fingerprint mismatches → no resume, full re-send.
     _evaluate(
         r, round_index=2, objective="objective B is wholly different",
         resume_thread_id="rv1", prior_static_fingerprint=first.static_fingerprint,
@@ -154,7 +138,7 @@ def test_stage_change_forces_full_resend() -> None:
     assert _STATIC_MARKER in r2                # full rubric re-sent
 
 
-def test_output_schema_change_forces_full_resend(tmp_path: Path) -> None:
+def test_output_schema_change_still_uses_a_fresh_full_prompt(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv2"))
@@ -204,7 +188,7 @@ def test_backend_dead_review_still_reports_thread_and_fingerprint() -> None:
     assert review.static_fingerprint
 
 
-# --- full-loop integration tests (runner threads the reviewer thread) -------
+# --- full-loop integration tests --------------------------------------------
 
 SKILL_MD = (
     "## Title\nDemo\n\n## Description\nFixed playbook.\n\n## Category\ndemo\n\n"
@@ -233,7 +217,7 @@ def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
     )
 
 
-def test_reviewer_resumes_thread_across_rounds(tmp_path: Path) -> None:
+def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
@@ -247,8 +231,7 @@ def test_reviewer_resumes_thread_across_rounds(tmp_path: Path) -> None:
     reviewer_resumes = [
         (label, tid) for label, tid in backend.resume_history if label == "reviewer"
     ]
-    # Round 1 had no prior reviewer thread; round 2 resumes round 1's "rv1".
-    assert reviewer_resumes == [("reviewer", None), ("reviewer", "rv1")]
+    assert reviewer_resumes == [("reviewer", None), ("reviewer", None)]
 
 
 def test_reviewer_retry_after_backend_death_starts_fresh_session(
@@ -271,5 +254,4 @@ def test_reviewer_retry_after_backend_death_starts_fresh_session(
     reviewer_resumes = [
         tid for label, tid in backend.resume_history if label == "reviewer"
     ]
-    # r1 (None), r2 first attempt resumes rv1, r2 retry after death is FRESH (None).
-    assert reviewer_resumes == [None, "rv1", None]
+    assert reviewer_resumes == [None, None, None]

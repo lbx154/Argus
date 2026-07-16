@@ -3,6 +3,7 @@ import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
+import { DaemonSpendBadge } from './DaemonSpendBadge';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -87,6 +88,15 @@ export function TopBar({
             ? 'bg-ok ring-1 ring-ok/30 ring-offset-1 ring-offset-panel'
             : 'bg-ink-faint/50'
         }`}
+      />
+      <DaemonSpendBadge
+        settledUsd={snap.spend_usd}
+        knownUsd={snap.usage_summary?.known_cost_usd}
+        status={snap.spend_status}
+        calls={snap.usage_summary?.call_count}
+        premiumRequests={snap.usage_summary?.premium_requests}
+        live={snap.daemon.alive}
+        compact
       />
       {onToggleMobileView ? (
         <button

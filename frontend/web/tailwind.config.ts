@@ -38,7 +38,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Geist Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Geist Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['Geist Mono Variable', 'SFMono-Regular', 'Menlo', 'ui-monospace', 'monospace'],
       },
       borderRadius: { xl: '0.75rem' },

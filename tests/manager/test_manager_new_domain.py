@@ -212,8 +212,28 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     assert opts.sandbox_mode == "read-only"
     assert opts.dangerous_yolo is False
     assert opts.full_auto is False
+    assert opts.reasoning_effort == "low"
     assert "shell access" in call["prompt"].lower()
     assert "investigate" in call["prompt"].lower()
+
+
+def test_copilot_vertical_decision_does_not_auto_inject_repo_instructions(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    runner = _FakeRunner(_EXISTING_RESEARCH_DECISION)
+    runner._backend_name = "copilot"
+
+    Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "write a research paper",
+    )
+
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
+    assert call["options"].extra_args == [
+        "--no-custom-instructions",
+        "--disable-builtin-mcps",
+    ]
 
 
 def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):

@@ -5,7 +5,6 @@ import App from './App';
 import { BootSplash } from './components/BootSplash';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
-import '@fontsource-variable/noto-sans-sc';
 import './index.css';
 
 const queryClient = new QueryClient({

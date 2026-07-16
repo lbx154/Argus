@@ -1,6 +1,6 @@
 {
   "name": "argus-tui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Ink terminal frontend for the argus-skill autonomous-research daemon. A client of the argus-skill webapi (events over WS, snapshots/commands over REST).",
   "type": "module",

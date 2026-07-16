@@ -215,6 +215,7 @@ def test_manager_holds_empty_required_checklist_before_stage_backend(
     (tmp_path / "research" / "CHECKLISTS.json").write_text(
         json.dumps({
             "revision": 1,
+            "vertical": "math",
             "stages": {"solve": []},
             "disabled": {"solve": solve_seed_ids},
         }),
@@ -309,7 +310,7 @@ def test_decide_stage_refreshes_manager_owned_live_view(tmp_path: Path) -> None:
         },
         "presentations": [{
             "path": ".argus/live/current.md",
-            "content": "# Current result\n",
+            "content": "# Current result\n\n## Current node\n- Solve bridge — `running`\n\n## Verified progress\n- Scope accepted\n\n## Current blocker\n- Uniform bridge remains open.\n\n## Next action\n- Test the bridge.\n",
         }],
     })
     mgr = Manager(project_root=root, runner=backend)

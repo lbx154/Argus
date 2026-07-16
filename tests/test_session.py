@@ -12,12 +12,14 @@ import json
 import pytest
 
 from argus_skill.core.session import (
+    SessionMeta,
     SessionResolutionError,
     list_sessions,
     most_recent_session,
     new_session_id,
     read_session_meta,
     resolve_session,
+    resolve_session_workdir,
     touch_session,
 )
 from argus_skill.life.memory import MemoryBundle
@@ -38,6 +40,39 @@ def test_new_mode_mints_fresh_each_time(tmp_path):
     # Each wrote its session.json
     assert read_session_meta(tmp_path, a).created == 100
     assert read_session_meta(tmp_path, b).created == 200
+    assert read_session_meta(tmp_path, a).workdir == str(tmp_path.resolve())
+
+
+def test_resolve_session_workdir_preserves_legacy_cwd(tmp_path):
+    state = tmp_path / "state"
+    legacy = tmp_path / "legacy-work"
+    launch = tmp_path / "launch-only"
+    state.mkdir()
+    legacy.mkdir()
+    launch.mkdir()
+
+    resolved = resolve_session_workdir(
+        SessionMeta(id="legacy", cwd=str(legacy), launch_cwd=str(launch)),
+        state_dir=state,
+    )
+
+    assert resolved == legacy.resolve()
+
+
+def test_resolve_session_workdir_rejects_missing_explicit_path(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        resolve_session_workdir(
+            SessionMeta(id="missing", workdir=str(tmp_path / "missing")),
+            state_dir=tmp_path,
+        )
+
+
+def test_resolve_session_workdir_rejects_missing_legacy_cwd(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        resolve_session_workdir(
+            SessionMeta(id="legacy", cwd=str(tmp_path / "missing")),
+            state_dir=tmp_path,
+        )
 
 
 def test_continue_returns_most_recent(tmp_path):

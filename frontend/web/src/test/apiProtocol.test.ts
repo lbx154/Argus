@@ -12,7 +12,7 @@ const currentMeta = {
   snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
   capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
-    package_version: '0.1.0',
+    package_version: '0.1.1',
     source_root: '/checkout/argus-skill',
     configured_source_root: '/checkout/argus-skill',
     source_root_matches_config: true,
@@ -108,6 +108,27 @@ describe('web API protocol handshake', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('retries one malformed HTTP daemon create with the same command id', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (_path: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+      if (bodies.length === 1) {
+        return new Response('Invalid HTTP request received.', { status: 400 });
+      }
+      return Response.json({
+        sid: 's-retried', rc: 0, daemon: { alive: false }, objective: '',
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    await expect(api.createDaemon('', 'Retry create')).resolves.toMatchObject({
+      sid: 's-retried',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(bodies[0].command_id).toBe(bodies[1].command_id);
+  });
+
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === '/api/metrics') return Response.json({ slo: { status: 'healthy' } });
@@ -135,6 +156,7 @@ describe('web API protocol handshake', () => {
     await api.resetManager('s-test');
     await api.skills('s-test', 'ls');
     await api.setLaunchCwd('s-test', '/workspace');
+    await api.setWorkdir('s-test', '/workspace');
     await api.replaceDaemon('s-test', 's-victim');
     await api.upgradeDaemon('s-test');
     await api.restoreTrash('0:projects_trash/20260712/s-old');
@@ -149,11 +171,12 @@ describe('web API protocol handshake', () => {
       '/api/projects/s-test/reset',
       '/api/projects/s-test/skills',
       '/api/projects/s-test/launch-cwd',
+      '/api/projects/s-test/workdir',
       '/api/projects/s-test/daemon/replace',
       '/api/projects/s-test/daemon/upgrade',
       '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',
     ]);
-    const replaceBody = JSON.parse(String(fetchMock.mock.calls[9][1]?.body));
+    const replaceBody = JSON.parse(String(fetchMock.mock.calls[10][1]?.body));
     expect(replaceBody).toMatchObject({ victim_sid: 's-victim', resume_continuous: false });
   });
 

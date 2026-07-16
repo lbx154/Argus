@@ -18,7 +18,7 @@ from argus_skill.apps import _runtime
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus_skill.skills.stage_checklists import resolve_stage_checklist_contract
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -72,8 +72,16 @@ class _MissionOutcome:
 
 
 class _StageMissionRunner:
-    def __init__(self, action: str) -> None:
+    def __init__(
+        self,
+        action: str,
+        *,
+        status: str = "done",
+        success: bool = True,
+    ) -> None:
         self.action = action
+        self.status = status
+        self.success = success
 
     def execute(
         self,
@@ -85,10 +93,40 @@ class _StageMissionRunner:
         original_objective: str = "",
     ) -> _MissionOutcome:
         outcome = _MissionOutcome()
+        outcome.status = self.status
+        outcome.success = self.success
+        if self.status == "research_incomplete":
+            outcome.stop_reason = "project target remains open after this stage"
         outcome.stage_transition = {
             "action": self.action,
             "current_stage": "scope",
             "target_stage": "solve" if self.action == "advance" else "scope",
+        }
+        return outcome
+
+
+class _ScopeThenFinalRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, **_kwargs) -> _MissionOutcome:
+        self.calls += 1
+        if self.calls == 1:
+            outcome = _MissionOutcome()
+            outcome.success = False
+            outcome.status = "research_incomplete"
+            outcome.stop_reason = "scope complete; project target remains open"
+            outcome.stage_transition = {
+                "action": "advance",
+                "current_stage": "scope",
+                "target_stage": "solve",
+            }
+            return outcome
+        outcome = _MissionOutcome()
+        outcome.stage_transition = {
+            "action": "complete",
+            "current_stage": "review",
+            "target_stage": "review",
         }
         return outcome
 
@@ -386,6 +424,78 @@ def test_bounded_item_stays_pending_after_intermediate_stage_advance(
     )
 
 
+def test_research_incomplete_does_not_override_intermediate_stage_advance(
+    tmp_path: Path,
+) -> None:
+    """Exact production regression: scope advanced, but project target is open."""
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="bounded research", objective="finish all stages")
+    )
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner(
+            "advance",
+            status="research_incomplete",
+            success=False,
+        ),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["success"] is True
+    assert result["status"] == "stage_continues"
+    assert result["stage_transition"]["target_stage"] == "solve"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "pending"
+    assert persisted.started_ts is None
+    assert persisted.finished_ts is None
+    assert not any(
+        event.get("type") == "life.mission.completed" for event in sink.events
+    )
+
+
+def test_bounded_run_automatically_continues_after_stage_only_completion(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(title="bounded research", objective="scope then solve")
+    )
+    runner = _ScopeThenFinalRunner()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            budget=LifeBudget(max_missions=3),
+            poll_interval_seconds=0.0,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    summary = sup.run()
+
+    assert runner.calls == 2
+    assert [result["status"] for result in summary["results"]] == [
+        "stage_continues",
+        "done",
+    ]
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "done"
+    assert summary["stopped_by"] == "backlog_empty"
+
+
 def test_bounded_item_finishes_only_after_final_stage_complete(tmp_path: Path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     item = memory.backlog.add(
@@ -432,6 +542,98 @@ def test_bounded_stage_hold_stays_pending_without_immediate_rerun(tmp_path: Path
     assert result["missions_run"] == 1
     persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
     assert persisted.status == "pending"
+
+
+def test_planner_bounded_node_closes_even_when_project_stage_holds(
+    tmp_path: Path,
+) -> None:
+    """A Planner DAG node has its own acceptance boundary.
+
+    During daemon drain ``continuous`` can become false before the mission
+    result is persisted. A project-level Manager HOLD must not re-arm the same
+    accepted bounded node; the Planner needs an empty backlog so it can enqueue
+    the next stage's node instead.
+    """
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(
+            title="scope node",
+            objective="complete only scope",
+            tags=["planner", "scope:bounded"],
+            plan_id="plan-1",
+            node_key="scope-node",
+        )
+    )
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner("hold"),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "done"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "done"
+    assert persisted.finished_ts is not None
+    assert any(
+        event.get("type") == "life.mission.completed"
+        and event.get("item_id") == item.id
+        for event in sink.events
+    )
+
+
+def test_planner_bounded_scope_node_closes_after_project_incomplete_advance(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(
+        BacklogItem.new(
+            title="scope node",
+            objective="complete scope only",
+            tags=["planner", "bounded_dag_node", "scope:bounded"],
+            plan_id="plan-1",
+            node_key="scope-node",
+        )
+    )
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_StageMissionRunner(
+            "advance",
+            status="research_incomplete",
+            success=False,
+        ),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["success"] is True
+    assert result["status"] == "done"
+    persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
+    assert persisted.status == "done"
+    event = next(
+        event
+        for event in sink.events
+        if event.get("type") == "life.mission.completed"
+        and event.get("item_id") == item.id
+    )
+    assert event["success"] is True
+    assert event["status"] == "done"
 
 
 def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch) -> None:

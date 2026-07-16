@@ -6,6 +6,7 @@ import { ago, uptime } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { DaemonSpendBadge } from './DaemonSpendBadge';
 import {
   faAnglesLeft,
   faAnglesRight,
@@ -217,8 +218,18 @@ export function Sidebar({
                           <StatusDot ok={project.daemon_alive} title={project.daemon_alive ? 'daemon alive' : 'stopped'} />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.label || project.id}</span>
                         </div>
-                        <div className="mt-1 truncate pl-4 text-xs text-ink-faint">
-                          {project.daemon_alive ? `running · ${uptime(project.uptime_seconds)}` : ago(project.last_active)}
+                        <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
+                          <span className="min-w-0 truncate">
+                            {project.daemon_alive ? `running · ${uptime(project.uptime_seconds)}` : ago(project.last_active)}
+                          </span>
+                          <DaemonSpendBadge
+                            settledUsd={project.spend_usd}
+                            knownUsd={project.known_cost_usd}
+                            status={project.spend_status}
+                            calls={project.usage_calls}
+                            premiumRequests={project.premium_requests}
+                            live={project.daemon_alive}
+                          />
                         </div>
                       </button>
                       <button

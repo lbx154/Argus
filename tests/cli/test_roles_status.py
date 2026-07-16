@@ -159,6 +159,27 @@ def test_activity_marks_latest_role_active(tmp_path):
     assert acts["reviewer"].status == "done"
 
 
+def test_activity_has_only_one_fresh_active_role(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "engineer.progress", "text": "Engineer result", "ts": now - 2},
+        {"type": "round.review.started", "ts": now - 1},
+        {
+            "type": "engineer.progress",
+            "kind": "agent_message",
+            "agent_layer": "reviewer",
+            "text": "Reviewing evidence",
+            "ts": now,
+        },
+    ])
+
+    acts = role_activity(tmp_path, now=now)
+
+    assert acts["reviewer"].active is True
+    assert acts["engineer"].active is False
+    assert sum(acts[role].active for role in ("planner", "engineer", "reviewer")) == 1
+
+
 def test_review_deferral_is_engineer_activity(tmp_path):
     now = time.time()
     _write_events(tmp_path, [{

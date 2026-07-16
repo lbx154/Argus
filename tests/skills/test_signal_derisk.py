@@ -254,7 +254,9 @@ def test_research_checklist_item_present():
 def test_planner_can_replace_signal_screen_with_generic_theorem_evidence(tmp_path):
     from argus_skill.skills.checklist_store import apply_checklist_ops
     from argus_skill.skills.stage_checklists import format_stage_checklist
+    from argus_skill.skills.vertical_select import persist_vertical
 
+    persist_vertical(tmp_path, "research")
     result = apply_checklist_ops(tmp_path, [
         {"op": "seed", "stage": "research", "id": ""},
         {

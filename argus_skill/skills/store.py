@@ -625,9 +625,8 @@ class SkillStore:
 
         ``role`` scopes the candidate pool to that role's skills (see
         :data:`ROLE_SKILL_POOLS`); ``None`` matches the whole corpus.
-        ``exclude_files`` drops skills by on-disk filename (e.g. skills a
-        role already injects verbatim, so the matcher never re-surfaces
-        them).
+        ``exclude_files`` drops skills by on-disk filename (e.g. long role
+        policies already covered by a compact fixed prompt).
         """
         summaries = self._scope_summaries(
             self.list_summaries(), role=role, exclude_files=exclude_files

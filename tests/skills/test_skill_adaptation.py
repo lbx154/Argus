@@ -10,7 +10,11 @@ from argus_skill.skills.adaptation import (
     save_adaptation_state,
 )
 from argus_skill.skills.missions import EngineerMission
-from argus_skill.skills.scientist import SkillScientist, parse_mechanism_change
+from argus_skill.skills.scientist import (
+    SkillScientist,
+    _build_scientist_prompt,
+    parse_mechanism_change,
+)
 from argus_skill.skills.skill_router import SkillRouter
 from argus_skill.skills.store import SkillStore
 
@@ -114,3 +118,38 @@ def test_scientist_alternative_enters_generic_versioned_skill_store(
     assert mechanism is not None
     assert created is not None
     assert created.path is not None and Path(created.path).exists()
+
+
+def test_create_prompt_keeps_complete_task_without_adaptation_contract() -> None:
+    task = (
+        "Select one open Erdős problem and define the scope faithfully. "
+        "Verify the current status from primary sources. "
+        + "one-off acceptance detail " * 100
+    )
+
+    prompt = _build_scientist_prompt(
+        task,
+        "MISSION TYPE: MATHEMATICS. Initial CREATE only.",
+    )
+
+    assert "Initial CREATE only" in prompt
+    assert "Do not invoke skills or plugins" in prompt
+    assert "Do not launch subagents" in prompt
+    assert "Do not assume a prior failed method" in prompt
+    assert "one-off acceptance detail " * 40 in prompt
+    assert "Use live web search as much as needed" in prompt
+
+
+def test_scientist_call_does_not_impose_a_time_limit() -> None:
+    class RecordingBackend:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def run_exec(self, **kwargs):
+            self.kwargs = kwargs
+            return RunnerResult(exit_code=0, agent_messages=["NONE"])
+
+    recording = RecordingBackend()
+    SkillScientist(recording, model="test").distill("scope a problem")
+    assert recording.kwargs is not None
+    assert recording.kwargs["options"].watchdog_hard_idle_seconds == 0

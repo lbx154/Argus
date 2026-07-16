@@ -14,6 +14,7 @@ from argus_skill.core.research_contract import (
 from argus_skill.manager.stage_decider import final_stage_completion_decision
 from argus_skill.skills.stage_checklists import (
     ChecklistLoadState,
+    format_stage_checklist,
     resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import (
@@ -107,15 +108,29 @@ def test_math_vertical_contains_only_contract_skills_and_metadata() -> None:
         "skills/planner/math-research-planning.md",
         "skills/engineer/math-research-execution.md",
         "skills/reviewer/math-research-review.md",
+        "skills/scientist/math-research-distillation.md",
         "skills/scientist/math-research-adaptation.md",
     }
 
 
 def test_generic_roles_load_math_skill_context_only_for_math() -> None:
     math = load_vertical("math")
-    for role in ("manager", "planner", "engineer", "reviewer", "scientist"):
+    for role in (
+        "manager",
+        "planner",
+        "engineer",
+        "reviewer",
+        "scientist_create",
+        "scientist",
+    ):
         context = vertical_role_banner(math, role)
         assert "MATHEMATICS" in context
+
+    create = vertical_role_banner(math, "scientist_create")
+    adapt = vertical_role_banner(math, "scientist")
+    assert "initial CREATE" in create
+    assert "failed-round" not in create
+    assert "failed-round evidence" in adapt
 
     direct = load_vertical("direct")
     assert "MATHEMATICS" not in vertical_role_banner(direct, "engineer")
@@ -174,6 +189,66 @@ def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
     )
 
 
+def test_math_solve_and_review_have_conditional_mechanism_overlap_gate() -> None:
+    items = vertical_checklist_items(load_vertical("math"))
+    solve = {item.id: item for item in items["solve"]}
+    review = {item.id: item for item in items["review"]}
+
+    assert "solve.mechanism-overlap-audit" in solve
+    assert "review.mechanism-overlap-debt" in review
+    assert "If no such mechanism emerged" in solve["solve.mechanism-overlap-audit"].statement
+    assert "bounded item" in review["review.mechanism-overlap-debt"].statement
+    assert "MECHANISM_OVERLAP_AUDIT.md" in solve["solve.mechanism-overlap-audit"].evidence_hint
+
+
+def test_math_roles_route_triggered_overlap_audit_as_separate_short_node() -> None:
+    math = load_vertical("math")
+    planner = vertical_role_banner(math, "planner")
+    engineer = vertical_role_banner(math, "engineer")
+    reviewer = vertical_role_banner(math, "reviewer")
+
+    assert "SEPARATE short DAG node" in planner
+    assert "Do not impose this literature cost" in planner
+    assert "novelty debt" in engineer
+    assert "do not self-certify novelty" in engineer
+    assert "bounded construction node may still" in reviewer
+    assert "Final review" in reviewer and "must `continue`" in reviewer
+
+
+def test_math_vertical_carries_conditional_ai4m_method_triggers() -> None:
+    items = vertical_checklist_items(load_vertical("math"))
+    solve = {item.id: item for item in items["solve"]}
+    review = {item.id: item for item in items["review"]}
+
+    assert {
+        "solve.counterexample-guided-refinement",
+        "solve.construction-admissibility",
+        "solve.relational-premise-map",
+    }.issubset(solve)
+    assert "review.ai4m-verifier-separation" in review
+    assert "not applicable" in solve["solve.construction-admissibility"].statement
+    assert "not applicable" in solve["solve.relational-premise-map"].statement
+
+    math = load_vertical("math")
+    planner = vertical_role_banner(math, "planner")
+    engineer = vertical_role_banner(math, "engineer")
+    reviewer = vertical_role_banner(math, "reviewer")
+    scientist_create = vertical_role_banner(math, "scientist_create")
+    scientist_adapt = vertical_role_banner(math, "scientist")
+
+    for phrase in (
+        "Counterexample-guided refinement",
+        "Enumerate→Conjecture→Prove",
+        "Relational premise map",
+        "Semantic round trip",
+    ):
+        assert phrase in planner
+    assert "circular witness" in engineer
+    assert "verifier separation" in reviewer.lower()
+    assert "Never prescribe all AI4M techniques" in scientist_create
+    assert "proposal and verification roles separate" in scientist_adapt
+
+
 def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
     persist_vertical(tmp_path, "math")
 
@@ -185,7 +260,20 @@ def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
         "review.statement-fidelity",
         "review.no-goal-drift",
         "review.correctness-novelty-separated",
+        "review.mechanism-overlap-debt",
     }.issubset({item.id for item in contract.items})
+
+
+def test_stale_research_env_cannot_replace_persisted_math_checklist(
+    tmp_path: Path, monkeypatch
+) -> None:
+    persist_vertical(tmp_path, "math")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
+
+    rendered = format_stage_checklist("review", role="reviewer", project_root=tmp_path)
+
+    assert "review.statement-fidelity" in rendered
+    assert "research.literature" not in rendered
 
 
 def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> None:
@@ -194,7 +282,7 @@ def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> 
     checklist_path = tmp_path / "research" / "CHECKLISTS.json"
     checklist_path.parent.mkdir(parents=True, exist_ok=True)
     checklist_path.write_text(
-        json.dumps({"revision": 1, "stages": {"review": []}}),
+        json.dumps({"revision": 1, "vertical": "math", "stages": {"review": []}}),
         encoding="utf-8",
     )
 

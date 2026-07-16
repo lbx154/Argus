@@ -158,7 +158,7 @@ def test_read_persisted_knobs_tolerates_non_dict_json():
 
 
 def test_write_persisted_knob_empty_name_is_a_noop():
-    knob_store.write_persisted_knob("", "value")
+    assert knob_store.write_persisted_knob("", "value") is False
     assert knob_store.read_persisted_knobs() == {}
 
 

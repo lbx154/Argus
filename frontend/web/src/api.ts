@@ -11,6 +11,7 @@ import type {
   EventMsg,
   GitDiffView,
   ProjectRow,
+  ProjectCostRow,
   RequestUsage,
   Role,
 } from '../../core/src/types';
@@ -29,6 +30,7 @@ export type {
   EventMsg,
   GitDiffView,
   ProjectRow,
+  ProjectCostRow,
   RequestUsage,
   Role,
   Snapshot,
@@ -102,6 +104,10 @@ export interface Turn {
 export interface ProjectIndex {
   projects: ProjectRow[];
   local_cwd: string;
+}
+export interface ProjectCostIndex {
+  projects: ProjectCostRow[];
+  generated_at: number;
 }
 export interface PlanPreview {
   steps: Array<{ title: string; detail?: string }>;
@@ -260,14 +266,47 @@ export const api = {
     await compatibleApiMeta();
     return getJson<ProjectIndex>('/api/projects').then((result) => result.projects);
   },
-  /** Create a brand-new daemon armed with an objective, and spawn it. */
-  createDaemon: (objective: string, name = '', expectedRevision?: number) =>
-    postJson<{ sid: string; rc: number; daemon: Daemon; objective: string }>('/api/daemons', {
+  projectCosts: async (signal?: AbortSignal) => {
+    await compatibleApiMeta();
+    return getJson<ProjectCostIndex>('/api/projects/costs', signal);
+  },
+  /** Create a session. The UI arms an optional campaign separately. */
+  createDaemon: async (
+    objective: string,
+    name = '',
+    launchCwd = '',
+    expectedRevision?: number,
+  ) => {
+    const path = '/api/daemons';
+    const body = {
       objective,
       name,
+      launch_cwd: launchCwd,
       command_id: commandId(),
       expected_revision: expectedRevision,
-    }),
+    };
+    const send = () => fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    let response = await send();
+    if (
+      response.status === 400
+      && /Invalid HTTP request received/i.test(await response.clone().text())
+    ) {
+      response = await send();
+    }
+    await ensureResponseOk(response, 'POST', path);
+    return (await response.json()) as {
+      sid: string;
+      rc: number;
+      daemon: Daemon;
+      objective: string;
+      workdir: string;
+    };
+  },
   updateProject: (sid: string, name: string) =>
     mutationJson<{ ok: boolean; sid: string; name: string }>('PATCH', P(sid), { name }),
   deleteProject: (sid: string) =>
@@ -427,6 +466,11 @@ export const api = {
     postJson<{ text: string }>(P(sid, '/skills'), { args }).then((result) => result.text),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
+  setWorkdir: (sid: string, workdir: string) =>
+    postJson<{ ok: boolean; workdir: string; unchanged?: boolean }>(
+      P(sid, '/workdir'),
+      { workdir },
+    ),
   disposeBacklog: (sid: string, id: string, op: 'done' | 'skip' | 'rm') =>
     postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),

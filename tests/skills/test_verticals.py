@@ -307,6 +307,31 @@ def test_reset_stage_for_new_intent_resets_stale_stage_from_finished_prior_verti
     assert payload["rollback_history"][-1]["to_stage"] == "research"
 
 
+def test_reset_stage_for_new_intent_reopens_finished_same_vertical(
+    tmp_path: Path,
+) -> None:
+    """A new task in the same vertical must not inherit terminal completion."""
+    stage_order = ("scope", "solve", "review")
+    root = _finished_custom_domain(tmp_path, "same_math_family", stage_order)
+
+    assert vertical_reached_own_terminal_stage(root, "same_math_family") is True
+
+    persist_vertical(root, "same_math_family")
+    applied = reset_stage_for_new_intent(
+        root,
+        old_vertical="same_math_family",
+        new_vertical="same_math_family",
+    )
+
+    assert applied is True
+    payload = json.loads((root / "research" / "PIPELINE_STATE.json").read_text())
+    assert payload["vertical"] == "same_math_family"
+    assert payload["current_stage"] == "scope"
+    assert vertical_reached_own_terminal_stage(root, "same_math_family") is False
+    assert payload["rollback_history"][-1]["from_stage"] == "review"
+    assert payload["rollback_history"][-1]["to_stage"] == "scope"
+
+
 def test_persist_vertical_seeds_first_stage_only_when_missing(tmp_path: Path) -> None:
     # Bootstrap of a fresh state file with no stage yet still gets an initial
     # stage seeded — that is initialization, not control.
@@ -355,20 +380,17 @@ def test_full_pipeline_defaults_to_research_eight_stages(tmp_path: Path) -> None
     assert "final submission gate" in text
 
 
-def test_full_pipeline_speedrun_env_yields_four_stages(
+def test_full_pipeline_checklist_prefers_persisted_vertical_over_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
-    root = _project(tmp_path, "research")  # state says research; env forces speedrun.
+    root = _project(tmp_path, "research")
     text = format_full_pipeline_checklist(role="reviewer", project_root=root)
-    for stage in SPEEDRUN_STAGES:
-        assert f"### {stage}\n" in text
-    # None of the paper-only stages leak in.
     for stage in RESEARCH_STAGES:
+        assert f"### {stage}\n" in text
+    for stage in SPEEDRUN_STAGES:
         assert f"### {stage}\n" not in text
-    # The header names the vertical instead of the paper submission gate.
-    assert "(speedrun)" in text
-    assert "final submission gate" not in text
+    assert "final submission gate" in text
 
 
 # --- speedrun reviewer banner is the innovation-coach override -------------

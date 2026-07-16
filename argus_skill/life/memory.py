@@ -1039,6 +1039,24 @@ class Backlog:
             self._save(items)
         return item
 
+    def add_many(self, new_items: Iterable[BacklogItem]) -> list[BacklogItem]:
+        """Atomically append one validated batch (used for Planner DAGs)."""
+        batch = list(new_items)
+        if not batch:
+            return []
+        ids = [item.id for item in batch]
+        if len(ids) != len(set(ids)):
+            raise ValueError("backlog batch contains duplicate item ids")
+        with self._locked():
+            items = self._load()
+            existing = {item.id for item in items}
+            duplicate = next((item_id for item_id in ids if item_id in existing), None)
+            if duplicate is not None:
+                raise ValueError(f"backlog item already exists: {duplicate}")
+            items.extend(batch)
+            self._save(items)
+        return batch
+
     def apply_plan_revision(
         self,
         *,

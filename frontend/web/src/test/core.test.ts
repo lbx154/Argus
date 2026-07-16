@@ -11,6 +11,7 @@ import {
   defaultProject,
   reconcileProjectSelection,
   deriveMissionView,
+  projectMissionView,
   EVENT_TYPES,
   eventKey,
   eventMatchesView,
@@ -28,7 +29,11 @@ import {
   selectPreferredLiveArtifact,
   selectPreferredPreviewArtifact,
   selectPreviewArtifacts,
+  selectLiveMissionStatus,
+  defaultPreviewPath,
+  LIVE_PROGRESS_PATH,
 } from '../components/ResearchCanvas';
+import { emptyMissionView } from '../../../core/src/missionView';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
@@ -404,7 +409,7 @@ describe('shared frontend core', () => {
   });
 
   it('keeps the opening animation lightweight and bounded', () => {
-    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(650);
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(200);
   });
 
   it('uses Rounded 02 SVGs for both boot splash widths', () => {
@@ -456,6 +461,60 @@ describe('shared frontend core', () => {
       'paper/main.pdf', 'research/results.jsonl',
     ]);
     expect(selectPreferredPreviewArtifact(artifacts)?.path).toBe('paper/main.pdf');
+  });
+
+  it('lets Manager selection own the default and falls back to live progress', () => {
+    const view = emptyMissionView();
+    const artifacts = [{ path: '.argus/live/status.md', name: 'status.md', why: 'checkpoint', exists: true, kind: 'markdown' as const, mime: 'text/markdown', size: 20, mtime: 1, source: 'manager_live' as const }];
+
+    expect(defaultPreviewPath(view, artifacts)).toBe('.argus/live/status.md');
+    expect(defaultPreviewPath(view, [])).toBe(LIVE_PROGRESS_PATH);
+    expect(defaultPreviewPath(null, artifacts)).toBe('.argus/live/status.md');
+  });
+
+  it('shows the current runtime role above a stale Manager checkpoint', () => {
+    const view = emptyMissionView();
+    view.active_role = 'reviewer';
+    Object.assign(view.roles.find((role) => role.role === 'reviewer')!, {
+      status: 'active',
+      label: 'Reporting progress',
+    });
+
+    const status = selectLiveMissionStatus(view, [{
+      type: 'engineer.progress',
+      agent_layer: 'reviewer',
+      kind: 'agent_message',
+      text: '正在独立核对证明与证书。',
+      ts: 10,
+    }]);
+
+    expect(status).toEqual({
+      role: 'reviewer',
+      roleLabel: 'Reviewer',
+      label: 'Reporting progress',
+      detail: '正在独立核对证明与证书。',
+    });
+  });
+
+  it('keeps campaign elapsed stable when the active DAG node changes', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(130_000);
+    const view = emptyMissionView();
+    view.mission.started_at = 100;
+    const snapshot = {
+      session: { id: 's', display_name: '', objective: '', created: 10, last_active: 0, cwd: '' },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', per_mission_cap_usd: 1, daily_cap_usd: 2, global_daily_cap_usd: 3 },
+      roles: [],
+      backlog: [{ id: 'solve', title: 'Solve', objective: '', status: 'running', priority: 100, max_cost_usd: 1, iterate: true, pending_question: '', started_ts: 100, finished_ts: null, deps: [], iteration_max_cycles: 1, iteration_cycles_done: 0 }],
+      recent_events: [],
+      continuous: { enabled: true, objective: 'Solve the problem' },
+      mission_view: view,
+    };
+
+    const result = projectMissionView(snapshot, [], []);
+
+    expect(result.mission.elapsed_seconds).toBe(30);
+    expect(result.mission.campaign_elapsed_seconds).toBe(120);
+    now.mockRestore();
   });
 
   it('renders conversation Markdown without executing raw HTML', () => {

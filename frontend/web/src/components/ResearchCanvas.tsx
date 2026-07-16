@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ArtifactInfo } from '../api';
+import type { ArtifactInfo, EventMsg } from '../api';
+import type { MissionView } from '../../../core/src/types';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
@@ -10,6 +11,9 @@ import { useGsapMotion } from '../lib/motion';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
+import { formatMissionElapsed } from '../../../core/src/missionView';
+
+export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
 export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
   return (artifacts ?? []).filter((item) => item.source === 'manager_live');
@@ -22,21 +26,21 @@ export function selectPreferredLiveArtifact(artifacts?: ArtifactInfo[]): Artifac
 
 export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
   const all = artifacts ?? [];
-  const live = selectLiveArtifacts(all);
-  if (live.some((item) => item.exists)) {
-    return [...live].sort((left, right) => Number(right.exists) - Number(left.exists));
-  }
   const kindPriority: Record<string, number> = {
     markdown: 0, pdf: 1, html: 2, text: 3, table: 4, json: 5,
     image: 6, video: 7, audio: 8, binary: 9,
   };
-  const existing = all.filter((item) => item.exists);
+  const existingLive = all.filter((item) => item.exists && item.source === 'manager_live');
+  const existing = all.filter((item) => item.exists && item.source !== 'manager_live');
   if (existing.length) {
-    return [...existing].sort(
-      (left, right) => (kindPriority[left.kind] ?? 99) - (kindPriority[right.kind] ?? 99),
-    );
+    return [
+      ...existingLive,
+      ...[...existing].sort(
+        (left, right) => (kindPriority[left.kind] ?? 99) - (kindPriority[right.kind] ?? 99),
+      ),
+    ];
   }
-  return live;
+  return existingLive;
 }
 
 export function selectPreferredPreviewArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
@@ -48,6 +52,158 @@ function artifactLabel(item: ArtifactInfo): string {
   return parts[parts.length - 1] || item.path;
 }
 
+export function defaultPreviewPath(
+  view?: MissionView | null,
+  artifacts?: ArtifactInfo[],
+): string {
+  const managerSelected = selectPreferredLiveArtifact(artifacts);
+  if (managerSelected) return managerSelected.path;
+  if (view) return LIVE_PROGRESS_PATH;
+  return selectPreferredPreviewArtifact(artifacts)?.path ?? '';
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  manager: 'Manager',
+  planner: 'Planner',
+  engineer: 'Engineer',
+  reviewer: 'Reviewer',
+};
+
+export interface LiveMissionStatus {
+  role: string;
+  roleLabel: string;
+  label: string;
+  detail: string;
+}
+
+function eventRole(event: EventMsg): string {
+  const explicit = String(event.agent_layer ?? event.actor ?? '');
+  if (explicit === 'main') return 'engineer';
+  if (explicit) return explicit;
+  const type = String(event.type ?? '');
+  if (type.startsWith('round.review') || type.startsWith('reviewer')) return 'reviewer';
+  if (type.startsWith('life.planner')) return 'planner';
+  if (type.startsWith('life.manager') || type.startsWith('manager')) return 'manager';
+  return type.startsWith('engineer') || type.startsWith('round.') ? 'engineer' : '';
+}
+
+export function selectLiveMissionStatus(
+  view?: MissionView | null,
+  events: EventMsg[] = [],
+): LiveMissionStatus | null {
+  const role = String(view?.active_role ?? '');
+  if (!role) return null;
+  const roleView = view?.roles.find((candidate) => candidate.role === role);
+  let detail = '';
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (eventRole(event) !== role) continue;
+    const kind = String(event.kind ?? '');
+    if (kind === 'reasoning') continue;
+    const raw = String(event.text ?? event.action_summary ?? '').trim();
+    if (!raw || raw.startsWith('{')) continue;
+    detail = raw.split('\n')[0].slice(0, 240);
+    break;
+  }
+  return {
+    role,
+    roleLabel: ROLE_LABELS[role] ?? role,
+    label: roleView?.label || 'Working',
+    detail,
+  };
+}
+
+function LiveProgressPreview({
+  view,
+  liveStatus,
+  artifacts = [],
+  onOpenArtifact,
+}: {
+  view: MissionView;
+  liveStatus: LiveMissionStatus | null;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact: (path: string) => void;
+}) {
+  const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
+  const completed = view.dag.filter((node) => node.status === 'done').length;
+  const total = view.dag.length;
+  const reviewedArtifacts = [...artifacts]
+    .filter((item) => item.exists && item.source !== 'manager_live')
+    .sort((left, right) => Number(right.mtime ?? 0) - Number(left.mtime ?? 0))
+    .slice(0, 4);
+  const recent = view.timeline.slice(-6).reverse();
+  const statusTone = (status: string) => (
+    status === 'done' ? 'text-ok'
+    : ['running', 'in_progress', 'claimed'].includes(status) ? 'text-blue-sky'
+    : ['failed', 'blocked', 'rejected'].includes(status) ? 'text-err'
+    : 'text-ink-faint'
+  );
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-5 text-sm text-ink-dim scroll-thin">
+      <section className="rounded-lg border border-blue-deep/30 bg-blue-deep/10 p-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-sky">Current work</div>
+        <h3 className="mt-2 text-base font-semibold leading-snug text-ink">
+          {activeNode?.title || view.mission.title || 'Waiting for the next DAG node'}
+        </h3>
+        {liveStatus?.detail ? <p className="mt-2 leading-6 text-ink-dim">{liveStatus.detail}</p> : null}
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <div><span className="text-ink-faint">Stage</span><div className="mt-1 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
+          <div><span className="text-ink-faint">Campaign</span><div className="mt-1 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
+          <div><span className="text-ink-faint">Round</span><div className="mt-1 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
+          <div><span className="text-ink-faint">DAG progress</span><div className="mt-1 font-mono text-ink">{completed} / {total || '—'} complete</div></div>
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">Research DAG</div>
+        <div className="mt-2 space-y-2">
+          {view.dag.map((node) => (
+            <div key={node.id} className="rounded-md border border-line/60 bg-panel px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <span className={`mt-0.5 shrink-0 font-mono text-xs ${statusTone(node.status)}`}>
+                  {node.status === 'done' ? '✓' : ['running', 'in_progress', 'claimed'].includes(node.status) ? '●' : '○'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium leading-5 text-ink">{node.title}</div>
+                  <div className={`mt-0.5 font-mono text-[10px] ${statusTone(node.status)}`}>{node.status}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {reviewedArtifacts.length ? (
+        <section className="mt-5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">Verified outputs</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {reviewedArtifacts.map((item) => (
+              <button key={item.path} type="button" onClick={() => onOpenArtifact(item.path)} className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-blue-sky hover:border-blue/60">
+                {artifactLabel(item)} ↗
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {recent.length ? (
+        <section className="mt-5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">Recent milestones</div>
+          <div className="mt-2 space-y-2 border-l border-line/70 pl-3">
+            {recent.map((item) => (
+              <div key={item.id}>
+                <div className="text-xs font-medium text-ink">{item.title}</div>
+                {item.detail ? <div className="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-faint">{item.detail}</div> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 export function ResearchCanvas({
   sid,
   artifacts,
@@ -56,6 +212,8 @@ export function ResearchCanvas({
   className = '',
   embedded = false,
   onCollapse,
+  missionView,
+  activityEvents = [],
 }: {
   sid: string | null;
   artifacts?: ArtifactInfo[];
@@ -64,6 +222,8 @@ export function ResearchCanvas({
   className?: string;
   embedded?: boolean;
   onCollapse?: () => void;
+  missionView?: MissionView | null;
+  activityEvents?: EventMsg[];
 }) {
   const previewArtifacts = useMemo(
     () => selectPreviewArtifacts(artifacts),
@@ -74,14 +234,26 @@ export function ResearchCanvas({
 
   useEffect(() => setManualPath(null), [sid]);
 
-  const selected = previewArtifacts.find((item) => item.path === manualPath) ?? preferred;
-  const artifactQ = useArtifact(sid, selected?.exists ? selected.path : null);
+  const effectivePath = manualPath ?? defaultPreviewPath(missionView, artifacts);
+  const showLiveProgress = effectivePath === LIVE_PROGRESS_PATH;
+  const selected = showLiveProgress
+    ? null
+    : previewArtifacts.find((item) => item.path === effectivePath) ?? preferred;
+  const artifactQ = useArtifact(
+    sid,
+    selected?.exists ? selected.path : null,
+    selected?.mtime ?? null,
+  );
   const info = artifactQ.data;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const [downloadError, setDownloadError] = useState('');
+  const liveStatus = useMemo(
+    () => selectLiveMissionStatus(missionView, activityEvents),
+    [activityEvents, missionView],
+  );
 
   useEffect(() => {
     setPreviewUrl(null);
@@ -105,7 +277,9 @@ export function ResearchCanvas({
     };
   }, [sid, selected?.path, info?.kind, info?.mtime]);
 
-  const title = previewArtifacts[0]?.group_title || 'Live research';
+  const title = showLiveProgress
+    ? 'Live progress'
+    : previewArtifacts[0]?.group_title || 'Research artifact';
   const download = async () => {
     if (!sid || !selected) return;
     setDownloading(true);
@@ -141,7 +315,7 @@ export function ResearchCanvas({
         clearProps: 'transform,opacity,visibility',
       },
     );
-  }, [selected?.path, info?.kind]);
+  }, [showLiveProgress, selected?.path, info?.kind]);
 
   return (
     <section className={`glass-panel glass-panel--side flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label="Manager live research canvas">
@@ -150,18 +324,18 @@ export function ResearchCanvas({
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
-        {previewArtifacts.length > 0 ? (
+        {missionView || previewArtifacts.length > 0 ? (
           <label className="min-w-0 flex-1">
             <span className="sr-only">Preview artifact</span>
             <select
-              value={selected?.path ?? ''}
+              value={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? ''}
               onChange={(event) => setManualPath(event.target.value)}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
-              {!selected ? <option value="">Waiting…</option> : null}
+              {missionView ? <option value={LIVE_PROGRESS_PATH}>Live progress</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists}>
-                  {artifactLabel(item)}{item.exists ? '' : ' · pending'}
+                  {item.source === 'manager_live' ? 'Checkpoint · ' : ''}{artifactLabel(item)}{item.exists ? '' : ' · pending'}
                 </option>
               ))}
             </select>
@@ -203,19 +377,36 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
-      <div ref={previewRef} key={selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
-        {error ? (
+      {liveStatus ? (
+        <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />
+            <span className="font-semibold text-ink">{liveStatus.roleLabel}</span>
+            <span className="text-blue-sky">active</span>
+            <span className="truncate text-ink-faint">· {liveStatus.label}</span>
+          </div>
+          {liveStatus.detail ? (
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-dim">{liveStatus.detail}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div ref={previewRef} key={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
+        {showLiveProgress && missionView ? (
+          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={onExpand} />
+        ) : null}
+        {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
             Manager live view is temporarily unavailable.
           </div>
         ) : null}
-        {!error && previewArtifacts.length === 0 ? (
+        {!showLiveProgress && !error && previewArtifacts.length === 0 ? (
           <div className="m-auto max-w-sm px-8 text-center">
             <div className="text-3xl text-ink-faint">◇</div>
             <h3 className="mt-3 text-xs text-ink-faint">No preview</h3>
           </div>
         ) : null}
-        {!error && previewArtifacts.length > 0 && !selected ? (
+        {!showLiveProgress && !error && previewArtifacts.length > 0 && !selected ? (
           <div className="m-auto max-w-sm px-8 text-center">
             <Spinner />
             <p className="mt-3 text-xs text-ink-faint">Waiting…</p>
@@ -290,7 +481,12 @@ export function ResearchCanvas({
         {previewError ? <div className="m-auto px-6 text-center text-sm text-err">{previewError}</div> : null}
       </div>
 
-      {info ? (
+      {showLiveProgress ? (
+        <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
+          <span className="min-w-0 flex-1 truncate">event-sourced mission state</span>
+          <span className="shrink-0 text-ok">live</span>
+        </footer>
+      ) : info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
           <span className="min-w-0 flex-1 truncate">{info.path}</span>
           {downloadError ? <span className="ml-auto truncate text-err" title={downloadError}>download failed</span> : null}

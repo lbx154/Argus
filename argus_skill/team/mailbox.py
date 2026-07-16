@@ -5,8 +5,13 @@ not only report back to the lead.
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 def _validate_member_id(member: str) -> str:
@@ -38,6 +43,33 @@ def _read_offset(p: Path) -> int:
         return 0
 
 
+def _write_offset(path: Path, offset: int) -> bool:
+    tmp: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(max(0, offset)))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        log.warning("failed to persist mailbox offset: %s", path)
+        return False
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def send(root: Path, *, to: str, frm: str, text: str, now: float) -> None:
     """Append a message to ``to``'s inbox (single-writer per recipient)."""
     box = _box(root, to)
@@ -52,6 +84,7 @@ def _read(root: Path, member: str, *, advance: bool) -> list[dict[str, Any]]:
     if not box.exists():
         return []
     offset = _read_offset(_offset_path(root, member))
+    offset_path = _offset_path(root, member)
     out: list[dict[str, Any]] = []
     try:
         with box.open("rb") as fh:
@@ -64,15 +97,15 @@ def _read(root: Path, member: str, *, advance: bool) -> list[dict[str, Any]]:
                 try:
                     obj = json.loads(raw.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):
-                    if advance:
-                        _offset_path(root, member).write_text(str(new_offset), encoding="utf-8")
+                    if advance and not _write_offset(offset_path, new_offset):
+                        break
                     continue
+                if advance and not _write_offset(offset_path, new_offset):
+                    break
                 if isinstance(obj, dict) and isinstance(obj.get("text"), str):
                     out.append(obj)
-                if advance:
-                    _offset_path(root, member).write_text(str(new_offset), encoding="utf-8")
     except OSError:
-        return []
+        return out
     return out
 
 

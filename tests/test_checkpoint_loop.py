@@ -1,12 +1,4 @@
-"""Integration test: curated-checkpoint injection + structural session roll.
-
-Verifies the amnesia-loop fix end to end through SkillLoop:
-  1. The reviewer-authored `checkpoint` reaches the NEXT engineer round's
-     prompt as curated working memory.
-  2. The Codex session is proactively ROLLED once a thread reaches the shift
-     limit — the post-roll engineer round resumes from no thread id (fresh
-     session), so per-session context cannot grow without bound.
-"""
+"""Integration coverage for the direct-edit CHECKPOINT.md baton."""
 from __future__ import annotations
 
 import json
@@ -14,325 +6,119 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.tools.atomic_artifact import (
-    atomic_append_text,
-    atomic_write_text,
-)
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
-    "## Description\nA fixed playbook for the checkpoint test.\n\n"
+    "## Description\nCheckpoint test.\n\n"
     "## Category\ndemo\n\n"
-    "## When to use\n- demo task\n\n"
-    "## When NOT to use\n- production code\n\n"
-    "## How to solve\n- Do the thing.\n\n"
-    "## Examples\n- demo → done\n\n"
-    "## Response shape\n- Reply inline.\n"
+    "## When to use\n- demo\n\n"
+    "## When NOT to use\n- never\n\n"
+    "## How to solve\n- work\n\n"
+    "## Examples\n- demo\n\n"
+    "## Response shape\n- concise\n"
 )
 
 
-def _continue_review(checkpoint: dict | None = None) -> str:
-    payload = {
-        "status": "continue",
-        "reason": "More work needed.",
-        "next_action": "Keep going.",
-        "round_summary_markdown": "# r\n",
-        "completion_summary_markdown": "",
-    }
-    if checkpoint is not None:
-        payload["checkpoint"] = checkpoint
-    return json.dumps(payload)
-
-
-def _done_review() -> str:
+def _review(status: str) -> str:
     return json.dumps({
-        "status": "done",
-        "reason": "Met criterion.",
-        "next_action": "—",
-        "round_summary_markdown": "# done\n",
-        "completion_summary_markdown": "Done.",
+        "status": status,
+        "reason": "reviewed",
+        "next_action": "continue" if status == "continue" else "—",
+        "round_summary_markdown": "# review\n",
+        "completion_summary_markdown": "done" if status == "done" else "",
     })
 
 
-def test_checkpoint_injection_and_session_roll(tmp_path: Path, monkeypatch) -> None:
-    # Roll the codex session after just 2 rounds on a thread.
-    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "2")
-
+def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "CHECKPOINT.md"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
 
-    # Round 1: engineer on fresh thread "t1"; reviewer authors a checkpoint
-    # carrying a distinctive marker the next round must see.
-    backend.queue("engineer-r1", CannedResponse(
-        message="Round 1 work.", thread_id="t1",
-    ))
-    backend.queue("reviewer", CannedResponse(message=_continue_review({
-        "goal": "ship the thing",
-        "done": ["MARKER_ALPHA: wrote the module"],
-        "tried_and_failed": ["MARKER_BETA: approach X collapses"],
-        "open_blocker": "MARKER_GAMMA: conditions identical",
-        "next_step": "MARKER_DELTA: redesign separation",
-    })))
+    def engineer_one(_prompt, _options) -> str:
+        assert checkpoint.exists()
+        assert "# Goal" in checkpoint.read_text(encoding="utf-8")
+        checkpoint.write_text("# Current State\n\nEngineer round 1\n", encoding="utf-8")
+        return "round 1 work"
 
-    # Round 2: same thread "t1" (rounds_on_thread reaches the limit=2).
-    backend.queue("engineer-r2", CannedResponse(
-        message="Round 2 work.", thread_id="t1",
-    ))
-    backend.queue("reviewer", CannedResponse(message=_continue_review({
-        "goal": "ship the thing",
-        "done": ["MARKER_ALPHA: wrote the module"],
-        "tried_and_failed": [],
-        "open_blocker": "",
-        "next_step": "finish up",
-    })))
+    def reviewer_one(_prompt, _options) -> str:
+        assert "Engineer round 1" in checkpoint.read_text(encoding="utf-8")
+        checkpoint.write_text(
+            "# Current State\n\nReviewer accepted round 1\n\n"
+            "# Next Action\n\nContinue from reviewed state\n",
+            encoding="utf-8",
+        )
+        return _review("continue")
 
-    # Round 3: MUST start a fresh session (rolled) → resume_thread_id is None.
-    backend.queue("engineer-r3", CannedResponse(
-        message="Round 3 work.", thread_id="t2",
-    ))
-    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    def engineer_two(_prompt, _options) -> str:
+        text = checkpoint.read_text(encoding="utf-8")
+        assert "Reviewer accepted round 1" in text
+        checkpoint.write_text(
+            text.replace("Continue from reviewed state", "Engineer finished work"),
+            encoding="utf-8",
+        )
+        return "round 2 work"
+
+    def reviewer_two(_prompt, _options) -> str:
+        assert "Engineer finished work" in checkpoint.read_text(encoding="utf-8")
+        checkpoint.write_text(
+            "# Current State\n\nReviewer certified completion\n",
+            encoding="utf-8",
+        )
+        return _review("done")
+
+    backend.queue("engineer-r1", CannedResponse(message_factory=engineer_one))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_one))
+    backend.queue("engineer-r2", CannedResponse(message_factory=engineer_two))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_two))
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=5),
+        config=SkillLoopConfig(max_rounds=3, checkpoint_path=checkpoint),
     )
     outcome = loop.run("demo task", workdir=tmp_path)
-    assert outcome.successful, f"{outcome.status}: {outcome.reason}"
-    assert outcome.round_count == 3, outcome
 
-    history = {label: prompt for label, prompt, _ in backend.history}
-
-    # (1) Round-1 checkpoint reached round 2's engineer prompt as memory.
-    r2 = history["engineer-r2"]
-    assert "CURATED WORKING MEMORY" in r2
-    assert "MARKER_ALPHA" in r2
-    assert "MARKER_BETA" in r2   # tried_and_failed must survive
-    assert "MARKER_GAMMA" in r2  # open blocker must survive
-    assert "MARKER_DELTA" in r2  # next step must survive
-
-    # Round-1 engineer had no prior memory.
-    assert "first session" in history["engineer-r1"].lower()
-
-    # (2) Session rolled before round 3 → fresh session, no resume id.
-    resume = dict(
-        (label, tid) for label, tid in backend.resume_history
-        if label.startswith("engineer-")
+    assert outcome.successful
+    assert checkpoint.read_text(encoding="utf-8").endswith(
+        "Reviewer certified completion\n"
     )
-    assert resume["engineer-r1"] is None      # nothing to resume yet
-    assert resume["engineer-r2"] == "t1"      # still within shift window
-    assert resume["engineer-r3"] is None      # ROLLED — fresh session
+    role_resumes = [
+        (label, tid)
+        for label, tid in backend.resume_history
+        if label.startswith("engineer-") or label == "reviewer"
+    ]
+    assert role_resumes == [
+        ("engineer-r1", None),
+        ("reviewer", None),
+        ("engineer-r2", None),
+        ("reviewer", None),
+    ]
+
+    prompts = {label: prompt for label, prompt, _ in backend.history}
+    assert str(checkpoint.resolve()) in prompts["engineer-r1"]
+    reviewer_prompts = [p for label, p, _ in backend.history if label == "reviewer"]
+    assert all(str(checkpoint.resolve()) in prompt for prompt in reviewer_prompts)
+    assert all("do not emit checkpoint JSON" in prompt for prompt in reviewer_prompts)
 
 
-def test_no_checkpoint_keeps_prior_memory(tmp_path: Path, monkeypatch) -> None:
-    """A reviewer verdict that omits `checkpoint` must not wipe memory."""
-    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "0")  # disable roll
-
+def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "CHECKPOINT.md"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
-
-    backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="t1"))
-    backend.queue("reviewer", CannedResponse(message=_continue_review({
-        "goal": "g", "done": ["MARKER_KEEP"], "tried_and_failed": [],
-        "open_blocker": "", "next_step": "",
-    })))
-    # Round 2 reviewer omits checkpoint entirely.
-    backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="t1"))
-    backend.queue("reviewer", CannedResponse(message=_continue_review(None)))
-    # Round 3 must still carry MARKER_KEEP from round 1.
-    backend.queue("engineer-r3", CannedResponse(message="r3", thread_id="t1"))
-    backend.queue("reviewer", CannedResponse(message=_done_review()))
-
-    loop = SkillLoop(
-        skills_dir=tmp_path / "skills",
-        engineer_runner=backend,
-        reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=5),
-    )
-    outcome = loop.run("demo task", workdir=tmp_path)
-    assert outcome.successful, f"{outcome.status}: {outcome.reason}"
-
-    history = {label: prompt for label, prompt, _ in backend.history}
-    assert "MARKER_KEEP" in history["engineer-r3"]
-
-
-def test_scope_resumes_partial_artifact_after_engineer_turn_timeout(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "0")
-    persist_vertical(tmp_path, "math")
-    scope_path = tmp_path / "research" / "SCOPE.md"
-
-    def write_partial(_prompt, _options) -> str:
-        atomic_write_text(
-            scope_path,
-            "<!-- status: incomplete -->\n"
-            "# Scope\n\n"
-            "## Precise statement\n"
-            "The objects and quantifiers are fixed.\n"
-        )
-        return "The first scope checkpoint is on disk."
-
-    def finish_from_partial(prompt, _options) -> str:
-        partial = scope_path.read_text(encoding="utf-8")
-        assert partial.startswith(
-            "<!-- status: incomplete -->"
-        )
-        assert "MARKER_SCOPE_DEFINITION" in prompt
-        atomic_append_text(
-            scope_path,
-            "\n## Literature status\n"
-            "Verified sources reused from the checkpoint.\n",
-        )
-        atomic_write_text(
-            scope_path,
-            scope_path.read_text(encoding="utf-8").replace(
-                "status: incomplete",
-                "status: complete",
-                1,
-            ),
-        )
-        return "Continued from the persisted partial scope."
-
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message_factory=write_partial,
-            exit_code=-15,
-            fatal_error=(
-                "External interrupt: engineer turn time budget reached after "
-                "300s; yield for review/steering"
-            ),
-            thread_id="scope-thread",
-        ),
-    )
-    backend.queue(
-        "reviewer",
-        CannedResponse(message=_continue_review({
-            "goal": "finish bounded scope",
-            "done": [
-                "MARKER_SCOPE_DEFINITION: research/SCOPE.md contains the "
-                "verified objects and quantifiers"
-            ],
-            "tried_and_failed": [],
-            "open_blocker": "literature status is not yet written",
-            "next_step": "continue the existing SCOPE.md; do not restart",
-        })),
-    )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(
-            message_factory=finish_from_partial,
-            thread_id="scope-thread",
-        ),
-    )
-    backend.queue("reviewer", CannedResponse(message=_done_review()))
-
-    loop = SkillLoop(
-        skills_dir=tmp_path / "skills",
-        engineer_runner=backend,
-        reviewer_runner=backend,
-        config=SkillLoopConfig(
-            max_rounds=3,
-            workflow_mode="direct",
-            checkpoint_path=tmp_path / "checkpoint.json",
-        ),
-    )
-
-    outcome = loop.run("complete the current math scope", workdir=tmp_path)
-
-    assert outcome.round_count == 2
-    history = {label: prompt for label, prompt, _ in backend.history}
-    assert "Do not repeat literature or source verification" in history["engineer-r1"]
-    assert "MARKER_SCOPE_DEFINITION" in history["engineer-r2"]
-    scope = scope_path.read_text(encoding="utf-8")
-    assert "status: complete" in scope
-    assert "Precise statement" in scope
-    assert "Literature status" in scope
-
-
-def test_solve_resumes_partial_artifacts_after_engineer_turn_timeout(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "0")
-    persist_vertical(tmp_path, "math")
-    pipeline_path = tmp_path / "research" / "PIPELINE_STATE.json"
-    pipeline = json.loads(pipeline_path.read_text(encoding="utf-8"))
-    pipeline["current_stage"] = "solve"
-    pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
-    solve_path = tmp_path / "research" / "SOLVE.md"
-    ledger_path = tmp_path / "research" / "CLAIM_LEDGER.md"
-
-    def write_partial(prompt, _options) -> str:
-        assert "Do not wait for a complete proof" in prompt
-        atomic_write_text(
-            solve_path,
-            "<!-- status: incomplete -->\n# Solve\n## Active route\n",
-        )
-        atomic_write_text(
-            ledger_path,
-            "<!-- status: incomplete -->\n# Claim ledger\n",
-        )
-        return "The first solve checkpoints are on disk."
-
-    def continue_partial(prompt, _options) -> str:
-        assert "MARKER_SOLVE_CHECKPOINTS" in prompt
-        assert solve_path.exists()
-        assert ledger_path.exists()
-        atomic_append_text(solve_path, "## Verified increment\nbounded evidence\n")
-        atomic_append_text(ledger_path, "- bounded evidence: partial result\n")
-        return "Continued the existing solve artifacts."
-
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message_factory=write_partial,
-            exit_code=-15,
-            fatal_error=(
-                "External interrupt: engineer turn time budget reached after "
-                "300s; yield for review/steering"
-            ),
-            thread_id="solve-thread",
-        ),
-    )
-    backend.queue(
-        "reviewer",
-        CannedResponse(message=_continue_review({
-            "goal": "produce a checkable solve increment",
-            "done": [
-                "MARKER_SOLVE_CHECKPOINTS: incomplete SOLVE.md and "
-                "CLAIM_LEDGER.md are durable"
-            ],
-            "tried_and_failed": [],
-            "open_blocker": "the active route still needs evidence",
-            "next_step": "continue the existing solve artifacts",
-        })),
-    )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(message_factory=continue_partial, thread_id="solve-thread"),
-    )
-    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    backend.queue("engineer-r1", CannedResponse(message="work"))
+    backend.queue("reviewer", CannedResponse(message=_review("done")))
 
     outcome = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(
-            max_rounds=3,
-            workflow_mode="direct",
-            checkpoint_path=tmp_path / "checkpoint.json",
-        ),
-    ).run("produce one bounded solve increment", workdir=tmp_path)
+        config=SkillLoopConfig(max_rounds=1, checkpoint_path=checkpoint),
+    ).run("demo task", workdir=tmp_path)
 
-    assert outcome.round_count == 2
-    assert "Verified increment" in solve_path.read_text(encoding="utf-8")
-    assert "partial result" in ledger_path.read_text(encoding="utf-8")
+    assert outcome.successful
+    assert checkpoint.exists()

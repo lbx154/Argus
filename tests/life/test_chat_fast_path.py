@@ -147,6 +147,10 @@ def _make_runner(backend: _FakeBackend) -> Any:
 def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> None:
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.apps._self_reply.resolve_manager_reply_model",
+        lambda: "best-manager",
+    )
     backend = _FakeBackend(response_message="Hi! How can I help?")
     runner = _make_runner(backend)
     sink = _RecordingSink()
@@ -162,7 +166,8 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     assert backend.calls[0]["run_label"] == "simple-1"
     # Foreground chat is latency-sensitive and no longer inherits the Engineer's
     # xhigh setting; deep Manager/Planner/Engineer decisions keep their own knobs.
-    assert backend.calls[0]["options"].reasoning_effort == "medium"
+    assert backend.calls[0]["options"].reasoning_effort == "xhigh"
+    assert backend.calls[0]["options"].model == "best-manager"
 
 
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
@@ -191,8 +196,8 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 180
-    assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 10
+    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
+    assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
     assert backend.calls[0]["options"].sandbox_mode is None
     assert backend.calls[0]["options"].dangerous_yolo is True
@@ -227,7 +232,7 @@ def test_self_grounds_in_operator_workspace_without_moving_state_root(
     assert f"Operator launch workspace: {workspace}" in call["prompt"]
 
 
-def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:
+def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None:
     class _FlakyAcpBackend(_FakeBackend):
         def run_exec(self, **kwargs: Any) -> RunnerResult:
             self.calls.append(dict(kwargs))
@@ -252,14 +257,15 @@ def test_self_retries_empty_acp_timeout_once_and_aggregates_usage() -> None:
 
     out = runner._simple_quick_reply(objective="写滕王阁序", sink=sink)
 
-    assert out.success is True
-    assert len(backend.calls) == 2
-    assert backend.calls[1]["resume_thread_id"] is None
+    assert out.success is False
+    assert out.status == "error"
+    assert "timed out" in out.stop_reason
+    assert len(backend.calls) == 1
     main = next(event for event in sink.events if event.get("type") == "round.main.completed")
-    assert main["attempt_count"] == 2
-    assert main["input_tokens"] == 18
-    assert main["output_tokens"] == 5
-    assert any(event.get("kind") == "provider_retry" for event in sink.events)
+    assert main["attempt_count"] == 1
+    assert main["input_tokens"] == 7
+    assert main["output_tokens"] == 0
+    assert not any(event.get("kind") == "provider_retry" for event in sink.events)
 
 
 def test_self_retries_empty_success_then_returns_explicit_error() -> None:
@@ -468,13 +474,19 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     backend.calls.clear()
     planned_tasks.clear()
+    loop_kwargs.clear()
     runner.execute(
         objective="planner already authored this backlog item",
         sink=_RecordingSink(),
         preplanned=True,
+        max_rounds_override=1,
+        workflow_mode_override="direct",
     )
     assert not any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
     assert planned_tasks and "## Planner execution plan" not in planned_tasks[0]
+    assert loop_kwargs[0]["config"].max_rounds == 1
+    assert loop_kwargs[0]["config"].workflow_mode == "direct"
+    assert loop_kwargs[0]["config"].auto_init_wiki is False
 
 
 def test_chat_path_emits_minimum_event_sequence() -> None:

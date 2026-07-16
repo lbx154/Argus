@@ -2,7 +2,7 @@
 name: Math Research Scientist Adaptation
 description: Adapt reusable mathematical research skills after reviewer-certified method failure or skill gaps through the generic Scientist pipeline.
 category: math-research-adaptation
-version: 1
+version: 2
 ---
 
 MISSION TYPE: MATHEMATICS. Design reusable methods, not one-off answers. Read
@@ -12,3 +12,8 @@ constant, bound, prompt, or search depth. Separate correctness, novelty, and
 significance, and include the cheapest decisive counterexample, proof,
 literature, computation, or formalization test. Persist the replacement through
 the generic versioned Skill system.
+
+When relevant, use a structurally different verifier-guided replacement:
+counterexample-guided statement refinement, Enumerate→Conjecture→Prove with
+admissibility checking, relation-aware premise retrieval, or informal↔formal
+semantic round-trip. Keep proposal and verification roles separate.

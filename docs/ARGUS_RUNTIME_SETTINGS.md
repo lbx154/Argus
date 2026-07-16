@@ -49,18 +49,21 @@
 | models | `ARGUS_SKILL_PLAN_PREVIEW_MODEL` | `auto` | default | `auto` |
 | models | `ARGUS_SKILL_MATCHER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
 | reasoning | `ARGUS_SKILL_MANAGER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
+| reasoning | `ARGUS_SKILL_MANAGER_VERTICAL_REASONING_EFFORT` | `low` | default | `low` |
 | reasoning | `ARGUS_SKILL_PLANNER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | reasoning | `ARGUS_SKILL_SELF_REASONING_EFFORT` | `medium` | default | `medium` |
 | reasoning | `ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT` | `low` | default | `low` |
 | reasoning | `ARGUS_SKILL_ENGINEER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | reasoning | `ARGUS_SKILL_REVIEWER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| budget | `ARGUS_SKILL_PER_MISSION_CAP_USD` | `30.0` | default | `30.0` |
-| budget | `ARGUS_SKILL_DAILY_CAP_USD` | `180.0` | default | `180.0` |
+| budget | `ARGUS_SKILL_PER_MISSION_CAP_USD` | `30.0` | legacy migration only | project `budget.json` |
+| budget | `ARGUS_SKILL_DAILY_CAP_USD` | `180.0` | legacy migration only | project `budget.json` |
+| budget | `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` | `30.0` | legacy migration only | global `global_budget.json` |
 | mission | `ARGUS_SKILL_VERTICAL` | `(unset → research; see LANES #1)` | default | `(unset → research; see LANES #1)` |
 | mission | `ARGUS_SKILL_MAX_ROUNDS` | `500` | default | `500` |
-| mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `300` | default | `300` |
-| mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `3` | default | `3` |
-| mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `1500000` | default | `1500000` |
+| mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `0` | default | `0` |
+| mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `1` | default | `1` |
+| mission | `ARGUS_SKILL_BOUNDED_DAG_NODE_MAX_ROUNDS` | `3` | default | `3` |
+| mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `0` | default | `0` |
 | mission | `ARGUS_SKILL_DYNAMIC_PLAN_MODE` | `off` | default | `off` |
 | mission | `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` | `2` | default | `2` |
 | mission | `ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S` | `120` | default | `120` |

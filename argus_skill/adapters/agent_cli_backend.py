@@ -156,6 +156,21 @@ def _text_sha256(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
 
 
+def _user_message_content(line: str) -> str | None:
+    """Extract a CLI JSONL user-message echo, if this line is one."""
+    try:
+        event = json.loads(str(line or ""))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(event, dict) or event.get("type") != "user.message":
+        return None
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return None
+    content = data.get("content")
+    return content if isinstance(content, str) else None
+
+
 def _positive_int_env(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
@@ -641,6 +656,35 @@ class AgentCliBackend:
         self._usage_mission_id: str | None = None
         self._known_secret_values = known_secret_values()
 
+    def set_acp_scope(self, scope: str) -> None:
+        setter = getattr(self._argus_runner, "set_acp_scope", None)
+        if callable(setter):
+            setter(scope)
+
+    def prewarm_acp_client(
+        self,
+        *,
+        model: str | None,
+        reasoning_effort: str | None,
+        lean: bool,
+        cwd: str,
+        front_door_session: bool = False,
+    ) -> None:
+        prewarm = getattr(self._argus_runner, "prewarm_acp_client", None)
+        if callable(prewarm):
+            prewarm(
+                model=model,
+                reasoning_effort=reasoning_effort,
+                lean=lean,
+                cwd=cwd,
+                front_door_session=front_door_session,
+            )
+
+    def close_acp_clients(self) -> None:
+        close = getattr(self._argus_runner, "close_acp_clients", None)
+        if callable(close):
+            close()
+
     def set_budget_reason_provider(self, provider) -> None:
         """Install (or clear with ``None``) the per-mission budget guard.
 
@@ -749,6 +793,7 @@ class AgentCliBackend:
             "log_path": str(log_path) if log_path is not None else "",
             "model": options.model,
             "mode": io_mode,
+            "prompt_sha256": _text_sha256(prompt),
             "buffer": [],
             "buffer_bytes": 0,
             "last_flush": time.monotonic(),
@@ -1574,7 +1619,19 @@ class AgentCliBackend:
         ctx = context or {}
         log_path = str(ctx.get("log_path") or "")
         io_mode = str(ctx.get("mode") or "compact")
-        persist_raw = bool(log_path and io_mode == "full")
+        prompt_echo = (
+            _user_message_content(line)
+            if '"user.message"' in str(line or "")
+            else None
+        )
+        duplicate_prompt = bool(
+            prompt_echo is not None
+            and _text_sha256(prompt_echo) == str(ctx.get("prompt_sha256") or "")
+        )
+        # The complete prompt is already stored in agent.io.start. Most CLIs
+        # echo that same prompt as user.message; keep exactly one copy while
+        # preserving every non-identical raw frame.
+        persist_raw = bool(log_path and io_mode == "full" and not duplicate_prompt)
         forward_live = self._external_event_callback is not None and (
             _needed_for_live_progress(stream, line)
         )
@@ -1663,6 +1720,9 @@ class AgentCliBackend:
         resume_thread_id: str | None = None,
         copilot_usage: CopilotCallUsage | None = None,
     ) -> RunnerResult:
+        authoritative_usage_model = str(
+            getattr(argus_result, "usage_model", "") or ""
+        ).strip()
         if copilot_usage is not None:
             raw_usage = TokenUsage(
                 input_tokens=copilot_usage.input_tokens or 0,
@@ -1709,6 +1769,19 @@ class AgentCliBackend:
             thread_id=argus_result.thread_id or resume_thread_id,
             raw_total=raw_premium,
         )
+        usage_model = authoritative_usage_model or (
+            copilot_usage.model if copilot_usage is not None else ""
+        )
+        model_usage = (
+            list(copilot_usage.model_usage)
+            if copilot_usage is not None
+            else []
+        )
+        if authoritative_usage_model:
+            model_usage = [
+                {**row, "model": authoritative_usage_model}
+                for row in model_usage
+            ]
         return RunnerResult(
             exit_code=argus_result.exit_code,
             agent_messages=list(argus_result.agent_messages or []),
@@ -1737,17 +1810,13 @@ class AgentCliBackend:
                 raw_usage.reasoning_output_tokens_present
             ),
             premium_requests_present=premium_requests_present,
-            usage_model=copilot_usage.model if copilot_usage is not None else "",
+            usage_model=usage_model,
             total_nano_aiu=(
                 copilot_usage.total_nano_aiu
                 if copilot_usage is not None
                 else None
             ),
-            model_usage=(
-                list(copilot_usage.model_usage)
-                if copilot_usage is not None
-                else []
-            ),
+            model_usage=model_usage,
             tool_activity_observed=bool(
                 getattr(argus_result, "tool_activity_observed", False)
             ),

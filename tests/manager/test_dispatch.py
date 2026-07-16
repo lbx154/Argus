@@ -54,6 +54,41 @@ def test_bounded_dispatch_persists_manager_handoff_and_root_id(memory):
     assert (alive, pid) == (False, None)
 
 
+def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
+    plan = SimpleNamespace(
+        reason="fan out then integrate",
+        error="",
+        tasks=(
+            SimpleNamespace(key="a", deps=(), title="Implement A", objective="write a.txt; test -s a.txt"),
+            SimpleNamespace(key="b", deps=(), title="Implement B", objective="write b.txt; test -s b.txt"),
+            SimpleNamespace(key="c", deps=("a", "b"), title="Integrate", objective="read a.txt and b.txt; write result.txt; test -s result.txt"),
+        ),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *args, **kwargs: plan,
+    )
+
+    first, _, _ = dispatch.enqueue_mission(
+        memory,
+        "operator request",
+        {"backend": "codex"},
+        root_task_id="root-task-dag",
+    )
+
+    items = {item.node_key: item for item in memory.backlog.all()}
+    assert set(items) == {"a", "b", "c"}
+    assert first.id == "root-task-dag"
+    assert items["a"].deps == [] and items["b"].deps == []
+    assert items["c"].deps == [items["a"].id, items["b"].id]
+    assert {item.plan_id for item in items.values()} == {items["a"].plan_id}
+    assert items["a"].plan_id.startswith("bounded-")
+    assert all("bounded_dag_node" in item.tags for item in items.values())
+    assert all(item.iterate is False for item in items.values())
+    assert all(item.original_objective == "managed: operator request" for item in items.values())
+
+
 def test_continuous_dispatch_persists_only_manager_handoff(memory):
     item, _, _ = dispatch.enqueue_mission(
         memory,

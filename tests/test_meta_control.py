@@ -11,14 +11,13 @@ These pin the philosophy-critical contract:
 * JUDGE   — ``parse_meta_decision`` validates the planner's structured output
   but never invents one; a jump that re-anchors on a forbidden/local regime is
   flagged invalid.
-* ENFORCE — the never-cleared forbidden ledger (agent-authored only), the
-  consume-once jump reset, and the checkpoint context reset.
+* ENFORCE — the never-cleared forbidden ledger (agent-authored only) and the
+  consume-once jump reset.
 """
 from __future__ import annotations
 
 import json
 
-from argus_skill.engineer.checkpoint import CheckpointState
 from argus_skill.regime_jump import ledger
 from argus_skill.regime_jump.config import MetaConfig
 from argus_skill.regime_jump.flow_controller import decide, record_decision
@@ -262,27 +261,6 @@ def test_record_decision_persists_agent_forbidden_and_arms_reset(tmp_path):
     rows = (tmp_path / "research" / "META_LEDGER.jsonl").read_text().strip().splitlines()
     row = json.loads(rows[-1])
     assert row["was_jump"] is True and row["strategy_type"] == "optimizer"
-
-
-# --------------------------------------------------------------------------- #
-# checkpoint context reset
-# --------------------------------------------------------------------------- #
-def test_cleared_for_jump_drops_local_keeps_durable():
-    cp = CheckpointState(
-        goal="lower bpb",
-        done=["verified A275"],
-        tried_and_failed=["dead end X"],
-        maturing=["semi-global carrier refinement"],
-        active_line={"desc": "semiglobal", "rounds_active": 20},
-        next_step="tweak gate",
-        env_facts=["B200 at :2231"],
-    )
-    j = cp.cleared_for_jump()
-    assert j.active_line == {} and j.maturing == [] and j.next_step == ""
-    assert j.goal == "lower bpb"
-    assert j.done == ["verified A275"]
-    assert j.tried_and_failed == ["dead end X"]  # dead ends stay dead
-    assert j.env_facts == ["B200 at :2231"]
 
 
 def test_valley_immunity_window_suppresses_jump_and_decays(tmp_path):

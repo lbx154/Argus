@@ -9,7 +9,7 @@ from typing import Any
 
 from ..core.event_catalog import EventType
 from ..core.mission_view import load_mission_view
-from ..core.session import read_session_meta
+from ..core.session import read_session_meta, resolve_session_workdir
 from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
 
@@ -31,10 +31,11 @@ def project_workspace(
 ) -> Path | None:
     root = resolve_global_root(global_root)
     meta = read_session_meta(root, sid)
-    if meta is None or not (meta.launch_cwd.strip() or meta.cwd.strip()):
+    state_dir = project_life_dir(sid, global_root=root)
+    if state_dir is None:
         return None
     try:
-        workspace = Path(meta.launch_cwd or meta.cwd).expanduser().resolve(strict=True)
+        workspace = resolve_session_workdir(meta, state_dir=state_dir)
     except (OSError, RuntimeError):
         return None
     return workspace if workspace.is_dir() else None
@@ -47,16 +48,15 @@ def artifact_workspace(
 ) -> Path | None:
     """Return the workspace where this session's agent writes artifacts.
 
-    Web/TUI sessions execute inside their isolated ``cwd`` while ``launch_cwd``
-    records where the operator opened Argus.  Artifact reads must prefer the
-    former so a same-named file from the launch folder cannot be exposed.
+    Artifact reads use the exact same persisted workdir as all agent roles.
     """
     root = resolve_global_root(global_root)
     meta = read_session_meta(root, sid)
-    if meta is None or not (meta.cwd.strip() or meta.launch_cwd.strip()):
-        return project_life_dir(sid, global_root=root)
+    state_dir = project_life_dir(sid, global_root=root)
+    if state_dir is None:
+        return None
     try:
-        workspace = Path(meta.cwd or meta.launch_cwd).expanduser().resolve(strict=True)
+        workspace = resolve_session_workdir(meta, state_dir=state_dir)
     except (OSError, RuntimeError):
         return None
     return workspace if workspace.is_dir() else None
@@ -117,10 +117,53 @@ def latest_evidence_files(
     ]
 
 
-def manager_live_view_files(workspace: Path) -> list[dict[str, str]]:
-    from ..manager.live_view import load_live_view_decision
+def manager_live_view_files(
+    sid: str,
+    workspace: Path,
+    *,
+    global_root: Path | str | None = None,
+) -> list[dict[str, str]]:
+    from ..manager.live_view import load_live_view_decision, parse_live_view
 
-    view = load_live_view_decision(workspace)
+    root = resolve_global_root(global_root)
+    life_dir = project_life_dir(sid, global_root=root)
+    if life_dir is None:
+        return []
+    view = load_live_view_decision(workspace, manifest_root=life_dir)
+    if view is None:
+        # Legacy sessions predate explicit workdir and stored the manifest in
+        # their execution root. New sessions never inherit that project-global
+        # pointer because it may belong to an unrelated historical session.
+        meta = read_session_meta(root, sid)
+        if meta is None or not meta.workdir.strip():
+            view = load_live_view_decision(workspace)
+    if view is None:
+        # A pre-fix Manager could emit ``live_view: null`` during an ordinary
+        # HOLD and unlink a still-useful session manifest. Recover the newest
+        # valid declaration from this session's own event tape. New explicit
+        # clears carry ``explicit_clear=true`` and stop recovery.
+        updates = _read_jsonl_tail_history(
+            life_dir / "events.jsonl",
+            100,
+            predicate=lambda row: str(row.get("type") or "")
+            == "manager.live_view.updated",
+            raw_predicate=lambda raw: b"manager.live_view.updated" in raw,
+            raw_markers=(b"manager.live_view.updated",),
+        )
+        for update in reversed(updates):
+            if update.get("explicit_clear") is True:
+                break
+            paths = update.get("paths")
+            if not isinstance(paths, list) or not paths:
+                continue
+            recovered = parse_live_view({
+                "title": update.get("title") or "Live project view",
+                "reason": update.get("reason") or "Last valid Manager view.",
+                "paths": paths,
+            })
+            if recovered is not None:
+                view = recovered
+                break
     if view is None:
         return []
     return [
@@ -223,7 +266,7 @@ def list_project_artifacts(
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     evidence_rows = [
-        *manager_live_view_files(workspace),
+        *manager_live_view_files(sid, workspace, global_root=global_root),
         *registered_research_artifacts(sid, global_root=global_root),
         *(
             {
@@ -236,6 +279,12 @@ def list_project_artifacts(
     ]
     for evidence in evidence_rows:
         row = artifact_metadata(workspace, evidence["path"], why=evidence["why"])
+        if (
+            row is not None
+            and evidence["source"] == "manager_live"
+            and not row["exists"]
+        ):
+            continue
         if row is not None and row["path"] not in seen:
             row["source"] = evidence["source"]
             row["group_title"] = evidence["group_title"]

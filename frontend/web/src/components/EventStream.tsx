@@ -67,6 +67,10 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
 
 function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
   const operator = String(ev.type) === 'ui.operator';
+  const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
+  const responseLatency = !operator && responseLatencyMs >= 100
+    ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
+    : '';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
     if (!rowRef.current) return;
@@ -102,7 +106,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
             <div className="mb-1 flex items-center">
               <span className="text-xs font-semibold text-blue">Argus</span>
             </div>
-            <time className="absolute right-0 top-0 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
+            <time className="absolute right-0 top-0 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
             <MarkdownContent>{r.text}</MarkdownContent>
           </div>
         </div>

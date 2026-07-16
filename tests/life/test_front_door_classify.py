@@ -8,6 +8,7 @@ import pytest
 
 from argus_skill.life.router import (
     ConfigIntent,
+    build_front_door_prompt,
     classify_config_intent,
     classify_front_door,
 )
@@ -24,13 +25,28 @@ def _exec(answer: str, exit_code: int = 0):
         assert all(
             label in prompt
             for label in (
-                "CONFIG:", "CONTROL:", "ROUTE:", "LIFETIME:",
-                "FAST_REPLY:", "NAME:",
+                "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:", "LIFETIME:",
+                "GREETING:", "NAME:", "VERTICAL:", "TARGET:",
             )
         )
         return _FakeResult(answer, exit_code)
 
     return run_exec
+
+
+def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
+    prompt = build_front_door_prompt("你好", active_mission=True)
+
+    assert len(prompt) <= 4_600
+    assert all(
+        label in prompt
+        for label in (
+            "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:",
+            "LIFETIME:", "GREETING:", "NAME:", "VERTICAL:", "TARGET:",
+        )
+    )
+    assert "FAST_REPLY:" not in prompt
+    assert "ACTIVE_MISSION: YES" in prompt
 
 
 def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
@@ -53,7 +69,7 @@ def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
         "持续优化尽可能多的 kernel",
         run_exec=_exec(
             "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
-            "LIFETIME: STANDING\nFAST_REPLY: NONE\nNAME: Kernel 持续优化"
+            "LIFETIME: STANDING\nNAME: Kernel 持续优化"
         ),
         lifetime_sink=lifetimes.append,
     )
@@ -62,41 +78,51 @@ def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
     assert lifetimes == ["standing"]
 
 
-def test_front_door_can_answer_pure_social_turn_without_second_model_call() -> None:
+def test_front_door_reuses_obvious_builtin_vertical_and_target() -> None:
+    verticals: list[dict[str, str]] = []
+    decision = classify_front_door(
+        "持续证明一个未解决的 Erdős 问题",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nSTEER_DIRECTIVE: NONE\n"
+            "ROUTE: TEAM\nLIFETIME: STANDING\n"
+            "NAME: Erdős 证明\nVERTICAL: math\nTARGET: PUBLISHABLE"
+        ),
+        vertical_sink=verticals.append,
+    )
+
+    assert decision == (None, None, "complex")
+    assert verticals == [{"vertical": "math", "target": "publishable"}]
+
+
+def test_front_door_pure_greeting_can_finish_from_one_model_call() -> None:
     replies: list[str] = []
     decision = classify_front_door(
         "你好",
         run_exec=_exec(
             "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "LIFETIME: NONE\nFAST_REPLY: 你好！我是 Argus，有什么想一起推进的？\n"
+            "LIFETIME: NONE\nGREETING: GREETING\n"
             "NAME: 打招呼"
         ),
-        fast_reply_sink=replies.append,
+        greeting_sink=replies.append,
     )
 
     assert decision == (None, None, "simple")
-    assert replies == ["你好！我是 Argus，有什么想一起推进的？"]
+    assert replies == ["你好，我是 Argus Manager。"]
 
 
-def test_front_door_never_uses_fast_reply_for_team_or_control() -> None:
+def test_front_door_contextual_greeting_does_not_take_one_call_path() -> None:
     replies: list[str] = []
-    classify_front_door(
-        "停止任务",
+    decision = classify_front_door(
+        "你好，项目现在进展怎么样？",
         run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: ABORT\nROUTE: SELF\n"
-            "LIFETIME: NONE\nFAST_REPLY: 好的\nNAME: 停止任务"
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "LIFETIME: NONE\nGREETING: NONE\n"
+            "NAME: 项目进展"
         ),
-        fast_reply_sink=replies.append,
-    )
-    classify_front_door(
-        "修复代码",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
-            "LIFETIME: BOUNDED\nFAST_REPLY: 马上修\nNAME: 修复代码"
-        ),
-        fast_reply_sink=replies.append,
+        greeting_sink=replies.append,
     )
 
+    assert decision == (None, None, "simple")
     assert replies == []
 
 
@@ -175,16 +201,24 @@ def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
 
 
 def test_steer_control_routes_running_mission_direction_inline() -> None:
+    directives: list[str] = []
     intent, control, route = classify_front_door(
-        "别再做形式检查，马上发明新的数学工具",
+        "你好蠢啊，先上网查别人怎么解决这个问题",
         run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: STEER\nROUTE: TEAM\n"
-            "LIFETIME: NONE\nFAST_REPLY: NONE\nNAME: 调整数学方向"
+            "CONFIG: NONE\nCONTROL: STEER\n"
+            "STEER_DIRECTIVE: 暂停当前自创路线；检索最接近的前人方法和基础理论，形成来源审计后由 Planner 决定下一证明节点。\n"
+            "ROUTE: TEAM\n"
+            "LIFETIME: NONE\nNAME: 调整数学方向"
         ),
+        steering_sink=directives.append,
+        active_mission=True,
     )
     assert intent is None
     assert control == "steer"
     assert route == "simple"
+    assert directives == [
+        "暂停当前自创路线；检索最接近的前人方法和基础理论，形成来源审计后由 Planner 决定下一证明节点。"
+    ]
 
 
 @pytest.mark.parametrize(

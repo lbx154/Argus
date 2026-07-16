@@ -155,3 +155,49 @@ def test_free_text_reports_manager_handoff_failure(
     assert LifeMemory.open(life_dir).backlog.all() == []
     assert replies and "任务未派发" in replies[-1]
     assert "safe handoff unavailable" in replies[-1]
+
+
+def test_poller_does_not_dispatch_when_offset_persistence_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from argus_skill.life import telegram_bot
+
+    dispatched: list[str] = []
+    api_calls = 0
+    stopped = False
+
+    def api_call(*args, **kwargs):
+        nonlocal api_calls, stopped
+        api_calls += 1
+        if api_calls == 1:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 7,
+                        "message": {"chat": {"id": "1"}, "text": "/status"},
+                    }
+                ],
+            }
+        stopped = True
+        return {"ok": True, "result": []}
+
+    poller = telegram_bot.TelegramPoller(
+        life_dir=tmp_path,
+        token="token",
+        chat_id="1",
+    )
+    poller._stop = SimpleNamespace(
+        is_set=lambda: stopped,
+        wait=lambda timeout: None,
+    )
+    monkeypatch.setattr(telegram_bot, "_read_offset", lambda _life_dir: 0)
+    monkeypatch.setattr(telegram_bot, "_api_call", api_call)
+    monkeypatch.setattr(telegram_bot, "_write_offset", lambda *_args: False)
+    monkeypatch.setattr(_CommandRouter, "dispatch", lambda _self, text: dispatched.append(text))
+
+    poller._poll_loop()
+
+    assert dispatched == []
+    assert api_calls == 2

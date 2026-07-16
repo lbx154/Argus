@@ -266,10 +266,7 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
     assert reviewer.seen_call_id == _CALL_ID
 
 
-def test_checkpoint_path_prefers_explicit_session_state_dir(tmp_path: Path) -> None:
-    """Web session ids are not cwd fingerprints. The Reviewer log/checkpoint
-    must stay beside the canonical session events.jsonl, not in a second
-    hash-derived phantom project directory."""
+def test_checkpoint_path_is_internal_and_directly_editable(tmp_path: Path) -> None:
     import argparse
 
     from argus_skill.apps._runtime import _checkpoint_path_for
@@ -281,8 +278,7 @@ def test_checkpoint_path_prefers_explicit_session_state_dir(tmp_path: Path) -> N
         workdir,
     )
 
-    assert path == session_dir / "checkpoint.json"
-    assert path.parent == session_dir
+    assert path == session_dir / "CHECKPOINT.md"
 
 
 # --------------------------------------------------------------------------- #

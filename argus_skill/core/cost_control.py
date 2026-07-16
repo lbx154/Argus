@@ -427,7 +427,7 @@ def reserve_call_budget(
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
     project = Path(project_root).expanduser() if project_root is not None else None
-    caps = resolve_budget_caps()
+    caps = resolve_budget_caps(project_state_dir=project, global_root=root)
     mission_cap = max(
         0.0,
         float(caps.per_mission_cap_usd if per_mission_cap_usd is None else per_mission_cap_usd),

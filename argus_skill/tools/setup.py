@@ -313,6 +313,7 @@ def _save_gpu_keepalive(config: dict) -> Path:
 def _render_gpu_keepalive_prompt(devices_csv: str) -> str:
     """Operator special-prompt body teaching agents the keep-alive protocol."""
     return (
+        "---\nscope: paper\n---\n\n"
         "# GPU keep-alive — never leave the cards idle\n\n"
         "This box runs on a managed scheduler that **reclaims GPUs that sit "
         "idle**. If GPUs " + devices_csv + " go idle (no live GPU process / "
@@ -374,6 +375,7 @@ def _experiment_api_prompt_path() -> Path:
 def _render_experiment_api_prompt() -> str:
     """Operator special-prompt body authorizing API use inside experiments."""
     return (
+        "---\nscope: paper\n---\n\n"
         "# Experiment use of the configured model API (allowed)\n\n"
         "The model API in `~/.argus-skill/capabilities/model_api.json` is "
         "APPROVED for use **inside experiments**, not just for your own "

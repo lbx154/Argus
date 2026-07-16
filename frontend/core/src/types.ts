@@ -272,6 +272,8 @@ export interface MissionView {
     started_at: number | null;
     completed_at: number | null;
     elapsed_seconds: number;
+    campaign_started_at: number | null;
+    campaign_elapsed_seconds: number;
   };
   stage: { id: string; label: string };
   round: { current: number; max: number };
@@ -299,8 +301,10 @@ export interface Snapshot {
     id: string;
     display_name: string;
     objective: string;
+    created?: number;
     last_active: number;
     cwd: string;
+    workdir?: string;
     launch_cwd?: string;
   };
   daemon: Daemon;
@@ -334,6 +338,7 @@ export interface ProjectRow {
   objective: string;
   display_name?: string;
   cwd?: string;
+  workdir?: string;
   launch_cwd?: string;
   last_active: number;
   daemon_alive: boolean;
@@ -345,6 +350,22 @@ export interface ProjectRow {
   unfinished_tasks?: number;
   continuous_enabled?: boolean;
   continuous_objective?: string;
+  spend_usd?: number | null;
+  known_cost_usd?: number;
+  spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  usage_calls?: number;
+  premium_requests?: number;
+  cost_updated_at?: number;
+}
+
+export interface ProjectCostRow {
+  id: string;
+  spend_usd: number | null;
+  known_cost_usd: number;
+  spend_status: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed' | string;
+  usage_calls: number;
+  premium_requests: number;
+  updated_at: number;
 }
 
 export type ArtifactKind =

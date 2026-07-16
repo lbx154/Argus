@@ -1071,64 +1071,14 @@ def _render_items(
 
 
 def _overlay_for(stage: str, role: str, project_root) -> tuple[tuple[ChecklistItem, ...], dict[str, list[str]]]:
-    """Return (extra items to append, {floor_item_id: [annotation, ...]}).
+    """Compatibility shim: checklist overlays are retired.
 
-    Reads the project's ACTIVE harness overlay fresh (hot-reload). Fail-open: any
-    error yields no overlay so the framework floor still renders. Entries are
-    RE-VALIDATED on read (caps, valid op/role, no floor-id collision, length
-    limits, protected-floor policy) so a hand-edited or recovered ``active.json``
-    that bypassed the write-time validators still cannot corrupt or bloat the
-    prompt or weaken the floor.
+    Framework/vertical code supplies seeds and the Planner is the sole runtime
+    editor through research/CHECKLISTS.json.
     """
 
-    try:
-        from . import harness_overlay as _ho
-        entries = _ho.active_checklist_items(project_root, stage=stage, role=role)
-    except Exception:  # noqa: BLE001 - overlay must never break prompt building
-        return (), {}
-    floor_ids = {it.id for items in STAGE_CHECKLISTS.values() for it in items}
-    protected = _ho.PROTECTED_ITEM_IDS
-    extra: list[ChecklistItem] = []
-    annotations: dict[str, list[str]] = {}
-    for e in entries:
-        if len(extra) >= _ho.MAX_ITEMS:
-            break
-        op = (e.get("op") or "").strip().lower()
-        if op not in _ho.VALID_OPS:
-            continue
-        item_id = str(e.get("id") or "").strip()
-        if not item_id:
-            continue
-        if op == "add":
-            if item_id in floor_ids:  # collision with a framework floor item
-                continue
-            statement = str(e.get("statement") or "").strip()[: _ho.MAX_STATEMENT_LEN]
-            evidence = str(e.get("evidence_hint") or "").strip()[: _ho.MAX_STATEMENT_LEN]
-            if not statement:
-                continue
-            extra.append(ChecklistItem(id=item_id, statement=statement, evidence_hint=evidence))
-        elif op == "amend":
-            if item_id not in floor_ids:
-                continue
-            note = str(e.get("note") or "").strip()[: _ho.MAX_STATEMENT_LEN]
-            if note:
-                if item_id in protected:
-                    note = f"additional requirement (cannot waive this floor item): {note}"
-                annotations.setdefault(item_id, []).append(note)
-        elif op == "supersede":
-            # Additive only: a supersede may impose a STRICTER project-specific
-            # requirement, never relax the floor. Protected items are never
-            # superseded. Rendered as an additional requirement, not an override.
-            if item_id not in floor_ids or item_id in protected:
-                continue
-            stmt = str(e.get("statement") or "").strip()[: _ho.MAX_STATEMENT_LEN]
-            if stmt:
-                annotations.setdefault(item_id, []).append(
-                    f"additional project requirement (does not relax the item above): {stmt}"
-                )
-    return tuple(extra), annotations
-
-
+    _ = (stage, role, project_root)
+    return (), {}
 def _house_rules_block(role: str, project_root) -> str:
     """Render the project's ACTIVE self-authored house rules for ``role``."""
 
@@ -1389,10 +1339,9 @@ def _active_vertical_checklist_defs(project_root):
     ``verticals._base.load_vertical`` and returns that vertical's
     ``CHECKLIST_STAGE_ORDER`` + ``CHECKLIST_ITEMS``. ``project_root`` may be
     None (resolved from env/cwd, matching how the overlay/venue resolution
-    locate the project). Fails open to the research floor
-    (``CANONICAL_STAGE_ORDER`` / ``STAGE_CHECKLISTS``) so vertical resolution
-    never breaks prompt building and the research/paper path stays
-    byte-identical (the research vertical re-exports the same objects).
+    locate the project). An entirely undecided legacy/empty project keeps the
+    historical research seed; once the Manager persists a vertical, that
+    committed value is authoritative and cannot be replaced by a stale env.
 
     Late imports keep this free of a module-load cycle: ``stage_checklists`` is
     imported (top-level) by the vertical ``stages`` modules, so it must not
@@ -1408,9 +1357,12 @@ def _active_vertical_checklist_defs(project_root):
             vertical_checklist_items,
             vertical_checklist_stage_order,
         )
-        from .vertical_select import resolve_vertical
+        from .vertical_select import resolve_checklist_vertical
 
-        mod = load_vertical(resolve_vertical(project_root), project_root=project_root)
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
+        mod = load_vertical(vertical, project_root=project_root)
         return (
             vertical_checklist_stage_order(mod),
             vertical_checklist_items(mod),
@@ -1429,9 +1381,12 @@ def _active_vertical_optional_stages(project_root) -> frozenset[str]:
             load_vertical,
             vertical_checklist_optional_stages,
         )
-        from .vertical_select import resolve_vertical
+        from .vertical_select import resolve_checklist_vertical
 
-        mod = load_vertical(resolve_vertical(project_root), project_root=project_root)
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return frozenset()
+        mod = load_vertical(vertical, project_root=project_root)
         return vertical_checklist_optional_stages(mod)
     except Exception:  # noqa: BLE001
         return frozenset()
@@ -1499,14 +1454,6 @@ def resolve_stage_checklist_contract(
     else:
         items = ()
         state = ChecklistLoadState.NOT_LOADED
-    extra, _annotations = _overlay_for(
-        stage_norm,
-        (role or "reviewer").strip().lower(),
-        project_root,
-    )
-    if extra:
-        items = items + tuple(extra)
-        state = ChecklistLoadState.LOADED
     if optional and not items:
         state = ChecklistLoadState.NOT_APPLICABLE
     return StageChecklistContract(
@@ -1553,7 +1500,7 @@ def format_stage_checklist(
         project_root=project_root,
     )
     items = contract.items
-    _extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
+    annotations: dict[str, list[str]] = {}
     if not items:
         if contract.checklist_optional:
             return (
@@ -1610,7 +1557,7 @@ def format_stage_checklist(
         body,
         role_norm,
         project_root,
-        overlay_present=bool(_extra or annotations),
+        overlay_present=False,
     )
 
 
@@ -1629,9 +1576,11 @@ def _full_pipeline_title(project_root) -> str:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
     try:
         from ..verticals._base import load_vertical, vertical_completion_gate
-        from .vertical_select import resolve_vertical
+        from .vertical_select import resolve_checklist_vertical
 
-        vertical = resolve_vertical(project_root)
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return "## Full pipeline checklist (final submission gate)\n"
         if vertical_completion_gate(
             load_vertical(vertical, project_root=project_root)
         ) != "full_paper":
@@ -1672,10 +1621,8 @@ def format_full_pipeline_checklist(
     # mission instead concatenates its own 4 stages.
     stage_order, vert_items = _active_vertical_checklist_defs(project_root)
     for stage in stage_order:
-        extra, annotations = _overlay_for(stage, role_norm, project_root)
-        if extra or annotations:
-            overlay_present = True
-        items = _store_or_seed_items(project_root, vert_items, stage) + extra
+        annotations: dict[str, list[str]] = {}
+        items = _store_or_seed_items(project_root, vert_items, stage)
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")

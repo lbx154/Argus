@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import threading
 import time
+import weakref
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +22,18 @@ from typing import Any
 # project (chat_state is mutated in place) while letting different projects run
 # concurrently.
 _STATES: dict[str, dict[str, Any]] = {}
-_LOCKS: dict[str, threading.RLock] = {}
+_LOCKS: weakref.WeakValueDictionary[str, threading.RLock] = (
+    weakref.WeakValueDictionary()
+)
 _REGISTRY_LOCK = threading.Lock()
+_MANAGER_PREWARMING: set[str] = set()
+_MANAGER_PREWARMING_LOCK = threading.Lock()
 _NO_DISPATCH_FALLBACK = (
     "[not dispatched] The Manager kept this request inline as instructed, but "
     "could not complete the read-only reply. No task was queued and no daemon "
     "was started."
 )
 _PLAN_PREVIEW_CACHE_TTL_S = 60.0
-
 
 def manager_execution_handoff(
     sid: str,
@@ -245,6 +251,121 @@ def _lock_for(sid: str) -> threading.RLock:
         return lk
 
 
+@contextmanager
+def manager_context_lock(sid: str) -> Iterator[None]:
+    """Serialize a project lifecycle change with Manager turns."""
+    with _lock_for(sid):
+        yield
+
+
+def _release_manager_state(sid: str) -> None:
+    state = _STATES.pop(sid, None)
+    runner = state.get("manager_runner") if state else None
+    if runner is not None:
+        try:
+            backend = getattr(runner, "_backend", None)
+            close_acp = getattr(backend, "close_acp_clients", None)
+            if callable(close_acp):
+                close_acp()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if hasattr(runner, "reset_chat_session"):
+                runner.reset_chat_session()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def release_manager_context(sid: str) -> None:
+    """Release one warm Manager runner without touching project files."""
+    with _lock_for(sid):
+        _release_manager_state(sid)
+
+
+def _prewarm_manager_context(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> None:
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import _ensure_manager_runner
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        if not mem.project_root.is_dir():
+            return
+        state = _chat_state_for(sid)
+        if state.get("_manager_acp_prewarmed") or state.get("backend") != "copilot":
+            return
+        state["session_id"] = sid
+        state["global_root"] = str(mem.global_root)
+        runner = _ensure_manager_runner(state, mem)
+        backend = getattr(runner, "_backend", None) if runner is not None else None
+        prewarm = getattr(backend, "prewarm_acp_client", None)
+        if not callable(prewarm):
+            return
+        import os
+
+        from ..core.knobs import (
+            resolve_manager_classify_model,
+            resolve_manager_reply_model,
+            resolve_role_reasoning_effort,
+        )
+
+        cwd = str(state.get("manager_runner_workdir") or Path.cwd())
+        classify_effort = (
+            os.environ.get("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low").strip()
+            or "low"
+        )
+        prewarm(
+            model=resolve_manager_classify_model(),
+            reasoning_effort=classify_effort,
+            lean=True,
+            cwd=cwd,
+            front_door_session=True,
+        )
+        prewarm(
+            model=resolve_manager_reply_model(),
+            reasoning_effort=resolve_role_reasoning_effort(
+                "ARGUS_SKILL_SELF_REASONING_EFFORT",
+                default="xhigh",
+            ),
+            lean=False,
+            cwd=cwd,
+        )
+        state["_manager_acp_prewarmed"] = True
+
+
+def schedule_manager_prewarm(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> None:
+    """Warm exactly one project's private Manager ACP pool in background."""
+    with _MANAGER_PREWARMING_LOCK:
+        if sid in _MANAGER_PREWARMING:
+            return
+        _MANAGER_PREWARMING.add(sid)
+
+    def _run() -> None:
+        try:
+            _prewarm_manager_context(sid, global_root=global_root)
+        except Exception:  # noqa: BLE001 - project selection must stay available
+            pass
+        finally:
+            with _MANAGER_PREWARMING_LOCK:
+                _MANAGER_PREWARMING.discard(sid)
+
+    threading.Thread(
+        target=_run,
+        name=f"manager-prewarm-{sid}",
+        daemon=True,
+    ).start()
+
+
 def _chat_state_for(sid: str) -> dict[str, Any]:
     st = _STATES.get(sid)
     if st is not None:
@@ -342,6 +463,7 @@ def manager_message(
     *,
     global_root: Path | str | None = None,
     on_fragment: Any = None,
+    cancelled: Any = None,
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -364,11 +486,29 @@ def manager_message(
         maybe_promote_to_continuous,
         resume_done_lifecycle_for_team_dispatch,
     )
-    from ..manager.front_door import _accepts_keyword, manager_triage
+    from ..manager.front_door import (
+        _accepts_keyword,
+        _maybe_name_session,
+        manager_triage,
+    )
 
     body = (text or "").strip()
     if not body:
         return {"kind": "error", "reply": "empty message"}
+
+    def _cancelled() -> bool:
+        if not callable(cancelled):
+            return False
+        try:
+            return bool(cancelled())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _cancelled_result() -> dict[str, Any]:
+        return {
+            "kind": "cancelled",
+            "reply": "Manager request cancelled; no task was dispatched.",
+        }
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
@@ -390,10 +530,21 @@ def manager_message(
 
     lock = _lock_for(sid)
     with lock:
+        if _cancelled():
+            return _cancelled_result()
+        if not life_dir.is_dir():
+            return {
+                "kind": "error",
+                "reply": "project no longer exists; the message was not processed",
+            }
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
         turn_id = f"web-{time.time_ns()}"
+
+        from ..manager.front_door import mission_is_running
+
+        active_mission = mission_is_running(mem)
 
         # A web-process restart necessarily loses the live ACP process. Resume
         # seamlessly by opening one new warm conversation session with a
@@ -453,75 +604,103 @@ def manager_message(
             chat_state["rotations"] = int(chat_state.get("rotations", 0)) + 1
 
         # ONE merged front-door call decides config, control, route, TEAM
-        # lifetime, title, and an optional lightweight SELF reply. A natural-language
+        # lifetime, title, vertical, and a strict pure-greeting token. A natural-language
         # config change ("set the engineer to xhigh", "use copilot for reviewer",
         # "cap the budget at $10") is applied + confirmed inline and NEVER
         # enqueued; otherwise the reusable decisions avoid a second route/lifetime
-        # call, and pure chat/capability turns may finish from this same response.
+        # call. Classifier output is never an operator-facing reply; every SELF
+        # message reaches the actual Manager model.
         # Classification is stateless and must see ONLY the current operator
         # message. Feeding it the startup/context-rotation handoff can make a
         # greeting look like a complex systems task; the enriched body belongs
         # only in the conversational reply session below.
-        from ..manager.front_door import mission_is_running
-
-        active_mission = mission_is_running(mem)
         classify_kwargs = (
             {"root_task_id": root_task_id}
             if _accepts_keyword(_front_door_classify, "root_task_id")
             else {}
         )
+        if _accepts_keyword(_front_door_classify, "active_mission"):
+            classify_kwargs["active_mission"] = active_mission
         decision = _front_door_classify(
             mem,
             body,
             chat_state,
             **classify_kwargs,
         )
+        if _cancelled():
+            return _cancelled_result()
         if isinstance(decision, tuple) and len(decision) == 3:
             intent, control, route = decision
         else:
             intent, route = decision
             control = None
 
-        fast_reply = str(
-            chat_state.pop("_frontdoor_fast_reply", "") or ""
+        greeting_reply = str(
+            chat_state.pop("_frontdoor_greeting_reply", "") or ""
+        ).strip()
+        frontdoor_failure = str(
+            chat_state.pop("_frontdoor_failure", "") or ""
         ).strip()
         if (
-            fast_reply
+            greeting_reply
             and intent is None
             and control is None
             and route == "simple"
             and send_body == body
         ):
-            _fragment("delta", {"text": fast_reply})
+            _fragment("delta", {"text": greeting_reply})
             try:
-                append_turn(life_dir, "argus", fast_reply)
+                append_turn(life_dir, "argus", greeting_reply)
             except Exception:  # noqa: BLE001
                 pass
             _emit_ui_turn(
                 life_dir,
                 "argus",
-                fast_reply,
+                greeting_reply,
                 message_id=f"{turn_id}-argus",
             )
-            return {"kind": "chat", "reply": fast_reply}
+            return {"kind": "chat", "reply": greeting_reply}
 
         if control == "steer":
+            if _cancelled():
+                return _cancelled_result()
             from ..apps._inbox import queue_inbox_message
 
+            manager_directive = str(
+                chat_state.pop("_frontdoor_steering_directive", "") or ""
+            ).strip()
+            if not manager_directive:
+                reply = (
+                    "我判断这属于当前任务的方向调整，但没有形成足够明确的团队指令；"
+                    "本次未修改任务，请重试或补充目标。"
+                )
+                _fragment("delta", {"text": reply, "message_id": "steer"})
+                try:
+                    append_turn(life_dir, "argus", reply)
+                except Exception:  # noqa: BLE001
+                    pass
+                _emit_ui_turn(
+                    life_dir,
+                    "argus",
+                    reply,
+                    message_id=f"{turn_id}-argus",
+                )
+                return {
+                    "kind": "chat",
+                    "control": "steer_unresolved",
+                    "reply": reply,
+                }
             directive = (
                 "[MANAGER STEERING — highest priority for the current mission] "
-                + body
+                + manager_directive
             )
             queue_inbox_message(
                 life_dir,
                 directive,
                 source="manager.steer",
             )
-            reply = (
-                "已向当前 Engineer/Planner 写入最高优先级 steering 指令；"
-                "下一轮必须先处理这条方向调整。"
-            )
-            _fragment("delta", {"text": reply})
+            reply = f"我已调整团队方向：{manager_directive}"
+            _fragment("delta", {"text": reply, "message_id": "steer"})
             try:
                 append_turn(life_dir, "argus", reply)
             except Exception:  # noqa: BLE001
@@ -546,6 +725,8 @@ def manager_message(
             route = "simple"
 
         if control == "abort":
+            if _cancelled():
+                return _cancelled_result()
             from ..tools.mission_control import request_current_mission_abort
 
             requested, item_id = request_current_mission_abort(
@@ -553,11 +734,14 @@ def manager_message(
                 reason=f"operator requested: {body}",
                 requested_by="manager",
             )
-            reply = (
-                f"Stop requested for running task {item_id}."
-                if requested
-                else "No running task to abort. Pending tasks were left unchanged."
-            )
+            if requested:
+                reply = f"Stop requested for running task {item_id}."
+            elif item_id is not None:
+                reply = f"Stop request failed for running task {item_id}."
+            else:
+                reply = (
+                    "No running task to abort. Pending tasks were left unchanged."
+                )
             _fragment("delta", {"text": reply})
             try:
                 append_turn(life_dir, "argus", reply)
@@ -579,6 +763,8 @@ def manager_message(
 
         cfg_lines: list[str] = []
         if intent is not None:
+            if _cancelled():
+                return _cancelled_result()
             try:
                 applied = _apply_config_intent(mem, intent, chat_state, on_confirm=cfg_lines.append)
             except Exception:  # noqa: BLE001 — a config-apply hiccup must never block the message
@@ -617,8 +803,46 @@ def manager_message(
                 pass
             _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
             return {"kind": "chat", "reply": reply}
+        if route == "simple" and control != "no_dispatch":
+            # The classifier already said SELF/chat. A failed inline Manager turn
+            # must never fall through into TEAM dispatch — that queues greetings,
+            # status questions, or capability chat as real missions precisely when
+            # the Manager backend is unhealthy.
+            reply = (
+                "[not dispatched] Manager could not complete this inline reply. "
+                "No task was queued; please retry the message."
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {"kind": "chat", "reply": reply}
         if control == "no_dispatch":
             reply = _NO_DISPATCH_FALLBACK
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {"kind": "chat", "reply": reply}
+        if frontdoor_failure:
+            reply = (
+                "[not dispatched] Manager could not classify this message. "
+                "No task was queued; please retry."
+            )
             _fragment("delta", {"text": reply})
             try:
                 append_turn(life_dir, "argus", reply)
@@ -657,6 +881,8 @@ def manager_message(
         # work can actually be picked up by the daemon.  Quarantined/archived
         # projects raise RuntimeError which is caught below and returned as a
         # structured ``{"kind": "error"}`` response — never a bare HTTP 500.
+        if _cancelled():
+            return _cancelled_result()
         try:
             resume_done_lifecycle_for_team_dispatch(mem)
             if not chat_state.get("config", {}).get("continuous", False):
@@ -672,8 +898,11 @@ def manager_message(
                 body,
                 chat_state,
                 root_task_id=root_task_id,
+                cancelled=_cancelled,
             )
         except Exception as exc:  # noqa: BLE001
+            if _cancelled():
+                return _cancelled_result()
             error_reply = f"could not enqueue: {exc}"
             _emit_ui_turn(life_dir, "argus", error_reply, message_id=f"{turn_id}-argus")
             return {"kind": "error", "reply": error_reply}
@@ -721,6 +950,12 @@ def manager_plan(
         fingerprint=sid, global_root=Path(global_root) if global_root else None
     )
     with _lock_for(sid):
+        if not mem.project_root.is_dir():
+            return {
+                "steps": [],
+                "notes": [],
+                "error": "project no longer exists",
+            }
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
         backend = getattr(runner, "planner_backend", None) if runner is not None else None
@@ -794,14 +1029,7 @@ def reset_manager_context(
     if not life_dir.is_dir():
         return False
     with _lock_for(sid):
-        state = _STATES.get(sid)
-        runner = state.get("manager_runner") if state else None
-        if runner is not None and hasattr(runner, "reset_chat_session"):
-            try:
-                runner.reset_chat_session()
-            except Exception:  # noqa: BLE001
-                pass
-        _STATES.pop(sid, None)
+        _release_manager_state(sid)
         reset_manager_session(life_dir)
     return True
 

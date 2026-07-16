@@ -92,18 +92,20 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.5", "model for the L2 reviewer", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "gpt-5.5", "model for the L4 planner", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot, planner model on claude; set an id to override", "models"),
+    Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
     Knob("ARGUS_SKILL_MATCHER_MODEL", "gpt-5.5", "model for skill matching", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "medium", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
+    Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "xhigh", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
     Knob("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "low", "interactive /plan preview effort; execution planning keeps the planner setting", "reasoning"),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh", "reviewer reasoning effort", "reasoning", cockpit=True),
     # --- budget ---
-    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "USD cap per mission", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "USD cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-wide USD cap across all projects per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "legacy migration value; global_budget.json is authoritative", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
     Knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0", "maximum USD envelope reserved for one provider call (0 uses all remaining)", "budget"),
     Knob("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "1.0", "maximum USD envelope for one Manager/router/simple control-plane call", "budget", cockpit=True),
@@ -123,10 +125,12 @@ KNOBS: tuple[Knob, ...] = (
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_VERTICAL", "(unset → research; see LANES #1)", "force a vertical: nanochat|nanogpt_speedrun|kernelbench|speedrun|research|math", "mission"),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
-    Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "300", "wall-clock cap for one Engineer turn before yielding to review/steering; 0 disables", "mission"),
-    Knob("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "120", "wall-clock cap for one Scientist skill-distillation turn; 0 disables", "mission"),
-    Knob("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "3", "rounds before a session-roll re-seeds from checkpoint (0=off)", "mission"),
-    Knob("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "1500000", "prior-round input tokens that trigger a fresh session re-seeded from checkpoint (0=off)", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
+    Knob("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Scientist skill-distillation turn; disabled by default", "mission"),
+    Knob("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "1", "compatibility knob; autonomous Engineer/Reviewer sessions are always fresh", "mission"),
+    Knob("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "0", "compatibility knob; autonomous role threads are never resumed", "mission"),
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "1800", "safe round-boundary seconds without reviewer-classified decision/evidence progress (0=off)", "mission"),
     Knob("ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S", "120", "bounded wait for the shared Manager session lock before failing open to a no-session call", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
@@ -246,10 +250,39 @@ def _parse_budget_value(name: str, raw: str) -> float:
 
 def resolve_budget_caps(
     *,
+    project_state_dir: object | None = None,
+    global_root: object | None = None,
     env: Mapping[str, str] | None = None,
     persisted: Mapping[str, str] | None = None,
 ) -> BudgetCaps:
-    """Resolve budget caps once for CLI, daemon, and Web launch paths."""
+    """Resolve budget caps once for CLI, daemon, and Web launch paths.
+
+    Production callers pass ``project_state_dir`` and read ``budget.json``.
+    The env/persisted path remains only for compatibility and one-time migration.
+    """
+    if project_state_dir is not None:
+        from pathlib import Path
+
+        from .project_budget import read_global_budget, read_project_budget
+
+        budget = read_project_budget(project_state_dir, migrate_env=env)
+        if global_root is None:
+            project_path = Path(str(project_state_dir)).expanduser()
+            global_root = (
+                project_path.parent.parent
+                if project_path.parent.name == "projects"
+                else None
+            )
+        if global_root is None:
+            from .paths import global_root as default_global_root
+
+            global_root = default_global_root()
+        global_budget = read_global_budget(global_root, migrate_env=env)
+        return BudgetCaps(
+            per_mission_cap_usd=budget.per_mission_cap_usd,
+            daily_cap_usd=budget.daily_cap_usd,
+            global_daily_cap_usd=global_budget.global_daily_cap_usd,
+        )
     if persisted is None:
         from .knob_store import read_persisted_knobs
 
@@ -264,10 +297,20 @@ def resolve_budget_caps(
         )
         return _parse_budget_value(name, resolved.value)
 
-    return BudgetCaps(
+    caps = BudgetCaps(
         per_mission_cap_usd=_value("ARGUS_SKILL_PER_MISSION_CAP_USD"),
         daily_cap_usd=_value("ARGUS_SKILL_DAILY_CAP_USD"),
         global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
+    )
+    if global_root is None:
+        return caps
+    from .project_budget import read_global_budget
+
+    global_budget = read_global_budget(global_root, migrate_env=env)
+    return BudgetCaps(
+        per_mission_cap_usd=caps.per_mission_cap_usd,
+        daily_cap_usd=caps.daily_cap_usd,
+        global_daily_cap_usd=global_budget.global_daily_cap_usd,
     )
 
 
@@ -430,6 +473,45 @@ def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> 
         if val:
             return val
     return "codex"
+
+
+def resolve_manager_reply_model(*, env: Mapping[str, str] | None = None) -> str:
+    """Resolve the high-quality operator-facing Manager SELF model."""
+    env_map = env if env is not None else os.environ
+    configured = resolve_knob(
+        "ARGUS_SKILL_MANAGER_REPLY_MODEL",
+        "inherit",
+        env=env_map,
+    ).value.strip()
+    if configured.lower() not in {"", "auto", "inherit", "default"}:
+        return configured
+    return resolve_role_model(
+        "manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+        env=env_map,
+    )
+
+
+def resolve_manager_classify_model(*, env: Mapping[str, str] | None = None) -> str:
+    """Resolve the cheap stateless front-door classification model."""
+    env_map = env if env is not None else os.environ
+    configured = resolve_knob(
+        "ARGUS_SKILL_FRONTDOOR_MODEL",
+        "auto",
+        env=env_map,
+    ).value.strip()
+    if configured.lower() not in {"", "auto", "inherit", "default"}:
+        return configured
+    from ..agent_cli.runner_backend import normalize_runner_backend
+
+    backend = normalize_runner_backend(resolve_role_backend("manager", env=env_map))
+    if backend in {"codex", "copilot"}:
+        return "gpt-5.4-mini"
+    return resolve_role_model(
+        "manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+        env=env_map,
+    )
 
 
 def resolve_role_reasoning_effort(

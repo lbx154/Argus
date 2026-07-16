@@ -15,6 +15,7 @@ import pytest
 
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.core.transcript import append_turn
+from argus_skill.core.usage import UsageLedger, UsageRecord
 from argus_skill.webapi import project_state, server
 from argus_skill.webapi.protocol import (
     API_CAPABILITIES,
@@ -113,6 +114,54 @@ def test_project_index_bounds_fallback_label_without_changing_id(tmp_path: Path)
     assert len(project["label"]) <= 180
 
 
+def test_project_cost_feed_reports_call_ledger_spend(tmp_path: Path) -> None:
+    sid = "s-cost-feed"
+    life_dir = tmp_path / "projects" / sid
+    write_session_meta(
+        tmp_path,
+        SessionMeta(
+            id=sid,
+            display_name="Cost feed",
+            objective="measure spend",
+            created=1,
+            last_active=1,
+            cwd=str(life_dir),
+        ),
+    )
+    UsageLedger(life_dir, migrate_legacy=False).append(UsageRecord(
+        call_id="cost-call-1",
+        project_id=sid,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="engineer-r1",
+        started_at=10,
+        completed_at=11,
+        status="completed",
+        input_tokens=100,
+        cached_input_tokens=0,
+        output_tokens=20,
+        reasoning_output_tokens=5,
+        premium_requests=1.0,
+        pricing_status="priced",
+        pricing_tier="copilot_token",
+        cost_usd=0.125,
+        cost_basis="token",
+    ))
+
+    client = TestClient(server.create_app(global_root=tmp_path))
+    response = client.get("/api/projects/costs")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json()["projects"] if item["id"] == sid)
+    assert row["spend_usd"] == pytest.approx(0.125)
+    assert row["known_cost_usd"] == pytest.approx(0.125)
+    assert row["spend_status"] == "priced"
+    assert row["usage_calls"] == 1
+    assert row["premium_requests"] == pytest.approx(1.0)
+    assert row["updated_at"] > 0
+
+
 def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
     life = root / "projects" / sid
     life.mkdir(parents=True)
@@ -143,10 +192,17 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
 def test_project_index_and_routes_span_machine_session_roots(
     tmp_path: Path,
 ) -> None:
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+
     primary = tmp_path / "private"
     machine = tmp_path / "machine"
     _make_project(primary, "s-private1")
-    _make_project(machine, "s-machine1")
+    machine_life = _make_project(machine, "s-machine1")
+    machine_backlog = LifeMemory.open(machine_life).backlog
+    running = machine_backlog.add(
+        BacklogItem.new(title="machine task", objective="work")
+    )
+    machine_backlog.mark_running(running.id)
     write_session_meta(
         primary,
         SessionMeta(
@@ -191,6 +247,14 @@ def test_project_index_and_routes_span_machine_session_roots(
             encoding="utf-8"
         )
     )["display_name"] == "Renamed machine session"
+
+    aborted = client.post(
+        "/api/projects/s-machine1/mission/abort",
+        json={"reason": "operator stop"},
+    )
+    assert aborted.status_code == 200
+    assert aborted.json()["item_id"] == running.id
+    assert (machine_life / "mission_abort_request.json").exists()
 
 
 def test_primary_duplicate_owns_listing_and_routes(tmp_path: Path) -> None:
@@ -292,7 +356,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["capabilities"] == list(API_CAPABILITIES)
     assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
     assert meta["runtime"]["pid"] > 0
-    assert meta["runtime"]["release_id"].startswith("0.1.0+")
+    assert meta["runtime"]["release_id"].startswith("0.1.1+")
     assert meta["runtime"]["release_matches_source"] is True
 
 
@@ -391,6 +455,45 @@ def test_build_snapshot_reuses_host_metrics_across_project_switches(
     try:
         assert server.build_snapshot("s-first", global_root=tmp_path) is not None
         assert server.build_snapshot("s-second", global_root=tmp_path) is not None
+        assert calls == 1
+    finally:
+        with project_state._METRICS_CACHE_LOCK:
+            project_state._METRICS_CACHE.clear()
+
+
+def test_compact_snapshot_never_runs_expensive_metrics_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-fast")
+    calls = 0
+
+    def slow_metrics_snapshot(*, root):
+        nonlocal calls
+        calls += 1
+        return {"slo": {"status": "healthy"}, "root": str(root)}
+
+    monkeypatch.setattr(project_state, "metrics_snapshot", slow_metrics_snapshot)
+    with project_state._METRICS_CACHE_LOCK:
+        project_state._METRICS_CACHE.clear()
+    try:
+        before = time.monotonic()
+        snap = server.build_snapshot("s-fast", global_root=tmp_path, compact=True)
+        elapsed = time.monotonic() - before
+
+        assert snap is not None
+        assert snap["observability"] is None
+        assert elapsed < 0.5
+        assert calls == 0
+
+        full = server.build_snapshot("s-fast", global_root=tmp_path)
+        assert full is not None
+        assert full["observability"]["slo"]["status"] == "healthy"
+        assert calls == 1
+
+        refreshed = server.build_snapshot("s-fast", global_root=tmp_path, compact=True)
+        assert refreshed is not None
+        assert refreshed["observability"]["slo"]["status"] == "healthy"
         assert calls == 1
     finally:
         with project_state._METRICS_CACHE_LOCK:
@@ -568,6 +671,26 @@ def test_list_projects_hides_empty_shells_and_caps(tmp_path: Path) -> None:
     assert len(server.list_projects(global_root=tmp_path, limit=2)) == 2
 
 
+def test_web_project_index_hides_legacy_internal_dirs(tmp_path: Path) -> None:
+    real = _make_project(tmp_path, "s-real0001")
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id="s-real0001", created=1, last_active=1, cwd=str(real)),
+    )
+    legacy = tmp_path / "projects" / "07197071cf43"
+    legacy.mkdir(parents=True)
+    (legacy / "events.jsonl").write_text(
+        '{"type":"research.metric.reported","name":"internal"}\n',
+        encoding="utf-8",
+    )
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    ids = {row["id"] for row in client.get("/api/projects").json()["projects"]}
+
+    assert "s-real0001" in ids
+    assert "07197071cf43" not in ids
+
+
 # ── REST endpoints (TestClient) ───────────────────────────────────────────
 
 @pytest.fixture()
@@ -595,7 +718,7 @@ def test_get_meta_is_public_versioned_and_uncached(tmp_path: Path) -> None:
     assert r.headers["x-argus-protocol"] == (
         f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
     )
-    assert r.headers["x-argus-release"].startswith("0.1.0+")
+    assert r.headers["x-argus-release"].startswith("0.1.1+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["runtime"]["source_root"] == "<redacted>"
     assert authenticated.json()["runtime"]["source_root"] != "<redacted>"

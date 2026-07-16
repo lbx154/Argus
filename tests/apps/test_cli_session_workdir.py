@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from argus_skill.apps.cli import _core
+from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
+
+
+def _args() -> SimpleNamespace:
+    return SimpleNamespace(
+        backend="memory",
+        continuous=False,
+        objective="",
+        resume_continuous=False,
+        bounded=False,
+    )
+
+
+def test_cli_resume_uses_persisted_workdir_not_shell_cwd(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "state"
+    sid = "s-cli-workdir"
+    state_dir = root / "projects" / sid
+    workspace = tmp_path / "workspace"
+    other_cwd = tmp_path / "other"
+    state_dir.mkdir(parents=True)
+    workspace.mkdir()
+    other_cwd.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(state_dir), workdir=str(workspace)),
+    )
+    monkeypatch.chdir(other_cwd)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (sid, False),
+    )
+
+    bundle = _core._resolve_project_bundle(_args())
+    config = _core._build_worker_config(_args())
+
+    assert bundle.project_worktree == workspace.resolve()
+    assert config.project_workdir == workspace.resolve()
+    assert config.life_dir == state_dir
+
+
+def test_cli_legacy_resume_persists_first_explicit_workdir(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "state"
+    sid = "legacy-session"
+    (root / "projects" / sid).mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (sid, False),
+    )
+
+    bundle = _core._resolve_project_bundle(_args())
+    meta = read_session_meta(root, sid)
+
+    assert bundle.project_worktree == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())

@@ -338,9 +338,7 @@ def render_config_cmd(
                 "the Planner/Engineer handoff"
             )
             continue
-        cfg[key] = parsed
         if key in _ROLE_EFFORT_ENVS:
-            os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
             # Persist too — an env-var-only switch used to only last for
             # THIS process; the daemon (a separate process) never saw it
             # until restarted, and even the cockpit forgot it on its own next
@@ -349,8 +347,12 @@ def render_config_cmd(
             # /config" holds across restarts too.
             from ..core.knob_store import write_persisted_knob
 
-            write_persisted_knob(_ROLE_EFFORT_ENVS[key], str(parsed))
+            if not write_persisted_knob(_ROLE_EFFORT_ENVS[key], str(parsed)):
+                lines.append(f"  failed to persist {key}; nothing changed")
+                continue
+            os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
             chat_state.pop("manager_runner", None)
+        cfg[key] = parsed
         if key == "continuous":
             sync_continuous = True
         if isinstance(parsed, float):

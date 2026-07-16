@@ -275,6 +275,56 @@ def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> N
 
     assert view["mission"]["status"] == "incomplete"
     assert view["timeline"][-1]["title"] == "Mission incomplete"
+def test_reviewer_handoff_leaves_only_reviewer_active(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "engineer.progress",
+        1,
+        kind="agent_message",
+        agent_layer="engineer",
+        text="Engineer result",
+    )
+
+    view = emit(tmp_path, "round.review.started", 2, round_index=1)
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["active_role"] == "reviewer"
+    assert roles["reviewer"]["status"] == "active"
+    assert roles["engineer"]["status"] == "done"
+
+
+def test_campaign_clock_does_not_reset_between_dag_nodes(tmp_path: Path) -> None:
+    first = emit(
+        tmp_path,
+        "life.mission.started",
+        10,
+        item_id="scope",
+        title="Scope",
+        objective="Scope node",
+    )
+    assert first["mission"]["campaign_started_at"] == 10
+    assert first["mission"]["started_at"] == 10
+
+    emit(
+        tmp_path,
+        "life.mission.completed",
+        20,
+        item_id="scope",
+        title="Scope",
+        success=True,
+        status="done",
+    )
+    second = emit(
+        tmp_path,
+        "life.mission.started",
+        100,
+        item_id="solve",
+        title="Solve",
+        objective="Solve node",
+    )
+
+    assert second["mission"]["campaign_started_at"] == 10
+    assert second["mission"]["started_at"] == 100
 
 
 def test_snapshot_bootstraps_from_existing_event_log(tmp_path: Path) -> None:

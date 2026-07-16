@@ -60,11 +60,14 @@ def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
+    assert meta.workdir == str(launch.resolve())
     assert meta.origin == "web"
 
 
 def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> None:
     created = server.create_daemon(name="Existing name", global_root=tmp_path)
+    original = read_session_meta(tmp_path, created["sid"])
+    assert original is not None
     launch = tmp_path / "new-workspace"
     launch.mkdir()
 
@@ -78,6 +81,30 @@ def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> No
     assert meta is not None
     assert meta.display_name == "Existing name"
     assert meta.launch_cwd == str(launch.resolve())
+    assert meta.workdir == original.workdir
+
+
+def test_workdir_update_preserves_state_root_and_session_name(tmp_path: Path) -> None:
+    created = server.create_daemon(name="Existing name", global_root=tmp_path)
+    workspace = tmp_path / "new-workspace"
+    workspace.mkdir()
+
+    result = server.set_project_workdir(
+        created["sid"],
+        str(workspace),
+        global_root=tmp_path,
+    )
+
+    meta = read_session_meta(tmp_path, created["sid"])
+    assert result == {
+        "ok": True,
+        "workdir": str(workspace.resolve()),
+        "unchanged": False,
+    }
+    assert meta is not None
+    assert meta.display_name == "Existing name"
+    assert meta.cwd == str(tmp_path / "projects" / created["sid"])
+    assert meta.workdir == str(workspace.resolve())
 
 
 def test_web_context_defaults_launch_cwd_and_reports_it(
@@ -93,20 +120,119 @@ def test_web_context_defaults_launch_cwd_and_reports_it(
     index = client.get("/api/projects").json()
 
     assert meta is not None
-    assert meta.launch_cwd == str(launch.resolve())
+    expected = tmp_path / "workspaces" / created["sid"]
+    assert meta.launch_cwd == str(expected.resolve())
+    assert meta.workdir == str(expected.resolve())
+    assert created["workdir"] == str(expected.resolve())
     assert index["local_cwd"] == str(launch.resolve())
     assert created["sid"] in {row["id"] for row in index["projects"]}
 
 
-def test_set_project_launch_cwd_claims_legacy_session(tmp_path: Path) -> None:
+def test_set_project_workdir_claims_legacy_session(tmp_path: Path) -> None:
     life = _make_project(tmp_path, sid="s-legacy1")
-    assert server.set_project_launch_cwd(
-        "s-legacy1", str(tmp_path / "workspace"), global_root=tmp_path,
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    result = server.set_project_workdir(
+        "s-legacy1", str(workspace), global_root=tmp_path,
     )
     meta = read_session_meta(tmp_path, "s-legacy1")
     assert meta is not None
+    assert result is not None and result["ok"] is True
     assert meta.cwd == str(life)
-    assert meta.launch_cwd == str((tmp_path / "workspace").resolve())
+    assert meta.workdir == str(workspace.resolve())
+
+
+def test_set_project_workdir_rejects_live_daemon_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    created = server.create_daemon(global_root=tmp_path)
+    workspace = tmp_path / "new-workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(alive=True, pid=123),
+    )
+
+    result = server.set_project_workdir(
+        created["sid"], str(workspace), global_root=tmp_path,
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "cannot change workdir while this daemon is running",
+    }
+
+
+def test_set_project_workdir_allows_live_idempotent_rebind(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    created = server.create_daemon(
+        launch_cwd=str(workspace),
+        global_root=tmp_path,
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(alive=True, pid=123),
+    )
+
+    result = server.set_project_workdir(
+        created["sid"], str(workspace), global_root=tmp_path,
+    )
+
+    assert result == {
+        "ok": True,
+        "workdir": str(workspace.resolve()),
+        "unchanged": True,
+    }
+
+
+def test_set_project_workdir_rejects_workspace_owned_by_other_daemon(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    created = server.create_daemon(global_root=tmp_path)
+    monkeypatch.setattr(
+        server,
+        "_active_workspace_owner",
+        lambda *_args, **_kwargs: {
+            "sid": "s-other",
+            "pid": 456,
+            "workdir": str(workspace),
+        },
+    )
+
+    result = server.set_project_workdir(
+        created["sid"], str(workspace), global_root=tmp_path,
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "workdir is already owned by active session s-other (pid 456)",
+    }
+
+
+def test_workdir_endpoint_persists_authoritative_execution_root(ctx) -> None:
+    root, sid, _life, client = ctx
+    workspace = root / "api-workspace"
+    workspace.mkdir()
+
+    response = client.post(
+        f"/api/projects/{sid}/workdir",
+        json={"workdir": str(workspace)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["workdir"] == str(workspace.resolve())
+    meta = read_session_meta(root, sid)
+    assert meta is not None and meta.workdir == str(workspace.resolve())
 
 
 # ── read/inspect ────────────────────────────────────────────────────────────
@@ -317,6 +443,41 @@ def test_artifacts_use_session_workspace_instead_of_launch_directory(ctx) -> Non
     assert preview.json()["preview"] == "current session\n"
 
 
+def test_artifacts_use_explicit_persisted_workdir(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "operator-workspace"
+    (workspace / "paper").mkdir(parents=True)
+    (workspace / "paper" / "result.md").write_text(
+        "operator workspace\n", encoding="utf-8"
+    )
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            cwd=str(life),
+            workdir=str(workspace),
+            launch_cwd=str(workspace),
+        ),
+    )
+    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "workdir-result",
+            "success": True,
+            "ts": time.time(),
+            "planner_report": {
+                "evidence_files": [{"path": "paper/result.md", "why": "final"}],
+            },
+        }) + "\n")
+
+    preview = client.get(
+        f"/api/projects/{sid}/artifact", params={"path": "paper/result.md"},
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["preview"] == "operator workspace\n"
+
+
 def test_artifact_allowlist_is_replaced_by_newest_result(ctx) -> None:
     root, sid, life, client = ctx
     _seed_result_artifacts(root, sid, life)
@@ -373,6 +534,128 @@ def test_manager_live_view_is_available_during_active_work(ctx) -> None:
     )
     assert preview.status_code == 200
     assert preview.json()["preview"].startswith("# Live progress")
+
+
+def test_new_session_does_not_inherit_workspace_global_live_view(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "shared-workspace"
+    stale_live = workspace / ".argus" / "live"
+    stale_live.mkdir(parents=True)
+    (stale_live / "stale.md").write_text("# Stale campaign\n", encoding="utf-8")
+    (workspace / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Unrelated campaign",
+            "paths": [".argus/live/stale.md"],
+        }),
+        encoding="utf-8",
+    )
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            cwd=str(life),
+            workdir=str(workspace),
+            launch_cwd=str(workspace),
+        ),
+    )
+
+    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
+
+    (workspace / "current.md").write_text("# Current session\n", encoding="utf-8")
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Current session",
+            "paths": ["current.md"],
+        }),
+        encoding="utf-8",
+    )
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+    assert [row["path"] for row in rows] == ["current.md"]
+    assert rows[0]["group_title"] == "Current session"
+
+
+def test_manager_live_view_hides_not_yet_existing_future_artifacts(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "future-workspace"
+    workspace.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
+    )
+    (life / ".argus").mkdir()
+    (life / ".argus" / "live-view.json").write_text(
+        json.dumps({
+            "version": 1,
+            "title": "Future report",
+            "paths": ["REPORT.md"],
+        }),
+        encoding="utf-8",
+    )
+
+    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
+
+
+def test_manager_live_view_recovers_after_legacy_accidental_clear(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "legacy-clear-workspace"
+    live = workspace / ".argus/live"
+    live.mkdir(parents=True)
+    (live / "current.md").write_text("# Current\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
+    )
+    with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "type": "manager.live_view.updated",
+            "title": "Current proof",
+            "reason": "Keep the last valid view visible.",
+            "paths": [".argus/live/current.md"],
+            "ts": time.time(),
+        }) + "\n")
+        handle.write(json.dumps({
+            "type": "manager.live_view.updated",
+            "title": "",
+            "paths": [],
+            "ts": time.time(),
+        }) + "\n")
+
+    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
+
+    assert [row["path"] for row in rows] == [".argus/live/current.md"]
+    assert rows[0]["group_title"] == "Current proof"
+
+
+def test_manager_live_view_honors_explicit_clear_event(ctx) -> None:
+    root, sid, life, client = ctx
+    workspace = root / "explicit-clear-workspace"
+    live = workspace / ".argus/live"
+    live.mkdir(parents=True)
+    (live / "current.md").write_text("# Current\n", encoding="utf-8")
+    write_session_meta(
+        root,
+        SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
+    )
+    with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "type": "manager.live_view.updated",
+            "title": "Current proof",
+            "paths": [".argus/live/current.md"],
+            "ts": time.time(),
+        }) + "\n")
+        handle.write(json.dumps({
+            "type": "manager.live_view.updated",
+            "title": "",
+            "paths": [],
+            "explicit_clear": True,
+            "ts": time.time(),
+        }) + "\n")
+
+    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
 
 
 def test_manager_live_view_uses_life_dir_without_session_metadata(ctx) -> None:
@@ -642,7 +925,7 @@ def _persist_lifecycle_state(life_dir: Path, state_str: str) -> None:
 
 
 def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
-    """Create a MemoryBundle with session metadata including launch_cwd."""
+    """Create a MemoryBundle with an explicit shared execution workdir."""
     from argus_skill.life.memory import MemoryBundle
 
     launch_dir = tmp_path / "workspace"
@@ -651,11 +934,13 @@ def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
     mem = MemoryBundle.for_cwd(
         fingerprint=sid, global_root=tmp_path
     )
-    # Write session meta with launch_cwd
+    # New sessions persist workdir separately from their internal state root.
     meta = SessionMeta(
         id=sid,
         created=time.time(),
         last_active=time.time(),
+        cwd=str(mem.project_root),
+        workdir=str(launch_dir),
         launch_cwd=str(launch_dir),
     )
     write_session_meta(tmp_path, meta)
@@ -736,8 +1021,8 @@ class TestManagerMessageLifecycleErrors:
         assert persisted["state"] in {"incubating", "running", "writing"}
         assert persisted["history"][-1]["reason"] == "manager_team_dispatch"
 
-    def test_done_project_resume_uses_launch_cwd(self, tmp_path: Path) -> None:
-        """Resume infers observable status from session launch_cwd."""
+    def test_done_project_resume_uses_persisted_workdir(self, tmp_path: Path) -> None:
+        """Resume infers observable status from the shared execution workdir."""
         from argus_skill.life.project_lifecycle_io import load_persisted
         from argus_skill.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,

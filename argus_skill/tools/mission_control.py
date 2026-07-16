@@ -28,6 +28,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -46,17 +47,16 @@ def request_mission_abort(
     reason: str,
     requested_by: str = "manager",
     target_item_id: str | None = None,
-) -> Path:
+) -> Path | None:
     """Drop a one-shot abort request for whatever mission is currently
     running under ``life_dir``.
 
     Idempotent: calling this again before the previous request is consumed
     simply overwrites it (write-to-temp + ``os.replace``, matching the
     ``continuous.json`` convention in ``daemon.life_worker``). Returns the
-    path written.
+    written path, or ``None`` when the durable signal could not be persisted.
     """
     path = _abort_request_path(life_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "reason": str(reason or "").strip() or "operator requested abort",
         "requested_by": requested_by,
@@ -66,10 +66,16 @@ def request_mission_abort(
         payload["target_item_id"] = str(target_item_id)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         os.replace(str(tmp), str(path))
     except OSError:
         log.warning("failed to write mission abort request to %s", path)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
     return path
 
 
@@ -100,12 +106,14 @@ def request_current_mission_abort(
     item_id = _running_item_id()
     if item_id is None:
         return False, None
-    request_mission_abort(
+    path = request_mission_abort(
         root,
         reason=reason,
         requested_by=requested_by,
         target_item_id=item_id,
     )
+    if path is None:
+        return False, item_id
     return True, item_id
 
 
@@ -180,6 +188,12 @@ def main(argv: list[str] | None = None) -> int:
             requested_by=args.requested_by,
         )
         if not requested:
+            if item_id is not None:
+                print(
+                    f"argus-skill: failed to persist abort request for {item_id}.",
+                    file=sys.stderr,
+                )
+                return 2
             print("argus-skill: no mission is currently running; nothing was queued.")
             return 0
         print(

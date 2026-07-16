@@ -21,6 +21,7 @@ class AgentRunResult:
     fatal_error: str | None = None
     stop_kind: str | None = None
     tool_activity_observed: bool = False
+    usage_model: str = ""
 
     @property
     def last_agent_message(self) -> str:
