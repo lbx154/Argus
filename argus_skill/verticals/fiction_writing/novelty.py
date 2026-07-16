@@ -18,6 +18,13 @@ Honesty contract (the same split style_lint uses):
   letters/ideographs/digits only), so swapping a comma for a period cannot split a
   verbatim run to evade the gate. en compares word tokens (punctuation already
   dropped).
+* Comparison also NFKC-normalizes (full-width / compatibility variants fold to their
+  canonical form) and, WHEN the optional ``opencc`` extra is installed, folds 繁→简
+  (``t2s``) before comparing — so converting a lifted span between traditional and
+  simplified script cannot evade the gate. WITHOUT ``opencc`` the 繁简 fold is
+  skipped: a wholly script-converted lift is then NOT caught. This is an honest,
+  documented gap (not a silent partial hand-table, which would make the green light
+  lie); NFKC always applies regardless.
 * Besides a single long run, the AGGREGATE verbatim-overlap ratio blocks when it
   exceeds a conservative model-seed default (guarded by an absolute floor so a
   short legitimate quotation in a tiny excerpt never trips it) — this catches
@@ -37,6 +44,13 @@ import unicodedata
 from typing import Any
 
 from .style import novelty_budget
+
+try:  # optional extra (pyproject [project.optional-dependencies] "zh-fold")
+    import opencc
+
+    _T2S = opencc.OpenCC("t2s")
+except Exception:  # opencc absent → 繁简 fold skipped (documented gap); NFKC still applies
+    _T2S = None
 
 #: The finding type this gate emits (blocking or note per :func:`check_novelty`);
 #: registered in ``FICTION_CONTINUITY_TYPES`` because — like temporal — it is
@@ -67,24 +81,40 @@ _DEFAULT_OVERLAP_BLOCK = 0.5
 _MIN_COVERED_FOR_RATIO_BLOCK = 40
 
 
+def _fold_token(token: str, language: str) -> str:
+    """Normalize a token so equivalent orthographies compare equal.
+
+    NFKC folds full-width / compatibility variants (always). When the optional
+    ``opencc`` extra is installed, ``t2s`` additionally collapses 繁→简 so a
+    script conversion of a lifted span cannot evade the run/ratio gates. Applied
+    identically to draft AND reference, so per-character consistency — not
+    linguistic perfection — is all that is required.
+    """
+    token = unicodedata.normalize("NFKC", token)
+    if language != "en" and _T2S is not None:
+        token = _T2S.convert(token)
+    return token
+
+
 def _tokens(text: str, language: str) -> tuple[list[str], list[int]]:
     """Return ``(tokens, original_char_index_per_token)`` for run detection.
 
     zh: each letter / ideograph / digit is a token — whitespace AND punctuation are
     dropped, so a punctuation-only edit cannot split a verbatim run. en: each
-    lowercased WORD is a token (case + spacing + punctuation normalized). The char
-    index lets a run map back to a source line for the finding.
+    lowercased WORD is a token (case + spacing + punctuation normalized). Every token
+    is folded via :func:`_fold_token` (NFKC always; 繁→简 when opencc is installed).
+    The char index lets a run map back to a source line for the finding.
     """
     tokens: list[str] = []
     idx: list[int] = []
     if language == "en":
         for m in re.finditer(r"[A-Za-z0-9']+", text):
-            tokens.append(m.group(0).lower())
+            tokens.append(_fold_token(m.group(0).lower(), language))
             idx.append(m.start())
     else:
         for i, ch in enumerate(text):
             if unicodedata.category(ch)[0] in ("L", "N"):
-                tokens.append(ch)
+                tokens.append(_fold_token(ch, language))
                 idx.append(i)
     return tokens, idx
 

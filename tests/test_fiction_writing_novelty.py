@@ -8,6 +8,8 @@ red.
 """
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.verticals.fiction_writing.novelty import (
     NOVELTY_FINDING_TYPE,
     check_novelty,
@@ -17,6 +19,13 @@ from argus_skill.verticals.fiction_writing.style import (
     novelty_budget,
     validate_voice_card,
 )
+
+try:  # the 繁简 fold is gated on the optional opencc extra
+    import opencc  # noqa: F401
+
+    _HAS_OPENCC = True
+except Exception:
+    _HAS_OPENCC = False
 
 # A source (canon) sentence a continuation must NOT transcribe.
 _REF = "黛玉自那日弃舟登岸时，便有荣国府打发了轿子并拉行李的车辆久候了。"
@@ -125,4 +134,27 @@ def test_short_quotation_in_tiny_excerpt_is_not_ratio_blocked():
     # the absolute-covered floor means a lone short quote can't ratio-block a tiny
     # excerpt even though its ratio is high (only a declared budget could).
     assert is_original(_ECHO, _REF2, {}, "zh")
+
+
+def test_fullwidth_variant_does_not_evade_block():
+    # NFKC folds full-width Latin/digits, so full-widthing an ASCII run inside a
+    # lift cannot drop it below the block threshold. No opencc needed — NFKC is
+    # always on. Without the fold the differing code points share no long run.
+    ref = "备注ABCDEFGHIJKLMNOPQRSTUVWXYZ仅此一份"
+    draft = "备注ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ仅此一份"
+    assert not is_original(draft, ref, {}, "zh")
+    assert any(f["blocking"] and (f.get("run_len") or 0) >= 24
+               for f in check_novelty(draft, ref, {}, "zh"))
+
+
+@pytest.mark.skipif(not _HAS_OPENCC, reason="繁简 fold requires the optional opencc extra")
+def test_traditional_conversion_does_not_evade_block():
+    # REF is simplified canon; a copier converts a verbatim lift to traditional.
+    # With opencc (t2s) the run folds back to simplified and still blocks. Absent
+    # opencc this is a documented gap (see novelty module docstring), so the test
+    # is skipped rather than asserting a behaviour the environment can't provide.
+    trad = "黛玉自那日棄舟登岸時，便有榮國府打發了轎子並拉行李的車輛久候了。"
+    assert not is_original(trad, _REF, {}, "zh")
+    assert any(f["blocking"] and f["type"] == NOVELTY_FINDING_TYPE
+               for f in check_novelty(trad, _REF, {}, "zh"))
 
