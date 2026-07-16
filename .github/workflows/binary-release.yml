@@ -129,8 +129,10 @@ jobs:
     runs-on: ubuntu-22.04
     environment: npm-beta
     permissions:
-      contents: read
+      contents: write
       id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -171,21 +173,66 @@ jobs:
             release/linux/packs/*.tgz \
             release/windows/packs/*.tgz
 
-      - name: Refuse an already-published immutable version
+      - name: Refuse a conflicting GitHub release or tag
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          for version in \
-            "$RELEASE_VERSION-linux-x64" \
-            "$RELEASE_VERSION-win32-x64" \
-            "$RELEASE_VERSION"; do
-            if npm view "@argusevolve/argus@$version" version >/dev/null 2>&1; then
-              echo "@argusevolve/argus@$version already exists; npm versions are immutable" >&2
-              exit 1
-            fi
-          done
+          tag="v$RELEASE_VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists" >&2
+            exit 1
+          fi
+          remote_sha=$(git ls-remote --tags origin "refs/tags/$tag" | awk '{print $1}')
+          if [ -n "$remote_sha" ] && [ "$remote_sha" != "$GITHUB_SHA" ]; then
+            echo "tag $tag points to $remote_sha instead of $GITHUB_SHA" >&2
+            exit 1
+          fi
 
-      - name: Publish audited platform tarballs, then Argus
+      - name: Prepare GitHub Release metadata and assets
+        id: release_meta
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python scripts/set_binary_release_version.py "$RELEASE_VERSION"
+          release_id=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["release_id"])')
+          tag="v$RELEASE_VERSION"
+          mkdir -p release/assets
+
+          linux_name="argus-$RELEASE_VERSION-linux-x64"
+          windows_name="argus-$RELEASE_VERSION-win32-x64.exe"
+          cp release/linux/argus-core "release/assets/$linux_name"
+          cp release/windows/argus-core.exe "release/assets/$windows_name"
+          chmod +x "release/assets/$linux_name"
+          linux_digest=$(awk '{print $1}' release/linux/argus-core.sha256)
+          windows_digest=$(awk '{print $1}' release/windows/argus-core.exe.sha256)
+          printf '%s  %s\n' "$linux_digest" "$linux_name" > "release/assets/$linux_name.sha256"
+          printf '%s  %s\n' "$windows_digest" "$windows_name" > "release/assets/$windows_name.sha256"
+          cp release/linux/THIRD_PARTY_NOTICES.txt release/assets/THIRD_PARTY_NOTICES-linux.txt
+          cp release/windows/THIRD_PARTY_NOTICES.txt release/assets/THIRD_PARTY_NOTICES-windows.txt
+
+          cat > release/notes.md <<EOF
+          ## Argus binary beta
+
+          - Version: \`$RELEASE_VERSION\`
+          - Commit: \`$GITHUB_SHA\`
+          - Release identity: \`$release_id\`
+          - npm: \`@argusevolve/argus@$RELEASE_VERSION\`
+          - Platforms: Linux x64 and Windows x64
+
+          ### Install
+
+          \`\`\`bash
+          npm install -g @argusevolve/argus@beta
+          \`\`\`
+
+          This prerelease was built, tested, packaged, and audited by the same
+          GitHub Actions run that published the npm beta.
+          EOF
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Publish or verify audited npm tarballs
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -195,6 +242,51 @@ jobs:
           test -n "$linux_tarball"
           test -n "$windows_tarball"
           test -n "$argus_tarball"
-          npm publish "$linux_tarball" --access public --tag linux-x64
-          npm publish "$windows_tarball" --access public --tag win32-x64
-          npm publish "$argus_tarball" --access public --tag beta
+
+          integrity() {
+            python - "$1" <<'PY'
+          import base64
+          import hashlib
+          import pathlib
+          import sys
+          payload = pathlib.Path(sys.argv[1]).read_bytes()
+          print("sha512-" + base64.b64encode(hashlib.sha512(payload).digest()).decode())
+          PY
+          }
+
+          publish_or_verify() {
+            tarball=$1
+            version=$2
+            tag=$3
+            if npm view "@argusevolve/argus@$version" version >/dev/null 2>&1; then
+              expected=$(integrity "$tarball")
+              actual=$(npm view "@argusevolve/argus@$version" dist.integrity)
+              test "$expected" = "$actual" || {
+                echo "published integrity mismatch for @argusevolve/argus@$version" >&2
+                exit 1
+              }
+              echo "verified existing @argusevolve/argus@$version"
+            else
+              npm publish "$tarball" --access public --tag "$tag"
+            fi
+          }
+
+          publish_or_verify "$linux_tarball" "$RELEASE_VERSION-linux-x64" linux-x64
+          publish_or_verify "$windows_tarball" "$RELEASE_VERSION-win32-x64" win32-x64
+          publish_or_verify "$argus_tarball" "$RELEASE_VERSION" beta
+
+          test "$(npm view @argusevolve/argus dist-tags.linux-x64)" = "$RELEASE_VERSION-linux-x64"
+          test "$(npm view @argusevolve/argus dist-tags.win32-x64)" = "$RELEASE_VERSION-win32-x64"
+          test "$(npm view @argusevolve/argus dist-tags.beta)" = "$RELEASE_VERSION"
+
+      - name: Create GitHub prerelease from the audited assets
+        env:
+          RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Argus $RELEASE_TAG" \
+            --notes-file release/notes.md \
+            --prerelease \
+            release/assets/*

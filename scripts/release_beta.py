@@ -38,6 +38,21 @@ def expected_versions(version: str) -> tuple[str, str, str]:
     )
 
 
+def release_tag(version: str) -> str:
+    return f"v{version}"
+
+
+def expected_release_assets(version: str) -> set[str]:
+    return {
+        f"argus-{version}-linux-x64",
+        f"argus-{version}-linux-x64.sha256",
+        f"argus-{version}-win32-x64.exe",
+        f"argus-{version}-win32-x64.exe.sha256",
+        "THIRD_PARTY_NOTICES-linux.txt",
+        "THIRD_PARTY_NOTICES-windows.txt",
+    }
+
+
 def select_new_run(
     rows: list[dict[str, Any]], before: set[int], head_sha: str
 ) -> dict[str, Any] | None:
@@ -104,6 +119,22 @@ def version_exists(version: str) -> bool:
         capture=True,
     )
     return result.returncode == 0 and result.stdout.strip() == version
+
+
+def release_exists(version: str) -> bool:
+    result = run(
+        [
+            "gh",
+            "release",
+            "view",
+            release_tag(version),
+            "--repo",
+            REPOSITORY,
+        ],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0
 
 
 def list_dispatch_runs() -> list[dict[str, Any]]:
@@ -185,6 +216,45 @@ def verify_install(version: str) -> None:
         print(f"install smoke passed: {rendered}")
 
 
+def verify_github_release(version: str, head_sha: str) -> str:
+    tag = release_tag(version)
+    raw = output(
+        [
+            "gh",
+            "release",
+            "view",
+            tag,
+            "--repo",
+            REPOSITORY,
+            "--json",
+            "tagName,isPrerelease,url,assets",
+        ]
+    )
+    payload = json.loads(raw)
+    if payload.get("tagName") != tag or payload.get("isPrerelease") is not True:
+        raise RuntimeError(f"GitHub Release {tag} is missing or is not a prerelease")
+    actual_assets = {
+        str(asset.get("name") or "")
+        for asset in payload.get("assets", [])
+        if isinstance(asset, dict)
+    }
+    expected_assets = expected_release_assets(version)
+    if actual_assets != expected_assets:
+        raise RuntimeError(
+            f"GitHub Release asset mismatch: missing={sorted(expected_assets - actual_assets)}, "
+            f"extra={sorted(actual_assets - expected_assets)}"
+        )
+    remote_tag = output(
+        ["git", "ls-remote", "origin", f"refs/tags/{tag}"]
+    ).split()
+    if not remote_tag or remote_tag[0] != head_sha:
+        actual = remote_tag[0] if remote_tag else "missing"
+        raise RuntimeError(f"Git tag {tag} points to {actual}, expected {head_sha}")
+    url = str(payload.get("url") or "")
+    print(f"GitHub prerelease verified: {tag} · {url}")
+    return url
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build, publish, monitor, and verify one Argus npm beta."
@@ -209,9 +279,14 @@ def main(argv: list[str] | None = None) -> int:
         publish = not args.dry_run
         if publish:
             occupied = [item for item in expected_versions(version) if version_exists(item)]
-            if occupied:
+            if release_exists(version):
                 raise RuntimeError(
-                    f"npm versions are immutable and already exist: {', '.join(occupied)}"
+                    f"GitHub Release {release_tag(version)} already exists"
+                )
+            if occupied:
+                print(
+                    "recovering an incomplete release; existing npm versions will be "
+                    f"verified by integrity: {', '.join(occupied)}"
                 )
         selected = trigger(version, publish=publish)
         run_id = int(selected["databaseId"])
@@ -233,7 +308,10 @@ def main(argv: list[str] | None = None) -> int:
         if publish:
             wait_for_registry(version)
             verify_install(version)
-            print(f"published and verified: {PACKAGE}@{version} (beta)")
+            release_url = verify_github_release(version, head)
+            print(
+                f"published and verified: {PACKAGE}@{version} (beta) · {release_url}"
+            )
         else:
             print(f"dry run verified: {version}")
         return 0
