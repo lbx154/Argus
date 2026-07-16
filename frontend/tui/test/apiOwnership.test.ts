@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import {
@@ -43,7 +43,7 @@ test('default ownership path is stable per local host and port', () => {
       HOME: '/home/alex',
       ARGUS_SKILL_HOME: '/state/argus',
     }),
-    '/state/argus/runtime/webapi-127.0.0.1-8909.owner.json',
+    join(resolve('/state/argus'), 'runtime', 'webapi-127.0.0.1-8909.owner.json'),
   );
   assert.equal(
     defaultApiOwnershipPath('localhost', 8799, { HOME: '/home/alex' }),
@@ -252,7 +252,8 @@ test('writeOwnershipRecord creates a missing private runtime directory', async (
   await writeOwnershipRecord(ownerFile, BASE_RECORD);
   assert.equal(JSON.parse(await readFile(ownerFile, 'utf-8')).pid, BASE_RECORD.pid);
   const runtimeInfo = await stat(join(root, 'nested', 'runtime'));
-  assert.equal(runtimeInfo.mode & 0o077, 0);
+  if (process.platform === 'win32') assert.ok(runtimeInfo.isDirectory());
+  else assert.equal(runtimeInfo.mode & 0o077, 0);
 });
 
 test('claimApiOwnership records only a verified live endpoint', async () => {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { parseArgs } from '../src/args.js';
@@ -22,7 +23,7 @@ test('local endpoints get a default owner file and explicit configuration overri
     process.env.ARGUS_SKILL_HOME = '/state/argus';
     assert.equal(
       parseArgs(['--port', '8909']).ownerFile,
-      '/state/argus/runtime/webapi-127.0.0.1-8909.owner.json',
+      join(resolve('/state/argus'), 'runtime', 'webapi-127.0.0.1-8909.owner.json'),
     );
     assert.equal(parseArgs(['--host', '10.0.0.5']).ownerFile, undefined);
 
