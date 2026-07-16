@@ -129,8 +129,7 @@ class SkillLoopConfig:
             not in {"0", "false", "no", "off"}
         )
     )
-    # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
-    # deliverable; the Engineer and Reviewer still run normally.
+    # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
     # submission task. When True the engineer prompt carries the
@@ -274,7 +273,6 @@ class SkillLoop:
         """
         workdir = Path(workdir) if workdir else Path.cwd()
         run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
-        direct_workflow = self.config.workflow_mode == "direct"
         from .skills.adaptation import (
             adaptation_state_path,
             append_method_ledger,
@@ -295,7 +293,7 @@ class SkillLoop:
             vertical_module,
             "scientist",
         )
-        if self.config.wiki_ops_enabled and not direct_workflow:
+        if self.config.wiki_ops_enabled:
             from .wiki.lifecycle import ensure_project_wiki
 
             ensure_project_wiki(
@@ -317,14 +315,9 @@ class SkillLoop:
         # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        if direct_workflow:
-            from .skills.role_match import RoleSkillMatch
-
-            match = RoleSkillMatch(role="engineer")
-        else:
-            match = self.skill_router.select(
-                skill_task, extra_exclude=venue_excluded_skill_files(workdir)
-            )
+        match = self.skill_router.select(
+            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+        )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
@@ -340,7 +333,7 @@ class SkillLoop:
 
         # Scientist tool on miss: author one reusable playbook, persist it in the
         # project layer immediately, and inject that exact version into this mission.
-        if skill is None and not direct_workflow:
+        if skill is None and not self.config.engineer_skill_maintenance_enabled:
             try:
                 from .skills.scientist import SkillScientist
 
@@ -433,6 +426,8 @@ class SkillLoop:
             nonlocal skill, skill_text, skill_name, skill_distilled
             nonlocal distill_result, adaptation_triggers
             nonlocal adaptation_spent
+            if self.config.engineer_skill_maintenance_enabled:
+                return ""
             persistent_adaptation = adaptation_file is not None
             if persistent_adaptation:
                 if not rounds or adaptation_disabled:
@@ -767,10 +762,7 @@ class SkillLoop:
                 original_request=request_anchor,
                 include_static=include_static,
                 role_banner=engineer_role_banner,
-                allow_self_review=(
-                    self.config.engineer_self_review_enabled
-                    and str(scope or "").strip().lower() != "final_submission"
-                ),
+                allow_self_review=True,
             )
             guidance: list[str] = []
             if self.extra_guidance_provider is not None:

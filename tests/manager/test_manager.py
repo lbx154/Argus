@@ -1,6 +1,6 @@
 """Tests for the Manager division layer — decide_vertical / stage split / commit.
 
-The Manager uses one tool-free Fast Router call and, only when needed, one
+The Manager uses one tool-free classification call and, only when needed, one
 grounded fallback. These tests use fake runners (no real LLM).
 """
 from __future__ import annotations
@@ -16,7 +16,6 @@ from argus_skill.manager.domain_author import (
     VerticalDecisionError,
     parse_vertical_decision,
 )
-from argus_skill.skills.vertical_select import VERTICALS
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
@@ -46,13 +45,15 @@ class _DecisionRunner:
 
 
 def _existing(vertical: str) -> _DecisionRunner:
+    normalized = "software" if vertical == "direct" else vertical
     decision = {
         "choice": "existing",
-        "vertical": vertical,
+        "vertical": normalized,
+        "workflow_mode": "direct" if normalized == "software" else "staged",
         "confidence": 0.95,
         "execution_task": "perform the requested task",
     }
-    if vertical == "math":
+    if normalized == "math":
         decision["research_target_level"] = "exploratory"
     return _DecisionRunner(decision)
 
@@ -75,51 +76,27 @@ def test_triage_existing_nanochat_is_optimize():
     assert regular is True
 
 
-@pytest.mark.parametrize("vertical", VERTICALS)
-def test_explicit_builtin_vertical_preserves_execution_task(
-    tmp_path,
-    monkeypatch,
-    vertical: str,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", vertical)
+def test_environment_cannot_force_vertical(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    runner = _existing("research")
 
-    runner = _existing("math") if vertical == "math" else None
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "  execute this task  "
+        "write the paper"
     )
 
-    assert decision.choice == "existing"
-    assert decision.vertical == vertical
-    assert decision.execution_task == "execute this task"
-    if vertical == "math":
-        assert decision.research_target_level == "exploratory"
+    assert decision.vertical == "research"
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-fast"
+    ]
 
 
-def test_explicit_math_without_backend_uses_fail_closed_target(
+def test_manager_without_backend_cannot_be_bypassed_by_vertical_env(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
-
-    decision = Manager(project_root=tmp_path).decide_vertical("prove the lemma")
-
-    assert decision.execution_task == "prove the lemma"
-    assert decision.research_target_level == "doctoral"
-
-
-def test_explicit_math_target_env_override_needs_no_backend(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
-    monkeypatch.setenv(
-        "ARGUS_SKILL_MATH_RESEARCH_TARGET_LEVEL",
-        "exploratory",
-    )
-
-    decision = Manager(project_root=tmp_path).decide_vertical("prove the lemma")
-
-    assert decision.research_target_level == "exploratory"
+    with pytest.raises(VerticalDecisionError, match="no backend"):
+        Manager(project_root=tmp_path).decide_vertical("prove the lemma")
 
 
 def test_plan_stages_research_is_the_8_stage_pipeline():
@@ -407,7 +384,7 @@ def test_fast_vertical_decision_defers_manager_live_view_and_task_rewrite(tmp_pa
     assert not (tmp_path / ".argus" / "live" / "current.md").exists()
     assert division.execution_task == "write the paper"
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-vertical-fast-route"
+        "manager-classify-fast"
     ]
     assert runner.last_options.dangerous_yolo is False
 
@@ -421,7 +398,8 @@ def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
         "Fix one failing repository test and return the patch."
     )
 
-    assert decision.vertical == "direct"
+    assert decision.vertical == "software"
+    assert decision.workflow_mode == "direct"
     assert runner.last_options.model == "gpt-5.5"
 
 
@@ -436,7 +414,8 @@ def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
         },
         {
             "choice": "existing",
-            "vertical": "direct",
+            "vertical": "software",
+            "workflow_mode": "direct",
             "rationale": "bounded repair after focused inspection",
             "research_target_level": None,
         },
@@ -461,11 +440,12 @@ def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
 
-    assert decision.vertical == "direct"
+    assert decision.vertical == "software"
+    assert decision.workflow_mode == "direct"
     assert decision.execution_task == task
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-vertical-fast-route",
-        "manager-vertical-grounded",
+        "manager-classify-fast",
+        "manager-classify-grounded",
     ]
     assert "--available-tools=" in runner.calls[0]["options"].extra_args
     assert runner.calls[0]["options"].sandbox_mode is None
@@ -484,9 +464,10 @@ def test_fast_route_prompt_cap_skips_directly_to_one_grounded_call(
         "Repair one bounded failing test."
     )
 
-    assert decision.vertical == "direct"
+    assert decision.vertical == "software"
+    assert decision.workflow_mode == "direct"
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-vertical-grounded"
+        "manager-classify-grounded"
     ]
 
 
@@ -507,7 +488,7 @@ def test_grounded_route_prompt_cap_fails_before_second_model_call(
         )
 
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-vertical-fast-route"
+        "manager-classify-fast"
     ]
 
 
@@ -539,10 +520,11 @@ def test_grounded_parser_can_use_original_task_as_post_route_handoff() -> None:
     parsed = parse_vertical_decision(
         json.dumps({
             "choice": "existing",
-            "vertical": "direct",
+            "vertical": "software",
+            "workflow_mode": "direct",
             "rationale": "bounded repair",
         }),
-        known_verticals=["direct"],
+        known_verticals=["software"],
         default_execution_task="Preserve this exact operator task.",
     )
 

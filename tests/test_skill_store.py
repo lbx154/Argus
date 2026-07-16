@@ -184,7 +184,7 @@ def test_find_relevant_fatal_without_keyword_match_returns_none(
     assert store.last_match_output_tokens == 0
 
 
-def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) -> None:
+def test_find_relevant_rechecks_skill_library_every_mission(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
 
@@ -200,6 +200,17 @@ def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) ->
             output_tokens=7,
         ),
     )
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message=json.dumps({
+                "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
+            }),
+            input_tokens=90,
+            cached_input_tokens=20,
+            output_tokens=5,
+        ),
+    )
     store = SkillStore(skills_dir, runner=backend, matcher_model="m")
 
     matched, tokens = store.find_relevant("install nginx and serve a static site")
@@ -211,7 +222,11 @@ def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) ->
         "install nginx and serve a static site"
     )
     assert matched_again is not None
-    assert tokens_again == 0
-    assert store.last_match_input_tokens == 0
-    assert store.last_match_cached_input_tokens == 0
-    assert store.last_match_output_tokens == 0
+    assert tokens_again == 95
+    assert store.last_match_input_tokens == 90
+    assert store.last_match_cached_input_tokens == 20
+    assert store.last_match_output_tokens == 5
+    assert [label for label, _prompt, _options in backend.history] == [
+        "matcher",
+        "matcher",
+    ]

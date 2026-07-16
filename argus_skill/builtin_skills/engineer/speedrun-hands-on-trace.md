@@ -238,8 +238,8 @@ failures on a speedrun are **process and statistics**, not the recipe.
 - **Nail 4 — testing in isolation and reverting to the bare floor.** Each mechanism was
   measured against the seed and reverted, so nothing compounded. Recursive's 77.3s is FIVE
   stacked inventions; the right unit of work is a current-best STACK.
-- **Nail 5 — infra/operational.** A daemon self-handoff once dropped the vertical env var
-  (`ARGUS_SKILL_VERTICAL`); a restart landed mid-N=10-recert and marked that mission `failed`
+- **Nail 5 — infra/operational.** A daemon self-handoff once lost the persisted Manager
+  classification; a restart landed mid-N=10-recert and marked that mission `failed`
   even though the orphaned scorer finished valid — the win computed but did not bank cleanly.
   Restart only at clean mission boundaries; verify env + `import` first.
 

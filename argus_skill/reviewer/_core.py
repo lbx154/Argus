@@ -665,21 +665,19 @@ class Reviewer:
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
         from ..skills.harness_overlay import resolve_project_root
-        from ..skills.vertical_select import resolve_vertical
+        from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
         from ..verticals._base import (
             load_vertical,
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
-            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root(working_dir)
         _active_vertical = resolve_vertical(_proot)
         _vmod = load_vertical(_active_vertical, project_root=_proot)
-        _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
         matched_review_skill_block = ""
-        if self.skill_store is not None and not _direct_workflow:
+        if self.skill_store is not None:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(
@@ -961,7 +959,7 @@ class Reviewer:
             final_submission_block = ""
         # Byte-stable static policy; every fresh Reviewer receives it in full.
         static = (
-            _reviewer_evidence_contract(vertical_workflow_mode(_vmod))
+            _reviewer_evidence_contract(resolve_workflow_mode(_proot))
             + optimize_banner
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT

@@ -16,7 +16,6 @@ class _Manager:
         lifetime_sink=None,
         greeting_sink=None,
         name_sink=None,
-        vertical_sink=None,
     ):
         if self.route == "complex" and lifetime_sink is not None:
             lifetime_sink("standing")
@@ -24,8 +23,6 @@ class _Manager:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
             name_sink("test")
-        if self.route == "complex" and vertical_sink is not None:
-            vertical_sink({"vertical": "math", "target": "publishable"})
         return None, None, self.route
 
 
@@ -41,10 +38,7 @@ def test_front_door_wrapper_caches_team_lifetime_for_dispatch() -> None:
 
     assert decision == (None, None, "complex")
     assert state["_frontdoor_lifetime"] == "standing"
-    assert state["_frontdoor_vertical"] == {
-        "vertical": "math",
-        "target": "publishable",
-    }
+    assert "_frontdoor_vertical" not in state
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
     state: dict = {"_frontdoor_lifetime": "stale"}
 

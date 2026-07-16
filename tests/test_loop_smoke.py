@@ -196,7 +196,7 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
-def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
+def test_repeated_rejections_do_not_spawn_separate_scientist(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
     backend = MemoryBackend()
@@ -204,9 +204,6 @@ def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
     for i in range(1, 5):
         backend.queue(f"engineer-r{i}", CannedResponse(message=f"attempt {i}"))
         backend.queue("reviewer", CannedResponse(message=_continue_review()))
-    backend.queue("scientist.skill_distill", CannedResponse(message=SKILL_MD.replace(
-        "Write a hello message", "Alternative greeting strategy"
-    )))
     backend.queue("engineer-r5", CannedResponse(message="new strategy succeeded"))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
@@ -221,33 +218,14 @@ def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
     assert outcome.successful
-    r5_prompt = next(p for label, p, _ in backend.history if label == "engineer-r5")
-    assert "Alternative greeting strategy" in r5_prompt
-    assert any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "scientist.skill_distill" not in labels
+    assert not any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
 
 
-def test_skill_loop_scientist_distills_active_skill_on_miss(tmp_path: Path) -> None:
-    """A matcher miss authors an active skill and records its reviewed use."""
+def test_skill_loop_matcher_miss_defers_creation_to_engineer(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("scientist.skill_distill", CannedResponse(message="""# Solve Trivial Task
-## Description
-Reusable playbook for solving simple deterministic tasks.
-## Category
-general
-## When to use
-- Use when a task has no matched skill but has a small deterministic goal.
-## When NOT to use
-- Do not use for broad multi-stage work.
-## How to solve
-1. Read the task.
-2. Do the smallest correct action.
-## Pitfalls
-- Do not invent extra scope.
-## Sources
-- [Python documentation](https://docs.python.org/3/) — deterministic execution basics.
-- [Git documentation](https://git-scm.com/docs) — reproducible change tracking.
-"""))
     backend.queue("engineer-r1", CannedResponse(
         message="Done: solved with the scientist skill. Remaining: none.",
     ))
@@ -263,19 +241,18 @@ general
     )
     outcome = loop.run("trivial task", workdir=tmp_path)
     assert outcome.successful
-    assert outcome.skill_used == "Solve Trivial Task"
-    assert outcome.skill_distilled is True
+    assert outcome.skill_used is None
+    assert outcome.skill_distilled is False
     summaries = SkillStore(tmp_path / "skills").list_summaries()
-    assert [s["name"] for s in summaries] == ["Solve Trivial Task"]
-    assert summaries[0]["successful_reuses"] == 1
-    assert any(event.get("type") == "skill.use.recorded" for event in loop_events)
-    scientist_options = next(
-        options for label, _prompt, options in backend.history
-        if label == "scientist.skill_distill"
-    )
-    assert scientist_options.live_search is True
-def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
+    assert summaries == []
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "matcher" in labels
+    assert "scientist.skill_distill" not in labels
+
+
+def test_direct_workflow_uses_matcher_and_skips_separate_scientist(tmp_path: Path) -> None:
     backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue(
         "engineer-r1",
         CannedResponse(message="Delivered the requested standalone artifact."),
@@ -294,6 +271,6 @@ def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
 
     assert outcome.successful
     labels = [label for label, _prompt, _options in backend.history]
-    assert "matcher" not in labels
+    assert "matcher" in labels
     assert "scientist.skill_distill" not in labels
     assert not any(event.get("type") == "skill.scientist.started" for event in events)

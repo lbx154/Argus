@@ -222,6 +222,8 @@ class VerticalDecision:
 
     choice: str
     vertical: str
+    # Orthogonal execution topology chosen by Manager; never encoded as a vertical.
+    workflow_mode: str = "staged"
     proposal: DomainProposal | None = None
     # Optional, independently-grounded choice of which workspace files the Web
     # cockpit should keep beside the live event stream. ``live_view_decided``
@@ -251,6 +253,7 @@ class FastVerticalRoute:
 
     needs_grounding: bool
     vertical: str = ""
+    workflow_mode: str = "staged"
     confidence: float = 0.0
     rationale: str = ""
     research_target_level: str = ""
@@ -273,7 +276,7 @@ def build_fast_vertical_decision_prompt(
         or "(none)"
     )
     return (
-        "You are the FAST ROUTER for an automated research/engineering pipeline. "
+        "You are the MANAGER performing your fast, tool-free classification pass. "
         "Choose an existing vertical only when the operator's task text makes the "
         "fit clear. You have NO tools in this call: do not inspect files, infer "
         "repository facts that were not stated, expand the task, choose Live View "
@@ -282,14 +285,12 @@ def build_fast_vertical_decision_prompt(
         "## Existing built-in verticals\n"
         f"{menu}\n\n"
         f"## Existing project data domains: {existing}\n\n"
-        "## Routing rules\n"
-        "- Choose `direct` for a bounded one-off deliverable, including a "
-        "short-cycle software repair, bug fix, focused refactor, or other "
-        "single-repository task with a concrete acceptance test. Internal "
-        "Engineer/Reviewer turns do not make such a task long-horizon.\n"
-        "- Choose a staged vertical only when the requested outcome genuinely "
-        "needs that reusable lifecycle (for example a paper, open mathematical "
-        "research, finance factor research, or metric optimization).\n"
+        "## Classification rules\n"
+        "- `vertical` is the capability/domain (software, research, math, etc.). "
+        "Never use an execution topology such as direct/full/staged as a vertical.\n"
+        "- Independently choose `workflow_mode=direct` when one Engineer mission "
+        "can finish the bounded request. Choose `workflow_mode=staged` when the "
+        "Manager should invoke planning and stage progression.\n"
         "- Never invent a task-specific alias for an existing capability.\n"
         "- If the task is ambiguous, depends on unstated repository structure, "
         "or appears to require a new domain, choose `grounded`.\n\n"
@@ -301,6 +302,7 @@ def build_fast_vertical_decision_prompt(
         f"{(task or '').strip()}\n\n"
         "Reply with exactly one compact JSON object and nothing else:\n"
         '{"choice":"existing","vertical":"<existing name>",'
+        '"workflow_mode":"direct|staged",'
         '"confidence":<0.0-1.0>,"research_target_level":'
         '"<exploratory|publishable|doctoral>"|null,"rationale":"<brief>"}\n'
         "OR\n"
@@ -336,10 +338,17 @@ def parse_fast_vertical_decision(
         )
     if choice != "existing":
         return None
-    name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+    raw_name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+    legacy_direct = raw_name == "direct"
+    name = "software" if legacy_direct else raw_name
     known = {str(v).strip().lower() for v in known_verticals}
     known |= {str(v).strip().lower() for v in existing_data_domains}
     if not name or name not in known:
+        return None
+    workflow_mode = str(obj.get("workflow_mode") or "").strip().lower()
+    if not workflow_mode:
+        workflow_mode = "direct" if legacy_direct else "staged"
+    if workflow_mode not in {"direct", "staged"}:
         return None
     targeted = {
         str(value or "").strip().lower()
@@ -357,6 +366,7 @@ def parse_fast_vertical_decision(
     return FastVerticalRoute(
         needs_grounding=False,
         vertical=name,
+        workflow_mode=workflow_mode,
         confidence=confidence,
         rationale=rationale,
         research_target_level=target_level,
@@ -388,12 +398,13 @@ def build_vertical_decision_prompt(
     )
     return (
         "You are the MANAGER of an automated research/engineering pipeline. "
-        "Decide which single VERTICAL should run the Task below. A vertical is a "
+        "Decide which capability VERTICAL and execution WORKFLOW should run the "
+        "Task below. A vertical is a "
         "stable, reusable capability contract with its own ordered Stages and, "
         "for built-ins, expert per-stage reviewer checklists. It is NOT the "
         "task-specific route or DAG of literature, experiment, proof, and review "
         "work that the Planner may create inside one mission.\n\n"
-        "The tool-free Fast Router requested grounded context. INVESTIGATE with "
+        "Your tool-free classification pass requested grounded context. INVESTIGATE with "
         "read-only shell access in this repository. Use ONE focused inspection batch of at "
         "most four file/search operations, then decide. Avoid broad recursive "
         "searches and do not read unrelated UI, generated, vendor, or build-output "
@@ -417,16 +428,6 @@ def build_vertical_decision_prompt(
         "backlog/DAG tasks; they are not competing verticals. Never author a "
         "task-specific alias such as `math_conjecture` for work already covered "
         "by `math`.\n"
-        "   Use `direct` for a bounded one-off deliverable that does not benefit "
-        "from a persistent multi-stage lifecycle. Prefer it over authoring a new "
-        "domain for ordinary creative work, focused edits, and small standalone "
-        "artifacts. This explicitly includes short-cycle software repairs, bug "
-        "fixes, focused refactors, and single-repository tasks whose success is "
-        "defined by existing deterministic tests. For those tasks, choose `direct` "
-        "even when the Engineer and Reviewer may need multiple internal tool or "
-        "model turns. Repo investigation alone does not make the task long-horizon. "
-        "Do not choose a staged lifecycle or author a new domain merely because the "
-        "repair is technically nontrivial.\n"
         "2. Else if an existing project data domain fits, choose it.\n"
         "3. ONLY if nothing above provides the stable capability the Task needs, "
         "AUTHOR a new data domain. Do not author one merely to encode this "
@@ -435,6 +436,9 @@ def build_vertical_decision_prompt(
         f"{_MIN_STAGES}-{_MAX_STAGES} stages) grounded in what the repo needs to "
         "reach a verifiable deliverable. The per-stage checklist is authored "
         "later by the Planner; you define only the stage SKELETON.\n\n"
+        "Independently choose `workflow_mode`: `direct` when one Engineer mission "
+        "can finish the bounded task; `staged` when planning/stage progression is "
+        "needed. This topology is never a vertical.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         "The following built-ins declare a project-level research target contract: "
@@ -451,12 +455,14 @@ def build_vertical_decision_prompt(
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
+        '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"research_target_level": "<exploratory|publishable|doctoral when the '
         'vertical declares a target contract, otherwise null>"}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
+        '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"research_target_level": null, '
         '"confidence": <0.0-1.0>}\n'
@@ -547,8 +553,15 @@ def parse_vertical_decision(
         obj.get("live_view") is None or parsed_live_view is not None
     )
     choice = str(obj.get("choice") or "").strip().lower()
+    raw_vertical_name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+    legacy_direct = raw_vertical_name == "direct"
+    workflow_mode = str(obj.get("workflow_mode") or "").strip().lower()
+    if not workflow_mode:
+        workflow_mode = "direct" if legacy_direct else "staged"
+    if workflow_mode not in {"direct", "staged"}:
+        return None
     if choice == "existing":
-        name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+        name = "software" if legacy_direct else raw_vertical_name
         target_level = str(obj.get("research_target_level") or "").strip().lower()
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
@@ -568,6 +581,7 @@ def parse_vertical_decision(
             return VerticalDecision(
                 choice="existing",
                 vertical=name,
+                workflow_mode=workflow_mode,
                 proposal=None,
                 live_view=parsed_live_view,
                 live_view_decided=live_view_decided,
@@ -586,6 +600,7 @@ def parse_vertical_decision(
         return VerticalDecision(
             choice="new",
             vertical=proposal.name,
+            workflow_mode=workflow_mode,
             proposal=proposal,
             live_view=parsed_live_view,
             live_view_decided=live_view_decided,

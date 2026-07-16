@@ -560,10 +560,6 @@ class LifeWorker:
         """
         from ..skills.builtins import builtin_skill_source_path
         from ..skills.vertical_select import (
-            DEFAULT_VERTICAL,
-            ENV_VERTICAL,
-            _is_project_data_domain,
-            _known_vertical,
             _persisted_vertical,
         )
         from ..tools.new_auto_research_project import (
@@ -573,24 +569,9 @@ class LifeWorker:
         )
 
         objective = (self.config.continuous_objective or "").strip()
-        # The Manager AGENT decides the vertical (supervisor _resolve_vertical_once
-        # / the divide below persist it); an operator-forced ``ARGUS_SKILL_VERTICAL``
-        # env var is the OTHER legitimate source, with the SAME precedence
-        # ``resolve_vertical`` uses (explicit non-default env wins over the
-        # persisted state) — this only decides which TEMPLATE to render, it never
-        # PERSISTS a guess (seeding must not pre-empt the Manager). Before EITHER
-        # resolves (a fresh mission, no env override), ``vertical`` is None and we
-        # fall back to the research template; the Manager's real vertical persists
-        # next and the reviewer loads its checklists from there.
-        env_vertical = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
-        persisted_vertical = _persisted_vertical(project_root)
-        if env_vertical is not None and not (
-            env_vertical == DEFAULT_VERTICAL
-            and _is_project_data_domain(persisted_vertical, project_root)
-        ):
-            vertical = env_vertical
-        else:
-            vertical = persisted_vertical
+        # The Manager is the sole vertical authority. Before it persists a
+        # decision, bootstrap deliberately has no vertical classification.
+        vertical = _persisted_vertical(project_root)
         # The paper/auto-research contract is seeded ONLY on a POSITIVE research
         # signal — a research vertical the Manager has already confirmed, or an
         # operator-configured research profile (ARGUS_SKILL_RESEARCH_PROFILE = the

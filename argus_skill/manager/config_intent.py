@@ -46,7 +46,7 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    Reuses that same call's task-lifetime and vertical verdicts. It never treats
+    Reuses that same call's task-lifetime verdict. It never treats
     classifier output as an operator-facing reply: every SELF message reaches
     the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
@@ -56,12 +56,10 @@ def _front_door_classify(
     lifetime_decisions: list[str] = []
     greeting_replies: list[str] = []
     steering_directives: list[str] = []
-    vertical_decisions: list[dict[str, str]] = []
     chat_state.pop("_frontdoor_lifetime", None)
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
-    chat_state.pop("_frontdoor_vertical", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -83,8 +81,6 @@ def _front_door_classify(
             kwargs["greeting_sink"] = greeting_replies.append
         if accepts(mgr.classify_front_door, "steering_sink"):
             kwargs["steering_sink"] = steering_directives.append
-        if accepts(mgr.classify_front_door, "vertical_sink"):
-            kwargs["vertical_sink"] = vertical_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
             kwargs["active_mission"] = bool(active_mission)
         decision = mgr.classify_front_door(text, **kwargs)
@@ -131,10 +127,6 @@ def _front_door_classify(
             )
             if directive:
                 chat_state["_frontdoor_steering_directive"] = directive
-        if normalized_route == "complex" and vertical_decisions:
-            decision = vertical_decisions[0]
-            if isinstance(decision, dict) and decision.get("vertical"):
-                chat_state["_frontdoor_vertical"] = dict(decision)
         return (
             intent,
             control if control in {"abort", "no_dispatch", "steer"} else None,

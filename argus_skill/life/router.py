@@ -408,33 +408,11 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
 
 def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
-    from ..skills.vertical_select import VERTICAL_PURPOSES
-
     cleaned = (text or "").strip()
-    hints = {
-        "direct": "bounded one-off deliverable",
-        "research": "research paper pipeline",
-        "math": "proofs, conjectures, open mathematics",
-        "physics": "physical theory/simulation/data",
-        "quant": "finance factor research",
-        "speedrun": "generic metric optimization",
-        "nanochat": "nanochat val_bpb optimization",
-        "nanogpt_speedrun": "nanogpt training speed",
-        "kernelbench": "GPU kernel correctness/speed",
-        "learning": "ingest material into skills/wiki",
-        "ale_last_exam": "long-horizon professional sandbox task",
-        "fiction_writing": "fiction",
-        "classical_poetry": "classical Chinese poetry",
-        "modern_poetry": "modern free verse",
-        "prose": "literary prose",
-        "literary_editor": "edit existing literary text",
-    }
-    verticals = ", ".join(
-        f"{name}={hints.get(name, name.replace('_', ' '))}"
-        for name in VERTICAL_PURPOSES
-    )
     return (
-        "Classify ONLY the current operator message on nine independent axes.\n"
+        "Classify ONLY the current operator message on seven independent axes. "
+        "You do NOT choose the task vertical or execution workflow; the Manager "
+        "does that later for every formal task.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         "CONFIG: SET only when the operator asks to change an Argus STANDING "
         "cockpit default. Role knobs: backend|model|effort for "
@@ -465,15 +443,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "NAME: concise title in the message language; 2-12 Chinese characters or "
         "2-8 words, core subject/action only, no polite framing, quotes, punctuation, "
         "or session id.\n\n"
-        "VERTICAL: for TEAM work, choose one built-in below only when the message "
-        "clearly fits from its own words; otherwise AUTO so the grounded Manager "
-        "can inspect the workspace. SELF=>NONE.\n"
-        f"{verticals}\n\n"
-        "TARGET: only when VERTICAL declares a research target contract, choose "
-        "EXPLORATORY for bounded/known/local evidence, PUBLISHABLE when a verified "
-        "original publishable result is required, or DOCTORAL only when the operator "
-        "explicitly requires thesis/doctoral-level originality. Else NONE.\n\n"
-        "Reply with EXACTLY nine lines and nothing else:\n"
+        "Reply with EXACTLY seven lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
         "STEER_DIRECTIVE: <Manager-authored team directive | NONE>\n"
@@ -481,8 +451,6 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "LIFETIME: <BOUNDED | STANDING | NONE>\n"
         "GREETING: <GREETING | NONE>\n"
         "NAME: <concise conversation title>\n"
-        "VERTICAL: <built-in vertical | AUTO | NONE>\n"
-        "TARGET: <EXPLORATORY | PUBLISHABLE | DOCTORAL | NONE>\n"
         "SET syntax: SET <knob> <comma-separated roles|ALL|-> <verbatim value>.\n\n"
         f"Message:\n{cleaned}\n\n"
         "Answer:\n"
@@ -497,7 +465,6 @@ def classify_front_door(
     lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
     greeting_sink: Callable[[str], None] | None = None,
     steering_sink: Callable[[str], None] | None = None,
-    vertical_sink: Callable[[dict[str, str]], None] | None = None,
     active_mission: bool = False,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
@@ -524,8 +491,6 @@ def classify_front_door(
     lifetime_line = _line_after_prefix(answer, "LIFETIME:")
     greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
-    vertical_line = _line_after_prefix(answer, "VERTICAL:")
-    target_line = _line_after_prefix(answer, "TARGET:")
     intent = _parse_config_line(config_line) if config_line is not None else None
     control_token = (
         str(control_line or "").strip().upper().replace("-", "_")
@@ -586,19 +551,6 @@ def classify_front_door(
             name_sink(name_line)
         except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
             pass
-    if callable(vertical_sink) and route == "complex":
-        from ..skills.vertical_select import VERTICAL_PURPOSES
-
-        vertical = str(vertical_line or "").strip().split(maxsplit=1)[0].lower()
-        vertical = vertical.strip("`'\".,:;()[]{}")
-        target = _first_alpha_token(target_line).lower()
-        if vertical in VERTICAL_PURPOSES:
-            if target not in {"exploratory", "publishable", "doctoral"}:
-                target = ""
-            try:
-                vertical_sink({"vertical": vertical, "target": target})
-            except Exception:  # noqa: BLE001 - advisory routing metadata
-                pass
     return intent, control, route
 
 

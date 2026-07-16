@@ -118,7 +118,7 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert completed[0]["review_source"] == "engineer_self_review"
 
 
-def test_missing_verbatim_output_fails_closed_to_reviewer(tmp_path: Path) -> None:
+def test_engineer_skip_is_not_second_guessed_for_missing_verbatim_block(tmp_path: Path) -> None:
     backend = MemoryBackend()
     message = _engineer_message().replace(
         "## Verification (verbatim)\n```text\n1 passed in 0.04s\n```\n\n",
@@ -148,11 +148,11 @@ def test_missing_verbatim_output_fails_closed_to_reviewer(tmp_path: Path) -> Non
     )
 
     assert status == "done"
-    assert reviewer.calls == 1
-    assert any(e["type"] == "engineer.self_review.rejected" for e in events)
+    assert reviewer.calls == 0
+    assert any(e["type"] == "engineer.self_review.accepted" for e in events)
 
 
-def test_final_submission_cannot_waive_independent_reviewer(tmp_path: Path) -> None:
+def test_final_submission_engineer_skip_is_honored(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
@@ -180,7 +180,7 @@ def test_final_submission_cannot_waive_independent_reviewer(tmp_path: Path) -> N
     )
 
     assert status == "done"
-    assert reviewer.calls == 1
+    assert reviewer.calls == 0
 
 
 SKILL_MD = """# Deterministic Parser Repair
@@ -237,7 +237,7 @@ def test_skill_creation_resumes_same_engineer_session(tmp_path: Path) -> None:
 
     assert outcome.status == "done"
     labels = [label for label, _prompt, _options in backend.history]
-    assert labels == ["engineer-r1", "engineer-skill-maintenance"]
+    assert labels == ["matcher", "engineer-r1", "engineer-skill-maintenance"]
     resumes = dict(backend.resume_history)
     assert resumes["engineer-skill-maintenance"] == "engineer-session"
     summaries = SkillStore(skills_dir).list_summaries()

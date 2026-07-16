@@ -68,7 +68,6 @@ from .self_review import (
     EngineerSkillMaintenanceOutcome,
     engineer_self_approved_review,
     parse_engineer_completion_decision,
-    verbatim_verification_output,
 )
 
 log = logging.getLogger(__name__)
@@ -1590,136 +1589,86 @@ class SupervisedEngineer:
             completion_decision = parse_engineer_completion_decision(
                 engineer_message
             )
+            maintenance = EngineerSkillMaintenanceOutcome()
+            if (
+                completion_decision is not None
+                and completion_decision.skill_action != "none"
+                and engineer_skill_maintenance is not None
+            ):
+                try:
+                    maintenance = engineer_skill_maintenance(
+                        completion_decision,
+                        round_thread_id,
+                        engineer_message,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("Engineer same-session skill maintenance failed")
+                    maintenance = EngineerSkillMaintenanceOutcome(
+                        attempted=True,
+                        success=False,
+                        summary=f"failed: {type(exc).__name__}: {exc}",
+                        thread_id=round_thread_id,
+                    )
             if (
                 completion_decision is not None
                 and completion_decision.requests_review_skip
             ):
-                self_review_rejection = ""
-                verification_output = verbatim_verification_output(
-                    engineer_message
+                # Engineer owns this judgment. The harness parses the explicit
+                # decision but does not second-guess it with extra gates.
+                review = engineer_self_approved_review(
+                    completion_decision,
+                    maintenance_summary=maintenance.summary,
                 )
-                if not supervised_config.allow_engineer_self_review:
-                    self_review_rejection = "Engineer self-review is disabled"
-                elif str(scope or "").strip().lower() == "final_submission":
-                    self_review_rejection = (
-                        "final_submission requires independent Reviewer certification"
-                    )
-                elif int(getattr(engineer_result, "exit_code", 0) or 0) != 0:
-                    self_review_rejection = "Engineer process did not exit successfully"
-                elif fatal_error:
-                    self_review_rejection = "Engineer reported a fatal backend error"
-                elif pending_secret_guard_notes:
-                    self_review_rejection = (
-                        "secret-guard findings require independent review"
-                    )
-                elif no_progress_streak:
-                    self_review_rejection = (
-                        "Engineer produced no successful work signal"
-                    )
-                elif not verification_output:
-                    self_review_rejection = (
-                        "missing non-empty `## Verification (verbatim)` output"
-                    )
-
-                if self_review_rejection:
-                    if on_event:
-                        on_event({
-                            "type": EventType.ENGINEER_SELF_REVIEW_REJECTED,
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "reason": self_review_rejection,
-                            "text": (
-                                "Engineer review waiver rejected; invoking Reviewer: "
-                                + self_review_rejection
-                            ),
-                        })
-                else:
-                    maintenance = EngineerSkillMaintenanceOutcome()
-                    if completion_decision.skill_action != "none":
-                        if (
-                            supervised_config.allow_engineer_skill_maintenance
-                            and engineer_skill_maintenance is not None
-                        ):
-                            try:
-                                maintenance = engineer_skill_maintenance(
-                                    completion_decision,
-                                    round_thread_id,
-                                    engineer_message,
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                log.exception(
-                                    "Engineer same-session skill maintenance failed"
-                                )
-                                maintenance = EngineerSkillMaintenanceOutcome(
-                                    attempted=True,
-                                    success=False,
-                                    summary=(
-                                        "failed: "
-                                        f"{type(exc).__name__}: {exc}"
-                                    ),
-                                    thread_id=round_thread_id,
-                                )
-                        else:
-                            maintenance = EngineerSkillMaintenanceOutcome(
-                                attempted=False,
-                                success=False,
-                                summary="requested but maintenance is disabled",
-                                thread_id=round_thread_id,
-                            )
-                    review = engineer_self_approved_review(
-                        completion_decision,
-                        maintenance_summary=maintenance.summary,
-                    )
-                    pending_secret_guard_notes.clear()
-                    if on_event:
-                        on_event({
-                            "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "reason": completion_decision.reason,
-                            "verification": completion_decision.verification,
-                            "skill_action": completion_decision.skill_action,
-                            "skill_maintenance_attempted": maintenance.attempted,
-                            "skill_maintenance_success": maintenance.success,
-                            "text": (
-                                "Engineer self-verification accepted; "
-                                "independent Reviewer waived"
-                            ),
-                        })
-                        on_event(_review_event_payload(
-                            review,
-                            round_index=round_index,
-                            round_max=supervised_config.max_rounds,
-                            text=(
-                                "review: skipped (Engineer self-verification) — "
-                                + review.reason
-                            ),
-                            review_skipped=True,
-                            review_source="engineer_self_review",
-                        ))
-                    record = RoundRecord(
+                pending_secret_guard_notes.clear()
+                if on_event:
+                    on_event({
+                        "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "reason": completion_decision.reason,
+                        "verification": completion_decision.verification,
+                        "skill_action": completion_decision.skill_action,
+                        "skill_maintenance_attempted": maintenance.attempted,
+                        "skill_maintenance_success": maintenance.success,
+                        "text": (
+                            "Engineer self-verification accepted; "
+                            "independent Reviewer waived"
+                        ),
+                    })
+                    on_event(_review_event_payload(
+                        review,
                         round_index=round_index,
-                        engineer_message=engineer_message,
-                        engineer_exit_code=engineer_result.exit_code,
-                        review=review,
-                        fatal_error=engineer_result.fatal_error,
-                    )
-                    rounds.append(record)
-                    if review_completed_hook is not None:
-                        try:
-                            review_completed_hook(record)
-                        except Exception:  # noqa: BLE001
-                            log.warning(
-                                "self-review completion hook failed",
-                                exc_info=True,
-                            )
-                    return (
-                        "done",
-                        rounds,
-                        last_engineer_message,
-                        review.reason,
-                        maintenance.thread_id or round_thread_id,
-                    )
+                        round_max=supervised_config.max_rounds,
+                        text=(
+                            "review: skipped (Engineer self-verification) — "
+                            + review.reason
+                        ),
+                        review_skipped=True,
+                        review_source="engineer_self_review",
+                    ))
+                record = RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                )
+                rounds.append(record)
+                if review_completed_hook is not None:
+                    try:
+                        review_completed_hook(record)
+                    except Exception:  # noqa: BLE001
+                        log.warning(
+                            "self-review completion hook failed",
+                            exc_info=True,
+                        )
+                return (
+                    "done",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    maintenance.thread_id or round_thread_id,
+                )
 
             if prepare_review_context is not None:
                 try:

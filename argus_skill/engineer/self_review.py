@@ -67,15 +67,15 @@ def parse_engineer_completion_decision(
     verification = str(payload.get("verification") or "").strip()[:2000]
     skill_action = str(payload.get("skill_action") or "none").strip().lower()
     if skill_action not in _SKILL_ACTIONS:
-        return None
+        skill_action = "none"
     skill_name = str(payload.get("skill_name") or "").strip()[:200]
     skill_reason = str(payload.get("skill_reason") or "").strip()[:1000]
-    if review == "skip" and (not reason or not verification):
-        return None
+    if review == "skip" and not reason:
+        reason = "Engineer judged independent review unnecessary"
     if skill_action == "update" and not skill_name:
-        return None
+        skill_action = "none"
     if skill_action != "none" and not skill_reason:
-        return None
+        skill_reason = reason or "Engineer identified reusable learning"
     return EngineerCompletionDecision(
         review=review,
         reason=reason,

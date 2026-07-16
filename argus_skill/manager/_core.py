@@ -10,7 +10,7 @@ This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
 the user-facing *division* step:
 
   * decide     → ``Manager.decide_vertical`` — an explicit built-in env choice is
-                 reused directly; otherwise a tool-free Fast Router picks a clear
+                 reused directly; otherwise the Manager's tool-free fast pass picks a clear
                  existing vertical in one model request. Only uncertainty/new-domain
                  cases escalate to one bounded grounded call (no keyword classifier;
                  see ``manager/domain_author.py``)
@@ -385,6 +385,7 @@ class Division:
     kind: str                # "research" | "optimize" | "custom"
     regular: bool            # True = maps to a preset pipeline; False = free-form
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
+    workflow_mode: str = "staged"
     execution_task: str = ""
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
@@ -403,6 +404,7 @@ class Division:
         if self.kind == "custom":
             tag = "new domain"
         return (f"[manager] {self.kind} task ({tag}) → vertical={self.vertical}, "
+                f"workflow={self.workflow_mode}, "
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
 
 
@@ -672,9 +674,7 @@ class Manager:
     ) -> VerticalDecision:
         """Choose the vertical for ``task``.
 
-        A valid built-in named by ``ARGUS_SKILL_VERTICAL`` is an explicit operator
-        decision, so it is reused directly without giving the domain author a
-        chance to replace it with a task-specific DATA domain. Otherwise a compact,
+        Every formal task is classified by the Manager itself. A compact,
         tool-free model request chooses a clear existing vertical directly. Invalid,
         low-confidence, explicitly uncertain, or potentially-new-domain answers
         escalate once to the bounded grounded repository-inspection prompt.
@@ -687,33 +687,8 @@ class Manager:
         is missing / not a valid choice, RAISES ``VerticalDecisionError``. There is
         NO keyword classifier and NO silent fallback to the research default.
         """
-        explicit_builtin = vertical_select.explicit_builtin_vertical()
-        if explicit_builtin is not None:
-            from ..verticals._base import (
-                load_vertical,
-                vertical_research_target_levels,
-            )
-
-            target_levels = vertical_research_target_levels(
-                load_vertical(explicit_builtin, project_root=self.project_root)
-            )
-            return VerticalDecision(
-                choice="existing",
-                vertical=explicit_builtin,
-                execution_task=task.strip(),
-                research_target_level=(
-                    self._decide_research_target(
-                        task,
-                        root_task_id=root_task_id,
-                        supported_levels=target_levels,
-                    )
-                    if target_levels
-                    else ""
-                ),
-            )
-
         # Routing is intentionally isolated from the persistent Manager chat
-        # session. Reusing prior conversation would violate the Fast Router's
+        # session. Reusing prior conversation would violate the fast pass's
         # strict context bound and make cost depend on unrelated earlier turns.
         backend = self.runner
         if backend is None:
@@ -803,7 +778,7 @@ class Manager:
                         skip_git_repo_check=True,
                         extra_args=fast_extra_args,
                     ),
-                    run_label="manager-vertical-fast-route",
+                    run_label="manager-classify-fast",
                 )
                 fast_detail = _failure_detail(fast_result)
                 if int(getattr(fast_result, "exit_code", 0) or 0) != 0 or fast_detail:
@@ -825,6 +800,7 @@ class Manager:
                     return VerticalDecision(
                         choice="existing",
                         vertical=fast_route.vertical,
+                        workflow_mode=fast_route.workflow_mode,
                         execution_task=task.strip(),
                         research_target_level=fast_route.research_target_level,
                     )
@@ -878,7 +854,7 @@ class Manager:
                     skip_git_repo_check=True,
                     extra_args=grounded_extra_args,
                 ),
-                run_label="manager-vertical-grounded",
+                run_label="manager-classify-grounded",
             )
         detail = _failure_detail(result)
         if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
@@ -925,6 +901,8 @@ class Manager:
             return "optimize"
         if vertical in ("research", "quant"):
             return "research"
+        if vertical == "software":
+            return "software"
         return "custom"  # a project-local (Manager-authored) data domain
 
     # ---- triage: which vertical/kind, and is this a real task? ----
@@ -1049,6 +1027,7 @@ class Manager:
                 division = Division(
                     task=task, vertical=proposal.name, kind="custom",
                     regular=True, stages=list(proposal.stages),
+                    workflow_mode=decision.workflow_mode,
                     execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
                 )
@@ -1059,6 +1038,7 @@ class Manager:
                 proposal,
                 _old_vertical=old_vertical,
                 execution_task=decision.execution_task,
+                workflow_mode=decision.workflow_mode,
             )
             self._apply_vertical_decision_rendering(decision)
             return division
@@ -1070,6 +1050,7 @@ class Manager:
                 self.project_root,
                 vertical,
                 research_target_level=decision.research_target_level or None,
+                workflow_mode=decision.workflow_mode,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
@@ -1082,6 +1063,7 @@ class Manager:
             kind=self._kind_for(vertical),
             regular=True,
             stages=stages,
+            workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
         )
         self._apply_vertical_decision_rendering(decision)
@@ -1094,6 +1076,7 @@ class Manager:
         *,
         _old_vertical: str | None = None,
         execution_task: str = "",
+        workflow_mode: str = "staged",
         _lock_held: bool = False,
     ) -> Division:
         """Write the authored data domain to disk and persist it as the active
@@ -1114,6 +1097,7 @@ class Manager:
                 proposal,
                 _old_vertical=_old_vertical,
                 execution_task=execution_task,
+                workflow_mode=workflow_mode,
             )
 
     def _commit_domain_locked(
@@ -1123,6 +1107,7 @@ class Manager:
         *,
         _old_vertical: str | None,
         execution_task: str,
+        workflow_mode: str,
     ) -> Division:
         from ..verticals._data_domain import write_data_domain
 
@@ -1143,7 +1128,11 @@ class Manager:
                 stages=list(proposal.stages),
                 created_by="manager",
             )
-            persist_vertical(self.project_root, proposal.name)
+            persist_vertical(
+                self.project_root,
+                proposal.name,
+                workflow_mode=workflow_mode,
+            )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
                 old_vertical=_old_vertical,
@@ -1156,6 +1145,7 @@ class Manager:
                 execution_task
                 or str(getattr(proposal, "execution_task", "") or "")
             ),
+            workflow_mode=workflow_mode,
             pending_confirmation=False,
         )
 
@@ -1256,7 +1246,6 @@ class Manager:
         lifetime_sink: Any = None,
         greeting_sink: Any = None,
         steering_sink: Any = None,
-        vertical_sink: Any = None,
         active_mission: bool = False,
     ) -> Any:
         """One fresh call classifying all cheap front-door decisions.
@@ -1303,7 +1292,6 @@ class Manager:
                 lifetime_sink=lifetime_sink,
                 greeting_sink=greeting_sink,
                 steering_sink=steering_sink,
-                vertical_sink=vertical_sink,
                 active_mission=active_mission,
             )
 

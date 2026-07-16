@@ -468,9 +468,9 @@ def test_execute_uses_full_pipeline_on_real_task(
     )
     assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
-    assert loop_kwargs[0]["config"].skill_ops_enabled is False
-    assert loop_kwargs[0]["config"].wiki_ops_enabled is False
-    assert loop_kwargs[0]["config"].auto_init_wiki is False
+    assert loop_kwargs[0]["config"].skill_ops_enabled is True
+    assert loop_kwargs[0]["config"].wiki_ops_enabled is True
+    assert loop_kwargs[0]["config"].auto_init_wiki is True
 
     backend.calls.clear()
     planned_tasks.clear()
@@ -486,7 +486,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert planned_tasks and "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].max_rounds == 1
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
-    assert loop_kwargs[0]["config"].auto_init_wiki is False
+    assert loop_kwargs[0]["config"].auto_init_wiki is True
 
 
 def test_chat_path_emits_minimum_event_sequence() -> None:

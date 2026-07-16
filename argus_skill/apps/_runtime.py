@@ -720,10 +720,6 @@ class _SkillLoopRunner(SelfReplyMixin):
             workflow_mode_override.strip().lower()
             or _workflow_mode_for_project_root(_proot)
         )
-        if config_kwargs["workflow_mode"] == "direct":
-            config_kwargs["skill_ops_enabled"] = False
-            config_kwargs["wiki_ops_enabled"] = False
-            config_kwargs["auto_init_wiki"] = False
         try:
             from inspect import signature
 
@@ -1265,28 +1261,18 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
     Missing/corrupt state is deliberately non-paper.  ``resolve_vertical`` has
     a compatibility fallback to ``research`` for undecided projects; using that
     fallback as a mission-type signal caused ordinary bounded tasks to pay for
-    paper idea search and inherit EMNLP guidance.  A persisted Manager decision
-    (or a valid explicit ``ARGUS_SKILL_VERTICAL`` override) is required here.
+    paper idea search and inherit EMNLP guidance. A persisted Manager decision
+    is required here.
     """
     try:
-        from ..skills.vertical_select import (
-            ENV_VERTICAL,
-            _persisted_vertical,
-            require_vertical,
-            resolve_vertical,
-        )
+        from ..skills.vertical_select import _persisted_vertical
         from ..verticals._base import load_vertical, vertical_completion_gate
 
         root = Path(project_root).expanduser()
         persisted = _persisted_vertical(root)
-        raw_override = str(os.environ.get(ENV_VERTICAL, "") or "").strip()
         if persisted is None:
-            if not raw_override:
-                return False
-            # Reject an invalid override instead of allowing resolve_vertical's
-            # compatibility fallback to turn it into `research`.
-            require_vertical(raw_override, project_root=root)
-        vertical = resolve_vertical(root)
+            return False
+        vertical = persisted
         return (
             vertical_completion_gate(
                 load_vertical(vertical, project_root=root)
@@ -1298,16 +1284,11 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
 
 
 def _workflow_mode_for_project_root(project_root: Path | str) -> str:
-    """Resolve the Manager-selected workflow contract; fail safe to staged."""
+    """Resolve the Manager-persisted workflow contract; fail safe to staged."""
     try:
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import load_vertical, vertical_workflow_mode
+        from ..skills.vertical_select import resolve_workflow_mode
 
-        root = Path(project_root).expanduser()
-        vertical = resolve_vertical(root)
-        return vertical_workflow_mode(
-            load_vertical(vertical, project_root=root)
-        )
+        return resolve_workflow_mode(Path(project_root).expanduser())
     except Exception:  # noqa: BLE001
         return "staged"
 
@@ -1445,6 +1426,7 @@ def run_life_supervisor(
                         division.task,
                         division.proposed_domain,
                         execution_task=division.execution_task,
+                        workflow_mode=division.workflow_mode,
                     )
                 from ..manager.front_door import require_manager_execution_task
 

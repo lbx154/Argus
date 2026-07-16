@@ -343,14 +343,13 @@ class Planner:
             current_stage,
             format_stage_checklist,
         )
-        from ..skills.vertical_select import resolve_vertical
+        from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
         from ..verticals._base import (
             load_vertical,
             vertical_checklist_stage_order,
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
-            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root()
@@ -706,7 +705,7 @@ class Planner:
         return (
             ground_truth_mandate(
                 "planner",
-                workflow_mode=vertical_workflow_mode(_vmod),
+                workflow_mode=resolve_workflow_mode(_proot),
             )
             + optimize_banner
             + research_target_block

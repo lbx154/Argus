@@ -105,11 +105,8 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
 # --- resolve_vertical precedence: env > state > research --------------------
 
 
-def test_resolve_failsoft_when_nothing_persisted(tmp_path: Path) -> None:
-    # FAIL-SOFT: a rigid rule must never hard-crash a mission. With nothing
-    # persisted, resolve returns the safe default rather than raising.
+def test_low_level_resolve_keeps_legacy_fallback(tmp_path: Path) -> None:
     assert resolve_vertical(tmp_path / "nope") == "research"
-    # ...and a state file with no ``vertical`` field also falls back.
     assert resolve_vertical(_project(tmp_path, None)) == "research"
 
 
@@ -127,12 +124,12 @@ def test_resolve_reads_pipeline_state_vertical(tmp_path: Path) -> None:
     assert resolve_vertical(_project(tmp_path, "speedrun")) == "speedrun"
 
 
-def test_resolve_env_overrides_state(
+def test_resolve_env_cannot_override_manager_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _project(tmp_path, "research")  # state says research...
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")  # ...env wins.
-    assert resolve_vertical(root) == "speedrun"
+    root = _project(tmp_path, "research")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    assert resolve_vertical(root) == "research"
 
 
 # --- fail-hard invariants (no keyword classifier lives here anymore) --------

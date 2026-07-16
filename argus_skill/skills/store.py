@@ -638,39 +638,23 @@ class SkillStore:
             self._last_match_premium_requests = 0.0
             if on_event:
                 msg = (
-                    "skill store empty - will distill a new playbook"
+                    "skill store empty - matcher will record an explicit no-match"
                     if role is None
-                    else f"no skills in scope for role={role}"
+                    else (
+                        f"no skills in scope for role={role}; matcher will record "
+                        "an explicit no-match"
+                    )
                 )
                 on_event({"type": "match.info", "text": msg})
-            return None, 0
+            # Still call the matcher with an empty candidate list. Every mission
+            # exercises the same skill-selection mechanism, and the explicit
+            # no-match result is evidence for Engineer-owned skill creation.
 
         cache_key = (
             " ".join(task_description.lower().split()),
             role or "",
             self._fingerprint_summaries(summaries),
         )
-        cached = self._match_cache.get(cache_key)
-        if cached is not None or cache_key in self._match_cache:
-            self._match_cache.pop(cache_key, None)
-            self._match_cache[cache_key] = cached
-            self._last_match_input_tokens = 0
-            self._last_match_cached_input_tokens = 0
-            self._last_match_output_tokens = 0
-            self._last_match_premium_requests = 0.0
-            if on_event:
-                label = (
-                    ", ".join(Path(p).stem for p in cached) if cached else "no match"
-                )
-                on_event({"type": "match.info",
-                          "text": f"matcher cache hit: {label} (0 tok)"})
-            if cached is None:
-                return None, 0
-            try:
-                return [self.load(p) for p in cached], 0
-            except OSError:
-                self._match_cache.pop(cache_key, None)
-
         if self.runner is None:
             log.warning("SkillStore.find_relevant called with no runner; "
                         "cannot run matcher")
@@ -708,7 +692,7 @@ class SkillStore:
                         "candidates before LLM matcher"
                     ),
                 })
-        batches = self._candidate_batches(summaries)
+        batches = self._candidate_batches(summaries) or [[]]
         if on_event:
             names = ", ".join(s.get("name", "?") for s in summaries[:5])
             more = f" (+{len(summaries) - 5} more)" if len(summaries) > 5 else ""

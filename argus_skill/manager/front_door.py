@@ -292,6 +292,7 @@ class PreparedManagerHandoff:
             "objective": self.body,
             "execution_task": self.execution_task,
             "vertical": getattr(division, "vertical", ""),
+            "workflow_mode": getattr(division, "workflow_mode", "staged"),
             "kind": getattr(division, "kind", ""),
             "regular": bool(getattr(division, "regular", False)),
             "stages": list(getattr(division, "stages", []) or []),
@@ -357,45 +358,13 @@ def prepare_manager_execution_task(
                 runner=None,
             )
 
-        cached_vertical = chat_state.pop("_frontdoor_vertical", None)
-        decision = None
-        if isinstance(cached_vertical, dict):
-            from ..skills import vertical_select
-
-            vertical = str(cached_vertical.get("vertical") or "").strip().lower()
-            target = str(cached_vertical.get("target") or "").strip().lower()
-            if vertical in vertical_select.VERTICALS:
-                from ..verticals._base import (
-                    load_vertical,
-                    vertical_research_target_levels,
-                    )
-
-                manager_project_root = (
-                    getattr(manager, "project_root", None)
-                    or getattr(mem, "project_root", None)
-                )
-                levels = set(vertical_research_target_levels(
-                    load_vertical(vertical, project_root=manager_project_root)
-                ))
-                if levels and target not in levels:
-                    decision = None
-                else:
-                    from .domain_author import VerticalDecision
-
-                    decision = VerticalDecision(
-                        choice="existing",
-                        vertical=vertical,
-                        execution_task=body.strip(),
-                        research_target_level=target if levels else "",
-                    )
-        if decision is None:
-            if root_task_id is None or not _accepts_keyword(
-                manager.decide_vertical,
-                "root_task_id",
-            ):
-                decision = manager.decide_vertical(body)
-            else:
-                decision = manager.decide_vertical(body, root_task_id=root_task_id)
+        if root_task_id is None or not _accepts_keyword(
+            manager.decide_vertical,
+            "root_task_id",
+        ):
+            decision = manager.decide_vertical(body)
+        else:
+            decision = manager.decide_vertical(body, root_task_id=root_task_id)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,

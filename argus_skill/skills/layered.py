@@ -371,18 +371,6 @@ class LayeredSkillStore:
         """
         # Build the merged view ourselves so we can match across layers.
         merged_summaries = self.list_summaries()
-        if not merged_summaries:
-            self.project._last_match_input_tokens = 0
-            self.project._last_match_cached_input_tokens = 0
-            self.project._last_match_output_tokens = 0
-            self.project._last_match_premium_requests = 0.0
-            if on_event:
-                on_event({
-                    "type": "match.info",
-                    "text": "skill store empty (project + global) — will distill a new playbook",
-                })
-            return None, 0
-
         # The underlying SkillStore.find_relevant uses self.list_summaries
         # internally. We borrow its full pipeline by temporarily swapping
         # in our merged view + a load() that dispatches across layers.
