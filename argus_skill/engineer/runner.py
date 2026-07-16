@@ -758,6 +758,11 @@ class SupervisedConfig:
     # When a self-approved Engineer requests reusable skill maintenance, resume
     # that exact provider thread for one bounded create/update continuation.
     allow_engineer_skill_maintenance: bool = False
+    # Optional sequential-learning contract. The Engineer still authors the
+    # skill in its resumed session; the harness only ensures the requested
+    # create/update continuation is not accidentally omitted.
+    required_skill_action: str = ""
+    required_skill_name: str = ""
     # Retained only for source compatibility with older callers.
     review_deferral_limit: int = 0
 
@@ -1589,6 +1594,19 @@ class SupervisedEngineer:
             completion_decision = parse_engineer_completion_decision(
                 engineer_message
             )
+            if (
+                completion_decision is not None
+                and completion_decision.skill_action == "none"
+                and supervised_config.required_skill_action in {"create", "update"}
+            ):
+                completion_decision = replace(
+                    completion_decision,
+                    skill_action=supervised_config.required_skill_action,
+                    skill_name=supervised_config.required_skill_name,
+                    skill_reason=(
+                        "Required sequential-learning update from this verified task"
+                    ),
+                )
             maintenance = EngineerSkillMaintenanceOutcome()
             if (
                 completion_decision is not None

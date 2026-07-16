@@ -270,3 +270,38 @@ def test_skill_router_create_supports_layered_store(tmp_path: Path) -> None:
     assert counts["created"] == 1
     created = [event for event in events if event.get("type") == "skill.created"]
     assert created and created[0]["scope"] == "general"
+
+
+def test_required_post_task_learning_forces_same_session_create(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="learn-session"),
+    )
+    backend.queue(
+        "engineer-skill-maintenance",
+        CannedResponse(message=SKILL_MD, thread_id="learn-session"),
+    )
+    events: list[dict] = []
+    outcome = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            workflow_mode="direct",
+            require_post_task_learning=True,
+        ),
+        on_event=events.append,
+    ).run("repair one deterministic parser test", workdir=tmp_path)
+
+    assert outcome.status == "done"
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels == ["matcher", "engineer-r1", "engineer-skill-maintenance"]
+    assert any(
+        event.get("type") == "engineer.skill_maintenance.completed"
+        and event.get("success") is True
+        for event in events
+    )

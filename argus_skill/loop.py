@@ -72,6 +72,16 @@ class SkillLoopConfig:
     skill_adapter_model: str | None = None
     skill_adapter_reasoning_effort: str = "low"
     skill_adapter_enabled: bool = True
+    # Evaluation/continuous-learning mode: every completed task must leave a
+    # reusable skill update/create plus a wiki note for the next task.
+    require_post_task_learning: bool = field(
+        default_factory=lambda: (
+            os.environ.get("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+    )
     max_rounds: int = 500
     no_progress_threshold: int = 2
     # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
@@ -851,6 +861,8 @@ class SkillLoop:
                 include_static=include_static,
                 role_banner=engineer_role_banner,
                 allow_self_review=True,
+                matched_skill_name=skill_name or "",
+                require_post_task_learning=self.config.require_post_task_learning,
             )
             guidance: list[str] = []
             if self.extra_guidance_provider is not None:
@@ -1094,6 +1106,12 @@ class SkillLoop:
                 allow_engineer_skill_maintenance=(
                     self.config.engineer_skill_maintenance_enabled
                 ),
+                required_skill_action=(
+                    ("update" if skill_name else "create")
+                    if self.config.require_post_task_learning
+                    else ""
+                ),
+                required_skill_name=skill_name or "",
             ),
             workdir=workdir,
             on_event=self.on_event,
@@ -1337,6 +1355,8 @@ class SkillLoop:
         include_static: bool = True,
         role_banner: str = "",
         allow_self_review: bool = False,
+        matched_skill_name: str = "",
+        require_post_task_learning: bool = False,
     ) -> str:
         # STATIC remains byte-stable for provider prefix caching. Autonomous
         # Engineer calls are always fresh and receive the full prompt.
@@ -1401,6 +1421,23 @@ class SkillLoop:
             "The marker is a decision, not evidence: the literal evidence must "
             "remain in the fenced Verification block."
         )
+        if require_post_task_learning:
+            required_action = "update" if matched_skill_name else "create"
+            target = (
+                f" the matched skill `{matched_skill_name}`"
+                if matched_skill_name
+                else " one reusable Engineer skill"
+            )
+            sections.append(
+                "## Required self-evolution\n"
+                "This run is part of a sequential transfer evaluation. After "
+                "verification, request `skill_action=" + required_action + "` for"
+                + target
+                + " in the final decision marker; the harness will resume this "
+                "same session to author it. Also write or update one concise wiki "
+                "note under the existing `.autors/<project>/wiki/` tree describing "
+                "the reusable mechanism, failed approach, and decisive verification."
+            )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)
         if include_static:
