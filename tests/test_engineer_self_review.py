@@ -16,6 +16,8 @@ from argus_skill.engineer.self_review import (
     verbatim_verification_output,
 )
 from argus_skill.reviewer import ReviewerConfig
+from argus_skill.skills.layered import LayeredSkillStore
+from argus_skill.skills.skill_router import SkillRouter
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -246,3 +248,25 @@ def test_skill_creation_resumes_same_engineer_session(tmp_path: Path) -> None:
         for event in events
     )
     assert not any(event["type"] == "round.review.started" for event in events)
+
+
+def test_skill_router_create_supports_layered_store(tmp_path: Path) -> None:
+    store = LayeredSkillStore(
+        project_dir=tmp_path / "project-skills",
+        global_dir=tmp_path / "global-skills",
+    )
+    events: list[dict] = []
+
+    counts = SkillRouter(skill_store=store).apply_ops(
+        [{
+            "op": "create",
+            "content": SKILL_MD,
+            "why": "verified reusable deterministic check",
+        }],
+        task="inspect one deterministic file",
+        on_event=events.append,
+    )
+
+    assert counts["created"] == 1
+    created = [event for event in events if event.get("type") == "skill.created"]
+    assert created and created[0]["scope"] == "general"

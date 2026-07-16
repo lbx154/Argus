@@ -71,6 +71,20 @@ class SkillRouter:
         category = (getattr(skill, "category", "") or "").strip().lower()
         return category in _PROTECTED_CATEGORIES
 
+    def _role_for_skill(self, skill: Any) -> str:
+        """Resolve a skill role for both flat and layered stores."""
+        resolver = getattr(self.skill_store, "role_for", None)
+        if callable(resolver):
+            try:
+                return str(resolver(skill) or "general")
+            except Exception:  # noqa: BLE001 - event metadata must not break writes
+                log.debug("skill role resolution failed", exc_info=True)
+        skills_dir = getattr(self.skill_store, "skills_dir", None)
+        if skills_dir is None:
+            project = getattr(self.skill_store, "project", None)
+            skills_dir = getattr(project, "skills_dir", None)
+        return role_of_path(skill.path, skills_dir) if skills_dir else "general"
+
     # -- selection (delegates to the role matcher; no new matching logic) --
     def select(self, task: str, **kwargs: Any) -> Any:
         if self.matcher is None:
@@ -186,7 +200,7 @@ class SkillRouter:
                     "skill_id": updated.skill_id,
                     "name": updated.name,
                     "version": updated.version,
-                    "scope": role_of_path(updated.path, self.skill_store.skills_dir),
+                    "scope": self._role_for_skill(updated),
                     "path": updated.path,
                     "text": f"updated {updated.name} -> v{updated.version} (active)",
                 })
@@ -204,7 +218,7 @@ class SkillRouter:
                 "skill_id": new_skill.skill_id,
                 "name": new_skill.name,
                 "version": new_skill.version,
-                "scope": role_of_path(new_skill.path, self.skill_store.skills_dir),
+                "scope": self._role_for_skill(new_skill),
                 "path": new_skill.path,
                 "text": f"created active skill {new_skill.name}",
             })
@@ -258,7 +272,7 @@ class SkillRouter:
             "skill_id": target.skill_id,
             "name": target.name,
             "version": target.version,
-            "scope": role_of_path(target.path, self.skill_store.skills_dir),
+            "scope": self._role_for_skill(target),
             "path": str(archived),
             "reason": why,
             "text": f"archived {name}" + (f": {why}" if why else ""),
