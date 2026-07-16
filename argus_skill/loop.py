@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -347,6 +348,8 @@ class SkillLoop:
         primary_skills: list[Skill] = list(match.primary_skills)
         reference_skills: list[Skill] = list(match.reference_skills)
         skill: Skill | None = match.primary
+        strict_skill_hit = skill is not None
+        nearest_transfer_fallback = False
         skill_distilled = False
         distill_result = None
 
@@ -390,10 +393,46 @@ class SkillLoop:
             except Exception:  # noqa: BLE001
                 log.debug("Scientist skill generation skipped", exc_info=True)
 
+        if skill is None and self.config.require_post_task_learning:
+            task_tokens = set(re.findall(r"[a-z][a-z0-9_]{2,}", skill_task.lower()))
+            candidates: list[tuple[float, str, Skill]] = []
+            for summary in self.skill_store.list_summaries():
+                path = str(summary.get("path") or "").strip()
+                if not path:
+                    continue
+                try:
+                    candidate = self.skill_store.load(path)
+                except Exception:  # noqa: BLE001 - one stale skill must not block transfer
+                    continue
+                if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
+                    continue
+                text = " ".join(
+                    str(summary.get(key) or "")
+                    for key in ("name", "description", "category", "task_history")
+                ).lower()
+                candidate_tokens = set(re.findall(r"[a-z][a-z0-9_]{2,}", text))
+                score = len(task_tokens & candidate_tokens) / max(
+                    1, len(task_tokens | candidate_tokens)
+                )
+                candidates.append((score, candidate.name.casefold(), candidate))
+            if candidates:
+                candidates.sort(key=lambda item: (-item[0], item[1]))
+                score, _name, skill = candidates[0]
+                primary_skills = [skill]
+                nearest_transfer_fallback = True
+                self._emit({
+                    "type": "match.info",
+                    "text": (
+                        f"no high-fit skill; transfer fallback selected nearest "
+                        f"`{skill.name}` (lexical score={score:.3f})"
+                    ),
+                })
+
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
         )
         skill_name = skill.name if skill else None
+        learning_target_name = skill.name if strict_skill_hit and skill is not None else ""
         if skill is not None and self.config.skill_adapter_enabled:
             source_skill_text = self.skill_store.render_skill(skill)
             adapter_prompt = (
@@ -861,7 +900,7 @@ class SkillLoop:
                 include_static=include_static,
                 role_banner=engineer_role_banner,
                 allow_self_review=True,
-                matched_skill_name=skill_name or "",
+                matched_skill_name=learning_target_name,
                 require_post_task_learning=self.config.require_post_task_learning,
             )
             guidance: list[str] = []
@@ -1107,11 +1146,11 @@ class SkillLoop:
                     self.config.engineer_skill_maintenance_enabled
                 ),
                 required_skill_action=(
-                    ("update" if skill_name else "create")
+                    ("update" if learning_target_name else "create")
                     if self.config.require_post_task_learning
                     else ""
                 ),
-                required_skill_name=skill_name or "",
+                required_skill_name=learning_target_name,
             ),
             workdir=workdir,
             on_event=self.on_event,
@@ -1307,7 +1346,8 @@ class SkillLoop:
             self._emit({
                 "type": EventType.SKILL_OUTCOME,
                 "skill_name": skill_name or "",
-                "skill_hit": bool(skill_name) and not skill_distilled,
+                "skill_hit": bool(strict_skill_hit),
+                "nearest_transfer_fallback": bool(nearest_transfer_fallback),
                 "skill_distilled": bool(skill_distilled),
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
