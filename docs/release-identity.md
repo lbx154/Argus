@@ -21,6 +21,13 @@ so stale checked-in bundles cannot be produced from changed source. Installed
 wheels that do not contain a source checkout trust the packaged manifest;
 editable/source checkouts recompute and verify it.
 
+At runtime, a different generated release id remains a hard frontend/backend
+incompatibility. A live editable checkout whose source digest differs from its
+last generated manifest is instead accepted with an explicit warning: source
+identity is a release-integrity check, while wire compatibility is governed by
+the versioned protocol, snapshot schema, and required capabilities. Repository
+release tests still fail on that drift, so it cannot be shipped silently.
+
 Before committing or deploying any shipped source change, rebuild the complete
 release atomically:
 
