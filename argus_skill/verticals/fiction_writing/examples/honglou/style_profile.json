@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "register": "classical",
+    "work_title": "红楼梦续",
+    "language": "zh"
+  },
+  "abstract_features": {
+    "sentence_rhythm": "long_and_flowing",
+    "exposition_level": "restrained",
+    "emotional_expression": "indirect",
+    "ending_strategy": "image_out",
+    "narrative_distance": "mid",
+    "dialogue_ratio": "high",
+    "imagery_density": "high"
+  },
+  "lexicon": {
+    "avoided_terms": [
+      "其实",
+      "仿佛",
+      "不禁",
+      "顿时",
+      "一丝",
+      "淡淡的",
+      "然后",
+      "感觉",
+      "情绪",
+      "空气突然安静"
+    ],
+    "preferred_terms": [
+      "丫鬟",
+      "老爷",
+      "姑娘",
+      "回禀",
+      "才是",
+      "越性",
+      "作速"
+    ],
+    "appellations": [
+      {
+        "referent": "贾宝玉",
+        "address_forms": [
+          "宝玉",
+          "宝二爷"
+        ],
+        "by": "下人"
+      },
+      {
+        "referent": "林黛玉",
+        "address_forms": [
+          "林妹妹",
+          "妹妹"
+        ],
+        "by": "宝玉"
+      },
+      {
+        "referent": "贾母",
+        "address_forms": [
+          "老太太",
+          "老祖宗"
+        ],
+        "by": "晚辈"
+      }
+    ]
+  },
+  "forbidden_lexicon": [
+    "手机",
+    "电话",
+    "地铁",
+    "公交",
+    "汽车",
+    "电梯",
+    "咖啡",
+    "电脑",
+    "沙发",
+    "OK",
+    "网络",
+    "视频"
+  ],
+  "dialogue_conventions": {
+    "quote_style": "cjk_corner",
+    "tag_discipline": "action_beats"
+  },
+  "sentence_targets": {
+    "parallelism_ok": true
+  },
+  "character_voices": [
+    {
+      "character": "林黛玉",
+      "register": "literary",
+      "sentence_rhythm": "varied",
+      "verbal_tics": [
+        "冷笑",
+        "你也不用……",
+        "我倒不知道"
+      ],
+      "diction": [
+        "促狭",
+        "促狭鬼",
+        "呆雁",
+        "作践"
+      ],
+      "notes": "机锋尖利、以退为进；喜用反语、典故与自怜，情绪藏在讥诮之下，一句话里三分刺七分委屈。"
+    },
+    {
+      "character": "贾宝玉",
+      "register": "literary",
+      "verbal_tics": [
+        "好妹妹",
+        "凭他……",
+        "什么臭男人"
+      ],
+      "diction": [
+        "姊妹",
+        "顽",
+        "呆",
+        "混账话"
+      ],
+      "notes": "痴缠温软，对女儿家极尽体贴；口吻孩子气又多情，动辄赌咒发誓，厌谈仕途经济。"
+    },
+    {
+      "character": "王熙凤",
+      "register": "colloquial",
+      "sentence_rhythm": "short_and_tense",
+      "verbal_tics": [
+        "嗳哟",
+        "我的……",
+        "可是呢"
+      ],
+      "diction": [
+        "泼皮破落户",
+        "猴儿",
+        "水葱儿",
+        "凤辣子"
+      ],
+      "notes": "市井机变、泼辣爽利；惯用夸张比喻与俏皮话奉承取笑，笑里藏刀，账目人情算得极精。"
+    },
+    {
+      "character": "刘姥姥",
+      "register": "colloquial",
+      "verbal_tics": [
+        "阿弥陀佛",
+        "我的佛祖",
+        "老刘老刘"
+      ],
+      "diction": [
+        "庄稼",
+        "把式",
+        "老货",
+        "银子",
+        "礼出大家"
+      ],
+      "forbidden_for_character": [
+        "典故",
+        "词藻",
+        "婉约"
+      ],
+      "notes": "乡俗质朴，比喻皆取自田间牲口庄稼；谦卑逗趣中藏着精明，见人下菜。"
+    }
+  ]
+}

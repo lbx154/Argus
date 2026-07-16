@@ -1,0 +1,798 @@
+{
+  "meta": {
+    "language": "zh",
+    "form": "fiction",
+    "title": "红楼梦续（canon 种子）",
+    "revision": 3,
+    "world_clock": {
+      "calendar": "story_era",
+      "current_year": 15
+    }
+  },
+  "characters": {
+    "baoyu": {
+      "id": "baoyu",
+      "name": "贾宝玉",
+      "aliases": [
+        "宝玉",
+        "宝二爷",
+        "二爷"
+      ],
+      "status": "alive",
+      "knows": [
+        "黛玉体弱",
+        "金锁与玉之说"
+      ],
+      "location": null,
+      "birth_year": 0,
+      "age": 15,
+      "motivation": "厌仕途、痴于姊妹情，护黛玉",
+      "notes": ""
+    },
+    "daiyu": {
+      "id": "daiyu",
+      "name": "林黛玉",
+      "aliases": [
+        "林妹妹",
+        "颦儿",
+        "林姑娘"
+      ],
+      "status": "alive",
+      "knows": [
+        "母亲贾敏已故",
+        "自幼体弱"
+      ],
+      "location": null,
+      "birth_year": 1,
+      "age": 14,
+      "motivation": "寄人篱下、以泪偿情，情钟宝玉",
+      "notes": ""
+    },
+    "baochai": {
+      "id": "baochai",
+      "name": "薛宝钗",
+      "aliases": [
+        "宝姑娘"
+      ],
+      "status": "alive",
+      "knows": [
+        "金锁待有玉者"
+      ],
+      "location": null,
+      "birth_year": -1,
+      "age": 16,
+      "motivation": "端方守礼、藏拙",
+      "notes": ""
+    },
+    "xifeng": {
+      "id": "xifeng",
+      "name": "王熙凤",
+      "aliases": [
+        "凤姐",
+        "凤辣子",
+        "琏二奶奶"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -4,
+      "age": 19,
+      "motivation": "掌家理事、机变逐利",
+      "notes": ""
+    },
+    "jiamu": {
+      "id": "jiamu",
+      "name": "贾母",
+      "aliases": [
+        "老太太",
+        "老祖宗"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -56,
+      "age": 71,
+      "motivation": "疼惜孙辈、维系家和",
+      "notes": ""
+    },
+    "xiangyun": {
+      "id": "xiangyun",
+      "name": "史湘云",
+      "aliases": [
+        "云妹妹"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": 2,
+      "age": 13,
+      "motivation": "英豪阔大、心直口快",
+      "notes": ""
+    },
+    "xiren": {
+      "id": "xiren",
+      "name": "袭人",
+      "aliases": [],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -1,
+      "age": 16,
+      "motivation": "忠谨、规劝宝玉",
+      "notes": ""
+    },
+    "zijuan": {
+      "id": "zijuan",
+      "name": "紫鹃",
+      "aliases": [],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": 0,
+      "age": 15,
+      "motivation": "忠护黛玉",
+      "notes": ""
+    },
+    "jiamin": {
+      "id": "jiamin",
+      "name": "贾敏",
+      "aliases": [],
+      "status": "dead",
+      "knows": [],
+      "location": null,
+      "birth_year": -30,
+      "age": null,
+      "motivation": "（黛玉之母，早亡）",
+      "notes": "贾母之女，林如海妻，黛玉入府前已故"
+    },
+    "yuanchun": {
+      "id": "yuanchun",
+      "name": "贾元春",
+      "aliases": [
+        "元春",
+        "贤德妃",
+        "大姐姐"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -15,
+      "age": 30,
+      "motivation": "宫中贤德妃，荣府之光，省亲思亲",
+      "notes": ""
+    },
+    "tanchun": {
+      "id": "tanchun",
+      "name": "贾探春",
+      "aliases": [
+        "探春",
+        "三姑娘"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": 1,
+      "age": 14,
+      "motivation": "精明志高、敏而能断，恨非嫡出",
+      "notes": ""
+    },
+    "yingchun": {
+      "id": "yingchun",
+      "name": "贾迎春",
+      "aliases": [
+        "迎春",
+        "二姑娘"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -1,
+      "age": 16,
+      "motivation": "温柔懦弱、与世无争",
+      "notes": ""
+    },
+    "xichun": {
+      "id": "xichun",
+      "name": "贾惜春",
+      "aliases": [
+        "惜春",
+        "四姑娘"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": 3,
+      "age": 12,
+      "motivation": "孤介冷僻、心向空门",
+      "notes": "宁府贾敬之女"
+    },
+    "liwan": {
+      "id": "liwan",
+      "name": "李纨",
+      "aliases": [
+        "珠大奶奶",
+        "大奶奶"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -9,
+      "age": 24,
+      "motivation": "青年守寡、槁木死灰，唯课子",
+      "notes": "贾珠之妻、贾兰之母，寡居"
+    },
+    "wangfuren": {
+      "id": "wangfuren",
+      "name": "王夫人",
+      "aliases": [
+        "太太"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -30,
+      "age": 45,
+      "motivation": "吃斋念佛、护礼防微",
+      "notes": ""
+    },
+    "jiazheng": {
+      "id": "jiazheng",
+      "name": "贾政",
+      "aliases": [
+        "老爷"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -32,
+      "age": 47,
+      "motivation": "端方古板、望子成龙",
+      "notes": ""
+    },
+    "jialian": {
+      "id": "jialian",
+      "name": "贾琏",
+      "aliases": [
+        "琏二爷"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -6,
+      "age": 21,
+      "motivation": "好色贪利、管荣府外事",
+      "notes": ""
+    },
+    "xueyima": {
+      "id": "xueyima",
+      "name": "薛姨妈",
+      "aliases": [
+        "薛姨妈"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -28,
+      "age": 43,
+      "motivation": "慈和圆融、存金玉之望",
+      "notes": ""
+    },
+    "miaoyu": {
+      "id": "miaoyu",
+      "name": "妙玉",
+      "aliases": [
+        "妙玉",
+        "槛外人"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -3,
+      "age": 18,
+      "motivation": "带发修行、孤高自许",
+      "notes": "栊翠庵"
+    },
+    "xuepan": {
+      "id": "xuepan",
+      "name": "薛蟠",
+      "aliases": [
+        "呆霸王"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -8,
+      "age": 23,
+      "motivation": "骄纵鲁莽、纨绔惹祸",
+      "notes": ""
+    },
+    "rong": {
+      "id": "rong",
+      "name": "贾蓉",
+      "aliases": [
+        "蓉哥儿"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -3,
+      "age": 18,
+      "motivation": "宁府纨绔",
+      "notes": "贾珍之子、秦可卿之夫"
+    },
+    "lan": {
+      "id": "lan",
+      "name": "贾兰",
+      "aliases": [
+        "兰哥儿"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": 9,
+      "age": 6,
+      "motivation": "幼而好学",
+      "notes": "贾珠李纨之子"
+    },
+    "qingwen": {
+      "id": "qingwen",
+      "name": "晴雯",
+      "aliases": [
+        "晴雯"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -1,
+      "age": 16,
+      "motivation": "心比天高、口角锋芒",
+      "notes": "宝玉屋中大丫鬟"
+    },
+    "pinger": {
+      "id": "pinger",
+      "name": "平儿",
+      "aliases": [
+        "平儿"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -2,
+      "age": 17,
+      "motivation": "俏丽周全、凤姐心腹",
+      "notes": "贾琏之妾、凤姐陪房"
+    },
+    "yuanyang": {
+      "id": "yuanyang",
+      "name": "鸳鸯",
+      "aliases": [
+        "鸳鸯"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -2,
+      "age": 17,
+      "motivation": "刚烈守正",
+      "notes": "贾母首席大丫鬟"
+    },
+    "xiangling": {
+      "id": "xiangling",
+      "name": "香菱",
+      "aliases": [
+        "英莲"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -2,
+      "age": 17,
+      "motivation": "苦志学诗、身世飘零",
+      "notes": "原甄英莲，薛蟠之妾"
+    },
+    "liulaolao": {
+      "id": "liulaolao",
+      "name": "刘姥姥",
+      "aliases": [
+        "刘姥姥"
+      ],
+      "status": "alive",
+      "knows": [],
+      "location": null,
+      "birth_year": -60,
+      "age": 75,
+      "motivation": "村野质朴、诙谐知恩",
+      "notes": "乡下远亲，两进荣府"
+    },
+    "linruhai": {
+      "id": "linruhai",
+      "name": "林如海",
+      "aliases": [
+        "林姑爷"
+      ],
+      "status": "dead",
+      "knows": [],
+      "location": null,
+      "birth_year": -33,
+      "age": null,
+      "motivation": "（黛玉之父，扬州盐政，病故任上）",
+      "notes": "黛玉父、贾敏夫，黛玉入府后病逝"
+    },
+    "keqing": {
+      "id": "keqing",
+      "name": "秦可卿",
+      "aliases": [
+        "秦氏",
+        "蓉大奶奶",
+        "可卿"
+      ],
+      "status": "dead",
+      "knows": [],
+      "location": null,
+      "birth_year": -5,
+      "age": null,
+      "motivation": "（宁府蓉大奶奶，早逝）",
+      "notes": "贾蓉之妻，病逝于宁府"
+    }
+  },
+  "relationships": [
+    {
+      "from": "jiamu",
+      "to": "baoyu",
+      "type": "祖孙（内孙）",
+      "notes": ""
+    },
+    {
+      "from": "jiamu",
+      "to": "daiyu",
+      "type": "外祖母—外孙女",
+      "notes": ""
+    },
+    {
+      "from": "jiamu",
+      "to": "jiamin",
+      "type": "母女",
+      "notes": ""
+    },
+    {
+      "from": "jiamin",
+      "to": "daiyu",
+      "type": "母女",
+      "notes": ""
+    },
+    {
+      "from": "baoyu",
+      "to": "daiyu",
+      "type": "姑舅表兄妹",
+      "notes": ""
+    },
+    {
+      "from": "baoyu",
+      "to": "baochai",
+      "type": "两姨表姐弟",
+      "notes": ""
+    },
+    {
+      "from": "xifeng",
+      "to": "baoyu",
+      "type": "堂嫂—堂叔（琏二嫂）",
+      "notes": ""
+    },
+    {
+      "from": "daiyu",
+      "to": "zijuan",
+      "type": "主仆",
+      "notes": ""
+    },
+    {
+      "from": "baoyu",
+      "to": "xiren",
+      "type": "主仆",
+      "notes": ""
+    },
+    {
+      "from": "jiazheng",
+      "to": "baoyu",
+      "type": "父子",
+      "notes": ""
+    },
+    {
+      "from": "wangfuren",
+      "to": "baoyu",
+      "type": "母子",
+      "notes": ""
+    },
+    {
+      "from": "jiazheng",
+      "to": "wangfuren",
+      "type": "夫妻",
+      "notes": ""
+    },
+    {
+      "from": "jiazheng",
+      "to": "yuanchun",
+      "type": "父女",
+      "notes": ""
+    },
+    {
+      "from": "wangfuren",
+      "to": "yuanchun",
+      "type": "母女",
+      "notes": ""
+    },
+    {
+      "from": "jiazheng",
+      "to": "tanchun",
+      "type": "父女（庶出）",
+      "notes": ""
+    },
+    {
+      "from": "jiamu",
+      "to": "jiazheng",
+      "type": "母子",
+      "notes": ""
+    },
+    {
+      "from": "jiamu",
+      "to": "yingchun",
+      "type": "祖孙",
+      "notes": ""
+    },
+    {
+      "from": "jiamu",
+      "to": "yuanyang",
+      "type": "主仆",
+      "notes": ""
+    },
+    {
+      "from": "xueyima",
+      "to": "baochai",
+      "type": "母女",
+      "notes": ""
+    },
+    {
+      "from": "xueyima",
+      "to": "xuepan",
+      "type": "母子",
+      "notes": ""
+    },
+    {
+      "from": "xueyima",
+      "to": "wangfuren",
+      "type": "姊妹",
+      "notes": ""
+    },
+    {
+      "from": "jialian",
+      "to": "xifeng",
+      "type": "夫妻",
+      "notes": ""
+    },
+    {
+      "from": "xifeng",
+      "to": "pinger",
+      "type": "主仆",
+      "notes": ""
+    },
+    {
+      "from": "baoyu",
+      "to": "qingwen",
+      "type": "主仆",
+      "notes": ""
+    },
+    {
+      "from": "xuepan",
+      "to": "xiangling",
+      "type": "夫妾",
+      "notes": ""
+    },
+    {
+      "from": "liwan",
+      "to": "lan",
+      "type": "母子",
+      "notes": ""
+    },
+    {
+      "from": "rong",
+      "to": "keqing",
+      "type": "夫妻",
+      "notes": ""
+    },
+    {
+      "from": "daiyu",
+      "to": "linruhai",
+      "type": "父女",
+      "notes": ""
+    }
+  ],
+  "world_rules": [
+    {
+      "id": "r_daguan",
+      "statement": "众姊妹居大观园：黛玉潇湘馆、宝钗蘅芜苑、宝玉怡红院。"
+    },
+    {
+      "id": "r_jiabin",
+      "statement": "黛玉母贾敏已故，黛玉自幼寄居外祖母贾母膝下。"
+    },
+    {
+      "id": "r_ning_rong",
+      "statement": "贾府两支：宁国府（长房）、荣国府（次房）；宝玉一房居荣府。"
+    },
+    {
+      "id": "r_sanchun",
+      "statement": "贾府三春：迎春（赦之女）、探春（政庶女）、惜春（宁府敬之女）。"
+    },
+    {
+      "id": "r_jinling",
+      "statement": "金陵十二钗正册：黛玉、宝钗、元春、探春、湘云、妙玉、迎春、惜春、凤姐、巧姐、李纨、可卿。"
+    }
+  ],
+  "locations": {
+    "rongguo": {
+      "id": "rongguo",
+      "name": "荣国府",
+      "notes": "贾府次房，宝玉一房所居"
+    },
+    "ningguo": {
+      "id": "ningguo",
+      "name": "宁国府",
+      "notes": "贾府长房"
+    },
+    "daguanyuan": {
+      "id": "daguanyuan",
+      "name": "大观园",
+      "notes": "元春省亲后所建，众姊妹居此"
+    },
+    "xiaoxiang": {
+      "id": "xiaoxiang",
+      "name": "潇湘馆",
+      "notes": "黛玉居所，翠竹千竿"
+    },
+    "hengwu": {
+      "id": "hengwu",
+      "name": "蘅芜苑",
+      "notes": "宝钗居所，异草清冷"
+    },
+    "yihong": {
+      "id": "yihong",
+      "name": "怡红院",
+      "notes": "宝玉居所，怡红快绿"
+    },
+    "daoxiang": {
+      "id": "daoxiang",
+      "name": "稻香村",
+      "notes": "李纨居所，田舍风光"
+    },
+    "qiushuang": {
+      "id": "qiushuang",
+      "name": "秋爽斋",
+      "notes": "探春居所"
+    },
+    "longcui": {
+      "id": "longcui",
+      "name": "栊翠庵",
+      "notes": "妙玉修行处"
+    }
+  },
+  "items": {
+    "tonglingyu": {
+      "id": "tonglingyu",
+      "name": "通灵宝玉",
+      "holder": "baoyu",
+      "location": null,
+      "notes": "宝玉落草所衔，与金锁成金玉之说"
+    },
+    "jinsuo": {
+      "id": "jinsuo",
+      "name": "金锁",
+      "holder": "baochai",
+      "location": null,
+      "notes": "錾『不离不弃芳龄永继』，金玉良缘之据"
+    },
+    "jinqilin": {
+      "id": "jinqilin",
+      "name": "金麒麟",
+      "holder": "xiangyun",
+      "location": null,
+      "notes": "湘云所佩，伏『因麒麟伏白首双星』"
+    },
+    "tipa": {
+      "id": "tipa",
+      "name": "旧帕",
+      "holder": "daiyu",
+      "location": null,
+      "notes": "宝玉遣人赠帕，黛玉题帕三绝"
+    }
+  },
+  "timeline": [
+    {
+      "id": "t_keqing_death",
+      "order": 1,
+      "year": 13,
+      "label": "秦可卿病逝，宁府大治丧仪",
+      "chapter": null
+    },
+    {
+      "id": "t_yuanfei",
+      "order": 2,
+      "year": 14,
+      "label": "元春加封贤德妃、奉旨省亲，大观园落成",
+      "chapter": null
+    },
+    {
+      "id": "t_ruyuan",
+      "order": 3,
+      "year": 14,
+      "label": "宝玉与众姊妹奉谕入住大观园",
+      "chapter": null
+    },
+    {
+      "id": "t_present",
+      "order": 4,
+      "year": 15,
+      "label": "当前：大观园日常，姊妹结社、宝黛日近",
+      "chapter": null
+    }
+  ],
+  "open_threads": [
+    {
+      "id": "th_mushi",
+      "statement": "木石前盟：宝黛情钟，然未定名分。",
+      "status": "open"
+    },
+    {
+      "id": "th_jinyu",
+      "statement": "金玉良缘：宝钗金锁配宝玉通灵玉之说流传。",
+      "status": "open"
+    },
+    {
+      "id": "th_yuanfei",
+      "statement": "元春晋贤德妃、奉旨省亲，为大观园之始。",
+      "status": "resolved"
+    },
+    {
+      "id": "th_qingwen",
+      "statement": "晴雯锋芒与袭人性情相左，宝玉屋中暗生龃龉。",
+      "status": "open"
+    },
+    {
+      "id": "th_shishe",
+      "statement": "香菱学诗、黛玉为师，大观园结社吟咏渐起。",
+      "status": "open"
+    }
+  ],
+  "foreshadowing": [
+    {
+      "id": "fs_leihuan",
+      "statement": "绛珠仙草还泪：黛玉多病多泪，情深不寿。",
+      "planted_chapter": 1,
+      "payoff_chapter": null,
+      "status": "planted"
+    },
+    {
+      "id": "fs_pancixi",
+      "statement": "太虚幻境判词：诸钗命运前定（千红一窟、万艳同杯）。",
+      "planted_chapter": 1,
+      "payoff_chapter": null,
+      "status": "planted"
+    },
+    {
+      "id": "fs_keqing",
+      "statement": "秦可卿托梦凤姐：盛筵必散，早为后计。",
+      "planted_chapter": 1,
+      "payoff_chapter": null,
+      "status": "planted"
+    }
+  ],
+  "chapter_summaries": [
+    {
+      "chapter": 1,
+      "summary": "（canon 种子）黛玉丧母别父入荣府，见贾母、王夫人及宝玉；木石初逢，闻金玉之说。"
+    }
+  ],
+  "applied_patches": [
+    "honglou_seed",
+    "honglou_canon_expand_v1",
+    "honglou_locations_items_v1"
+  ]
+}
