@@ -3,7 +3,7 @@
 Binary-only preview distribution for Linux x64 and native Windows x64 terminals.
 
 ```bash
-npm install -g @argusbot/cli
+npm install -g @argusbot/cli@beta
 argus-skill --setup
 argus
 ```

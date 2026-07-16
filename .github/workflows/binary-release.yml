@@ -88,7 +88,7 @@ jobs:
 
       - name: Publish platform package
         if: ${{ inputs.publish }}
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag beta
         working-directory: dist-binary/npm/cli-${{ matrix.platform }}-x64
 
   launcher:
@@ -110,5 +110,5 @@ jobs:
           path: dist-binary
 
       - name: Publish launcher package
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag beta
         working-directory: dist-binary/npm/cli
