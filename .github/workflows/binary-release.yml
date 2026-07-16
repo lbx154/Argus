@@ -1,10 +1,15 @@
 name: Binary beta release
+run-name: Argus ${{ inputs.version }} · ${{ inputs.source_sha }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Immutable beta version, for example 0.1.1-beta.1
+        description: Commit-derived version, for example 0.1.1-beta.g7931dd58120d
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character origin/main commit to build
         required: true
         type: string
       publish:
@@ -42,8 +47,30 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      ARGUS_RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify pinned source and commit-derived version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python - "$RELEASE_VERSION" "$SOURCE_SHA" <<'PY'
+          import re
+          import sys
+          version, source_sha = sys.argv[1:]
+          if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+              raise SystemExit("source_sha must be 40 lowercase hex characters")
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-beta\.g[0-9a-f]{12}", version):
+              raise SystemExit("version is not commit-derived beta SemVer")
+          if not version.endswith("g" + source_sha[:12]):
+              raise SystemExit("version commit suffix does not match source_sha")
+          PY
 
       - uses: actions/setup-python@v5
         with:
@@ -133,8 +160,16 @@ jobs:
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
+      ARGUS_RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify pinned release source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - uses: actions/setup-python@v5
         with:
@@ -176,6 +211,7 @@ jobs:
       - name: Refuse a conflicting GitHub release or tag
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           tag="v$RELEASE_VERSION"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -183,8 +219,8 @@ jobs:
             exit 1
           fi
           remote_sha=$(git ls-remote --tags origin "refs/tags/$tag" | awk '{print $1}')
-          if [ -n "$remote_sha" ] && [ "$remote_sha" != "$GITHUB_SHA" ]; then
-            echo "tag $tag points to $remote_sha instead of $GITHUB_SHA" >&2
+          if [ -n "$remote_sha" ] && [ "$remote_sha" != "$SOURCE_SHA" ]; then
+            echo "tag $tag points to $remote_sha instead of $SOURCE_SHA" >&2
             exit 1
           fi
 
@@ -192,9 +228,12 @@ jobs:
         id: release_meta
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           python scripts/set_binary_release_version.py "$RELEASE_VERSION"
           release_id=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["release_id"])')
+          source_digest=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["source_digest"])')
+          python_distribution_version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           tag="v$RELEASE_VERSION"
           mkdir -p release/assets
 
@@ -214,7 +253,7 @@ jobs:
           ## Argus binary beta
 
           - Version: \`$RELEASE_VERSION\`
-          - Commit: \`$GITHUB_SHA\`
+          - Commit: \`$SOURCE_SHA\`
           - Release identity: \`$release_id\`
           - npm: \`@argusevolve/argus@$RELEASE_VERSION\`
           - Platforms: Linux x64 and Windows x64
@@ -231,6 +270,8 @@ jobs:
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "source_digest=$source_digest" >> "$GITHUB_OUTPUT"
+          echo "python_distribution_version=$python_distribution_version" >> "$GITHUB_OUTPUT"
 
       - name: Publish or verify audited npm tarballs
         env:
@@ -279,13 +320,71 @@ jobs:
           test "$(npm view @argusevolve/argus dist-tags.win32-x64)" = "$RELEASE_VERSION-win32-x64"
           test "$(npm view @argusevolve/argus dist-tags.beta)" = "$RELEASE_VERSION"
 
+      - name: Write auditable release metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_ID: ${{ steps.release_meta.outputs.release_id }}
+          SOURCE_DIGEST: ${{ steps.release_meta.outputs.source_digest }}
+          PYTHON_DISTRIBUTION_VERSION: ${{ steps.release_meta.outputs.python_distribution_version }}
+        run: |
+          export NPM_LINUX_INTEGRITY=$(npm view "@argusevolve/argus@$RELEASE_VERSION-linux-x64" dist.integrity)
+          export NPM_WINDOWS_INTEGRITY=$(npm view "@argusevolve/argus@$RELEASE_VERSION-win32-x64" dist.integrity)
+          export NPM_MAIN_INTEGRITY=$(npm view "@argusevolve/argus@$RELEASE_VERSION" dist.integrity)
+          export LINUX_SHA256=$(awk '{print $1}' "release/assets/argus-$RELEASE_VERSION-linux-x64.sha256")
+          export WINDOWS_SHA256=$(awk '{print $1}' "release/assets/argus-$RELEASE_VERSION-win32-x64.exe.sha256")
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"]
+          payload = {
+              "schema_version": 1,
+              "version": version,
+              "source_sha": os.environ["SOURCE_SHA"],
+              "source_digest": os.environ["SOURCE_DIGEST"],
+              "release_id": os.environ["RELEASE_ID"],
+              "python_distribution_version": os.environ[
+                  "PYTHON_DISTRIBUTION_VERSION"
+              ],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_run_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+                  f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "npm": {
+                  "package": "@argusevolve/argus",
+                  "versions": {
+                      "main": version,
+                      "linux_x64": f"{version}-linux-x64",
+                      "win32_x64": f"{version}-win32-x64",
+                  },
+                  "integrity": {
+                      "main": os.environ["NPM_MAIN_INTEGRITY"],
+                      "linux_x64": os.environ["NPM_LINUX_INTEGRITY"],
+                      "win32_x64": os.environ["NPM_WINDOWS_INTEGRITY"],
+                  },
+              },
+              "assets_sha256": {
+                  f"argus-{version}-linux-x64": os.environ["LINUX_SHA256"],
+                  f"argus-{version}-win32-x64.exe": os.environ["WINDOWS_SHA256"],
+              },
+          }
+          Path("release/assets/release-metadata.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Create GitHub prerelease from the audited assets
         env:
           RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "$SOURCE_SHA" \
             --title "Argus $RELEASE_TAG" \
             --notes-file release/notes.md \
             --prerelease \

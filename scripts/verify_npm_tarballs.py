@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import tarfile
 from pathlib import Path, PurePosixPath
 
@@ -55,6 +56,10 @@ FORBIDDEN_PARTS = {
     "technical_report",
 }
 FORBIDDEN_SUFFIXES = {".py", ".pyc", ".pyo", ".ts", ".tsx", ".map"}
+VERSION_RE = re.compile(
+    r"^[0-9]+\.[0-9]+\.[0-9]+-beta\.g[0-9a-f]{12}"
+    r"(?:-(?:linux|win32)-x64)?$"
+)
 
 
 def _member_bytes(archive: tarfile.TarFile, name: str) -> bytes:
@@ -97,8 +102,8 @@ def verify(path: Path) -> tuple[str, str]:
             raise RuntimeError(f"{path.name}: binary preview must stay UNLICENSED")
         if not version:
             raise RuntimeError(f"{path.name}: version is empty")
-        if "-beta." not in version:
-            raise RuntimeError(f"{path.name}: version is not an npm beta")
+        if not VERSION_RE.fullmatch(version):
+            raise RuntimeError(f"{path.name}: version is not commit-derived beta SemVer")
         return package_name, version
 
 

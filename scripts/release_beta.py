@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,36 @@ REPOSITORY = "lbx154/argus-skill"
 WORKFLOW = "binary-release.yml"
 PACKAGE = "@argusevolve/argus"
 VERSION_RE = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$"
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.g[0-9a-f]{12}$"
 )
+BASE_VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
 def validate_version(value: str) -> str:
     version = value.strip()
     if not VERSION_RE.fullmatch(version):
-        raise ValueError("version must match <major>.<minor>.<patch>-beta.<number>")
+        raise ValueError(
+            "version must match <major>.<minor>.<patch>-beta.g<12-char-commit>"
+        )
     return version
+
+
+def project_base_version(path: Path = ROOT / "pyproject.toml") -> str:
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    version = str(payload["project"]["version"])
+    if not BASE_VERSION_RE.fullmatch(version):
+        raise ValueError(
+            f"pyproject project.version must be a stable base X.Y.Z, found {version!r}"
+        )
+    return version
+
+
+def version_from_commit(base_version: str, source_sha: str) -> str:
+    if not BASE_VERSION_RE.fullmatch(base_version):
+        raise ValueError(f"invalid base version {base_version!r}")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError(f"source SHA must be 40 lowercase hex characters: {source_sha!r}")
+    return f"{base_version}-beta.g{source_sha[:12]}"
 
 
 def expected_versions(version: str) -> tuple[str, str, str]:
@@ -50,17 +72,19 @@ def expected_release_assets(version: str) -> set[str]:
         f"argus-{version}-win32-x64.exe.sha256",
         "THIRD_PARTY_NOTICES-linux.txt",
         "THIRD_PARTY_NOTICES-windows.txt",
+        "release-metadata.json",
     }
 
 
 def select_new_run(
-    rows: list[dict[str, Any]], before: set[int], head_sha: str
+    rows: list[dict[str, Any]], before: set[int], version: str, source_sha: str
 ) -> dict[str, Any] | None:
+    expected_title = f"Argus {version} · {source_sha}"
     candidates = [
         row
         for row in rows
         if int(row.get("databaseId") or 0) not in before
-        and str(row.get("headSha") or "") == head_sha
+        and str(row.get("displayTitle") or "") == expected_title
         and str(row.get("event") or "") == "workflow_dispatch"
         and str(row.get("headBranch") or "") == "main"
     ]
@@ -141,26 +165,32 @@ def list_dispatch_runs() -> list[dict[str, Any]]:
     raw = output(
         [
             "gh",
-            "run",
-            "list",
-            "--repo",
-            REPOSITORY,
-            "--workflow",
-            WORKFLOW,
-            "--limit",
-            "20",
-            "--json",
-            "databaseId,headSha,headBranch,event,status,createdAt,url",
+            "api",
+            f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs"
+            "?event=workflow_dispatch&branch=main&per_page=20",
         ]
     )
-    rows = json.loads(raw or "[]")
-    return rows if isinstance(rows, list) else []
+    payload = json.loads(raw or "{}")
+    raw_rows = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+    return [
+        {
+            "databaseId": row.get("id"),
+            "displayTitle": row.get("display_title"),
+            "headSha": row.get("head_sha"),
+            "headBranch": row.get("head_branch"),
+            "event": row.get("event"),
+            "status": row.get("status"),
+            "createdAt": row.get("created_at"),
+            "url": row.get("html_url"),
+        }
+        for row in raw_rows
+        if isinstance(row, dict)
+    ]
 
 
-def trigger(version: str, *, publish: bool) -> dict[str, Any]:
+def trigger(version: str, source_sha: str, *, publish: bool) -> dict[str, Any]:
     before_rows = list_dispatch_runs()
     before = {int(row["databaseId"]) for row in before_rows}
-    head = output(["git", "rev-parse", "HEAD"])
     command = [
         "gh",
         "workflow",
@@ -173,6 +203,8 @@ def trigger(version: str, *, publish: bool) -> dict[str, Any]:
         "-f",
         f"version={version}",
         "-f",
+        f"source_sha={source_sha}",
+        "-f",
         f"publish={'true' if publish else 'false'}",
     ]
     if publish:
@@ -182,7 +214,9 @@ def trigger(version: str, *, publish: bool) -> dict[str, Any]:
     run(command)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        selected = select_new_run(list_dispatch_runs(), before, head)
+        selected = select_new_run(
+            list_dispatch_runs(), before, version, source_sha
+        )
         if selected is not None:
             return selected
         time.sleep(2)
@@ -259,7 +293,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build, publish, monitor, and verify one Argus npm beta."
     )
-    parser.add_argument("version", help="immutable version such as 0.1.1-beta.3")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -273,9 +306,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        version = validate_version(args.version)
         require_commands()
         head = ensure_repository_ready()
+        version = validate_version(version_from_commit(project_base_version(), head))
+        print(f"release version: {version} · source {head}")
         publish = not args.dry_run
         if publish:
             occupied = [item for item in expected_versions(version) if version_exists(item)]
@@ -288,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
                     "recovering an incomplete release; existing npm versions will be "
                     f"verified by integrity: {', '.join(occupied)}"
                 )
-        selected = trigger(version, publish=publish)
+        selected = trigger(version, head, publish=publish)
         run_id = int(selected["databaseId"])
         url = str(selected.get("url") or "")
         print(f"release run: {run_id} · {head[:12]} · {url}")

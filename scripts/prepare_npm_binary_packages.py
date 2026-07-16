@@ -15,14 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 ARGUS_TEMPLATE = ROOT / "packaging" / "npm" / "argus"
 SUPPORTED = {("linux", "x64"), ("win32", "x64")}
 BETA_VERSION = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$"
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.g[0-9a-f]{12}$"
 )
 
 
 def validate_version(value: str) -> str:
     version = value.strip()
     if not BETA_VERSION.fullmatch(version):
-        raise ValueError("version must match <major>.<minor>.<patch>-beta.<number>")
+        raise ValueError(
+            "version must match <major>.<minor>.<patch>-beta.g<12-char-commit>"
+        )
     return version
 
 

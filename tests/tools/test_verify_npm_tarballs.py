@@ -37,23 +37,25 @@ def _tarball(
 
 
 def test_valid_launcher_tarball_passes_exact_whitelist(tmp_path: Path) -> None:
-    assert verify(_tarball(tmp_path, "0.1.2-beta.1")) == (
+    version = "0.1.2-beta.g0123456789ab"
+    assert verify(_tarball(tmp_path, version)) == (
         "@argusevolve/argus",
-        "0.1.2-beta.1",
+        version,
     )
 
 
 def test_valid_platform_variant_uses_the_same_package_name(tmp_path: Path) -> None:
-    assert verify(_tarball(tmp_path, "0.1.2-beta.1-linux-x64")) == (
+    version = "0.1.2-beta.g0123456789ab-linux-x64"
+    assert verify(_tarball(tmp_path, version)) == (
         "@argusevolve/argus",
-        "0.1.2-beta.1-linux-x64",
+        version,
     )
 
 
 def test_private_document_path_is_rejected(tmp_path: Path) -> None:
     path = _tarball(
         tmp_path,
-        "0.1.2-beta.1",
+        "0.1.2-beta.g0123456789ab",
         extras={"package/docs/商业计划书.md": b"private"},
     )
     with pytest.raises(RuntimeError, match="forbidden private path"):
@@ -63,7 +65,7 @@ def test_private_document_path_is_rejected(tmp_path: Path) -> None:
 def test_source_file_is_rejected(tmp_path: Path) -> None:
     path = _tarball(
         tmp_path,
-        "0.1.2-beta.1-linux-x64",
+        "0.1.2-beta.g0123456789ab-linux-x64",
         extras={"package/bin/private_core.py": b"print('no')"},
     )
     with pytest.raises(RuntimeError, match="forbidden source file"):

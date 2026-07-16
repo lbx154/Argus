@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -20,7 +21,9 @@ TS_PATH = ROOT / "frontend" / "core" / "src" / "release.generated.ts"
 
 def render() -> tuple[str, str]:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    package_version = str(project["project"]["version"])
+    package_version = os.environ.get("ARGUS_RELEASE_VERSION", "").strip() or str(
+        project["project"]["version"]
+    )
     source_digest = compute_source_digest(ROOT)
     release_id = f"{package_version}+{source_digest[:16]}"
     manifest = json.dumps(
