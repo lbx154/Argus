@@ -402,6 +402,19 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
     assert runner.last_options.dangerous_yolo is False
 
 
+def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.5")
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.6-sol")
+    runner = _existing("direct")
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Fix one failing repository test and return the patch."
+    )
+
+    assert decision.vertical == "direct"
+    assert runner.last_options.model == "gpt-5.5"
+
+
 def test_execution_task_parser_is_string_only_and_lossless() -> None:
     malformed = parse_vertical_decision(
         json.dumps({

@@ -67,6 +67,18 @@ def test_manager_prompt_prefers_direct_without_inventing_requirements() -> None:
     assert "acceptance gates that the operator did not request" in prompt
 
 
+def test_manager_prompt_routes_short_testable_software_repairs_to_direct() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Fix the gRPC middleware bug in this repository; the existing tests define success.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+    )
+
+    assert "short-cycle software repairs" in prompt
+    assert "existing deterministic tests" in prompt
+    assert "choose `direct`" in prompt
+    assert "multiple internal tool or model turns" in prompt
+
+
 def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:
     persist_vertical(tmp_path, "direct")
 

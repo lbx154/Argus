@@ -76,6 +76,15 @@ def _manager_vertical_reasoning_effort() -> str:
     )
 
 
+def _manager_model() -> str:
+    from ..core.knobs import resolve_role_model
+
+    return resolve_role_model(
+        "manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+    )
+
+
 def _manager_safe_mode() -> bool:
     raw = os.environ.get("ARGUS_SKILL_SAFE_MODE")
     if raw is None:
@@ -599,6 +608,7 @@ class Manager:
                     supported_levels=supported_levels,
                 ),
                 options=RunnerOptions(
+                    model=_manager_model(),
                     reasoning_effort=_manager_reasoning_effort(),
                     working_dir=str(self.project_root),
                     sandbox_mode="read-only",
@@ -724,6 +734,7 @@ class Manager:
                 backend,
                 prompt=prompt,
                 options=RunnerOptions(
+                    model=_manager_model(),
                     reasoning_effort=_manager_vertical_reasoning_effort(),
                     working_dir=str(self.project_root),
                     sandbox_mode="read-only",
@@ -1414,6 +1425,7 @@ class Manager:
                     _backend,
                     prompt=prompt,
                     options=RunnerOptions(
+                        model=_manager_model(),
                         reasoning_effort=_manager_reasoning_effort(),
                         working_dir=str(root),
                         sandbox_mode="read-only",
@@ -1427,11 +1439,7 @@ class Manager:
             # the daily cap — they were previously invisible. Fail-soft.
             from ..core.cost_events import metered_run_exec
             try:
-                from ..core.knobs import resolve_role_model
-                _mmodel = resolve_role_model(
-                    "engineer",
-                    role_env="ARGUS_SKILL_ENGINEER_MODEL",
-                ) or ""
+                _mmodel = _manager_model()
             except Exception:  # noqa: BLE001
                 _mmodel = ""
             run_exec = metered_run_exec(

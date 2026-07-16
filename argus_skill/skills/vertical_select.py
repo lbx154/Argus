@@ -79,7 +79,8 @@ VERTICALS: tuple[str, ...] = (
 VERTICAL_PURPOSES: dict[str, str] = {
     "direct": "bounded one-off deliverable that an Engineer can produce and a "
     "Reviewer can judge in one mission, without a staged research lifecycle "
-    "(creative composition, focused edits, small standalone artifacts)",
+    "(short-cycle software repairs, bug fixes, focused edits/refactors, creative "
+    "composition, and small standalone artifacts with a concrete acceptance test)",
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
     "math": "mathematical conjectures, proofs, and open research problems; dynamically "

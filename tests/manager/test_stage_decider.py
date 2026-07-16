@@ -297,7 +297,12 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     assert _read_stage(root) == "research"  # untouched
 
 
-def test_decide_stage_refreshes_manager_owned_live_view(tmp_path: Path) -> None:
+def test_decide_stage_refreshes_manager_owned_live_view(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.5")
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.6-sol")
     root = _project(tmp_path, current="research")
     backend = _StubRunner({
         "action": "hold",
@@ -328,6 +333,7 @@ def test_decide_stage_refreshes_manager_owned_live_view(tmp_path: Path) -> None:
     assert backend.last_options.working_dir == str(root)
     assert backend.last_options.sandbox_mode == "read-only"
     assert backend.last_options.dangerous_yolo is False
+    assert backend.last_options.model == "gpt-5.5"
     assert "MANAGER ownership" in backend.last_prompt
     assert "Do not assign" in backend.last_prompt
 

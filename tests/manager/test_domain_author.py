@@ -83,3 +83,14 @@ def test_vertical_prompt_keeps_math_routes_inside_builtin_math():
     assert "`math_conjecture`" in prompt
     assert "dynamic Planner backlog/DAG tasks" in prompt
     assert "they are not competing verticals" in prompt
+
+
+def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Repair one failing test in the current repository and return the patch.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+    )
+
+    assert "short-cycle software repairs" in prompt
+    assert "Do not choose a staged lifecycle or author a new domain" in prompt
+    assert "repo investigation alone does not make the task long-horizon" in prompt.lower()
