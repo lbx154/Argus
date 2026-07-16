@@ -15,6 +15,10 @@ on:
         description: New immutable MAJOR.MINOR.PATCH version (required when publishing)
         required: false
         type: string
+      confirm:
+        description: Type PUBLISH @argusbot MAJOR.MINOR.PATCH when publishing
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -141,6 +145,15 @@ jobs:
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
+
+      - name: Require explicit owner confirmation
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          CONFIRM: ${{ inputs.confirm }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          test "$ACTOR" = "lbx154"
+          test "$CONFIRM" = "PUBLISH @argusbot $RELEASE_VERSION"
 
       - uses: actions/download-artifact@v4
         with:
