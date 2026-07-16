@@ -1,0 +1,18 @@
+{
+  "_note": "领域预设 (Layer 1): 悬疑 / 推理. Close, tense, clue-driven; the reveal earns the ending. Compose over base.json.",
+  "meta": {"register": "contemporary"},
+  "abstract_features": {
+    "sentence_rhythm": "short_and_tense",
+    "narrative_distance": "close",
+    "dialogue_ratio": "medium",
+    "exposition_level": "restrained",
+    "emotional_expression": "indirect",
+    "ending_strategy": "reversal"
+  },
+  "lexicon": {
+    "preferred_terms": ["现场", "证词", "时间线", "物证"],
+    "avoided_terms": ["果然", "毫无疑问", "细思极恐", "毛骨悚然"]
+  },
+  "dialogue_conventions": {"quote_style": "cjk_corner", "tag_discipline": "action_beats"},
+  "sentence_targets": {"max_mean_sentence_len": 42, "parallelism_ok": false}
+}

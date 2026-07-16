@@ -90,7 +90,7 @@ def _require(cond: bool, msg: str) -> None:
 
 
 def _op_set_meta(s: dict[str, Any], op: dict[str, Any]) -> None:
-    allowed = {"form", "title", "language"}
+    allowed = {"form", "title", "language", "world_clock"}
     for key, val in (op.get("set") or {}).items():
         _require(key in allowed, f"set_meta: cannot set meta field {key!r}")
         s["meta"][key] = val
@@ -109,6 +109,8 @@ def _op_add_character(s: dict[str, Any], op: dict[str, Any]) -> None:
         "status": val.get("status", "alive"),
         "knows": list(val.get("knows", [])),
         "location": val.get("location"),
+        "birth_year": val.get("birth_year"),
+        "age": val.get("age"),
         "motivation": val.get("motivation", ""),
         "notes": val.get("notes", ""),
     }
@@ -117,7 +119,8 @@ def _op_add_character(s: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_update_character(s: dict[str, Any], op: dict[str, Any]) -> None:
     cid = op.get("id")
     _require(cid in s["characters"], f"update_character: unknown id {cid!r}")
-    allowed = {"name", "aliases", "status", "knows", "location", "motivation", "notes"}
+    allowed = {"name", "aliases", "status", "knows", "location", "birth_year",
+               "age", "motivation", "notes"}
     for key, val in (op.get("set") or {}).items():
         _require(key in allowed, f"update_character: cannot set {key!r}")
         s["characters"][cid][key] = val
@@ -202,7 +205,8 @@ def _op_add_timeline(s: dict[str, Any], op: dict[str, Any]) -> None:
              f"add_timeline: order {order} already used (timeline must stay ordered)")
     _require(bool(val.get("label")), "add_timeline: missing label")
     s["timeline"].append({
-        "id": tid, "order": order, "label": val["label"], "chapter": val.get("chapter"),
+        "id": tid, "order": order, "label": val["label"],
+        "year": val.get("year"), "chapter": val.get("chapter"),
     })
     s["timeline"].sort(key=lambda t: t["order"])
 

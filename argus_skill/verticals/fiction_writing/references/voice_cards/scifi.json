@@ -1,0 +1,17 @@
+{
+  "_note": "领域预设 (Layer 1): 科幻 / 近未来. Concept exposed through use, not lecture; restraint over wonder-gushing. Compose over base.json.",
+  "meta": {"register": "contemporary"},
+  "abstract_features": {
+    "sentence_rhythm": "varied",
+    "narrative_distance": "mid",
+    "imagery_density": "medium",
+    "exposition_level": "moderate",
+    "emotional_expression": "indirect",
+    "ending_strategy": "reversal"
+  },
+  "lexicon": {
+    "preferred_terms": ["接口", "协议", "信号", "校验"],
+    "avoided_terms": ["科技感", "黑科技", "冰冷的金属", "未来感十足"]
+  },
+  "sentence_targets": {"parallelism_ok": false}
+}

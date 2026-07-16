@@ -45,12 +45,22 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
    - an action contradicts the character's established `motivation` with no turn;
    - a `planted` foreshadow is dropped, or paid off before it was planted / leaked;
    - viewpoint or tense drifts from the brief; the draft's language ≠ brief language.
+   - **temporal_consistency**: an age/year contradiction the deterministic check
+     reports — a character's stated `age` ≠ `world_clock.current_year` −
+     `birth_year`, a birth after the current year, or a later timeline `order`
+     carrying an earlier `year`.
+   - **voice (forbidden_lexicon)**: a term the voice card's `forbidden_lexicon`
+     names appears in the prose — an author-declared HARD contract (e.g. a modern
+     word in a classical-register continuation). Mirror the machine style lint.
 3. **Craft pass (NON-BLOCKING; heuristic + observable proxies).** Note, don't
    gate: style consistency vs the profile, character-voice distinctness, scene
    concreteness (concrete objects vs abstract emotion-naming), show-don't-tell,
    over-summarization, telegraphed/mechanical twist, pacing/pressure, whether the
    ending closes the core question, and observable AI-tells (slogan/uplift
-   ending, abstract-word piling, homogeneous imagery, over-explaining).
+   ending, abstract-word piling, homogeneous imagery, over-explaining). Mirror the
+   deterministic style lint's `ai_tell` notes here, but remember its cliché tables
+   are **model-seed / BCC-pending** — a table hit is a prompt for judgment, NOT
+   proof; only a `forbidden_lexicon` hit (above) is a hard, blocking contract.
 4. **Emit `review.json`.** A list of findings, each
    `{type, severity: blocking|major|minor|note, location, evidence, fix}`; plus a
    verdict. Verdict is `revise` if any BLOCKING finding stands, else `done`.

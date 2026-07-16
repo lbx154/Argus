@@ -38,13 +38,32 @@ tasks — this is narrative-fiction request normalization only.
    - `length` (target words), `viewpoint` (first|third_limited|third_omni),
      `tense` (past|present), `constraints[]` (must/avoid).
    Write `fiction/creative_brief.json`.
-2. **Build the style profile as ABSTRACT FEATURES**, not author imitation:
-   `sentence_rhythm`, `narrative_distance`, `dialogue_ratio`, `imagery_density`,
-   `exposition_level`, `emotional_expression`, `ending_strategy`. Each value is a
-   small enum/scale so the reviewer can later CHECK adherence. If the operator
-   named an author, translate the *effect* into these features and note the
-   translation — do not set a goal of mechanically reproducing that author.
-   Write `fiction/style_profile.json`.
+2. **Build the style profile as a VOICE CARD** conforming to
+   `schemas/style_profile.schema.json` — abstract features, never author imitation.
+   Fill what the work needs (every field is optional; a thin card is valid):
+   - `abstract_features`: `sentence_rhythm`, `narrative_distance`, `dialogue_ratio`,
+     `imagery_density`, `exposition_level`, `emotional_expression`,
+     `ending_strategy` — each a small enum so the reviewer can CHECK adherence;
+   - `meta.register` (classical|literary|contemporary|web|colloquial) and
+     `lexicon.appellations` (称谓表: how each referent is addressed, by whom);
+   - `forbidden_lexicon` — words that must NOT appear (a HARD contract: a hit is a
+     BLOCKING finding). For a continuation this is where anachronisms live — e.g.
+     a classical-register work forbids `手机`/`地铁`/`OK`;
+   - optional `sentence_targets` (mean length band, parallelism_ok),
+     `dialogue_conventions`, and `ai_tell_budget.max_hits_per_1000_chars`.
+   If the operator named an author, translate the *effect* into these features and
+   note the translation — do not set a goal of mechanically reproducing that
+   author. Write `fiction/style_profile.json`.
+   - **Start from the library, don't build from scratch.** Compose the card as
+     `base` ← domain preset ← your work/character overlay (see
+     `references/voice_cards/` and `style.compose_voice_card` /
+     `voice_card_from_brief`). `domain_for_brief` picks the domain preset from the
+     brief's genre (悬疑→suspense, 红楼/章回→classical_zhanghui, 网文→web_fiction, …)
+     — the DETERMINISTIC half of building the card from the prompt.
+   - **Author the per-character voices** (`character_voices`): read the prompt's
+     cast and give each one a register / verbal tics / diction / words-forbidden-
+     from-this-mouth — '什么样的人物什么卡'. This is the half only you can do from
+     the prompt; the classical preset ships 黛玉/宝玉/凤姐/刘姥姥 as worked examples.
 3. **For a continuation**, load the existing `story_state` and confirm the brief
    is consistent with it (language, viewpoint, established facts); never invent a
    fresh state when one exists.

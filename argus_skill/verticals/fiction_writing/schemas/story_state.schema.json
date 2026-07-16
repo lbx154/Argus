@@ -19,7 +19,15 @@
         "language": {"type": "string", "enum": ["zh", "en"]},
         "form": {"type": "string"},
         "title": {"type": "string"},
-        "revision": {"type": "integer", "minimum": 0}
+        "revision": {"type": "integer", "minimum": 0},
+        "world_clock": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "calendar": {"type": "string"},
+            "current_year": {"type": ["integer", "null"]}
+          }
+        }
       }
     },
     "characters": {
@@ -35,6 +43,8 @@
           "status": {"type": "string", "enum": ["alive", "dead", "absent", "unknown"]},
           "knows": {"type": "array", "items": {"type": "string"}},
           "location": {"type": ["string", "null"]},
+          "birth_year": {"type": ["integer", "null"]},
+          "age": {"type": ["integer", "null"]},
           "motivation": {"type": "string"},
           "notes": {"type": "string"}
         }
@@ -104,6 +114,7 @@
           "id": {"type": "string"},
           "order": {"type": "integer"},
           "label": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
           "chapter": {"type": ["integer", "null"]}
         }
       }

@@ -84,6 +84,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
          "test -s fiction/creative_brief.json"),
         ("Style profile produced",
          "test -s fiction/style_profile.json"),
+        ("Voice card (style profile) is well-formed",
+         "{python} -m argus_skill.verticals.fiction_writing.intake_check "
+         "validate-style fiction/style_profile.json"),
         ("Source registry is well-formed",
          "{python} -m argus_skill.verticals.fiction_writing.source_check "
          "validate-registry"),
@@ -110,6 +113,20 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Review conforms to the literary review contract",
          "{python} -m argus_skill.verticals.fiction_writing.review_check "
          "validate fiction/review.json"),
+        ("Style lint (anti-AI cliché + forbidden lexicon; blocks ONLY on a "
+         "declared forbidden term or an exceeded ai_tell_budget)",
+         "{python} -m argus_skill.verticals.fiction_writing.style_check "
+         "style-lint fiction/draft.md fiction/style_profile.json "
+         "fiction/creative_brief.json"),
+        ("Temporal/age consistency (deterministic arithmetic over story_state)",
+         "{python} -m argus_skill.verticals.fiction_writing.style_check "
+         "temporal-check fiction/story_state.json"),
+        ("Anti-copy novelty gate (blocks on a long verbatim run lifted from the "
+         "source; only runs when a continuation supplied fiction/reference_text.md)",
+         "test ! -f fiction/reference_text.md || "
+         "{python} -m argus_skill.verticals.fiction_writing.style_check "
+         "novelty-check fiction/draft.md fiction/reference_text.md "
+         "fiction/style_profile.json fiction/creative_brief.json"),
         ("Source-usage ledger produced (explicit, empty uses[] if none consulted)",
          "test -s fiction/source_usage.json"),
         ("Every recorded source use is rights-defensible",
@@ -201,9 +218,20 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "fiction/creative_brief.json: judge pacing / chapter hooks / exposition "
         "tolerance / character complexity / ending by the profile's emphases — a "
         "web_fiction chapter needs hooks + fast pacing; a literary_fiction one "
-        "needs character complexity + restraint.",
+        "needs character complexity + restraint. Check the draft against "
+        "fiction/style_profile.json (the voice card): any forbidden_lexicon term "
+        "present is a BLOCKING 'voice' finding (an author-declared hard contract, "
+        "mirrored by the deterministic style lint); register / appellation / "
+        "avoided_terms mismatches are non-blocking 'voice' notes. Emit a BLOCKING "
+        "'temporal_consistency' finding for any age/year contradiction the "
+        "deterministic temporal check reports (age vs current_year − birth_year, "
+        "birth in the future, timeline order vs year). For a continuation given "
+        "fiction/reference_text.md, emit a BLOCKING 'verbatim_copy' finding for any "
+        "long sentence-level span lifted verbatim from the source (mirrored by the "
+        "deterministic novelty gate — capture the author's VOICE via abstract "
+        "features, never by copying their sentences).",
         ["fiction/creative_brief.json", "fiction/draft.md",
-         "fiction/story_state.json"],
+         "fiction/story_state.json", "fiction/style_profile.json"],
     ),
     "revise": (
         _REVIEW_SKILL,
@@ -345,7 +373,11 @@ def role_banner(role: str) -> str:
             "profile (never 'imitate author X'). (2) For a continuation, LOAD the "
             "existing story_state as ground truth; do not re-invent it. (3) Plan "
             "the chapter's goal so it advances the arc. (4) Draft in the brief's "
-            "language, holding one viewpoint and tense. (5) NEVER hand-rewrite the "
+            "language, holding one viewpoint and tense, and HONORING "
+            "fiction/style_profile.json (the voice card): obey its register, "
+            "appellations and preferred lexicon, and NEVER emit a "
+            "forbidden_lexicon term (a hard, machine-checked contract). (5) NEVER "
+            "hand-rewrite the "
             "whole story_state — extract what changed into a structured state_patch "
             "and apply it through the patch engine. (6) Keep prose concrete; avoid "
             "slogan endings, abstract-word piling, and telegraphed twists. (7) In "

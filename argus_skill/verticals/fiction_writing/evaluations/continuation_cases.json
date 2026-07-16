@@ -2,7 +2,8 @@
   "_comment": "Continuation-consistency eval cases for fiction_writing. Each case builds a prior story_state by folding setup_patches through state.apply_patch (guaranteeing a schema-valid state), then presents a draft the reviewer SHOULD flag. expected_finding_types come from the continuity vocabulary in references/shared/narrative-craft.md. The SEMANTIC check (does the reviewer LLM catch it) is a P3 live eval; this file + test_fiction_writing_scenarios.py only assert the fixtures are well-formed and the setup is sound.",
   "continuity_vocabulary": [
     "status", "knowledge", "item_location", "co_location", "timeline",
-    "world_rule", "motivation", "foreshadowing", "viewpoint", "language"
+    "world_rule", "motivation", "foreshadowing", "viewpoint", "language",
+    "temporal_consistency"
   ],
   "cases": [
     {
@@ -73,6 +74,23 @@
       "draft": "安娜抬头看着钟楼，心里五味杂陈。",
       "expected_finding_types": ["language"],
       "rationale": "The work's language is en; the continuation drifted into zh."
+    },
+    {
+      "id": "age_math_break_zh",
+      "language": "zh",
+      "setup_patches": [
+        {
+          "patch_id": "s1",
+          "language": "zh",
+          "ops": [
+            {"op": "set_meta", "set": {"world_clock": {"calendar": "gregorian", "current_year": 1750}}},
+            {"op": "add_character", "id": "c_bao", "value": {"name": "宝玉", "birth_year": 1740, "age": 30}}
+          ]
+        }
+      ],
+      "draft": "宝玉今年三十岁，生于一七四〇年，而如今不过一七五〇年。",
+      "expected_finding_types": ["temporal_consistency"],
+      "rationale": "current_year 1750 − birth_year 1740 = 10, but the stated age is 30 — a deterministic age/year contradiction the temporal check must catch."
     }
   ]
 }

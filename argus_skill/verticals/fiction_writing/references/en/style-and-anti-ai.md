@@ -37,10 +37,15 @@ not an automatic error:
 - **Throat-clearing connectives** opening sentences: "However,", "Indeed,",
   "In fact,", "That being said,".
 - **Em-dash/adverb overuse** and piled synonyms ("beautiful, gorgeous, stunning").
+- **Frozen moment** (register-level): "the air seemed to freeze/thicken", "the
+  world held its breath / stood still".
+- **Vague feeling** (register-level): "an odd sense of", "a strange feeling",
+  "she couldn't quite place/name/explain it", "something unspoken passed between".
 
 > Implementation: keep an `en` pattern table; the reviewer runs it in the review
 > stage and records hits as `note`/`minor` in `review.json` (non-blocking).
-> Thresholds/word-lists to be calibrated against COCA.
+> Thresholds/word-lists to be calibrated against COCA. (Implemented as
+> `style_lint.py`; hits are non-blocking `ai_tell` notes marked model-seed.)
 
 ## 3. Dialogue and mechanics
 
@@ -55,3 +60,23 @@ not an automatic error:
 - Literary: concrete imagery, restraint, indirect emotion, non-summarizing close.
 - Both share the same narrative core and continuity checks; only `style_profile`
   values and anti-AI thresholds differ.
+
+## 5. No copying: the novelty / anti-verbatim twin of the anti-AI rule
+
+"Don't sound like a machine" and "don't copy the human" are one safe corridor:
+the laziest way to kill AI flavor is to lean on a real author's sentences, which
+is plagiarism. Getting an author's VOICE must come from abstract features, never
+from reproducing their prose.
+
+- **Style = abstract features + an explicit lexicon, never "imitate author X"**.
+- A continuation/adaptation must supply `fiction/reference_text.md` (the source
+  text). At review, `novelty-check` (`style_check.py`) measures verbatim overlap:
+  - a long verbatim run (default ≥12 words; tighten via
+    `style_profile.novelty_budget.max_verbatim_run`) is a **BLOCKING**
+    `verbatim_copy` finding — a run this long in both texts is a deterministic fact;
+  - medium runs / aggregate overlap ratio are non-blocking notes (unless
+    `max_overlap_ratio` is declared and exceeded);
+  - thresholds are model-seed and set high, so legitimate short quotation/allusion
+    passes; paraphrase-level plagiarism is not machine-reliable, so it stays
+    reviewer guidance — we never fake a similarity score.
+- With no `reference_text.md` (an original, not a continuation) the gate passes.

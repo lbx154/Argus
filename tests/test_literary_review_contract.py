@@ -145,3 +145,23 @@ def test_assert_plan_covers_rejects_lost_must_not_break():
 def test_fake_reviewer_dict_drives_deterministic_link():
     plan = revision_plan(normalize_review(_review([_BLOCKING], "revise")))
     assert [p["finding_id"] for p in plan] == ["f1"]
+
+
+def test_normalize_coerces_integer_finding_id_to_string():
+    # Real models routinely emit an integer finding id; normalize must coerce it
+    # (a str) rather than reject an otherwise-valid, evidence-bearing review.
+    raw = {"verdict": "revise", "findings": [
+        {"id": 1, "type": "status", "severity": "critical", "blocking": True,
+         "location": "第2段", "evidence": "c_a.status == dead",
+         "suggested_action": "删去复活"},
+    ]}
+    rev = normalize_review(raw)
+    assert rev["findings"][0]["id"] == "1"
+    assert isinstance(rev["findings"][0]["id"], str)
+    # a boolean is NOT an int id — must still fail (bool is not a valid id)
+    bad = {"verdict": "revise", "findings": [
+        {"id": True, "type": "status", "severity": "critical", "blocking": True,
+         "location": "x", "evidence": "y", "suggested_action": "z"},
+    ]}
+    with pytest.raises(ReviewError):
+        normalize_review(bad)
