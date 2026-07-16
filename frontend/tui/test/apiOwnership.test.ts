@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { readOwnedApi, writeOwnershipRecord, removeOwnershipRecord } from '../src/apiOwnership.js';
+import {
+  claimApiOwnership,
+  defaultApiOwnershipPath,
+  readOwnedApi,
+  writeOwnershipRecord,
+  removeOwnershipRecord,
+} from '../src/apiOwnership.js';
 import type { ApiOwnershipRecord } from '../src/apiOwnership.js';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -30,6 +36,21 @@ async function tmpOwner(record: unknown): Promise<string> {
   await writeFile(ownerFile, JSON.stringify(record));
   return ownerFile;
 }
+
+test('default ownership path is stable per local host and port', () => {
+  assert.equal(
+    defaultApiOwnershipPath('127.0.0.1', 8909, {
+      HOME: '/home/alex',
+      ARGUS_SKILL_HOME: '/state/argus',
+    }),
+    '/state/argus/runtime/webapi-127.0.0.1-8909.owner.json',
+  );
+  assert.equal(
+    defaultApiOwnershipPath('localhost', 8799, { HOME: '/home/alex' }),
+    '/home/alex/.argus-skill/runtime/webapi-localhost-8799.owner.json',
+  );
+  assert.equal(defaultApiOwnershipPath('10.0.0.5', 8799, { HOME: '/home/alex' }), undefined);
+});
 
 // ── Task-brief required tests ──────────────────────────────────────────────
 
@@ -222,6 +243,37 @@ test('writeOwnershipRecord creates file with mode 0o600', async () => {
   await writeOwnershipRecord(ownerFile, BASE_RECORD);
   const info = await stat(ownerFile);
   assert.equal(info.mode & 0o777, 0o600);
+});
+
+test('writeOwnershipRecord creates a missing private runtime directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'argus-owner-'));
+  const ownerFile = join(root, 'nested', 'runtime', 'owner.json');
+  await writeOwnershipRecord(ownerFile, BASE_RECORD);
+  assert.equal(JSON.parse(await readFile(ownerFile, 'utf-8')).pid, BASE_RECORD.pid);
+  const runtimeInfo = await stat(join(root, 'nested', 'runtime'));
+  assert.equal(runtimeInfo.mode & 0o077, 0);
+});
+
+test('claimApiOwnership records only a verified live endpoint', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'argus-owner-'));
+  const ownerFile = join(root, 'runtime', 'owner.json');
+  assert.equal(await claimApiOwnership({
+    path: ownerFile,
+    ...BASE_RECORD,
+    inspect: aliveInspect,
+  }), true);
+  assert.equal(JSON.parse(await readFile(ownerFile, 'utf-8')).pid, BASE_RECORD.pid);
+
+  const rejectedFile = join(root, 'runtime', 'rejected.json');
+  assert.equal(await claimApiOwnership({
+    path: rejectedFile,
+    ...BASE_RECORD,
+    inspect: async () => ({
+      alive: true,
+      argv: ['/usr/bin/python', '-m', 'http.server', String(BASE_RECORD.port)],
+    }),
+  }), false);
+  await assert.rejects(() => readFile(rejectedFile, 'utf-8'), /ENOENT/);
 });
 
 // ── removeOwnershipRecord tests ────────────────────────────────────────────

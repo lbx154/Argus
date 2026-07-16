@@ -3,6 +3,7 @@ import test, { mock } from 'node:test';
 import { basename } from 'node:path';
 
 import {
+  type ApiMeta,
   inspectApiMeta,
   requireSnapshotContract,
   API_PROTOCOL,
@@ -113,6 +114,28 @@ test('startup probe identifies an old reachable backend as incompatible', async 
   }
 });
 
+test('startup probe preserves stale Argus process identity for verified local recovery', async () => {
+  const originalFetch = globalThis.fetch;
+  const stale = meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      release_id: '0.1.0+stale',
+    },
+  });
+  globalThis.fetch = (async () => new Response(JSON.stringify(stale), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch;
+  try {
+    const probe = await probeApi('127.0.0.1', 8799);
+    assert.equal(probe.state, 'incompatible');
+    assert.equal(probe.meta?.runtime.pid, 123);
+    assert.match(probe.message, /does not match client release/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('startup probe reports the backend checkout and revision', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify(meta()), {
@@ -187,6 +210,14 @@ const currentProbe: ApiProbeResult = {
   state: 'compatible' as const,
   message: 'current release',
 };
+const staleMeta = meta({
+  runtime: {
+    ...(meta().runtime as Record<string, unknown>),
+    pid: 4321,
+    started_at: '2026-07-14T00:00:00Z',
+    release_id: '0.1.0+stale',
+  },
+}) as unknown as ApiMeta;
 const probeSequence = (...values: ApiProbeResult[]) => {
   let index = 0;
   return async () => values[Math.min(index++, values.length - 1)];
@@ -228,6 +259,76 @@ test('replaces a proven owned stale API with SIGTERM only', async () => {
   assert.equal(rec.port, 8899);
   assert.equal(basename(rec.backendBin), 'argus-skill');
   assert.equal(typeof rec.startedAt, 'string');
+});
+
+test('bootstraps verified ownership from stale local API metadata, then replaces it', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const claims: Array<[string, ApiOwnershipRecord]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence({ ...staleProbe, meta: staleMeta }, downProbe, currentProbe),
+      readOwnedApi: async () => null,
+      claimApiOwnership: async (path, record) => {
+        claims.push([path, record]);
+        return true;
+      },
+      signal: (pid, signal) => signals.push([pid, signal]),
+      spawnApi: async () => ({ pid: 9876 }),
+      writeOwnershipRecord: async () => undefined,
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0][1].pid, 4321);
+  assert.deepEqual(signals, [[4321, 'SIGTERM']]);
+});
+
+test('never signals a stale owner PID that disagrees with the live API metadata', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence({ ...staleProbe, meta: staleMeta }, downProbe, currentProbe),
+      readOwnedApi: async () => ({ ...ownedRecord, pid: 1111 }),
+      claimApiOwnership: async (_path, record) => record.pid === 4321,
+      signal: (pid, signal) => signals.push([pid, signal]),
+      spawnApi: async () => ({ pid: 9876 }),
+      writeOwnershipRecord: async () => undefined,
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.deepEqual(signals, [[4321, 'SIGTERM']]);
+});
+
+test('compatible local API is adopted for the next automatic upgrade', async () => {
+  const claims: Array<[string, ApiOwnershipRecord]> = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: async () => ({
+        state: 'compatible',
+        message: 'current release',
+        meta: meta() as unknown as ApiMeta,
+      }),
+      readOwnedApi: async () => null,
+      claimApiOwnership: async (path, record) => {
+        claims.push([path, record]);
+        return true;
+      },
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0][1].pid, 123);
 });
 
 test('never signals an incompatible unowned listener', async () => {

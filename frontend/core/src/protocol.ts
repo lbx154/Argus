@@ -109,38 +109,44 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
   if (root.service !== API_SERVICE) {
     return { compatible: false, reason: `unexpected service ${String(root.service || 'unknown')}` };
   }
+  const meta = value as ApiMeta;
   if (protocol.name !== API_PROTOCOL.name || major !== API_PROTOCOL.major) {
     return {
       compatible: false,
       reason: `protocol ${String(protocol.name || 'unknown')}/${String(major)} is incompatible with client ${API_PROTOCOL.name}/${API_PROTOCOL.major}`,
+      meta,
     };
   }
   if (minor === null || minor < API_PROTOCOL.minServerMinor) {
     return {
       compatible: false,
       reason: `server protocol minor ${String(minor)} is older than required ${API_PROTOCOL.minServerMinor}`,
+      meta,
     };
   }
   if (root.snapshot_schema_version !== SNAPSHOT_SCHEMA_VERSION) {
     return {
       compatible: false,
       reason: `snapshot schema ${String(root.snapshot_schema_version)} is incompatible with required ${SNAPSHOT_SCHEMA_VERSION}`,
+      meta,
     };
   }
   const missing = REQUIRED_API_CAPABILITIES.filter((capability) => !capabilities.includes(capability));
   if (missing.length > 0) {
-    return { compatible: false, reason: `missing capabilities: ${missing.join(', ')}` };
+    return { compatible: false, reason: `missing capabilities: ${missing.join(', ')}`, meta };
   }
   if (runtime.source_root_matches_config === false) {
     return {
       compatible: false,
       reason: `backend loaded source ${String(runtime.source_root)} but ARGUS_SKILL_SOURCE_ROOT points to ${String(runtime.configured_source_root)}`,
+      meta,
     };
   }
   if (runtime.release_id !== RELEASE_ID) {
     return {
       compatible: false,
       reason: `backend release ${String(runtime.release_id)} does not match client release ${RELEASE_ID}`,
+      meta,
     };
   }
   // A live source digest is a release-integrity signal, not a wire-contract
@@ -151,7 +157,6 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
   const warning = runtime.release_matches_source === false
     ? 'backend source differs from its release manifest; rebuild with scripts/build_release.py before release'
     : undefined;
-  const meta = value as ApiMeta;
   return { compatible: true, reason: '', warning, meta };
 }
 

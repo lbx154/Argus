@@ -1,3 +1,5 @@
+import { defaultApiOwnershipPath } from './apiOwnership.js';
+
 export interface Args {
   host: string;
   port: number;
@@ -32,7 +34,7 @@ export function parseArgs(argv: string[]): Args {
     resume: false,
     resumeAll: false,
     token: process.env.ARGUS_SKILL_WEB_TOKEN,
-    ownerFile: process.env.ARGUS_TUI_API_OWNER_FILE,
+    ownerFile: undefined,
     once: false,
     json: false,
     count: 5,
@@ -93,6 +95,8 @@ export function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(args.count) || args.count < 1) {
     throw new Error(`--count must be a positive integer; got ${args.count}`);
   }
+  args.ownerFile = process.env.ARGUS_TUI_API_OWNER_FILE?.trim()
+    || defaultApiOwnershipPath(args.host, args.port);
   return args;
 }
 
@@ -104,7 +108,8 @@ Usage: argus resume [SID] [--all]
        argus --once --json   # headless smoke: fetch snapshot + N events, print JSON, exit
 
 On launch it auto-starts the backend API (argus-skill --web) if it isn't already
-running. A plain interactive launch creates a fresh idle session. argus resume
+running. It records ownership of local APIs and safely replaces an outdated API
+from the same installation. A plain interactive launch creates a fresh idle session. argus resume
 shows conversations from this directory; add --all for every account session.
 
 Options:

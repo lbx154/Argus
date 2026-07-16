@@ -8,6 +8,8 @@ import {
   type ApiMeta,
 } from '../../core/src/protocol.js';
 import {
+  claimApiOwnership as claimApiOwnershipImpl,
+  isLocalApiHost,
   readOwnedApi as readOwnedApiImpl,
   writeOwnershipRecord as writeOwnershipRecordImpl,
   type ApiOwnershipRecord,
@@ -65,7 +67,11 @@ export async function probeApi(
     }
     const compatibility = inspectApiMeta(body);
     if (!compatibility.compatible || !compatibility.meta) {
-      return { state: 'incompatible', message: compatibility.reason };
+      return {
+        state: 'incompatible',
+        message: compatibility.reason,
+        meta: compatibility.meta,
+      };
     }
     return {
       state: 'compatible',
@@ -117,6 +123,7 @@ export async function ensureApi(opts: {
   dependencies?: {
     probeApi: () => Promise<ApiProbeResult>;
     readOwnedApi?: () => Promise<ApiOwnershipRecord | null>;
+    claimApiOwnership?: (path: string, record: ApiOwnershipRecord) => Promise<boolean>;
     signal?: (pid: number, signal: NodeJS.Signals) => void;
     spawnApi?: () => Promise<{ pid: number }>;
     writeOwnershipRecord?: (path: string, record: ApiOwnershipRecord) => Promise<void>;
@@ -136,9 +143,38 @@ export async function ensureApi(opts: {
 
   const doProbe = deps?.probeApi ?? (() => probeApi(host, port, token));
   const doSleep = deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const local = isLocalApiHost(host);
 
   const initial = await doProbe();
   if (initial.state === 'compatible') {
+    // A compatible local API may predate ownership-by-default. Adopt it only
+    // when its self-reported PID and live argv prove that it is the exact
+    // backend binary and endpoint this CLI would launch.
+    if (ownerFile && local && initial.meta) {
+      const bin = resolveBin();
+      const readOwned = deps?.readOwnedApi ?? (() =>
+        readOwnedApiImpl({ path: ownerFile, host, port, backendBin: bin }));
+      const existing = await readOwned();
+      const ownsCurrentApi = existing?.pid === initial.meta.runtime.pid;
+      if (!ownsCurrentApi) {
+        const record: ApiOwnershipRecord = {
+          schema: 1,
+          pid: initial.meta.runtime.pid,
+          host,
+          port,
+          backendBin: bin,
+          startedAt: initial.meta.runtime.started_at || new Date().toISOString(),
+        };
+        const claim = deps?.claimApiOwnership ?? ((path, candidate) =>
+          claimApiOwnershipImpl({ path, ...candidate }));
+        try {
+          const claimed = await claim(ownerFile, record);
+          if (!claimed) onWarning?.('local API is compatible but ownership could not be verified; automatic upgrade is disabled for this process');
+        } catch (error) {
+          onWarning?.(`could not record local API ownership: ${(error as Error).message}`);
+        }
+      }
+    }
     return compatibleResult(initial, {
       spawned: false,
       prefix: 'api up',
@@ -155,8 +191,7 @@ export async function ensureApi(opts: {
     }
 
     // Guard: only recover for local hosts — never inspect, signal, or spawn for a remote endpoint.
-    const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '::1';
-    if (!isLocal) {
+    if (!local) {
       return {
         reachable: false,
         spawned: false,
@@ -174,7 +209,27 @@ export async function ensureApi(opts: {
     const doWriteOwnership = deps?.writeOwnershipRecord ??
       ((p: string, r: ApiOwnershipRecord) => writeOwnershipRecordImpl(p, r));
 
-    const record = await doReadOwned();
+    let record = await doReadOwned();
+    if (record && initial.meta && record.pid !== initial.meta.runtime.pid) {
+      record = null;
+    }
+    if (!record && initial.meta) {
+      const candidate: ApiOwnershipRecord = {
+        schema: 1,
+        pid: initial.meta.runtime.pid,
+        host,
+        port,
+        backendBin: bin,
+        startedAt: initial.meta.runtime.started_at || new Date().toISOString(),
+      };
+      const claim = deps?.claimApiOwnership ?? ((path, value) =>
+        claimApiOwnershipImpl({ path, ...value }));
+      try {
+        if (await claim(ownerFile, candidate)) record = candidate;
+      } catch {
+        // Fall through to the same fail-closed ownership error below.
+      }
+    }
     if (!record) {
       return {
         reachable: false,
@@ -269,7 +324,6 @@ export async function ensureApi(opts: {
   }
 
   // Unreachable — try to auto-start a local API.
-  const local = host === '127.0.0.1' || host === 'localhost' || host === '::1';
   if (!autostart || !local) {
     return {
       reachable: false,

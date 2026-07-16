@@ -14,14 +14,25 @@ test('legacy resume flags map onto the Ink project selection model', () => {
   assert.equal(fresh.resume, false);
 });
 
-test('ownerFile is read from ARGUS_TUI_API_OWNER_FILE and forwarded to ensureApi', () => {
-  const saved = process.env.ARGUS_TUI_API_OWNER_FILE;
+test('local endpoints get a default owner file and explicit configuration overrides it', () => {
+  const savedOwner = process.env.ARGUS_TUI_API_OWNER_FILE;
+  const savedHome = process.env.ARGUS_SKILL_HOME;
   try {
+    delete process.env.ARGUS_TUI_API_OWNER_FILE;
+    process.env.ARGUS_SKILL_HOME = '/state/argus';
+    assert.equal(
+      parseArgs(['--port', '8909']).ownerFile,
+      '/state/argus/runtime/webapi-127.0.0.1-8909.owner.json',
+    );
+    assert.equal(parseArgs(['--host', '10.0.0.5']).ownerFile, undefined);
+
     process.env.ARGUS_TUI_API_OWNER_FILE = '/run/argus/owner.json';
     assert.equal(parseArgs([]).ownerFile, '/run/argus/owner.json');
   } finally {
-    if (saved === undefined) delete process.env.ARGUS_TUI_API_OWNER_FILE;
-    else process.env.ARGUS_TUI_API_OWNER_FILE = saved;
+    if (savedOwner === undefined) delete process.env.ARGUS_TUI_API_OWNER_FILE;
+    else process.env.ARGUS_TUI_API_OWNER_FILE = savedOwner;
+    if (savedHome === undefined) delete process.env.ARGUS_SKILL_HOME;
+    else process.env.ARGUS_SKILL_HOME = savedHome;
   }
 });
 
