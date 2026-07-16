@@ -105,107 +105,133 @@ def _results_data() -> dict:
 
 def build_public_results() -> dict:
     r = _results_data()
-    fig, axes = plt.subplots(2, 3, figsize=(9.4, 7.0), facecolor=BONE)
-    fig.subplots_adjust(left=0.07, right=0.985, top=0.80, bottom=0.07,
-                        hspace=1.15, wspace=0.34)
+    fig, axes = plt.subplots(2, 3, figsize=(10.0, 6.3), facecolor=BONE)
+    fig.subplots_adjust(left=0.055, right=0.985, top=0.83, bottom=0.07,
+                        hspace=0.92, wspace=0.30)
 
-    def style(ax, title, sub, row, better):
+    def header(ax, title, sub, row, direction):
         ax.set_facecolor(BONE)
-        ax.text(0.0, 1.26, title, transform=ax.transAxes, fontsize=8.8,
+        ax.text(0.0, 1.22, title, transform=ax.transAxes, fontsize=9.5,
                 fontweight="bold", color=GRAPHITE, ha="left", va="bottom")
-        ax.text(0.0, 1.13, sub, transform=ax.transAxes, fontsize=6.8,
+        ax.text(0.0, 1.09, sub, transform=ax.transAxes, fontsize=7.2,
                 color=GRAPHITE_SOFT, ha="left", va="bottom")
         execution = f"{row['agent_backbone']}  \u00b7  {row['agent_backend']}"
-        ax.text(0.0, 1.00, f"{execution}  \u00b7  {better}", transform=ax.transAxes,
-                fontsize=6.5, color=BLUE, ha="left", va="bottom")
-        for spine in ("top", "right"):
+        ax.text(0.0, 0.97, f"{execution}  \u00b7  {direction}", transform=ax.transAxes,
+                fontsize=6.9, color=BLUE, ha="left", va="bottom")
+
+    def pair_plot(ax, *, title, sub, row, argus, reference, reference_name,
+                  formatter, tick_formatter, direction, delta, pad):
+        header(ax, title, sub, row, direction)
+        lo, hi = sorted((argus, reference))
+        ax.set_xlim(lo - pad, hi + pad)
+        ax.set_ylim(0.0, 1.0)
+        ax.hlines(0.47, lo, hi, color=PANEL_LINE, linewidth=3.0, zorder=1)
+        ax.scatter([argus], [0.47], s=88, color=BLUE_DEEP, edgecolor=GRAPHITE,
+                   linewidth=0.6, marker="o", zorder=3)
+        ax.scatter([reference], [0.47], s=78, facecolor=BONE, edgecolor=BLUE,
+                   linewidth=1.5, marker="D", zorder=3)
+        ax.text(argus, 0.68, formatter(argus), ha="center", va="bottom",
+                fontsize=8.4, color=BLUE_DEEP, fontweight="bold")
+        ax.text(reference, 0.22, formatter(reference), ha="center", va="top",
+                fontsize=8.0, color=GRAPHITE_SOFT, fontweight="bold")
+        ax.text(argus, 0.58, "Argus", ha="center", va="bottom",
+                fontsize=6.8, color=BLUE_DEEP)
+        ax.text(reference, 0.34, reference_name, ha="center", va="top",
+                fontsize=6.6, color=GRAPHITE_SOFT)
+        ax.text(0.99, 0.02, delta, transform=ax.transAxes, ha="right", va="bottom",
+                fontsize=7.0, color=GOLD, fontweight="bold")
+        ax.set_yticks([])
+        ticks = [lo, (lo + hi) / 2.0, hi]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([tick_formatter(value) for value in ticks])
+        ax.tick_params(axis="x", colors=GRAPHITE_SOFT, labelsize=6.7, length=2.5)
+        for spine in ("top", "right", "left"):
             ax.spines[spine].set_visible(False)
-        for spine in ("left", "bottom"):
-            ax.spines[spine].set_color(PANEL_LINE)
-        ax.tick_params(colors=GRAPHITE_SOFT, labelsize=7.0, length=2.5)
+        ax.spines["bottom"].set_color(PANEL_LINE)
 
-    def label_bars(ax, bars, values, fmt, dy=0.0):
-        for b, v in zip(bars, values):
-            ax.text(b.get_x() + b.get_width() / 2,
-                    b.get_height() + dy,
-                    fmt.format(v), ha="center", va="bottom", fontsize=6.9,
-                    color=GRAPHITE, fontweight="bold")
-
-    # Panel A: SOL-ExecBench (counts, same unit).
+    # Panel A: SOL-ExecBench is a rank-and-placement summary rather than a scalar
+    # comparison, so use a compact scorecard instead of forcing it onto an axis.
     ax = axes[0][0]
-    cats = ["#1\nfinishes", "Top-3\nplacements", "H2H wins\nvs Recursive"]
-    vals = [2, 7, 2]
-    cols = [BLUE_DEEP, BLUE_DEEP, BLUE]
-    bars = ax.bar(cats, vals, color=cols, width=0.62, edgecolor=GRAPHITE,
-                  linewidth=0.4)
-    label_bars(ax, bars, vals, "{:d}", dy=0.08)
-    ax.set_ylim(0, 8.4)
-    ax.set_ylabel("kernels (of 101)", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "NVIDIA SOL-ExecBench", "B200 \u00b7 101 kernels \u00b7 Global #6",
-          r["NVIDIA SOL-ExecBench"], "rank")
+    header(ax, "NVIDIA SOL-ExecBench", "B200 \u00b7 101 kernels",
+           r["NVIDIA SOL-ExecBench"], "rank / placements")
+    ax.axis("off")
+    ax.text(0.02, 0.52, "#6", transform=ax.transAxes, fontsize=30,
+            color=BLUE_DEEP, fontweight="bold", ha="left", va="center")
+    ax.text(0.02, 0.30, "global rank", transform=ax.transAxes, fontsize=7.4,
+            color=GRAPHITE_SOFT, ha="left")
+    chips = [("2 #1s", 0.46), ("7 top-3", 0.67), ("2 H2H", 0.87)]
+    for text, x in chips:
+        ax.text(x, 0.51, text, transform=ax.transAxes, fontsize=7.9,
+                color=GRAPHITE, fontweight="bold", ha="center", va="center",
+                bbox={"boxstyle": "round,pad=0.35", "facecolor": BONE,
+                      "edgecolor": PANEL_LINE, "linewidth": 0.7})
+    ax.text(0.67, 0.27, "H2H vs. Recursive", transform=ax.transAxes,
+            fontsize=6.7, color=GRAPHITE_SOFT, ha="center")
 
-    # Panel B: nanochat B200 (BPB, lower better).
-    ax = axes[0][1]
-    vals = [0.9636, 0.9646]
-    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[BLUE_DEEP, BLUE],
-                  width=0.55, edgecolor=GRAPHITE, linewidth=0.4)
-    ax.set_ylim(0.960, 0.966)
-    label_bars(ax, bars, vals, "{:.4f}", dy=0.00012)
-    ax.set_ylabel("val BPB", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "nanochat \u00b7 B200", "5 min \u00b7 1\u00d7B200 \u00b7 426 attempts",
-          r["nanochat \u00b7 B200"], "lower better")
+    pair_plot(
+        axes[0][1], title="nanochat \u00b7 B200",
+        sub="5 min \u00b7 1\u00d7B200 \u00b7 426 attempts",
+        row=r["nanochat \u00b7 B200"], argus=0.9636, reference=0.9646,
+        reference_name="Human SOTA", formatter=lambda v: f"{v:.4f}",
+        tick_formatter=lambda v: f"{v:.4f}", direction="BPB \u2193",
+        delta="0.0010 lower", pad=0.00055,
+    )
+    pair_plot(
+        axes[0][2], title="nanochat \u00b7 H100",
+        sub="5 min \u00b7 1\u00d7H100 \u00b7 37 mechanisms",
+        row=r["nanochat \u00b7 H100"], argus=0.9855, reference=0.9879,
+        reference_name="Human SOTA", formatter=lambda v: f"{v:.4f}",
+        tick_formatter=lambda v: f"{v:.4f}", direction="BPB \u2193",
+        delta="0.0024 lower", pad=0.00115,
+    )
+    pair_plot(
+        axes[1][0], title="nanoGPT speedrun", sub="8\u00d7H100 \u00b7 N=10",
+        row=r["nanoGPT speedrun"], argus=79.77, reference=80.18,
+        reference_name="Human #83", formatter=lambda v: f"{v:.2f}s",
+        tick_formatter=lambda v: f"{v:.2f}", direction="time \u2193",
+        delta="0.41s faster", pad=0.24,
+    )
+    pair_plot(
+        axes[1][1], title="AARRI-Bench", sub="82 research-intern tasks",
+        row=r["AARRI-Bench"], argus=76.8, reference=68.3,
+        reference_name="Paper best", formatter=lambda v: f"{v:.1f}%",
+        tick_formatter=lambda v: f"{v:.1f}", direction="solve rate \u2191",
+        delta="+8.5 pp", pad=4.0,
+    )
 
-    # Panel C: nanochat H100 (BPB, lower better).
-    ax = axes[0][2]
-    vals = [0.9855, 0.9879]
-    bars = ax.bar(["Argus", "Human\nSOTA"], vals, color=[BLUE_DEEP, BLUE],
-                  width=0.55, edgecolor=GRAPHITE, linewidth=0.4)
-    ax.set_ylim(0.982, 0.989)
-    label_bars(ax, bars, vals, "{:.4f}", dy=0.00014)
-    ax.set_ylabel("val BPB", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "nanochat \u00b7 H100", "5 min \u00b7 1\u00d7H100 \u00b7 37 mechanisms",
-          r["nanochat \u00b7 H100"], "lower better")
-
-    # Panel D: nanoGPT speedrun (seconds, lower better).
-    ax = axes[1][0]
-    vals = [79.77, 80.18]
-    bars = ax.bar(["Argus", "Human #83\n(same device)"], vals,
-                  color=[BLUE_DEEP, BLUE], width=0.55, edgecolor=GRAPHITE,
-                  linewidth=0.4)
-    ax.set_ylim(79.0, 80.6)
-    label_bars(ax, bars, vals, "{:.2f}s", dy=0.03)
-    ax.set_ylabel("wall-clock (s)", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "nanoGPT speedrun", "8\u00d7H100 \u00b7 N=10",
-          r["nanoGPT speedrun"], "lower better")
-
-    # Panel E: AARRI-Bench (percent, higher better).
-    ax = axes[1][1]
-    vals = [76.8, 68.3]
-    bars = ax.bar(["Argus\n63/82", "Paper-reported\nbest"], vals,
-                  color=[BLUE_DEEP, BLUE], width=0.55, edgecolor=GRAPHITE,
-                  linewidth=0.4)
-    ax.set_ylim(0, 100)
-    label_bars(ax, bars, vals, "{:.1f}%", dy=1.0)
-    ax.set_ylabel("solve rate (%)", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "AARRI-Bench", "82 research-intern tasks",
-          r["AARRI-Bench"], "higher better")
-
-    # Panel F: Arbor (gap metric, grouped systems).
+    # Panel F: four systems share one higher-is-better gap metric.
     ax = axes[1][2]
-    labels = ["Argus", "Arbor", "Claude\nCode", "Codex"]
-    vals = [28.0, 20.83, 8.33, 6.25]
-    cols = [BLUE_DEEP, BLUE, GRAPHITE_SOFT, PANEL_LINE]
-    bars = ax.bar(labels, vals, color=cols, width=0.68, edgecolor=GRAPHITE,
-                  linewidth=0.4)
-    ax.set_ylim(0, 31)
-    label_bars(ax, bars, vals, "{:.2f}", dy=0.3)
-    ax.set_ylabel("gap score", fontsize=7.0, color=GRAPHITE_SOFT)
-    style(ax, "Arbor \u00b7 RUC NLPIR", "Math-Reasoning Data",
-          r["Arbor \u00b7 RUC NLPIR"], "site-reported metric")
+    row = r["Arbor \u00b7 RUC NLPIR"]
+    header(ax, "Math-Reasoning Data", "Arbor AO suite \u00b7 AIME-style synthesis",
+           row, "pass@4\u2212pass@1 \u2191")
+    labels = ["Codex", "Claude Code", "Arbor", "Argus"]
+    vals = [6.25, 8.33, 20.83, 28.0]
+    ypos = list(range(len(labels)))
+    ax.hlines(ypos, 0, vals, color=PANEL_LINE, linewidth=1.8)
+    ax.scatter(vals[:-1], ypos[:-1], s=52, facecolor=BONE, edgecolor=BLUE,
+               linewidth=1.3, marker="D", zorder=3)
+    ax.scatter([vals[-1]], [ypos[-1]], s=78, color=BLUE_DEEP,
+               edgecolor=GRAPHITE, linewidth=0.6, marker="o", zorder=3)
+    for y, label, value in zip(ypos, labels, vals):
+        ax.text(-0.8, y, label, ha="right", va="center", fontsize=6.9,
+                color=GRAPHITE if label == "Argus" else GRAPHITE_SOFT,
+                fontweight="bold" if label == "Argus" else "normal")
+        ax.text(value + 0.7, y, f"{value:.2f}", ha="left", va="center",
+                fontsize=7.3, color=BLUE_DEEP if label == "Argus" else GRAPHITE_SOFT,
+                fontweight="bold")
+    ax.set_xlim(0, 31)
+    ax.set_ylim(-0.6, 3.6)
+    ax.set_yticks([])
+    ax.tick_params(axis="x", colors=GRAPHITE_SOFT, labelsize=6.7, length=2.5)
+    for spine in ("top", "right", "left"):
+        ax.spines[spine].set_visible(False)
+    ax.spines["bottom"].set_color(PANEL_LINE)
 
-    fig.suptitle("Public results across six arenas (units differ; panels are "
-                 "not cross-normalized)", fontsize=10.5, fontweight="bold",
-                 color=BLUE_DEEP, x=0.07, ha="left", y=0.965)
+    fig.suptitle("Public results in native units (direct labels; no cross-arena normalization)",
+                 fontsize=11.2, fontweight="bold", color=BLUE_DEEP,
+                 x=0.055, ha="left", y=0.972)
+    fig.text(0.985, 0.965, "\u25cf Argus     \u25c7 external reference",
+             fontsize=7.2, color=GRAPHITE_SOFT, ha="right", va="top")
     return _save(fig, "public_results")
 
 
@@ -234,7 +260,7 @@ def build_paper_portfolio() -> dict:
     b1 = ax.barh(ypos, manuscripts, color=BLUE_DEEP, edgecolor=GRAPHITE,
                  linewidth=0.5, height=0.62, label="Manuscripts (35)")
     b2 = ax.barh(ypos, drafts, left=manuscripts, color=BLUE,
-                 edgecolor=GRAPHITE, linewidth=0.5, height=0.62,
+                 edgecolor=GRAPHITE, linewidth=0.5, height=0.62, hatch="///",
                  label="Drafts (6)")
 
     for i, p in enumerate(programs):
@@ -251,14 +277,14 @@ def build_paper_portfolio() -> dict:
     ax.set_yticks(list(ypos))
     ax.set_yticklabels(programs, fontsize=8.2, color=GRAPHITE)
     ax.set_xlim(0, 18)
-    ax.set_xlabel("papers (de-duplicated inventory)", fontsize=8.0,
+    ax.set_xlabel("research artifacts (de-duplicated inventory)", fontsize=8.0,
                   color=GRAPHITE_SOFT)
     ax.tick_params(colors=GRAPHITE_SOFT, labelsize=7.6, length=2.5)
     for spine in ("top", "right", "left"):
         ax.spines[spine].set_visible(False)
     ax.spines["bottom"].set_color(PANEL_LINE)
     ax.set_title("")
-    fig.text(0.035, 0.945, "Research portfolio \u2014 41 papers across six programs",
+    fig.text(0.035, 0.945, "Research portfolio \u2014 41 artifacts across six programs",
              fontsize=11.0, fontweight="bold", color=BLUE_DEEP, ha="left",
              va="center")
     fig.text(0.035, 0.878,

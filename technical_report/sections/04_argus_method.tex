@@ -6,9 +6,9 @@
 \system{} is an open-source persistent research runtime~\citep{argus_repo} built around four model-driven roles
 and three system planes. The \emph{control plane} anchors the campaign and schedules
 work; the \emph{execution plane} performs one bounded mission against real tools
-and artifacts; and the \emph{evidence plane} records what happened without deciding
+and artifacts; and the \emph{record plane} stores what happened without deciding
 whether the work is scientifically complete. The distinction is operational:
-control owns scheduling, execution owns work and mission review, and evidence owns
+control owns scheduling, execution owns work and mission review, and the record plane owns
 the immutable record but no completion decision.
 
 The four roles divide research authority as summarized in
@@ -28,7 +28,7 @@ explicit.
 Manager & Commit the objective, lifetime, route, and campaign stage & Campaign division and stage transition \\
 Planner & Decompose the current research state into bounded tasks and dependencies & Task specifications, plan status, and stage checklist updates \\
 Engineer & Modify artifacts, invoke tools, and run experiments for one round & Execution result, artifacts, measurements, and a proposed handoff \\
-Reviewer & Inspect artifacts and execution evidence; decide whether work is complete & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
+Reviewer & Inspect artifacts and execution records; decide whether work is complete & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
 \bottomrule
 \end{tabularx}
 \caption{Role separation in \system. The role that performs the work does not own
@@ -36,7 +36,7 @@ the completion verdict.}
 \label{tab:roles}
 \end{table}
 
-\begin{paperbox}{Algorithm 1: Evidence-gated mission loop}
+\begin{paperbox}{Algorithm 1: Reviewed mission loop}
 \small
 \begin{tabbing}
 \quad\=\quad\=\quad\=\kill
@@ -50,11 +50,11 @@ $c \leftarrow \operatorname{ManagerCommit}(o)$; persist campaign identity \\
 \>\> $r \leftarrow \operatorname{Reviewer}(q,y,e)$; append $(q,y,e,r)$ to $\tau_t$ \\
 \>\> \textbf{if} $r=\code{continue}$ \textbf{then} $q \leftarrow r.\code{next\_action}$ \\
 \> \textbf{until} $r\in\{\code{done},\code{blocked},\code{paused}\}$ \\
-\> $E_t \leftarrow \operatorname{AdmitEvidence}(e,r)$ \\
-\> $H_{t+1} \leftarrow U(H_t,\tau_t,E_t)$; persist outcome, evidence, and state \\
+\> $E_t \leftarrow \operatorname{AdmitResult}(e,r)$ \\
+\> $H_{t+1} \leftarrow U(H_t,\tau_t,E_t)$; persist outcome, trace, and state \\
 \> $t \leftarrow t+1$; refill $B$ when required \\
 \textbf{end while} \\
-\textbf{Output:} accepted artifacts, auditable trajectory, and updated runtime state
+\textbf{Output:} accepted artifacts, inspectable trajectory, and updated runtime state
 \end{tabbing}
 \end{paperbox}
 
@@ -71,7 +71,7 @@ campaign.
 Model sessions are treated as bounded caches. Engineer and Reviewer sessions can be
 resumed briefly to preserve useful local context, but they are rolled at explicit
 limits. Cross-session continuity comes from a curated checkpoint containing the
-goal, verified progress, failed approaches, the current blocker, and the next step.
+goal, reviewed progress, failed approaches, the current blocker, and the next step.
 This follows the broader move from monolithic context toward managed memory tiers
 and reusable workflows~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}.
 The Engineer proposes the handoff; the Reviewer validates and writes the canonical
@@ -85,7 +85,7 @@ resumes only after checking that identity. A crash may require replay or re-clai
 a mission, but it does not require reconstructing the campaign from a model
 transcript.
 
-\subsection{Evidence-Gated Completion}
+\subsection{Review and Completion}
 
 Every provider call passes through one application-level gateway that assigns a
 call identifier, records timing and usage presence, and binds the call to the
@@ -97,16 +97,10 @@ mutable status files and cockpit views are projections over that record.
 The Reviewer is the sole source of a mission completion verdict. The infrastructure
 does not infer completion from filenames, token volume, or keywords, and it does not
 silently rewrite the Reviewer's decision. A successful verdict may still be wrong
-because the Reviewer is a model, but the authority is unambiguous and the evidence
-used by the decision is auditable. This is a traceability guarantee, not a guarantee
-of scientific correctness.
-
-Evidence is sanitized before persistence. A task-agnostic secret guard redacts
-credential patterns from event and artifact copies supplied to later roles. If an
-artifact is rewritten by redaction, the event stream records the intervention so
-affected provenance can be rebuilt. Public result evidence is separately labeled
-as a website snapshot or artifact-digest corroboration; Section~\ref{sec:methodology}
-defines those tiers.
+because the Reviewer is a model, but the authority is unambiguous and the records
+used by the decision are inspectable. This makes the completion path explicit without
+claiming that the model-based verdict is infallible. Credential redaction and result
+provenance are implementation details documented in Appendix~\ref{app:evidence-map}.
 
 \subsection{Runtime-State Updates}
 
@@ -141,15 +135,15 @@ updates only a subset of these components.}
 
 Two knowledge surfaces carry reusable experience. Versioned skills store procedures
 that can be matched to later tasks. A project wiki stores immutable source cards
-derived from real Reviewer verdicts and may later synthesize evidence-cited pages.
+derived from real Reviewer verdicts and may later synthesize source-cited pages.
 Neither surface is treated as automatically correct: entries can be revised,
-archived, or retired when later evidence contradicts them.
+archived, or retired when later results contradict them.
 
 \subsection{Reliability and Resource Governance}
 
 Long-running systems fail through operational drift even when individual model
 calls are strong. \system{} therefore wraps the mission loop with task-agnostic
-guards. The Reviewer labels whether a round produced a decision, evidence, setup
+guards. The Reviewer labels whether a round produced a decision, measurement, setup
 only, artifact synchronization only, or no progress. Round-boundary guards stop or
 re-plan a mission after sustained non-decision behavior; in-round watchdogs are
 reserved for subprocesses that are idle or emitting activity without effective

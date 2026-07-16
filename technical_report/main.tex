@@ -40,10 +40,10 @@
 \definecolor{softgray}{HTML}{F7F8FA}
 
 \hypersetup{
-  pdftitle={Argus: Long-Horizon Autonomous Research through Persistent, Evidence-Gated Runtime Evolution},
+  pdftitle={Argus: Long-Horizon Autonomous Research through Persistent, Review-Guided Runtime Evolution},
   pdfauthor={Shanghai Jiao Tong University; Microsoft},
   pdfsubject={Argus Technical Report 0.3},
-  pdfkeywords={autonomous research agents, long-horizon agents, evidence, persistent state}
+  pdfkeywords={autonomous research agents, long-horizon agents, runtime evolution, persistent state}
 }
 
 \color{ink}
@@ -131,16 +131,12 @@
 
 {\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
   Argus: Long-Horizon Autonomous Research\par
-  through Persistent, Evidence-Gated\par
+  through Persistent, Review-Guided\par
   Runtime Evolution}\par
 \vspace{0.10in}
 
 % Author names will be inserted here after confirmation. For this draft, the
-% affiliation line and official marks are intentionally shown without names.
-{\sffamily\large\bfseries\color{ink}
-  Shanghai Jiao Tong University \quad Microsoft}\par
-\vspace{0.10in}
-
+% official affiliation marks are intentionally shown without names.
 \noindent
 \begin{minipage}[c]{0.48\linewidth}
   \includegraphics[height=0.43in]{assets/sjtu-logo.png}\hspace{0.10in}%
@@ -156,31 +152,27 @@
 \small
 \textbf{Abstract.}
 Long-horizon autonomous research requires more than extending a single model
-session. The system must preserve objectives across restarts, turn decisions into
-real experiments, separate execution from acceptance, and retain verified lessons
-for later work. We present \system, a persistent runtime for autonomous research
-organized around four model-driven roles---Manager, Planner, Engineer, and
-Reviewer---operating over bounded missions and durable project state. The runtime
-records an append-only evidence trace, maintains curated cross-session memory, and
-updates reusable state such as skills, procedures, routing, and evaluations while
-holding the underlying model parameters fixed. We describe this mechanism as
-evidence-gated runtime evolution: a mission changes the operating state only through
-an attributable update grounded in artifacts and review. We assess the system using
-two public evidence sources: results from six heterogeneous benchmark arenas and a
-de-duplicated portfolio of 41 research artifacts across six programs. Two benchmark
-results include committed artifact-digest metadata; four are currently supported by
-public website snapshots. The evidence demonstrates that the runtime can sustain
-productive work across distinct research settings, but it does not isolate the
-causal effect of individual architectural components or establish universal
-state-of-the-art performance. We therefore report protocols, provenance tiers, and
-limitations alongside every aggregate claim.
+session. A research system must preserve objectives across restarts, turn decisions
+into real experiments, separate execution from acceptance, and retain useful
+lessons for later work. We present \system, a persistent runtime organized around
+four model-driven roles---Manager, Planner, Engineer, and Reviewer---that operate
+over bounded missions and durable project state. The runtime records an append-only
+experiment trace, maintains curated cross-session memory, and updates reusable skills,
+procedures, verifiers, and routing while holding the underlying model parameters
+fixed. We formalize this process as dense intelligence and review-gated runtime
+evolution. Using GPT-5.5 through Codex, we report task-native outcomes across six
+heterogeneous arenas and a de-duplicated portfolio of 41 research artifacts across
+six programs. The results demonstrate operational breadth and competitive outcomes
+under their stated protocols, but the evaluation is observational: it does not
+isolate the causal effect of individual runtime components or establish universal
+state-of-the-art performance.
 \end{abstractbox}
 
 \noindent
 \begin{minipage}[t]{0.66\linewidth}
   \footnotesize\color{muted}
   \textbf{Keywords:} autonomous research agents; long-horizon agents; persistent
-  state; evidence-grounded evaluation; agent reliability.
+  state; reproducible evaluation; agent reliability.
 \end{minipage}%
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
@@ -190,15 +182,15 @@ limitations alongside every aggregate claim.
 
 \vspace{0.04in}
 {\footnotesize\itshape\color{muted}
-This is a living technical report. Reported results and evidence tiers correspond
-to the public snapshot retrieved on July 14, 2026.}\par
+This is a living technical report. Reported results correspond to the public
+snapshot retrieved on July 14, 2026.}\par
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
   \caption{\system{} at a glance. (A) A dense-intelligence objective enters a
-  role-separated runtime; artifacts and review evidence pass through an evidence
-  gate before updating reusable state around a fixed model. (B) The current public
+  role-separated runtime; artifacts and run results pass through a review gate
+  before updating reusable state around a fixed model. (B) The current public
   record spans six heterogeneous arenas and 41 research artifacts. Result cards
   preserve task-native units and identify GPT-5.5 as the agent backbone and Codex
   as the backend; they are not cross-normalized.}

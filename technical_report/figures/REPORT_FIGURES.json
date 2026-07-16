@@ -3,15 +3,15 @@
   "figures": {
     "paper_portfolio": {
       "pdf": "paper_portfolio.pdf",
-      "pdf_sha256": "8f07a5da284eec9cc65aac3cf5ac6643f780115e0c7d465ba346eba6217df859",
+      "pdf_sha256": "0e0cd737f2bdc7b9fcf9abe6f96cdf366480f47e7a588475e5bff69d586ff345",
       "png": "paper_portfolio.png",
-      "png_sha256": "c0e65c3f44949097d3544999e9a4e93de35398f59b6dda543486e07e3335b518"
+      "png_sha256": "33ebe9ee56af320ec871e2b34b63ad28ed4dac6212b809491afb9f4c4171ef56"
     },
     "public_results": {
       "pdf": "public_results.pdf",
-      "pdf_sha256": "022fe31b6cdb29d4f47e4c3c1a275bfe1e85441050f01888d33a73345023accf",
+      "pdf_sha256": "e1a516a732d73c2e75ca26c4bda85ee7ce905684a1080d307ca80467d3527cb2",
       "png": "public_results.png",
-      "png_sha256": "cd5d2cfeb0f9f2e7644b6e98bcfb32ab035026cbd39ace64c491d6f9c5d01849"
+      "png_sha256": "dabf17ea0bd45bc31c79fe54b4c9835afcb02c6e72a19520898aaa2dc4393b89"
     }
   },
   "generator": "technical_report/figures/build_report_figures.py",

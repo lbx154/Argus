@@ -76,7 +76,7 @@ subdirectory. Table~\ref{tab:persisted-state} lists the principal files.
 \toprule
 \textbf{Path} & \textbf{Owner} & \textbf{Content} & \textbf{Mutation} \\
 \midrule
-\code{events.jsonl} & evidence plane & Canonical typed-event timeline & append-only \\
+\code{events.jsonl} & record plane & Canonical typed-event timeline & append-only \\
 \code{backlog.jsonl} & scheduler & Pending, running, completed, and superseded tasks & atomic claim / CAS \\
 \code{continuous.json} & Manager / scheduler & Standing objective, route, lifetime, and identity & atomic rewrite \\
 \code{inbox.jsonl} & operator & Operator messages and answers & append + drain \\
@@ -111,7 +111,7 @@ blue/green self-handoff with a bounded generation count and persisted identity
 consisting of the objective hash, vertical, and lineage generation. A resume adopts
 only a matching identity; otherwise the Manager must perform a fresh division.
 
-\section{Evidence, Provenance, and Public Records}
+\section{Run Records and Provenance}
 \label{app:evidence-map}
 
 \subsection{Event Catalog and Call Correlation}
@@ -160,8 +160,8 @@ persisted for downstream use. A redaction emits \code{round.secret\_redacted}; a
 scan error or uncovered oversized artifact blocks unconditional certification.
 
 An optional Ed25519 signing path in \srcpath{team/result\_provenance.py} supports
-isolated-scorer teammate results. It is off by default, is not used for the results
-reported here, and is not part of their evidence chain.
+isolated-scorer teammate results. It is off by default and is not used for the
+results reported here.
 
 \subsection{Artifact-Digest Records}
 
@@ -174,7 +174,7 @@ $p(\mathrm{mean}<3.28)=0.004007$, training time $79.77\pm0.06$ seconds, and
 \nolinkurl{nanochat-mission-b200} and artifact
 \nolinkurl{a374_tailweighted_boundary_mixed_readout_data_bundle}; its frozen scorer
 exits 0 with \code{MEAN\_VAL\_BPB=0.963634} and a valid SM100 flash-attention kernel.
-The evidence JSON stores source/result hashes and verifier excerpts, but not the
+The result JSON stores source/result hashes and verifier excerpts, but not the
 external bytes.
 
 Both public pages were retrieved at \code{2026-07-14T12:29:51Z}. Their complete
@@ -195,12 +195,12 @@ Mission lifecycle and daemon & \code{life/supervisor/\_core.py}, \code{daemon/li
 State and memory & \code{core/paths.py}, \code{apps/\_runtime.py}, \code{engineer/checkpoint.py}, \code{life/memory.py} \\
 Execution and budgets & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
 Reliability guards & \code{engineer/runner.py}, \code{regime\_jump/} \\
-Evidence and integrity & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
+Records and integrity & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
 Cockpit and API & \code{webapi/server.py}, \code{frontend/tui/}, \code{frontend/web/} \\
-Public evidence & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
+Public results & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
 \bottomrule
 \end{tabularx}
-\caption{Repository map for implementation and evidence claims.}
+\caption{Repository map for implementation and reported results.}
 \label{tab:source-map}
 \end{table}
 
@@ -274,23 +274,23 @@ $\rho_I(T)$ & Dense-intelligence density over wall-clock horizon $T$ \\
 $\dot N_{\mathrm{tok}}$ & Rate of token-mediated reasoning and action \\
 $\eta_r,\eta_a,\eta_v$ & Reasoning, action, and verification conversion factors \\
 $H_t$ & Runtime state $\{M_t,S_t,A_t,V_t,R_t,Q_t\}$ \\
-$E_t$ & Evidence admitted from mission $t$ \\
+$E_t$ & Results admitted from mission $t$ \\
 $\theta_t$ & Underlying model parameters, fixed in this report \\
 $C_t$ & Effective retained capability set \\
 $W_t,D_t(d)$ & Capability breadth and depth in domain $d$ \\
-$\epsilon$ & Evidence threshold in the idealized capability-admission rule \\
+$\epsilon$ & Acceptance threshold in the idealized capability-admission rule \\
 $V_R(T)$ & Conceptual accumulated research value over horizon $T$ \\
 $\Delta I,p_{\mathrm{valid}},\eta_{\mathrm{reuse}}$ & Information gain, validity probability, and reuse efficiency \\
-$D_{\mathrm{process}}$ & Retained states, actions, evidence, feedback, and runtime-state deltas \\
+$D_{\mathrm{process}}$ & Retained states, actions, measurements, feedback, and runtime-state deltas \\
 \bottomrule
 \end{tabularx}
 \caption{Notation used in the main text.}
 \end{table}
 
 The paper uses three figures, each with a distinct evidentiary purpose. The first-page
-teaser, \code{argus\_teaser}, combines the exact objective--runtime--evidence--state
+teaser, \code{argus\_teaser}, combines the exact objective--runtime--review--state
 flow with protocol-scoped public result cards. It is an HTML/CSS vector composition
-generated from the committed evidence JSON by
+generated from the committed result JSON by
 \srcpath{figures/build\_argus\_teaser.py}; its figure brief, source hashes, editable
 HTML, and renderer are recorded in \srcpath{figures/argus\_teaser.json}. The two
 empirical figures, \code{public\_results} and \code{paper\_portfolio}, are generated
