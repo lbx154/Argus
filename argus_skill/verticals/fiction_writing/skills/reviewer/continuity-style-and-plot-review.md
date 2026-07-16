@@ -2,7 +2,7 @@
 name: Continuity, Style and Plot Review
 description: Gate a fiction chapter/story. Blocks on hard narrative contradictions (dead character returns, impossible knowledge, item teleport, location/timeline clash, world-rule break, motive-incoherent action, dropped/leaked foreshadowing, viewpoint/tense/language drift); records craft and AI-flavor issues as non-blocking, evidence-located observations — never a faked numeric score.
 category: fiction-review
-version: 1
+version: 2
 protected: true
 ---
 
@@ -33,7 +33,7 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
    holder/location, timeline `order`, open_threads, foreshadowing) and the
    brief/style_profile. For a continuation, the state — not your memory — is
    authoritative.
-2. **Continuity pass — EVERY item below is `severity: blocking`.** These are
+2. **Continuity pass — EVERY item below is `blocking: true`.** These are
    hard contradictions with the ground-truth state, not matters of taste; do not
    downgrade any of them (impossible knowledge and language drift are BLOCKING
    too). For each, cite the exact draft span + the state fact it violates:
@@ -61,9 +61,34 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
    deterministic style lint's `ai_tell` notes here, but remember its cliché tables
    are **model-seed / BCC-pending** — a table hit is a prompt for judgment, NOT
    proof; only a `forbidden_lexicon` hit (above) is a hard, blocking contract.
-4. **Emit `review.json`.** A list of findings, each
-   `{type, severity: blocking|major|minor|note, location, evidence, fix}`; plus a
-   verdict. Verdict is `revise` if any BLOCKING finding stands, else `done`.
+4. **Emit `review.json` in the EXACT literary_review contract** — one JSON object
+   and nothing else around it. The revise stage parses this; a shape mismatch
+   makes it unparseable, so follow it precisely:
+   ```json
+   {"verdict": "revise",
+    "findings": [
+      {"id": "F1", "type": "status", "severity": "critical", "blocking": true,
+       "location": "第五回首段「贾敏走进潇湘馆」", "evidence": "已故的贾敏在场叙话",
+       "suggested_action": "删去贾敏出场，或改写为黛玉的幻景",
+       "violated_constraint": "贾敏 status=dead"}
+   ]}
+   ```
+   - `verdict` ∈ {`revise`, `done`}: `revise` iff any finding has `blocking: true`;
+     `done` iff there are no findings. (A blocking finding can never coexist with
+     `done`.)
+   - Every finding REQUIRES `id, type, severity, blocking, location, evidence,
+     suggested_action`. `severity` ∈ {`critical`, `major`, `minor`, `note`} is the
+     IMPORTANCE axis; `blocking` is a SEPARATE boolean gate axis — they are
+     DECOUPLED (a critical craft note may be non-blocking; a continuity
+     contradiction is blocking). Never put `blocking` inside the `severity` field.
+   - `type` MUST be one of the fiction vocabulary — never invent one (e.g. not
+     `continuity`): `status, knowledge, item_location, co_location, timeline,
+     world_rule, motivation, foreshadowing, viewpoint, language,
+     temporal_consistency, verbatim_copy, voice, ai_tell, concreteness, show_tell,
+     over_summary, pacing, mechanical_twist, ending, style`.
+   - JSON discipline: inside any string VALUE, use full-width 「」 for inner quotes,
+     NEVER the ASCII `"` — an unescaped inner quote breaks the JSON the revise
+     stage must parse.
 5. **Be honest.** If continuity holds and the craft issues are minor
    trade-offs, pass it — do not manufacture problems, and do not pretend craft
    quality is a deterministic measurement.

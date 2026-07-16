@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "argus://fiction_writing/craft_card.schema.json",
+  "title": "craft_card",
+  "description": "The DISTILLED, ABSTRACT output of corpus ingestion — a reusable narrative technique (e.g. '以景结情', 'free indirect discourse') learned FROM authorized source material but carrying NO liftable prose. A craft_card points at evidence via locators + short paraphrased notes; it never stores a passage long enough to reconstruct the source. This is the anti-copy boundary BY DESIGN (mirrors the voice-card principle): the pipeline distills technique, not text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "technique", "language", "abstracted", "evidence", "rights"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "technique": {"type": "string", "minLength": 1,
+                  "description": "The ABSTRACT craft principle, in the ingester's own words."},
+    "language": {"type": "string", "enum": ["zh", "en"]},
+    "applicable_genres": {"type": "array", "items": {"type": "string"}},
+    "abstracted": {"const": true,
+                   "description": "MUST be true — asserts the card is abstract features, never lifted prose."},
+    "evidence": {
+      "type": "array", "minItems": 1,
+      "description": "Pointers into authorized sources: a locator + a SHORT paraphrased note, never the passage itself.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "locator", "note"],
+        "properties": {
+          "source_id": {"type": "string", "minLength": 1},
+          "locator": {"type": "string", "minLength": 1,
+                      "description": "Where in the source (chapter/line/para), NOT the text."},
+          "note": {"type": "string", "minLength": 1, "maxLength": 200,
+                   "description": "Short paraphrase of what the span demonstrates; capped so no card can smuggle a liftable passage."}
+        }
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "allowed_use"],
+      "description": "Binds the card to a source_registry entry + the allowed_use it was distilled under (public-domain study / licensed retrieval / authorized sample).",
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "allowed_use": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

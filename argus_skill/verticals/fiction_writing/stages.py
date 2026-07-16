@@ -203,7 +203,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "review": (
         _REVIEW_SKILL,
         "Produce the typed, severity-tagged, evidence-located findings. "
-        "CONTINUITY (EVERY item here is severity=blocking — including impossible "
+        "CONTINUITY (EVERY item here is blocking:true, severity critical/major — including impossible "
         "knowledge and language drift; do not downgrade): dead/absent character "
         "returns unexplained; character knows what they cannot; item teleports; "
         "same character in two places at one time; timeline break; world-rule "
@@ -378,8 +378,12 @@ def role_banner(role: str) -> str:
             "appellations and preferred lexicon, and NEVER emit a "
             "forbidden_lexicon term (a hard, machine-checked contract). (5) NEVER "
             "hand-rewrite the "
-            "whole story_state — extract what changed into a structured state_patch "
-            "and apply it through the patch engine. (6) Keep prose concrete; avoid "
+            "whole story_state — extract what changed into a structured state_patch, "
+            "grounded on the current valid-id inventory (reference only existing ids; "
+            "give each new entity a fresh id; a holder must be a real character), and "
+            "apply it through the engine's validate->repair loop "
+            "(state_patch_io.apply_patch_with_repair) — fix any rejection against the "
+            "engine diagnosis, never bypass it. (6) Keep prose concrete; avoid "
             "slogan endings, abstract-word piling, and telegraphed twists. (7) In "
             "revise, derive fiction/revision_plan.json from fiction/review.json "
             "via the literary review contract — address every BLOCKING finding "
