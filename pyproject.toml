@@ -66,6 +66,18 @@ figures = [
 signing = [
   "cryptography>=41",
 ]
+# Build the proprietary preview executable distributed through npm. PyInstaller
+# embeds Python bytecode and package data into one native launcher; pip-licenses
+# emits the third-party notices shipped next to that executable.
+binary = [
+  "pyinstaller>=6.19,<7",
+  "pip-licenses>=5",
+  "cryptography>=41",
+  "jsonschema>=4",
+  "pypdf>=5",
+  "python-multipart>=0.0.20",
+  "itsdangerous>=2",
+]
 # `argus-skill[web]` — the optional web/TUI backend API (argus_skill/webapi/).
 # A thin FastAPI layer over the file-based daemon pub/sub (events.jsonl +
 # backlog/inbox) that the Ink terminal frontend (frontend/tui/) and the React

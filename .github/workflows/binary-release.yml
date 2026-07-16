@@ -1,0 +1,84 @@
+name: Binary release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the generated Linux x64 packages to npm
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  linux-x64:
+    # Build on glibc 2.35 for broader compatibility than ubuntu-24.04.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install frontend dependencies
+        run: |
+          npm ci --prefix frontend/web
+          npm ci --prefix frontend/tui
+
+      - name: Build production frontends
+        run: |
+          npm run build --prefix frontend/web
+          npm run build --prefix frontend/tui
+
+      - name: Install binary build dependencies
+        run: python -m pip install --upgrade pip '.[binary]' pytest
+
+      - name: Run binary release tests
+        run: |
+          python -m pytest -q tests/core/test_release.py tests/apps/test_tui_launcher.py
+          npm test --prefix frontend/web
+          npm test --prefix frontend/tui
+
+      - name: Build and verify executable
+        run: |
+          python scripts/build_binary.py
+          python scripts/verify_binary.py dist-binary/argus-core
+
+      - name: Prepare npm packages
+        run: |
+          python scripts/prepare_npm_binary_packages.py \
+            --binary dist-binary/argus-core \
+            --platform linux \
+            --arch x64 \
+            --notices dist-binary/THIRD_PARTY_NOTICES.txt
+          python scripts/verify_npm_binary_packages.py
+          npm pack --dry-run dist-binary/npm/cli-linux-x64
+          npm pack --dry-run dist-binary/npm/cli
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argus-linux-x64
+          path: |
+            dist-binary/argus-core
+            dist-binary/argus-core.sha256
+            dist-binary/THIRD_PARTY_NOTICES.txt
+            dist-binary/npm
+
+      - name: Publish platform package
+        if: ${{ inputs.publish }}
+        run: npm publish --provenance --access public
+        working-directory: dist-binary/npm/cli-linux-x64
+
+      - name: Publish launcher package
+        if: ${{ inputs.publish }}
+        run: npm publish --provenance --access public
+        working-directory: dist-binary/npm/cli

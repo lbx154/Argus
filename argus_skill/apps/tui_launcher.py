@@ -69,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
             f"argus: Ink TUI requires Node.js 18 or newer (found {found}).\n"
         )
         return 2
+    if os.environ.get("ARGUS_BINARY_DISTRIBUTION", "").strip() == "1":
+        # The TUI must own the real frozen backend process, not an npm wrapper
+        # that would leave argus-core orphaned when the ownership PID is stopped.
+        os.environ.setdefault("ARGUS_SKILL_BIN", sys.executable)
+        os.environ["ARGUS_BINARY_MODE"] = "cli"
     os.execv(node, [node, str(bundle), *forwarded])
     return 0  # pragma: no cover - execv replaces the process
 

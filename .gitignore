@@ -5,6 +5,8 @@ __pycache__/
 .eggs/
 dist/
 build/
+dist-binary/
+.pyinstaller/
 node_modules/
 # The production Web bundle is intentionally checked in and release-verified.
 !/frontend/web/dist/

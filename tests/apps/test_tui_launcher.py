@@ -31,6 +31,31 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "s-test"]
 
 
+def test_binary_launcher_points_tui_at_real_frozen_backend(
+    monkeypatch, tmp_path: Path
+) -> None:
+    bundle = tmp_path / "argus.mjs"
+    bundle.write_text("// bundle", encoding="utf-8")
+    seen = {}
+    monkeypatch.setenv("ARGUS_BINARY_DISTRIBUTION", "1")
+    monkeypatch.setenv("ARGUS_BINARY_MODE", "tui")
+    monkeypatch.delenv("ARGUS_SKILL_BIN", raising=False)
+    monkeypatch.setattr(tui_launcher.sys, "executable", "/opt/argus/argus-core")
+    monkeypatch.setattr(tui_launcher, "_bundle_path", lambda: bundle)
+    monkeypatch.setattr(tui_launcher.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(tui_launcher, "_node_major", lambda node: 22)
+    monkeypatch.setattr(
+        tui_launcher.os,
+        "execv",
+        lambda executable, argv: seen.update(executable=executable, argv=argv),
+    )
+
+    assert tui_launcher.main([]) == 0
+    assert seen["executable"] == "/usr/bin/node"
+    assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == "/opt/argus/argus-core"
+    assert tui_launcher.os.environ["ARGUS_BINARY_MODE"] == "cli"
+
+
 def test_launcher_rejects_missing_special_prompt(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "argus_skill.life.special_prompts.describe_special_prompt_gate",
