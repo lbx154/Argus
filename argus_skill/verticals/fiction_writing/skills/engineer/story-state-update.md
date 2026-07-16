@@ -2,7 +2,7 @@
 name: Story State Update
 description: Extract what the chapter CHANGED into a structured state_patch.json and apply it through the safe patch engine to produce story_state.json. Never hand-rewrite the whole state. Enforces idempotency, valid id references, no silent deletion, parseable timeline. The state_update stage of fiction_writing.
 category: fiction-state
-version: 1
+version: 2
 protected: true
 ---
 
@@ -29,7 +29,13 @@ Do NOT use to write prose or to hand-edit `story_state.json` directly.
 ## How to solve
 1. **Diff the draft against the current state.** List exactly what the chapter
    introduced or changed — and nothing it did not. Every new entity gets an
-   `id`; reuse existing ids for existing entities.
+   `id`; reuse existing ids for existing entities. Ground the ids on the
+   inventory from
+   `state_patch_io.build_generation_context(old_state)` — it lists every op with
+   its required `value` shape AND the ids you may currently reference; reference
+   an existing entity ONLY by an id it lists, and give each NEW entity a fresh
+   unused id. (This prevents the two most common failures: a holder that is not
+   a character, and an invented/omitted id.)
 2. **Emit `fiction/state_patch.json`** with a unique `patch_id` and an `ops`
    array using ONLY these ops (there is deliberately no delete op):
    `set_meta`, `add_character`, `update_character`, `add_relationship`,
@@ -59,8 +65,19 @@ Do NOT use to write prose or to hand-edit `story_state.json` directly.
    resolve; unique-integer timeline order. Persist `new_state` to
    `fiction/story_state.json`; `result.revision` bumps and `applied_patches`
    records the `patch_id`.
-4. **On a PatchError**, fix the patch (usually a dangling id, a duplicate add, or
-   a timeline order clash) — do NOT bypass the engine.
+4. **On a PatchError, repair against a structured diagnosis — never bypass the
+   engine.** Use the grounded validate→repair loop, not a blind retry:
+   ```python
+   from argus_skill.verticals.fiction_writing.state_patch_io import (
+       diagnose_patch, apply_patch_with_repair)
+   d = diagnose_patch(old_state, patch)   # {ok} or {ok:False, error, valid:<ids>}
+   # fix the named op[idx] against d["valid"], OR drive it automatically:
+   new_state, result, attempts = apply_patch_with_repair(old_state, patch, repair_fn)
+   ```
+   `diagnose_patch` names the offending op and hands back the valid-id inventory
+   to fix it against (usually a dangling id, a duplicate add, or a timeline order
+   clash). The engine stays the ONLY gate: an unfixable patch still raises — a bad
+   patch is never laundered through.
 
 ## When NOT to use
 - To draft or revise prose.
