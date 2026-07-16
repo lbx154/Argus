@@ -237,12 +237,13 @@ test('writeOwnershipRecord writes readable file and readOwnedApi accepts it', as
   assert.equal(owned?.pid, BASE_RECORD.pid);
 });
 
-test('writeOwnershipRecord creates file with mode 0o600', async () => {
+test('writeOwnershipRecord creates a private POSIX file or regular Windows file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'argus-owner-'));
   const ownerFile = join(root, 'owner.json');
   await writeOwnershipRecord(ownerFile, BASE_RECORD);
   const info = await stat(ownerFile);
-  assert.equal(info.mode & 0o777, 0o600);
+  if (process.platform === 'win32') assert.ok(info.isFile());
+  else assert.equal(info.mode & 0o777, 0o600);
 });
 
 test('writeOwnershipRecord creates a missing private runtime directory', async () => {
