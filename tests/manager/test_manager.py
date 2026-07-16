@@ -1,7 +1,7 @@
 """Tests for the Manager division layer — decide_vertical / stage split / commit.
 
-The Manager decides the vertical via ONE grounded agent call; these tests use a
-fake runner returning the decision JSON (no real LLM).
+The Manager uses one tool-free Fast Router call and, only when needed, one
+grounded fallback. These tests use fake runners (no real LLM).
 """
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ from contextlib import contextmanager
 import pytest
 
 from argus_skill.manager import Division, Manager
-from argus_skill.manager.domain_author import VerticalDecision, parse_vertical_decision
+from argus_skill.manager.domain_author import (
+    VerticalDecision,
+    VerticalDecisionError,
+    parse_vertical_decision,
+)
 from argus_skill.skills.vertical_select import VERTICALS
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
@@ -29,9 +33,15 @@ class _DecisionRunner:
     def __init__(self, decision: dict) -> None:
         self._decision = decision
         self.last_options = None
+        self.calls: list[dict] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.last_options = options
+        self.calls.append({
+            "prompt": prompt,
+            "options": options,
+            "run_label": run_label,
+        })
         return _DecisionResult(json.dumps(self._decision))
 
 
@@ -39,6 +49,7 @@ def _existing(vertical: str) -> _DecisionRunner:
     decision = {
         "choice": "existing",
         "vertical": vertical,
+        "confidence": 0.95,
         "execution_task": "perform the requested task",
     }
     if vertical == "math":
@@ -239,7 +250,7 @@ def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_pa
 
     assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
     division = mgr.commit_vertical_decision("draft the paper", decision)
-    assert division.execution_task == "perform the requested task"
+    assert division.execution_task == "draft the paper"
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
 
@@ -373,10 +384,11 @@ def test_root_task_id_scopes_manager_stage_call(tmp_path):
     ]
 
 
-def test_vertical_decision_persists_manager_live_view(tmp_path):
+def test_fast_vertical_decision_defers_manager_live_view_and_task_rewrite(tmp_path):
     runner = _DecisionRunner({
         "choice": "existing",
         "vertical": "research",
+        "confidence": 0.95,
         "execution_task": "Write the substantive manuscript.",
         "live_view": {
             "title": "Live manuscript",
@@ -391,14 +403,12 @@ def test_vertical_decision_persists_manager_live_view(tmp_path):
 
     division = Manager(project_root=tmp_path, runner=runner).divide("write the paper")
 
-    payload = json.loads(
-        (tmp_path / ".argus" / "live-view.json").read_text(encoding="utf-8")
-    )
-    assert payload["title"] == "Live manuscript"
-    assert payload["paths"] == [".argus/live/current.md"]
-    assert (tmp_path / ".argus" / "live" / "current.md").exists()
-    assert division.execution_task == "Write the substantive manuscript."
-    assert runner.last_options.sandbox_mode == "read-only"
+    assert not (tmp_path / ".argus" / "live-view.json").exists()
+    assert not (tmp_path / ".argus" / "live" / "current.md").exists()
+    assert division.execution_task == "write the paper"
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-vertical-fast-route"
+    ]
     assert runner.last_options.dangerous_yolo is False
 
 
@@ -413,6 +423,92 @@ def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
 
     assert decision.vertical == "direct"
     assert runner.last_options.model == "gpt-5.5"
+
+
+def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
+    tmp_path,
+) -> None:
+    responses = [
+        {
+            "choice": "grounded",
+            "confidence": 0.4,
+            "rationale": "repository context is required",
+        },
+        {
+            "choice": "existing",
+            "vertical": "direct",
+            "rationale": "bounded repair after focused inspection",
+            "research_target_level": None,
+        },
+    ]
+
+    class _SequenceRunner:
+        _backend_name = "copilot"
+
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append({
+                "prompt": prompt,
+                "options": options,
+                "run_label": run_label,
+            })
+            return _DecisionResult(json.dumps(responses[len(self.calls) - 1]))
+
+    runner = _SequenceRunner()
+    task = "Repair the repository behavior while preserving its public API."
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
+
+    assert decision.vertical == "direct"
+    assert decision.execution_task == task
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-vertical-fast-route",
+        "manager-vertical-grounded",
+    ]
+    assert "--available-tools=" in runner.calls[0]["options"].extra_args
+    assert runner.calls[0]["options"].sandbox_mode is None
+    assert runner.calls[1]["options"].sandbox_mode == "read-only"
+    assert "ONE focused inspection batch" in runner.calls[1]["prompt"]
+
+
+def test_fast_route_prompt_cap_skips_directly_to_one_grounded_call(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_PROMPT_CHARS", "1")
+    runner = _existing("direct")
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Repair one bounded failing test."
+    )
+
+    assert decision.vertical == "direct"
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-vertical-grounded"
+    ]
+
+
+def test_grounded_route_prompt_cap_fails_before_second_model_call(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_GROUNDED_ROUTE_MAX_PROMPT_CHARS", "1")
+    runner = _DecisionRunner({
+        "choice": "grounded",
+        "confidence": 0.3,
+        "rationale": "needs repository context",
+    })
+
+    with pytest.raises(VerticalDecisionError, match="context cap"):
+        Manager(project_root=tmp_path, runner=runner).decide_vertical(
+            "Investigate a repository-specific novel workflow."
+        )
+
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-vertical-fast-route"
+    ]
 
 
 def test_execution_task_parser_is_string_only_and_lossless() -> None:
@@ -437,6 +533,21 @@ def test_execution_task_parser_is_string_only_and_lossless() -> None:
     )
     assert parsed is not None
     assert parsed.execution_task == long_task
+
+
+def test_grounded_parser_can_use_original_task_as_post_route_handoff() -> None:
+    parsed = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "direct",
+            "rationale": "bounded repair",
+        }),
+        known_verticals=["direct"],
+        default_execution_task="Preserve this exact operator task.",
+    )
+
+    assert parsed is not None
+    assert parsed.execution_task == "Preserve this exact operator task."
 
 
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):

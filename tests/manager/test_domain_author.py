@@ -6,8 +6,10 @@ import json
 from argus_skill.manager.domain_author import (
     DomainProposal,
     build_domain_author_prompt,
+    build_fast_vertical_decision_prompt,
     build_vertical_decision_prompt,
     parse_domain_proposal,
+    parse_fast_vertical_decision,
 )
 from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 
@@ -94,3 +96,62 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
     assert "short-cycle software repairs" in prompt
     assert "Do not choose a staged lifecycle or author a new domain" in prompt
     assert "repo investigation alone does not make the task long-horizon" in prompt.lower()
+
+
+def test_fast_vertical_prompt_is_tool_free_and_route_only() -> None:
+    prompt = build_fast_vertical_decision_prompt(
+        "Repair one failing test in the current repository.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+    )
+
+    assert "NO tools" in prompt
+    assert "choose Live View" in prompt
+    assert "expand the task" in prompt
+    assert "execution_task" not in prompt
+    assert "shell access" not in prompt
+
+
+def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
+    route = parse_fast_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "direct",
+            "confidence": 0.94,
+            "research_target_level": None,
+            "rationale": "bounded repair",
+        }),
+        known_verticals=VERTICALS,
+    )
+
+    assert route is not None
+    assert route.needs_grounding is False
+    assert route.vertical == "direct"
+    assert route.confidence == 0.94
+
+
+def test_fast_vertical_parser_sends_new_or_uncertain_work_to_grounding() -> None:
+    route = parse_fast_vertical_decision(
+        json.dumps({
+            "choice": "grounded",
+            "confidence": 0.4,
+            "rationale": "repository structure matters",
+        }),
+        known_verticals=VERTICALS,
+    )
+
+    assert route is not None
+    assert route.needs_grounding is True
+
+
+def test_grounded_vertical_prompt_has_bounded_inspection_and_no_rendering_work() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Build a novel controller whose repository structure is unknown.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+    )
+
+    assert "ONE focused inspection batch" in prompt
+    assert "at most four file/search operations" in prompt
+    assert "choose Live View artifacts" in prompt
+    assert "expand the Engineer task" in prompt
+    assert "presentations" not in prompt
+    assert "execution_task" not in prompt

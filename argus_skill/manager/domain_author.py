@@ -1,14 +1,10 @@
 """Manager vertical decision + domain authoring: prompts and strict parsers.
 
-The Manager makes ONE grounded agent call (``Manager.decide_vertical``, see
-``manager/_core.py``) to choose the vertical for a Task: an existing built-in
-vertical, an existing project data domain, or a freshly AUTHORED domain — a
-slug name + an ordered Stage list. This is a GROUNDED call (real shell/read
-access, pinned to ``project_root``): the prompt tells the model to actually
-inspect the repo before deciding, rather than guessing from the task sentence
-alone. This module holds the prompts it sends and the strict, fail-closed JSON
-parsers, mirroring :mod:`argus_skill.manager.stage_decider` (which keeps
-``manager/_core`` thin).
+``Manager.decide_vertical`` first makes one compact, tool-free routing request.
+A clear existing vertical commits immediately; uncertainty or a potentially new
+domain escalates once to a bounded, read-only repository investigation. This
+module holds both prompts and their fail-closed parsers, mirroring
+:mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core`` thin).
 
 The proposed domain (when authored) is persisted as project-local DATA by
 :func:`argus_skill.verticals._data_domain.write_data_domain`; the per-stage
@@ -200,12 +196,15 @@ def parse_domain_proposal(
 
 __all__ = [
     "DomainProposal",
+    "FastVerticalRoute",
     "VerticalDecision",
     "VerticalDecisionError",
     "build_domain_author_prompt",
+    "build_fast_vertical_decision_prompt",
     "build_research_target_prompt",
     "build_vertical_decision_prompt",
     "parse_domain_proposal",
+    "parse_fast_vertical_decision",
     "parse_research_target_level",
     "parse_vertical_decision",
 ]
@@ -213,7 +212,7 @@ __all__ = [
 
 @dataclass
 class VerticalDecision:
-    """The Manager's grounded choice of vertical for a task.
+    """The Manager's committable choice of vertical for a task.
 
     ``choice`` is ``"existing"`` (reuse a known built-in vertical or an existing
     project data domain) or ``"new"`` (author a fresh data domain). ``vertical``
@@ -230,14 +229,138 @@ class VerticalDecision:
     # that returned the pre-live-view verdict shape (preserve current choice).
     live_view: LiveViewDecision | None = None
     live_view_decided: bool = False
-    # Manager-authored handoff for Planner/Engineer. Presentation/right-sidebar
-    # ownership stays with Manager and is intentionally omitted here.
+    # Planner/Engineer handoff. Fast routing preserves the operator task verbatim;
+    # grounded/legacy callers may still supply an explicit cleaned handoff.
     execution_task: str = ""
     # Optional research success bar, decided from the operator's requested
     # outcome rather than re-inferred by Planner/Reviewer/Life independently.
     research_target_level: str = ""
     # Raw validated Manager response, applied only when the decision commits.
     rendering_response: str = ""
+
+
+@dataclass(frozen=True)
+class FastVerticalRoute:
+    """Tool-free first-pass route returned before any repository inspection.
+
+    ``needs_grounding`` is true when the model cannot confidently reuse an
+    existing vertical from the task text alone (including when it believes a
+    new data domain may be required).  The grounded fallback remains the only
+    path allowed to inspect repository files or author a domain.
+    """
+
+    needs_grounding: bool
+    vertical: str = ""
+    confidence: float = 0.0
+    rationale: str = ""
+    research_target_level: str = ""
+
+
+def build_fast_vertical_decision_prompt(
+    task: str,
+    *,
+    verticals_with_purpose: dict[str, str],
+    existing_data_domains: Sequence[str] = (),
+    research_target_verticals: Sequence[str] = (),
+) -> str:
+    """Render the compact, tool-free first-pass vertical router prompt."""
+    menu = "\n".join(
+        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
+    ) or "  (none)"
+    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
+    target_verticals = (
+        ", ".join(f"`{name}`" for name in research_target_verticals)
+        or "(none)"
+    )
+    return (
+        "You are the FAST ROUTER for an automated research/engineering pipeline. "
+        "Choose an existing vertical only when the operator's task text makes the "
+        "fit clear. You have NO tools in this call: do not inspect files, infer "
+        "repository facts that were not stated, expand the task, choose Live View "
+        "artifacts, or design a new domain. If more repository context is needed "
+        "or a new domain may be appropriate, request `grounded` instead.\n\n"
+        "## Existing built-in verticals\n"
+        f"{menu}\n\n"
+        f"## Existing project data domains: {existing}\n\n"
+        "## Routing rules\n"
+        "- Choose `direct` for a bounded one-off deliverable, including a "
+        "short-cycle software repair, bug fix, focused refactor, or other "
+        "single-repository task with a concrete acceptance test. Internal "
+        "Engineer/Reviewer turns do not make such a task long-horizon.\n"
+        "- Choose a staged vertical only when the requested outcome genuinely "
+        "needs that reusable lifecycle (for example a paper, open mathematical "
+        "research, finance factor research, or metric optimization).\n"
+        "- Never invent a task-specific alias for an existing capability.\n"
+        "- If the task is ambiguous, depends on unstated repository structure, "
+        "or appears to require a new domain, choose `grounded`.\n\n"
+        "The following existing verticals require a research target level: "
+        f"{target_verticals}. For one of those, use `exploratory`, `publishable`, "
+        "or `doctoral` according to the operator's requested success bar. For "
+        "all other verticals use null.\n\n"
+        "## Task\n"
+        f"{(task or '').strip()}\n\n"
+        "Reply with exactly one compact JSON object and nothing else:\n"
+        '{"choice":"existing","vertical":"<existing name>",'
+        '"confidence":<0.0-1.0>,"research_target_level":'
+        '"<exploratory|publishable|doctoral>"|null,"rationale":"<brief>"}\n'
+        "OR\n"
+        '{"choice":"grounded","confidence":<0.0-1.0>,'
+        '"rationale":"<what additional context is needed>"}\n'
+    )
+
+
+def parse_fast_vertical_decision(
+    raw_text: str,
+    *,
+    known_verticals: Sequence[str] = (),
+    existing_data_domains: Sequence[str] = (),
+    research_target_verticals: Sequence[str] = (),
+) -> FastVerticalRoute | None:
+    """Parse a tool-free route; invalid output fails closed to grounding."""
+    obj = _loads_first_json(raw_text)
+    if not isinstance(obj, dict):
+        return None
+    choice = str(obj.get("choice") or "").strip().lower()
+    raw_confidence = obj.get("confidence")
+    if not isinstance(raw_confidence, (int, float)):
+        return None
+    confidence = float(raw_confidence)
+    if not 0.0 <= confidence <= 1.0:
+        return None
+    rationale = str(obj.get("rationale") or "").strip()[:300]
+    if choice in {"grounded", "new", "uncertain"}:
+        return FastVerticalRoute(
+            needs_grounding=True,
+            confidence=confidence,
+            rationale=rationale,
+        )
+    if choice != "existing":
+        return None
+    name = _sluggify_name(obj.get("vertical") or obj.get("name"))
+    known = {str(v).strip().lower() for v in known_verticals}
+    known |= {str(v).strip().lower() for v in existing_data_domains}
+    if not name or name not in known:
+        return None
+    targeted = {
+        str(value or "").strip().lower()
+        for value in research_target_verticals
+    }
+    target_level = str(obj.get("research_target_level") or "").strip().lower()
+    if name in targeted and target_level not in {
+        "exploratory",
+        "publishable",
+        "doctoral",
+    }:
+        return None
+    if name not in targeted:
+        target_level = ""
+    return FastVerticalRoute(
+        needs_grounding=False,
+        vertical=name,
+        confidence=confidence,
+        rationale=rationale,
+        research_target_level=target_level,
+    )
 
 
 def build_vertical_decision_prompt(
@@ -270,13 +393,16 @@ def build_vertical_decision_prompt(
         "for built-ins, expert per-stage reviewer checklists. It is NOT the "
         "task-specific route or DAG of literature, experiment, proof, and review "
         "work that the Planner may create inside one mission.\n\n"
-        "You have shell access in this repository. Before deciding, INVESTIGATE "
-        "— do not guess from the task sentence alone. Read `AGENTS.md`/`README` "
-        "if present and look at the project's structure, language, and tooling "
-        "so your choice fits what this specific repo actually needs. "
+        "The tool-free Fast Router requested grounded context. INVESTIGATE with "
+        "read-only shell access in this repository. Use ONE focused inspection batch of at "
+        "most four file/search operations, then decide. Avoid broad recursive "
+        "searches and do not read unrelated UI, generated, vendor, or build-output "
+        "trees. Read `AGENTS.md`/`README` only when they are directly useful, and "
+        "look only at the minimum project structure, language, or tooling needed "
+        "to resolve the routing uncertainty. "
         "Treat project/task artifacts as READ-ONLY: do NOT edit, create, or delete "
-        "files with tools. Manager presentation content is returned in your final "
-        "JSON and written by the harness under `.argus/live/`.\n\n"
+        "files with tools. This call decides routing/domain structure only; do not "
+        "choose Live View artifacts or expand the Engineer task.\n\n"
         "## Built-in verticals (PREFER one of these when it fits the Task)\n"
         f"{menu}\n\n"
         f"## Existing project data domains (also selectable): {existing}\n\n"
@@ -309,35 +435,8 @@ def build_vertical_decision_prompt(
         f"{_MIN_STAGES}-{_MAX_STAGES} stages) grounded in what the repo needs to "
         "reach a verifiable deliverable. The per-stage checklist is authored "
         "later by the Planner; you define only the stage SKELETON.\n\n"
-        "## Live Web view (your decision, not a file-type heuristic)\n"
-        "While inspecting the actual project, independently decide whether a "
-        "small set of changing workspace files would materially help the "
-        "operator understand the work in real time. Argus Web will place your "
-        "selection beside the event stream and infer only each file's safe "
-        "transport (text/image/PDF); it will NOT scan the repo or choose content "
-        "for you. Set `live_view` to null when no side view is useful. Otherwise "
-        "give a short title, why these files matter, and 1-6 workspace-relative "
-        "paths. Prefer an existing useful artifact. If the available output is "
-        "missing or unattractive, author a presentation-only view "
-        "in the `presentations` JSON field under `.argus/live/`; you may create "
-        "Markdown, sandboxed HTML, JSON, CSV/TSV, or text from scratch. Existing "
-        "Markdown, HTML, JSON, tables, text/code, images, PDFs, audio, and video "
-        "may be selected directly. These are capabilities, not a candidate list: "
-        "you decide what the operator should see and may author it yourself. Do "
-        "not send that work to Engineer or write it with tools. Never "
-        "expose secrets, credentials, "
-        "private configuration, or a file merely because its extension looks "
-        "renderable.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
-        "Also write `execution_task`: a complete, concise handoff containing only "
-        "the task work Planner/Engineer should perform. Preserve the requested "
-        "substantive deliverable, but omit all Manager-owned presentation, right-"
-        "sidebar, live-view, routing, and Manager-path instructions. Do not mention "
-        "those omitted responsibilities in the handoff. Preserve the operator's "
-        "level of specificity: do NOT invent mandatory word counts, enumerated "
-        "content requirements, research files, stages, or acceptance gates that "
-        "the operator did not request.\n\n"
         "The following built-ins declare a project-level research target contract: "
         f"{target_verticals}. If you choose one of them, set "
         "`research_target_level` from "
@@ -353,23 +452,14 @@ def build_vertical_decision_prompt(
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
-        '"execution_task": "<Planner/Engineer task only>", '
         '"research_target_level": "<exploratory|publishable|doctoral when the '
-        'vertical declares a target contract, otherwise null>", '
-        '"live_view": null | {"title": "<short title>", "reason": "<why these '
-        'files>", "paths": ["<relative/path>", ...]}, "presentations": '
-        '[{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
-        '"content": "<presentation>"}]}\n'
+        'vertical declares a target contract, otherwise null>"}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
         '"rationale": "<why no existing vertical fits + what you found>", '
-        '"execution_task": "<Planner/Engineer task only>", '
         '"research_target_level": null, '
-        '"confidence": <0.0-1.0>, "live_view": null | {"title": "<short title>", '
-        '"reason": "<why these files>", "paths": ["<relative/path>", ...]}, '
-        '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", "content": '
-        '"<presentation>"}]}\n'
+        '"confidence": <0.0-1.0>}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
 
@@ -431,6 +521,7 @@ def parse_vertical_decision(
     known_verticals: Sequence[str] = (),
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
+    default_execution_task: str = "",
 ) -> VerticalDecision | None:
     """Validate the Manager's vertical-decision JSON; fail-closed to ``None``.
 
@@ -448,6 +539,8 @@ def parse_vertical_decision(
         if isinstance(raw_execution_task, str)
         else ""
     )
+    if not execution_task:
+        execution_task = (default_execution_task or "").strip()
     if not execution_task:
         return None
     live_view_decided = "live_view" in obj and (

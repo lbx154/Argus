@@ -1,10 +1,8 @@
 """Tests for the Manager new-domain authoring flow in ``Manager.divide``.
 
-``Manager.divide`` makes ONE grounded agent call (``decide_vertical``, see
-``manager/domain_author.py``): the model either picks an existing built-in
-vertical / project data domain (``{"choice": "existing", ...}``) or authors a
-new data domain (``{"choice": "new", ...}``). A fake runner returns one of
-these two JSON shapes so the flow is exercised without a real backend.
+The tool-free Fast Router must escalate potential new domains to one bounded
+grounded call, which may then author the domain. Fake runners exercise both
+requests without a real backend.
 """
 from __future__ import annotations
 
@@ -48,6 +46,7 @@ _NEW_DOMAIN_DECISION = {
 _EXISTING_RESEARCH_DECISION = {
     "choice": "existing",
     "vertical": "research",
+    "confidence": 0.95,
     "rationale": "the task is a paper with a literature review and submission",
     "execution_task": "Write the paper and prepare it for submission.",
 }
@@ -206,7 +205,11 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     mgr = Manager(project_root=tmp_path, runner=runner)
     mgr.divide(_NOVEL_TASK)
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-vertical-fast-route",
+        "manager-vertical-grounded",
+    ]
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-grounded")
     opts = call["options"]
     assert opts.working_dir == str(tmp_path)
     assert opts.sandbox_mode == "read-only"
@@ -229,11 +232,17 @@ def test_copilot_vertical_decision_does_not_auto_inject_repo_instructions(
         "write a research paper",
     )
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-fast-route")
     assert call["options"].extra_args == [
         "--no-custom-instructions",
         "--disable-builtin-mcps",
+        "--available-tools=",
+        "--context",
+        "default",
     ]
+    assert call["options"].sandbox_mode is None
+    assert "NO tools" in call["prompt"]
+    assert "shell access" not in call["prompt"].lower()
 
 
 def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
@@ -243,7 +252,7 @@ def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
     mgr = Manager(project_root=tmp_path, runner=runner)
     mgr.divide(_NOVEL_TASK)
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-grounded")
     opts = call["options"]
     assert opts.sandbox_mode == "read-only"
     assert opts.dangerous_yolo is False

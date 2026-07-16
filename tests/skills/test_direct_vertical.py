@@ -4,7 +4,7 @@ import json
 
 from argus_skill.apps._runtime import _workflow_mode_for_project_root
 from argus_skill.manager import Manager
-from argus_skill.manager.domain_author import build_vertical_decision_prompt
+from argus_skill.manager.domain_author import build_fast_vertical_decision_prompt
 from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.skills.vertical_select import (
     VERTICAL_PURPOSES,
@@ -38,6 +38,7 @@ def test_manager_can_commit_direct_vertical(tmp_path) -> None:
         last_agent_message = json.dumps({
             "choice": "existing",
             "vertical": "direct",
+            "confidence": 0.95,
             "execution_task": "创作一篇《秋江赋》，语言典雅但可读。",
         })
         agent_messages = [last_agent_message]
@@ -57,26 +58,26 @@ def test_manager_can_commit_direct_vertical(tmp_path) -> None:
 
 
 def test_manager_prompt_prefers_direct_without_inventing_requirements() -> None:
-    prompt = build_vertical_decision_prompt(
+    prompt = build_fast_vertical_decision_prompt(
         "创作一篇《秋江赋》，语言典雅但可读，给我最终成品。",
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "Use `direct` for a bounded one-off deliverable" in prompt
-    assert "do NOT invent mandatory word counts" in prompt
-    assert "acceptance gates that the operator did not request" in prompt
+    assert "Choose `direct` for a bounded one-off deliverable" in prompt
+    assert "expand the task" in prompt
+    assert "execution_task" not in prompt
 
 
 def test_manager_prompt_routes_short_testable_software_repairs_to_direct() -> None:
-    prompt = build_vertical_decision_prompt(
+    prompt = build_fast_vertical_decision_prompt(
         "Fix the gRPC middleware bug in this repository; the existing tests define success.",
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
     assert "short-cycle software repairs" in prompt
-    assert "existing deterministic tests" in prompt
-    assert "choose `direct`" in prompt
-    assert "multiple internal tool or model turns" in prompt
+    assert "concrete acceptance test" in prompt
+    assert "Choose `direct`" in prompt
+    assert "Engineer/Reviewer turns" in prompt
 
 
 def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:

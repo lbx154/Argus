@@ -309,6 +309,7 @@ def test_manager_calls_flow_through_one_session(tmp_path):
     fake = _RecordingRunner(
         reply=(
             '{"choice": "existing", "vertical": "research", '
+            '"confidence": 0.95, '
             '"execution_task": "write the paper"}'
         )
     )
@@ -316,14 +317,15 @@ def test_manager_calls_flow_through_one_session(tmp_path):
 
     # is_conversational → manager-converse turn (first → resume None).
     mgr.is_conversational("hello there")
-    # divide → manager-vertical-decide turn on the SAME session (resumes prior tid).
+    # divide → tool-free Fast Router on a fresh call. Routing must not inherit
+    # unrelated Manager chat history because that defeats its context cap.
     mgr.divide("write a paper for EMNLP submission")
-    # Two turns total, one continuous thread: first None then non-None resumes.
+    # Two calls total, both fresh: chat owns the persisted session; routing does not.
     assert len(fake.resumes) == 2
     assert fake.resumes[0] is None
-    assert fake.resumes[1] is not None
-    # And the persistent session file advanced to the latest minted tid.
-    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t2"
+    assert fake.resumes[1] is None
+    # The persistent conversation session remains at the chat turn's thread.
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t1"
 
 
 def test_manager_without_runner_has_no_session(tmp_path):

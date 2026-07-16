@@ -10,9 +10,10 @@ This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
 the user-facing *division* step:
 
   * decide     → ``Manager.decide_vertical`` — an explicit built-in env choice is
-                 reused directly; otherwise ONE grounded agent call picks an
-                 existing vertical/data-domain or authors a new data domain (no
-                 keyword classifier; see ``manager/domain_author.py``)
+                 reused directly; otherwise a tool-free Fast Router picks a clear
+                 existing vertical in one model request. Only uncertainty/new-domain
+                 cases escalate to one bounded grounded call (no keyword classifier;
+                 see ``manager/domain_author.py``)
   * stage list → ``verticals/<v>/stages.py`` ``STAGE_ORDER`` via ``load_vertical``
   * commit     → ``skills.vertical_select.persist_vertical`` — the supervisor then
                  TRUSTS the persisted vertical and does NOT re-classify.
@@ -52,6 +53,10 @@ _OPTIMIZE_VERTICALS = frozenset(
 
 log = logging.getLogger(__name__)
 _DEFAULT_MANAGER_REASONING_EFFORT = "xhigh"
+_DEFAULT_FAST_ROUTE_MIN_CONFIDENCE = 0.75
+_DEFAULT_FAST_ROUTE_MAX_TASK_CHARS = 12_000
+_DEFAULT_FAST_ROUTE_MAX_PROMPT_CHARS = 24_000
+_DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS = 32_000
 
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
@@ -83,6 +88,29 @@ def _manager_model() -> str:
         "manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
     )
+
+
+def _manager_fast_route_enabled() -> bool:
+    raw = os.environ.get("ARGUS_SKILL_MANAGER_FAST_ROUTE")
+    if raw is None:
+        return True
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _manager_route_positive_int(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        return max(1, int(raw)) if raw else default
+    except ValueError:
+        return default
+
+
+def _manager_fast_route_min_confidence() -> float:
+    raw = (os.environ.get("ARGUS_SKILL_MANAGER_FAST_ROUTE_MIN_CONFIDENCE") or "").strip()
+    try:
+        return min(1.0, max(0.0, float(raw))) if raw else _DEFAULT_FAST_ROUTE_MIN_CONFIDENCE
+    except ValueError:
+        return _DEFAULT_FAST_ROUTE_MIN_CONFIDENCE
 
 
 def _manager_safe_mode() -> bool:
@@ -646,12 +674,14 @@ class Manager:
 
         A valid built-in named by ``ARGUS_SKILL_VERTICAL`` is an explicit operator
         decision, so it is reused directly without giving the domain author a
-        chance to replace it with a task-specific DATA domain. Otherwise the agent
-        picks an existing built-in vertical (preferred — built-ins ship expert
-        reviewer checklists) or an existing project data domain, else AUTHORS a
-        new data domain. It has shell/read access pinned to ``project_root`` and is
-        told to investigate the repo before deciding (same
-        ``dangerous_yolo``/``safe_mode`` convention as every other real-work call).
+        chance to replace it with a task-specific DATA domain. Otherwise a compact,
+        tool-free model request chooses a clear existing vertical directly. Invalid,
+        low-confidence, explicitly uncertain, or potentially-new-domain answers
+        escalate once to the bounded grounded repository-inspection prompt.
+
+        Fast routing does not choose Live View files or rewrite the task. The
+        original operator task becomes the Planner/Engineer handoff; later Manager
+        stage/chat decisions retain ownership of presentation choices.
 
         FAIL-HARD when agent judgment is needed: no backend, or a model reply that
         is missing / not a valid choice, RAISES ``VerticalDecisionError``. There is
@@ -682,7 +712,10 @@ class Manager:
                 ),
             )
 
-        backend = self._session or self.runner
+        # Routing is intentionally isolated from the persistent Manager chat
+        # session. Reusing prior conversation would violate the Fast Router's
+        # strict context bound and make cost depend on unrelated earlier turns.
+        backend = self.runner
         if backend is None:
             raise VerticalDecisionError(
                 "cannot decide the vertical: the Manager has no backend/runner"
@@ -690,7 +723,9 @@ class Manager:
         from ..core.models import RunnerOptions
         from ..verticals._data_domain import list_data_domains
         from .domain_author import (
+            build_fast_vertical_decision_prompt,
             build_vertical_decision_prompt,
+            parse_fast_vertical_decision,
             parse_vertical_decision,
         )
         from .stage_decider import extract_answer
@@ -708,28 +743,130 @@ class Manager:
                 load_vertical(name, project_root=self.project_root)
             )
         )
-        prompt = build_vertical_decision_prompt(
-            task,
-            verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
-            existing_data_domains=existing,
-            research_target_verticals=research_target_verticals,
-        )
-        from .live_view import manager_workspace_capability_prompt
+        backend_name = str(
+            getattr(backend, "_backend_name", "")
+            or getattr(self.runner, "_backend_name", "")
+            or ""
+        ).strip().lower()
 
-        prompt = (
-            manager_workspace_capability_prompt(
-                self.project_root,
-                manifest_root=self.manager_session_root,
-            )
-            + "\n"
-            + prompt
-        )
-        vertical_extra_args = (
-            ["--no-custom-instructions", "--disable-builtin-mcps"]
-            if str(getattr(self.runner, "_backend_name", "") or "") == "copilot"
-            else None
-        )
+        def _failure_detail(result: Any) -> str:
+            detail = str(getattr(result, "fatal_error", "") or "").strip()
+            if not detail:
+                detail = "\n".join(
+                    map(str, getattr(result, "stderr_lines", None) or [])
+                ).strip()
+            return detail
+
         with self._task_usage_scope(root_task_id):
+            fast_prompt = ""
+            if (
+                _manager_fast_route_enabled()
+                and len((task or "").strip())
+                <= _manager_route_positive_int(
+                    "ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_TASK_CHARS",
+                    _DEFAULT_FAST_ROUTE_MAX_TASK_CHARS,
+                )
+            ):
+                fast_prompt = build_fast_vertical_decision_prompt(
+                    task,
+                    verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                    existing_data_domains=existing,
+                    research_target_verticals=research_target_verticals,
+                )
+            fast_prompt_limit = _manager_route_positive_int(
+                "ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_PROMPT_CHARS",
+                _DEFAULT_FAST_ROUTE_MAX_PROMPT_CHARS,
+            )
+            if fast_prompt and len(fast_prompt) <= fast_prompt_limit:
+                fast_extra_args = None
+                fast_sandbox = "read-only"
+                if backend_name == "copilot":
+                    # No tools means Copilot cannot turn this classification into
+                    # a repository-audit loop. ``--context default`` prevents a
+                    # persisted long-context preference from inflating the call.
+                    fast_sandbox = None
+                    fast_extra_args = [
+                        "--no-custom-instructions",
+                        "--disable-builtin-mcps",
+                        "--available-tools=",
+                        "--context",
+                        "default",
+                    ]
+                fast_result = gateway_run_exec(
+                    backend,
+                    prompt=fast_prompt,
+                    options=RunnerOptions(
+                        model=_manager_model(),
+                        reasoning_effort=_manager_vertical_reasoning_effort(),
+                        working_dir=str(self.project_root),
+                        sandbox_mode=fast_sandbox,
+                        skip_git_repo_check=True,
+                        extra_args=fast_extra_args,
+                    ),
+                    run_label="manager-vertical-fast-route",
+                )
+                fast_detail = _failure_detail(fast_result)
+                if int(getattr(fast_result, "exit_code", 0) or 0) != 0 or fast_detail:
+                    raise VerticalDecisionError(
+                        "Manager fast-route backend failed"
+                        + (f": {fast_detail}" if fast_detail else "")
+                    )
+                fast_route = parse_fast_vertical_decision(
+                    extract_answer(fast_result),
+                    known_verticals=list(vertical_select.VERTICALS),
+                    existing_data_domains=existing,
+                    research_target_verticals=research_target_verticals,
+                )
+                if (
+                    fast_route is not None
+                    and not fast_route.needs_grounding
+                    and fast_route.confidence >= _manager_fast_route_min_confidence()
+                ):
+                    return VerticalDecision(
+                        choice="existing",
+                        vertical=fast_route.vertical,
+                        execution_task=task.strip(),
+                        research_target_level=fast_route.research_target_level,
+                    )
+                log.info(
+                    "Manager fast route escalated to grounded routing: %s",
+                    (
+                        fast_route.rationale
+                        if fast_route is not None and fast_route.rationale
+                        else "invalid or low-confidence fast-route response"
+                    ),
+                )
+            elif fast_prompt:
+                log.info(
+                    "Manager fast route skipped because prompt exceeded %d chars",
+                    fast_prompt_limit,
+                )
+
+            prompt = build_vertical_decision_prompt(
+                task,
+                verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                existing_data_domains=existing,
+                research_target_verticals=research_target_verticals,
+            )
+            grounded_prompt_limit = _manager_route_positive_int(
+                "ARGUS_SKILL_MANAGER_GROUNDED_ROUTE_MAX_PROMPT_CHARS",
+                _DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS,
+            )
+            if len(prompt) > grounded_prompt_limit:
+                raise VerticalDecisionError(
+                    "Manager grounded-route prompt exceeds configured context cap "
+                    f"({len(prompt)} > {grounded_prompt_limit} characters)"
+                )
+            grounded_extra_args = (
+                [
+                    "--no-custom-instructions",
+                    "--disable-builtin-mcps",
+                    "--context",
+                    "default",
+                ]
+                if backend_name == "copilot"
+                else None
+            )
             result = gateway_run_exec(
                 backend,
                 prompt=prompt,
@@ -739,18 +876,14 @@ class Manager:
                     working_dir=str(self.project_root),
                     sandbox_mode="read-only",
                     skip_git_repo_check=True,
-                    extra_args=vertical_extra_args,
+                    extra_args=grounded_extra_args,
                 ),
-                run_label="manager-vertical-decide",
+                run_label="manager-vertical-grounded",
             )
-        detail = str(getattr(result, "fatal_error", "") or "").strip()
+        detail = _failure_detail(result)
         if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
-            if not detail:
-                detail = "\n".join(
-                    map(str, getattr(result, "stderr_lines", None) or [])
-                ).strip()
             raise VerticalDecisionError(
-                "Manager vertical decision backend failed"
+                "Manager grounded-route backend failed"
                 + (f": {detail}" if detail else "")
             )
         answer = extract_answer(result)
@@ -759,13 +892,13 @@ class Manager:
             known_verticals=list(vertical_select.VERTICALS),
             existing_data_domains=existing,
             research_target_verticals=research_target_verticals,
+            default_execution_task=task.strip(),
         )
         if decision is None:
             raise VerticalDecisionError(
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
             )
-        decision.rendering_response = answer
         return decision
 
     def _apply_vertical_decision_rendering(
