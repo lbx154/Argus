@@ -46,6 +46,8 @@ def select_new_run(
         for row in rows
         if int(row.get("databaseId") or 0) not in before
         and str(row.get("headSha") or "") == head_sha
+        and str(row.get("event") or "") == "workflow_dispatch"
+        and str(row.get("headBranch") or "") == "main"
     ]
     return max(candidates, key=lambda row: int(row["databaseId"])) if candidates else None
 
@@ -114,14 +116,10 @@ def list_dispatch_runs() -> list[dict[str, Any]]:
             REPOSITORY,
             "--workflow",
             WORKFLOW,
-            "--branch",
-            "main",
-            "--event",
-            "workflow_dispatch",
             "--limit",
             "20",
             "--json",
-            "databaseId,headSha,status,createdAt,url",
+            "databaseId,headSha,headBranch,event,status,createdAt,url",
         ]
     )
     rows = json.loads(raw or "[]")
