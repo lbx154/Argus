@@ -77,6 +77,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
     },
   }));
   assert.equal(driftedSource.compatible, true);
+  assert.match(driftedSource.warning ?? '', /source differs from its release manifest/);
 });
 
 test('snapshot contract fails closed when budget fields are absent', () => {
@@ -128,6 +129,48 @@ test('startup probe reports the backend checkout and revision', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('startup probe surfaces source drift without rejecting the backend', async () => {
+  const originalFetch = globalThis.fetch;
+  const drifted = meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      release_matches_source: false,
+      runtime_source_digest: 'deadbeef',
+    },
+  });
+  globalThis.fetch = (async () => new Response(JSON.stringify(drifted), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch;
+  try {
+    const probe = await probeApi('127.0.0.1', 8799);
+    assert.equal(probe.state, 'compatible');
+    assert.match(probe.warning ?? '', /source differs from its release manifest/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureApi preserves and emits a compatible source-drift warning', async () => {
+  const warnings: string[] = [];
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8799,
+    onWarning: (warning) => warnings.push(warning),
+    dependencies: {
+      probeApi: async () => ({
+        state: 'compatible',
+        message: 'current release',
+        warning: 'backend source differs from its release manifest',
+      }),
+    },
+  });
+
+  assert.equal(result.reachable, true);
+  assert.equal(result.warning, 'backend source differs from its release manifest');
+  assert.deepEqual(warnings, ['backend source differs from its release manifest']);
 });
 
 // ── Stale-release recovery ──────────────────────────────────────────────────
@@ -355,6 +398,39 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
     const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
     await assert.rejects(() => api.snapshot(), /daemon fields missing/);
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ApiClient forwards compatible source-drift warnings', async () => {
+  const originalFetch = globalThis.fetch;
+  const warnings: string[] = [];
+  let calls = 0;
+  const drifted = meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      release_matches_source: false,
+      runtime_source_digest: 'deadbeef',
+    },
+  });
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return Response.json(calls === 1 ? drifted : { projects: [] });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({
+      host: '127.0.0.1',
+      port: 8799,
+      project: '_',
+      onCompatibilityWarning: (warning) => warnings.push(warning),
+    });
+
+    await api.listProjects();
+
+    assert.deepEqual(warnings, [
+      'backend source differs from its release manifest; rebuild with scripts/build_release.py before release',
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -38,6 +38,7 @@ function resolveBin(): string {
 export interface ApiProbeResult {
   state: 'compatible' | 'incompatible' | 'unreachable';
   message: string;
+  warning?: string;
   meta?: ApiMeta;
 }
 
@@ -69,6 +70,7 @@ export async function probeApi(
     return {
       state: 'compatible',
       message: describeApiRuntime(compatibility.meta),
+      warning: compatibility.warning,
       meta: compatibility.meta,
     };
   } catch (error) {
@@ -83,6 +85,25 @@ export interface EnsureResult {
   reachable: boolean;
   spawned: boolean;
   message: string;
+  warning?: string;
+}
+
+function compatibleResult(
+  probe: ApiProbeResult,
+  options: {
+    spawned: boolean;
+    prefix: string;
+    onWarning?: (warning: string) => void;
+  },
+): EnsureResult {
+  const { spawned, prefix, onWarning } = options;
+  if (probe.warning) onWarning?.(probe.warning);
+  return {
+    reachable: true,
+    spawned,
+    message: `${prefix} · ${probe.message}`,
+    warning: probe.warning,
+  };
 }
 
 export async function ensureApi(opts: {
@@ -92,6 +113,7 @@ export async function ensureApi(opts: {
   autostart?: boolean;
   ownerFile?: string;
   onStatus?: (s: string) => void;
+  onWarning?: (warning: string) => void;
   dependencies?: {
     probeApi: () => Promise<ApiProbeResult>;
     readOwnedApi?: () => Promise<ApiOwnershipRecord | null>;
@@ -101,14 +123,27 @@ export async function ensureApi(opts: {
     sleep?: (ms: number) => Promise<void>;
   };
 }): Promise<EnsureResult> {
-  const { host, port, token, autostart = true, ownerFile, onStatus, dependencies: deps } = opts;
+  const {
+    host,
+    port,
+    token,
+    autostart = true,
+    ownerFile,
+    onStatus,
+    onWarning,
+    dependencies: deps,
+  } = opts;
 
   const doProbe = deps?.probeApi ?? (() => probeApi(host, port, token));
   const doSleep = deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   const initial = await doProbe();
   if (initial.state === 'compatible') {
-    return { reachable: true, spawned: false, message: `api up · ${initial.message}` };
+    return compatibleResult(initial, {
+      spawned: false,
+      prefix: 'api up',
+      onWarning,
+    });
   }
   if (initial.state === 'incompatible') {
     if (!ownerFile) {
@@ -211,7 +246,11 @@ export async function ensureApi(opts: {
       await doSleep(500);
       const probe = await doProbe();
       if (probe.state === 'compatible') {
-        return { reachable: true, spawned: true, message: `api started · ${probe.message}` };
+        return compatibleResult(probe, {
+          spawned: true,
+          prefix: 'api started',
+          onWarning,
+        });
       }
       if (probe.state === 'incompatible') {
         return {
@@ -299,7 +338,11 @@ export async function ensureApi(opts: {
     await doSleep(500);
     const probe = await doProbe();
     if (probe.state === 'compatible') {
-      return { reachable: true, spawned: true, message: `api started · ${probe.message}` };
+      return compatibleResult(probe, {
+        spawned: true,
+        prefix: 'api started',
+        onWarning,
+      });
     }
     if (probe.state === 'incompatible') {
       return {

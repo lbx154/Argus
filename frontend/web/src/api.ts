@@ -201,7 +201,10 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
         throw new Error('incompatible Argus API: service does not expose /api/meta');
       }
       await ensureResponseOk(r, 'GET', path);
-      return requireCompatibleApiMeta(await r.json());
+      return requireCompatibleApiMeta(
+        await r.json(),
+        (warning) => console.warn(`Argus API compatibility warning: ${warning}`),
+      );
     })();
     apiMetaPromise = request;
     void request.catch(() => {

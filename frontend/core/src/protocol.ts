@@ -59,6 +59,7 @@ export interface ApiMeta {
 export interface ApiCompatibility {
   compatible: boolean;
   reason: string;
+  warning?: string;
   meta?: ApiMeta;
 }
 
@@ -134,30 +135,33 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
       reason: `backend loaded source ${String(runtime.source_root)} but ARGUS_SKILL_SOURCE_ROOT points to ${String(runtime.configured_source_root)}`,
     };
   }
-  // NOTE: `release_matches_source === false` is intentionally NOT a hard failure.
-  // It only ever fires for source/editable checkouts (a packaged wheel has no
-  // `frontend/core/src`, so the backend reports `null`). For a dev checkout it
-  // merely means the working tree drifted from the last release-artifact
-  // regeneration — an expected, benign condition that must not brick the Web UI
-  // / TUI. Genuine backend<->frontend build incompatibility is still caught by
-  // the protocol name/major/minor, snapshot schema, required-capability, and
-  // `release_id` checks below (release_id embeds the source digest at build
-  // time, so two truly different builds never share one).
   if (runtime.release_id !== RELEASE_ID) {
     return {
       compatible: false,
       reason: `backend release ${String(runtime.release_id)} does not match client release ${RELEASE_ID}`,
     };
   }
+  // A live source digest is a release-integrity signal, not a wire-contract
+  // version. Editable checkouts keep the last generated release_id while source
+  // changes, so drift cannot prove incompatibility. The versioned protocol,
+  // snapshot schema, and capabilities above remain the compatibility authority;
+  // keep drift visible so operators still know to rebuild before release.
+  const warning = runtime.release_matches_source === false
+    ? 'backend source differs from its release manifest; rebuild with scripts/build_release.py before release'
+    : undefined;
   const meta = value as ApiMeta;
-  return { compatible: true, reason: '', meta };
+  return { compatible: true, reason: '', warning, meta };
 }
 
-export function requireCompatibleApiMeta(value: unknown): ApiMeta {
+export function requireCompatibleApiMeta(
+  value: unknown,
+  onWarning?: (warning: string) => void,
+): ApiMeta {
   const result = inspectApiMeta(value);
   if (!result.compatible || !result.meta) {
     throw new Error(`incompatible Argus API: ${result.reason}`);
   }
+  if (result.warning) onWarning?.(result.warning);
   return result.meta;
 }
 

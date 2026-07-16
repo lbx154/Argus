@@ -76,6 +76,9 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
         token: args.token,
         ownerFile: args.ownerFile,
         onStatus: (s) => !cancelled && setNote(s),
+        onWarning: (warning) => {
+          if (!cancelled) setInitialNotice(`warning: ${warning}`);
+        },
       });
       if (cancelled) return;
       if (!res.reachable) {
@@ -102,13 +105,13 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
         if (created) {
           setInitialAdmission(created.start);
           setInitialResumeContinuous(Boolean(created.objective));
-          setInitialNotice(
-            created.start?.admission_required
+          const createdNotice = created.start?.admission_required
               ? `created ${created.sid} · choose running work to park`
-              : `created ${created.sid} · message Argus when ready`,
-          );
+              : `created ${created.sid} · message Argus when ready`;
+          setInitialNotice((current) => [current, createdNotice].filter(Boolean).join(' · '));
         } else if (selection?.recovered && sid) {
-          setInitialNotice(`requested ${selection.requested} not found · attached to ${sid}`);
+          const recoveredNotice = `requested ${selection.requested} not found · attached to ${sid}`;
+          setInitialNotice((current) => [current, recoveredNotice].filter(Boolean).join(' · '));
         }
         destination.current = sid ? 'live' : startup.kind === 'pick' ? 'picker' : 'empty';
         if (splashDone.current) setPhase(destination.current);
@@ -134,11 +137,10 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     setProject(created.sid);
     setInitialAdmission(created.start);
     setInitialResumeContinuous(Boolean(created.objective));
-    setInitialNotice(
-      created.spawned
+    const createdNotice = created.spawned
         ? `created ${created.sid} · campaign started`
-        : `created ${created.sid} · message Argus when ready`,
-    );
+        : `created ${created.sid} · message Argus when ready`;
+    setInitialNotice((current) => [current, createdNotice].filter(Boolean).join(' · '));
     setPhase('live');
   };
 
@@ -152,7 +154,8 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
     }
     destination.current = 'live';
     setProject(selected.id);
-    setInitialNotice(`resumed ${selected.label || selected.id}`);
+    const resumedNotice = `resumed ${selected.label || selected.id}`;
+    setInitialNotice((current) => [current, resumedNotice].filter(Boolean).join(' · '));
     setPhase('live');
   };
 
@@ -205,6 +208,7 @@ async function main() {
       token: args.token,
       ownerFile: args.ownerFile,
       onStatus: (status) => process.stderr.write(`${status}\n`),
+      onWarning: (warning) => process.stderr.write(`argus: warning: ${warning}\n`),
     });
     if (!result.reachable) {
       process.stderr.write(`argus: ${result.message}\n`);
@@ -221,7 +225,15 @@ async function main() {
   }
 
   if (args.once) {
-    const probe = new ApiClient({ host: args.host, port: args.port, project: '_', token: args.token });
+    const probe = new ApiClient({
+      host: args.host,
+      port: args.port,
+      project: '_',
+      token: args.token,
+      onCompatibilityWarning: (warning) => {
+        process.stderr.write(`argus: warning: ${warning}\n`);
+      },
+    });
     let project: string;
     try {
       const selection = await resolveProject(probe, args.project);
