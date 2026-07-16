@@ -28,6 +28,13 @@ def test_math_vertical_demo_is_story_first_and_honest() -> None:
     assert "<h1>让 Argus 学会做数学研究</h1>" in page
     assert "证据不足时拒绝宣布成功" in page
     assert "这一步做完了。这个问题还没有。" in page
+    assert "原始 #707 的 prime-parameter 陈述已有反例" in page
+    assert "本页研究的 <i>A</i><sub>*</sub> / F4 目标仍然开放" in page
+    assert "<span>数学推导</span><strong>已独立复核</strong>" in page
+    assert "<span>是否为独立新结果</span><strong>仍在查证</strong>" in page
+    assert "<h3>Lean 证书</h3>" in page
+    assert "L35 尚未形式化" in page
+    assert "这一步 bounded gate complete" in page
     assert "Math Vertical · Mechanism Demo" not in page
     assert "三种专属机制，一套通用生命周期" not in page
     assert "五个核心 Skill 组合出九类数学能力" not in page
@@ -41,6 +48,13 @@ def test_math_vertical_demo_is_story_first_and_honest() -> None:
     assert by_id["exact-verifier"]["status"] == "passed_bounded"
     assert "The A*/F4 target studied by this project remains open." in products["non_claims"]
     assert products["items"][2]["scope"].endswith("congruence and coordinate floors for r=0..20")
+
+    case = json.loads((PUBLIC / "CASE_STUDY.json").read_text(encoding="utf-8"))
+    assert case["original_problem_707_status"] == "disproved_by_external_counterexample"
+    assert case["a_star_f4_target_solved"] is False
+    assert case["result"]["correctness"] == "verified_natural_language"
+    assert case["result"]["novelty"] == "mixed_unverified"
+    assert case["human_summary"]["formalization"] == "本案例尚无 Lean 证书。"
 
 
 def test_math_vertical_demo_links_and_manifest_are_complete() -> None:
