@@ -23,11 +23,13 @@ def main() -> int:
         [str(binary), "--help"],
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=False,
         timeout=30,
     )
-    rendered = result.stdout + result.stderr
+    rendered = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0 or "Start Argus" not in rendered:
         raise SystemExit(
             f"binary CLI smoke failed ({result.returncode}):\n{rendered[-4000:]}"
