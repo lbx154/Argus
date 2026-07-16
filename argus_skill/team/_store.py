@@ -7,13 +7,14 @@ mailbox, and roster don't each re-roll them.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from ..core.file_lock import exclusive_file_lock
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
@@ -45,9 +46,6 @@ def locked(lock_path: Path) -> Iterator[None]:
     """Hold an exclusive advisory flock on ``lock_path`` for the block."""
     lock_path = Path(lock_path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "w", encoding="utf-8") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        try:
+    with open(lock_path, "a+b") as fh:
+        with exclusive_file_lock(fh):
             yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)

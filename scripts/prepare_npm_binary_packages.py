@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_TEMPLATE = ROOT / "packaging" / "npm" / "cli"
-SUPPORTED = {("linux", "x64")}
+SUPPORTED = {("linux", "x64"), ("win32", "x64")}
 
 
 def _version() -> str:
@@ -27,7 +27,7 @@ def _write_json(path: Path, payload: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--platform", choices=["linux"], required=True)
+    parser.add_argument("--platform", choices=["linux", "win32"], required=True)
     parser.add_argument("--arch", choices=["x64"], required=True)
     parser.add_argument("--notices", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=ROOT / "dist-binary" / "npm")
@@ -51,7 +51,8 @@ def main() -> int:
     platform_name = f"@argusbot/cli-{args.platform}-{args.arch}"
     platform_dir = output / f"cli-{args.platform}-{args.arch}"
     (platform_dir / "bin").mkdir(parents=True)
-    shipped_binary = platform_dir / "bin" / "argus-core"
+    binary_name = "argus-core.exe" if args.platform == "win32" else "argus-core"
+    shipped_binary = platform_dir / "bin" / binary_name
     shutil.copy2(binary, shipped_binary)
     shipped_binary.chmod(shipped_binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     shutil.copy2(notices, platform_dir / notices.name)
@@ -60,12 +61,12 @@ def main() -> int:
         {
             "name": platform_name,
             "version": version,
-            "description": "Argus proprietary binary for Linux x64.",
+            "description": f"Argus proprietary binary for {args.platform} {args.arch}.",
             "license": "UNLICENSED",
-            "main": "bin/argus-core",
+            "main": f"bin/{binary_name}",
             "os": [args.platform],
             "cpu": [args.arch],
-            "files": ["bin/argus-core", notices.name],
+            "files": [f"bin/{binary_name}", notices.name],
             "publishConfig": {"access": "public"},
         },
     )
@@ -80,7 +81,10 @@ def main() -> int:
     shutil.copytree(CLI_TEMPLATE, cli_dir)
     cli_package = json.loads((cli_dir / "package.json").read_text(encoding="utf-8"))
     cli_package["version"] = version
-    cli_package["optionalDependencies"] = {platform_name: version}
+    cli_package["optionalDependencies"] = {
+        "@argusbot/cli-linux-x64": version,
+        "@argusbot/cli-win32-x64": version,
+    }
     _write_json(cli_dir / "package.json", cli_package)
 
     print(f"npm platform package: {platform_dir}")

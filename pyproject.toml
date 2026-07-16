@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
   "rich>=13.7",
   "PyYAML>=6",
+  "portalocker>=3",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "websockets>=12",

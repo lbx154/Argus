@@ -68,8 +68,14 @@ def _spawn_teammate(root: Path, *, member_id: str, task_id: str, cwd: Path,
                 "--root", str(root), "--member-id", member_id,
                 "--task-id", task_id, "--cwd", str(cwd)]
     with open(log_path, "ab") as log, open(os.devnull, "rb") as devnull:
-        proc = subprocess.Popen(argv, cwd=str(cwd), stdin=devnull, stdout=log,
-                                stderr=log, start_new_session=True)
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(cwd),
+            stdin=devnull,
+            stdout=log,
+            stderr=log,
+            start_new_session=os.name != "nt",
+        )
     roster.add_member(root, {
         "id": member_id, "pid": proc.pid, "worktree": str(cwd),
         "task_id": task_id, "status": "running",

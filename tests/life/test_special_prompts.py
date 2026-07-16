@@ -89,3 +89,19 @@ def test_world_writable_directive_is_rejected(
 
     names = [name for name, _ in special_prompts.load_special_prompts()]
     assert names == ["10-ok"]
+
+
+def test_windows_preview_does_not_apply_posix_mode_bits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    d = tmp_path / "sp"
+    d.mkdir()
+    directive = d / "10-windows.md"
+    directive.write_text("PowerShell machine rule", encoding="utf-8")
+    directive.chmod(0o666)
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
+    monkeypatch.setattr(special_prompts, "_enforce_posix_trust_bits", lambda: False)
+
+    assert special_prompts.load_special_prompts() == [
+        ("10-windows", "PowerShell machine rule")
+    ]

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import shlex
@@ -14,6 +13,8 @@ import uuid
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Sequence
+
+from ..core.file_lock import exclusive_file_lock
 
 DIVISIBILITY_SMOKE_THEOREM = """\
 import Mathlib
@@ -133,7 +134,7 @@ def run_lean_check(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
             cwd=working_dir,
         )
         stdout, stderr = process.communicate(
@@ -141,7 +142,10 @@ def run_lean_check(
         )
     except subprocess.TimeoutExpired as exc:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         stdout, stderr = process.communicate()
@@ -202,7 +206,7 @@ def run_lean_check(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                start_new_session=os.name != "nt",
                 cwd=working_dir,
             )
             audit_stdout, audit_stderr = audit_process.communicate(
@@ -211,7 +215,10 @@ def run_lean_check(
             audit_exit_code = audit_process.returncode
         except subprocess.TimeoutExpired as exc:
             try:
-                os.killpg(audit_process.pid, signal.SIGKILL)
+                if os.name == "nt":
+                    audit_process.kill()
+                else:
+                    os.killpg(audit_process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             audit_stdout, audit_stderr = audit_process.communicate()
@@ -595,8 +602,8 @@ def _artifact_directory_lock(artifact_root: Path):
     descriptor = os.open(lock_path, flags, 0o600)
     try:
         with os.fdopen(descriptor, "a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            yield
+            with exclusive_file_lock(handle):
+                yield
     finally:
         # fdopen owns and closes the descriptor on normal/exceptional exits.
         pass

@@ -17,13 +17,9 @@ def main() -> int:
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     cli = root / "cli"
-    platform = root / "cli-linux-x64"
-    binary = platform / "bin" / "argus-core"
-
-    if not cli.is_dir() or not platform.is_dir() or not binary.is_file():
+    platforms = sorted(path for path in root.glob("cli-*-*") if path.is_dir())
+    if not cli.is_dir() or not platforms:
         raise SystemExit(f"incomplete npm binary package tree: {root}")
-    if not os.access(binary, os.X_OK):
-        raise SystemExit(f"platform binary is not executable: {binary}")
 
     forbidden = sorted(
         path.relative_to(root)
@@ -34,13 +30,23 @@ def main() -> int:
         raise SystemExit(f"npm binary packages contain source-like files: {forbidden[:10]}")
 
     cli_package = json.loads((cli / "package.json").read_text(encoding="utf-8"))
-    platform_package = json.loads((platform / "package.json").read_text(encoding="utf-8"))
-    expected = platform_package["version"]
-    actual = cli_package.get("optionalDependencies", {}).get(platform_package["name"])
-    if actual != expected:
-        raise SystemExit(
-            f"launcher/platform version mismatch: expected {expected}, found {actual}"
+    for platform in platforms:
+        platform_package = json.loads(
+            (platform / "package.json").read_text(encoding="utf-8")
         )
+        binary = platform / platform_package["main"]
+        if not binary.is_file():
+            raise SystemExit(f"missing platform binary: {binary}")
+        if os.name != "nt" and not os.access(binary, os.X_OK):
+            raise SystemExit(f"platform binary is not executable: {binary}")
+        expected = platform_package["version"]
+        actual = cli_package.get("optionalDependencies", {}).get(
+            platform_package["name"]
+        )
+        if actual != expected:
+            raise SystemExit(
+                f"launcher/platform version mismatch: expected {expected}, found {actual}"
+            )
     print(f"npm binary package verification passed: {root}")
     return 0
 

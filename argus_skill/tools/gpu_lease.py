@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 import signal
@@ -42,6 +41,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Iterable, Iterator
+
+from ..core.file_lock import exclusive_file_lock
 
 # -- config -----------------------------------------------------------------
 
@@ -92,13 +93,11 @@ def _lock() -> Iterator[None]:
     """Hold an exclusive flock so claim/park/lease mutations are serialized
     across concurrent missions and subagents."""
     lock_path = _state_dir() / "lock"
-    fh = open(lock_path, "w")
+    fh = open(lock_path, "a+b")
     try:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        yield
+        with exclusive_file_lock(fh):
+            yield
     finally:
-        with contextlib.suppress(OSError):
-            fcntl.flock(fh, fcntl.LOCK_UN)
         fh.close()
 
 
@@ -337,7 +336,10 @@ def _stop_keepalive(match: str, *, timeout: float) -> dict:
         if not keepalive_tree(match):
             return {"freed": tree, "already_free": False}
         time.sleep(0.5)
-    _signal_pids(keepalive_tree(match), signal.SIGKILL)
+    _signal_pids(
+        keepalive_tree(match),
+        getattr(signal, "SIGKILL", signal.SIGTERM),
+    )
     time.sleep(1.0)
     return {"freed": tree, "already_free": False,
             "leftover": keepalive_tree(match)}
@@ -380,7 +382,7 @@ def _start_keepalive(cfg: dict) -> dict:
     with open(log_path, "ab") as log_fh:
         proc = subprocess.Popen(
             command, cwd=cwd, stdout=log_fh, stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL, start_new_session=True,
+            stdin=subprocess.DEVNULL, start_new_session=os.name != "nt",
         )
     # Record what we started for auditing / preferred discovery.
     with contextlib.suppress(OSError):
@@ -498,7 +500,7 @@ def run(cfg: dict, command: list[str], *, detach: bool, owner: str,
         with open(log_path, "ab") as log_fh:
             proc = subprocess.Popen(
                 sup_cmd, stdout=log_fh, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, start_new_session=True,
+                stdin=subprocess.DEVNULL, start_new_session=os.name != "nt",
             )
         return {"detached": True, "lease": lease_id, "supervisor_pid": proc.pid,
                 "log": str(log_path), "command": command}

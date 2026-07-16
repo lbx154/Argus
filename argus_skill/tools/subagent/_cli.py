@@ -122,6 +122,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "submitted_at": time.time(),
     })
 
+    if os.name == "nt":
+        print(json.dumps({
+            "error": "background subagent detach is unavailable in the Windows terminal preview",
+            "hint": "run this workload in the foreground or use WSL2 for detached subagents",
+        }))
+        return 2
+
     # Fork: parent returns immediately
     pid = os.fork()
     if pid > 0:
@@ -446,4 +453,3 @@ def main() -> int:
         parser.print_help()
         return 1
     return handler(args)
-

@@ -1005,7 +1005,7 @@ def _run_direct(
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = subprocess.Popen(
                 command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=True, env=_child_env(),
+                cwd=cwd, start_new_session=os.name != "nt", env=_child_env(),
             )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
@@ -1165,6 +1165,13 @@ def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     terminating only the shell can orphan the trainer and leak the GPU.
     """
     if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        proc.terminate()
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            proc.kill()
         return
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -2005,7 +2012,7 @@ def _run_supervised(
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = subprocess.Popen(
                 command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=True, env=_child_env(),
+                cwd=cwd, start_new_session=os.name != "nt", env=_child_env(),
             )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,

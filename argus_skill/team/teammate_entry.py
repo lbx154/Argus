@@ -463,8 +463,14 @@ def main(argv: list[str] | None = None) -> int:
         log_dir = root / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         with open(log_dir / (member_safe + ".log"), "ab") as log, open(os.devnull, "rb") as devnull:
-            proc = subprocess.Popen(args.mission_cmd.split() + [objective], cwd=cwd,
-                                    stdin=devnull, stdout=log, stderr=log, start_new_session=True)
+            proc = subprocess.Popen(
+                args.mission_cmd.split() + [objective],
+                cwd=cwd,
+                stdin=devnull,
+                stdout=log,
+                stderr=log,
+                start_new_session=os.name != "nt",
+            )
             success = proc.wait() == 0
     else:
         success = run_one_engineer_mission(

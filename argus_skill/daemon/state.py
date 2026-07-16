@@ -718,7 +718,7 @@ def stop_daemon(
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
             return 0
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
         except ProcessLookupError:
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)

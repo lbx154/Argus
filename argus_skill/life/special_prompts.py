@@ -25,6 +25,10 @@ import os
 from pathlib import Path
 
 
+def _enforce_posix_trust_bits() -> bool:
+    return os.name != "nt"
+
+
 def special_prompts_dir() -> Path:
     env = os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
     if env:
@@ -72,20 +76,23 @@ def load_special_prompts(
     directory = special_prompts_dir()
     if not directory.is_dir():
         return []
-    try:
-        dir_uid = directory.stat().st_uid
-    except OSError:
-        return []
+    dir_uid: int | None = None
+    if _enforce_posix_trust_bits():
+        try:
+            dir_uid = directory.stat().st_uid
+        except OSError:
+            return []
     out: list[tuple[str, str]] = []
     for path in sorted(directory.glob("*.md")):
         try:
             if path.is_symlink():
                 continue
             st = path.stat()
-            if st.st_uid != dir_uid:
-                continue  # not owned by the operator
-            if st.st_mode & 0o022:
-                continue  # group/world-writable -> untrusted
+            if _enforce_posix_trust_bits():
+                if st.st_uid != dir_uid:
+                    continue  # not owned by the operator
+                if st.st_mode & 0o022:
+                    continue  # group/world-writable -> untrusted
             scope, body = _scoped_body(path.read_text(encoding="utf-8"))
         except OSError:
             continue
@@ -136,6 +143,14 @@ def describe_special_prompt_gate() -> tuple[bool, str]:
     if load_special_prompts():
         return True, ""
     if not directory.is_dir():
+        if not _enforce_posix_trust_bits():
+            return False, (
+                "no operator special prompts configured — create one in PowerShell:\n"
+                f"  New-Item -ItemType Directory -Force '{directory}' | Out-Null\n"
+                f"  Set-Content -Path '{directory / '10-house-rules.md'}' "
+                "-Value 'Operational house rules for this machine.'\n"
+                "(override the location with $env:ARGUS_SKILL_SPECIAL_PROMPTS_DIR)"
+            )
         return False, (
             f"no operator special prompts configured — create at least one "
             f"house-rules directive:\n"
@@ -147,9 +162,19 @@ def describe_special_prompt_gate() -> tuple[bool, str]:
         )
     md_files = [p for p in directory.glob("*.md") if not p.is_symlink()]
     if not md_files:
+        if not _enforce_posix_trust_bits():
+            return False, (
+                f"no operator special prompts found in {directory} — create at "
+                "least one regular *.md directive there."
+            )
         return False, (
             f"no operator special prompts found in {directory} — drop at least "
             f"one *.md directive there (mode 0644, owned by you)."
+        )
+    if not _enforce_posix_trust_bits():
+        return False, (
+            f"special prompts in {directory} were all rejected; each directive "
+            "must be a readable regular *.md file and not a symlink."
         )
     return False, (
         f"special prompts in {directory} were all rejected by the trust check. "

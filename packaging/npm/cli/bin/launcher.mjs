@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
 
 const require = createRequire(import.meta.url);
 
 const packages = new Map([
   ['linux-x64', '@argusbot/cli-linux-x64'],
+  ['win32-x64', '@argusbot/cli-win32-x64'],
 ]);
 
 export function run(mode) {
@@ -20,7 +22,12 @@ export function run(mode) {
   let binary = process.env.ARGUS_BINARY_PATH;
   if (!binary) {
     try {
-      binary = require.resolve(packageName);
+      const packageRoot = dirname(require.resolve(`${packageName}/package.json`));
+      binary = join(
+        packageRoot,
+        'bin',
+        process.platform === 'win32' ? 'argus-core.exe' : 'argus-core',
+      );
     } catch {
       console.error(
         `Argus platform package ${packageName} is missing. ` +

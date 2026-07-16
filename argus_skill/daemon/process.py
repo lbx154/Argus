@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,89 @@ from .state import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _windows_daemon_command(config: Any) -> list[str]:
+    """Re-enter the active package/binary as one foreground worker."""
+    command = [sys.executable]
+    if not getattr(sys, "frozen", False):
+        command.extend(["-m", "argus_skill"])
+    global_root = config.global_root or config.life_dir.parent.parent
+    command.extend(
+        [
+            "--daemon-fg",
+            "--life-dir",
+            str(global_root),
+            "--resume",
+            config.life_dir.name,
+            "--backend",
+            str(config.backend),
+        ]
+    )
+    if config.continuous:
+        command.extend(["--continuous", "--objective", config.continuous_objective])
+    if config.resume_continuous:
+        command.append("--resume-continuous")
+    if not config.continuous_open_ended:
+        command.append("--bounded")
+    return command
+
+
+def _spawn_windows_background_process(
+    config: Any,
+    *,
+    pid_path,
+    status_path,
+    log_path,
+    spawn_lock_fd: int | None,
+    release_spawn_lock: Callable[..., None],
+    quiet: bool,
+) -> int:
+    """Launch the terminal-scoped Windows worker without POSIX fork()."""
+    env = os.environ.copy()
+    env["ARGUS_BINARY_MODE"] = "cli"
+    creationflags = (
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with log_path.open("ab") as log_handle:
+            process = subprocess.Popen(
+                _windows_daemon_command(config),
+                cwd=config.project_workdir,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+                creationflags=creationflags,
+            )
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            if pid_path.exists() and status_path.exists():
+                try:
+                    written_pid = int(pid_path.read_text().strip())
+                except (OSError, ValueError):
+                    written_pid = 0
+                if written_pid == process.pid and _process_alive(written_pid):
+                    if not quiet:
+                        sys.stdout.write(
+                            f"argus-skill: daemon started (pid {written_pid}, "
+                            f"life_dir={config.life_dir}, log={log_path}).\n"
+                        )
+                    return 0
+            if process.poll() is not None:
+                break
+            time.sleep(0.1)
+        if not quiet:
+            sys.stderr.write(
+                "argus-skill: Windows worker did not publish its status within "
+                f"8s. Check {log_path} for errors.\n"
+            )
+        return 2
+    finally:
+        release_spawn_lock(spawn_lock_fd)
 
 def spawn_detached_process(
     config: Any,
@@ -49,6 +133,7 @@ def spawn_detached_process(
     """
     spawn_lock_fd = acquire_spawn_lock(config)
     workspace_lease_fd: int | None = None
+    delegated_windows_spawn = False
     try:
         # Count and fork while holding one host-wide admission lock. A second
         # launcher cannot observe the same pre-start count before this child has
@@ -84,7 +169,7 @@ def spawn_detached_process(
                 )
             release_spawn_lock(spawn_lock_fd)
             return 2
-        if acquire_workspace_lease is not None:
+        if acquire_workspace_lease is not None and os.name != "nt":
             try:
                 workspace_lease_fd = acquire_workspace_lease(config)
             except Exception as exc:  # noqa: BLE001
@@ -98,11 +183,23 @@ def spawn_detached_process(
         _point_active_daemon_log(config.life_dir, log_path)
         pid_path = _daemon_pid_path(config.life_dir)
         status_path = _daemon_status_path(config.life_dir)
+        if os.name == "nt":
+            delegated_windows_spawn = True
+            return _spawn_windows_background_process(
+                config,
+                pid_path=pid_path,
+                status_path=status_path,
+                log_path=log_path,
+                spawn_lock_fd=spawn_lock_fd,
+                release_spawn_lock=release_spawn_lock,
+                quiet=quiet,
+            )
         pid = os.fork()
     except Exception:
         if release_workspace_lease is not None:
             release_workspace_lease(workspace_lease_fd)
-        release_spawn_lock(spawn_lock_fd)
+        if not delegated_windows_spawn:
+            release_spawn_lock(spawn_lock_fd)
         raise
     if pid > 0:
         try:

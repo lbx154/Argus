@@ -49,6 +49,8 @@ def _pid_is_teammate(pid: int, member_id: str) -> bool:
     Defends against PID recycling: a dead teammate's pid may be reused by an
     unrelated process, so we adopt only when ``teammate_entry`` and this exact
     member id are both on the command line."""
+    if os.name == "nt":
+        return False
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
     except OSError:
@@ -152,8 +154,19 @@ class Curator:
         devnull = open(os.devnull, "rb")
         # OWN session (own pgroup) — the Curator owns it via the retained handle,
         # NOT via a shared process group (which would be the daemon's).
-        return subprocess.Popen(argv, cwd=str(cwd), stdin=devnull, stdout=log,
-                                stderr=log, start_new_session=True)
+        return subprocess.Popen(
+            argv,
+            cwd=str(cwd),
+            stdin=devnull,
+            stdout=log,
+            stderr=log,
+            start_new_session=os.name != "nt",
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if os.name == "nt"
+                else 0
+            ),
+        )
 
     def _spawn_tracked(self, root: Path, *, member_id: str, task_id: str,
                        cwd: Path, now: float | None = None) -> int:
@@ -274,6 +287,13 @@ class Curator:
         """Kill one tracked child's process group (SIGTERM → grace → SIGKILL)."""
         proc = tt.proc
         if proc.poll() is not None:
+            return
+        if os.name == "nt":
+            proc.terminate()
+            try:
+                proc.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                proc.kill()
             return
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)

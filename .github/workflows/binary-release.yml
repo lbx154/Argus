@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the generated Linux x64 packages to npm
+        description: Publish Linux/Windows x64 packages and the launcher to npm
         required: true
         default: false
         type: boolean
@@ -14,9 +14,22 @@ permissions:
   id-token: write
 
 jobs:
-  linux-x64:
-    # Build on glibc 2.35 for broader compatibility than ubuntu-24.04.
-    runs-on: ubuntu-22.04
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Build on glibc 2.35 for broader compatibility than ubuntu-24.04.
+          - os: ubuntu-22.04
+            platform: linux
+            binary: argus-core
+          - os: windows-2022
+            platform: win32
+            binary: argus-core.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -51,34 +64,51 @@ jobs:
       - name: Build and verify executable
         run: |
           python scripts/build_binary.py
-          python scripts/verify_binary.py dist-binary/argus-core
+          python scripts/verify_binary.py dist-binary/${{ matrix.binary }}
 
       - name: Prepare npm packages
         run: |
           python scripts/prepare_npm_binary_packages.py \
-            --binary dist-binary/argus-core \
-            --platform linux \
+            --binary dist-binary/${{ matrix.binary }} \
+            --platform ${{ matrix.platform }} \
             --arch x64 \
             --notices dist-binary/THIRD_PARTY_NOTICES.txt
           python scripts/verify_npm_binary_packages.py
-          npm pack --dry-run dist-binary/npm/cli-linux-x64
+          npm pack --dry-run dist-binary/npm/cli-${{ matrix.platform }}-x64
           npm pack --dry-run dist-binary/npm/cli
 
       - uses: actions/upload-artifact@v4
         with:
-          name: argus-linux-x64
+          name: argus-${{ matrix.platform }}-x64
           path: |
-            dist-binary/argus-core
-            dist-binary/argus-core.sha256
+            dist-binary/${{ matrix.binary }}
+            dist-binary/${{ matrix.binary }}.sha256
             dist-binary/THIRD_PARTY_NOTICES.txt
             dist-binary/npm
 
       - name: Publish platform package
         if: ${{ inputs.publish }}
         run: npm publish --provenance --access public
-        working-directory: dist-binary/npm/cli-linux-x64
+        working-directory: dist-binary/npm/cli-${{ matrix.platform }}-x64
+
+  launcher:
+    if: ${{ inputs.publish }}
+    needs: platform
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: argus-linux-x64
+          path: dist-binary
 
       - name: Publish launcher package
-        if: ${{ inputs.publish }}
         run: npm publish --provenance --access public
         working-directory: dist-binary/npm/cli

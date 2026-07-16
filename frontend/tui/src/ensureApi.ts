@@ -266,6 +266,7 @@ export async function ensureApi(opts: {
       const child = spawn(bin, ['--web', '--web-host', host, '--web-port', String(port)], {
         detached: true,
         stdio: 'ignore',
+        windowsHide: true,
       });
       child.unref();
       return { pid: child.pid! };
@@ -339,6 +340,7 @@ export async function ensureApi(opts: {
     const child = spawn(bin, ['--web', '--web-host', host, '--web-port', String(port)], {
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     });
     child.unref();
     return { pid: child.pid! };

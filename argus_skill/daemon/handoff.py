@@ -200,9 +200,9 @@ def _spawn_handoff_candidate(
                 stdin=subprocess.DEVNULL,
                 stdout=log_fh,
                 stderr=subprocess.STDOUT,
-                cwd="/",
+                cwd=None if os.name == "nt" else "/",
                 env=env,
-                start_new_session=True,
+                start_new_session=os.name != "nt",
                 close_fds=True,
             )
     except OSError:
