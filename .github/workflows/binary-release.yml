@@ -175,26 +175,26 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          for package in \
-            @argusevolve/argus-linux-x64 \
-            @argusevolve/argus-win32-x64 \
-            @argusevolve/argus; do
-            if npm view "$package@$RELEASE_VERSION" version >/dev/null 2>&1; then
-              echo "$package@$RELEASE_VERSION already exists; npm versions are immutable" >&2
+          for version in \
+            "$RELEASE_VERSION-linux-x64" \
+            "$RELEASE_VERSION-win32-x64" \
+            "$RELEASE_VERSION"; do
+            if npm view "@argusevolve/argus@$version" version >/dev/null 2>&1; then
+              echo "@argusevolve/argus@$version already exists; npm versions are immutable" >&2
               exit 1
             fi
           done
 
       - name: Publish audited platform tarballs, then Argus
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          linux_tarball=$(find release/linux/packs -name 'argusevolve-argus-linux-x64-*.tgz' -print -quit)
-          windows_tarball=$(find release/windows/packs -name 'argusevolve-argus-win32-x64-*.tgz' -print -quit)
-          argus_tarball=$(find release/linux/packs -name 'argusevolve-argus-[0-9]*.tgz' -print -quit)
+          linux_tarball=$(find release/linux/packs -name "argusevolve-argus-$RELEASE_VERSION-linux-x64.tgz" -print -quit)
+          windows_tarball=$(find release/windows/packs -name "argusevolve-argus-$RELEASE_VERSION-win32-x64.tgz" -print -quit)
+          argus_tarball=$(find release/linux/packs -name "argusevolve-argus-$RELEASE_VERSION.tgz" -print -quit)
           test -n "$linux_tarball"
           test -n "$windows_tarball"
           test -n "$argus_tarball"
-          npm publish "$linux_tarball" --access public --tag beta
-          npm publish "$windows_tarball" --access public --tag beta
+          npm publish "$linux_tarball" --access public --tag linux-x64
+          npm publish "$windows_tarball" --access public --tag win32-x64
           npm publish "$argus_tarball" --access public --tag beta

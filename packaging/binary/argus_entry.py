@@ -22,6 +22,8 @@ def main() -> int:
     os.environ["ARGUS_SKILL_AUTOCOMMIT_SKILLS"] = "0"
 
     mode = os.environ.get("ARGUS_BINARY_MODE", "tui").strip().lower()
+    if sys.argv[1:2] == ["--setup"]:
+        mode = "cli"
     if sys.argv[1:2] == ["--argus-internal-cli"]:
         mode = "cli"
         del sys.argv[1]

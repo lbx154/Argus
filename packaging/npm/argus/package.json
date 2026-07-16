@@ -23,8 +23,8 @@
     "x64"
   ],
   "optionalDependencies": {
-    "@argusevolve/argus-linux-x64": "0.0.0-development",
-    "@argusevolve/argus-win32-x64": "0.0.0-development"
+    "@argusevolve/argus-linux-x64": "npm:@argusevolve/argus@0.0.0-development-linux-x64",
+    "@argusevolve/argus-win32-x64": "npm:@argusevolve/argus@0.0.0-development-win32-x64"
   },
   "publishConfig": {
     "access": "public"

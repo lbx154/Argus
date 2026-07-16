@@ -8,22 +8,23 @@ import json
 import tarfile
 from pathlib import Path, PurePosixPath
 
-EXPECTED_FILES = {
-    "@argusevolve/argus": {
-        "package/package.json",
-        "package/README.md",
-        "package/bin/argus.mjs",
-        "package/bin/argus-skill.mjs",
-        "package/bin/launcher.mjs",
-    },
-    "@argusevolve/argus-linux-x64": {
+PACKAGE_NAME = "@argusevolve/argus"
+LAUNCHER_FILES = {
+    "package/package.json",
+    "package/README.md",
+    "package/bin/argus.mjs",
+    "package/bin/argus-skill.mjs",
+    "package/bin/launcher.mjs",
+}
+PLATFORM_FILES = {
+    "linux-x64": {
         "package/package.json",
         "package/README.md",
         "package/THIRD_PARTY_NOTICES.txt",
         "package/bin/argus-core",
         "package/bin/argus-core.sha256",
     },
-    "@argusevolve/argus-win32-x64": {
+    "win32-x64": {
         "package/package.json",
         "package/README.md",
         "package/THIRD_PARTY_NOTICES.txt",
@@ -31,6 +32,18 @@ EXPECTED_FILES = {
         "package/bin/argus-core.exe.sha256",
     },
 }
+
+
+def _variant(version: str) -> str | None:
+    for variant in PLATFORM_FILES:
+        if version.endswith(f"-{variant}"):
+            return variant
+    return None
+
+
+def _base_version(version: str) -> str:
+    variant = _variant(version)
+    return version[: -(len(variant) + 1)] if variant else version
 
 FORBIDDEN_PARTS = {
     ".git",
@@ -70,9 +83,10 @@ def verify(path: Path) -> tuple[str, str]:
         )
         package_name = str(package.get("name") or "")
         version = str(package.get("version") or "")
-        expected = EXPECTED_FILES.get(package_name)
-        if expected is None:
+        if package_name != PACKAGE_NAME:
             raise RuntimeError(f"{path.name}: unexpected package {package_name!r}")
+        variant = _variant(version)
+        expected = PLATFORM_FILES[variant] if variant else LAUNCHER_FILES
         if names != expected:
             missing = sorted(expected - names)
             extra = sorted(names - expected)
@@ -92,17 +106,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("tarballs", type=Path, nargs="+")
     args = parser.parse_args()
-    found: dict[str, str] = {}
+    found: set[tuple[str, str]] = set()
+    base_versions: set[str] = set()
     for raw in args.tarballs:
         path = raw.expanduser().resolve()
         name, version = verify(path)
-        if name in found:
-            raise SystemExit(f"duplicate npm package tarball: {name}")
-        found[name] = version
+        key = (name, version)
+        if key in found:
+            raise SystemExit(f"duplicate npm package tarball: {name}@{version}")
+        found.add(key)
+        base_versions.add(_base_version(version))
         print(f"verified {name}@{version}: {path.name}")
-    versions = set(found.values())
-    if len(versions) != 1:
-        raise SystemExit(f"npm tarball versions disagree: {found}")
+    if len(base_versions) != 1:
+        raise SystemExit(f"npm tarball base versions disagree: {sorted(found)}")
     return 0
 
 

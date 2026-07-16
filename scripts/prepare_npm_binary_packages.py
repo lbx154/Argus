@@ -26,6 +26,10 @@ def validate_version(value: str) -> str:
     return version
 
 
+def platform_version(version: str, platform: str, arch: str) -> str:
+    return f"{version}-{platform}-{arch}"
+
+
 def _write_json(path: Path, payload: dict) -> None:
     path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -61,7 +65,10 @@ def main() -> int:
         shutil.rmtree(output)
     output.mkdir(parents=True)
 
-    platform_name = f"@argusevolve/argus-{args.platform}-{args.arch}"
+    package_name = "@argusevolve/argus"
+    packaged_platform_version = platform_version(
+        version, args.platform, args.arch
+    )
     platform_dir = output / f"argus-{args.platform}-{args.arch}"
     (platform_dir / "bin").mkdir(parents=True)
     binary_name = "argus-core.exe" if args.platform == "win32" else "argus-core"
@@ -78,8 +85,8 @@ def main() -> int:
     _write_json(
         platform_dir / "package.json",
         {
-            "name": platform_name,
-            "version": version,
+            "name": package_name,
+            "version": packaged_platform_version,
             "description": f"Argus proprietary binary for {args.platform} {args.arch}.",
             "license": "UNLICENSED",
             "main": f"bin/{binary_name}",
@@ -109,8 +116,12 @@ def main() -> int:
     )
     argus_package["version"] = version
     argus_package["optionalDependencies"] = {
-        "@argusevolve/argus-linux-x64": version,
-        "@argusevolve/argus-win32-x64": version,
+        "@argusevolve/argus-linux-x64": (
+            f"npm:@argusevolve/argus@{platform_version(version, 'linux', 'x64')}"
+        ),
+        "@argusevolve/argus-win32-x64": (
+            f"npm:@argusevolve/argus@{platform_version(version, 'win32', 'x64')}"
+        ),
     }
     _write_json(argus_dir / "package.json", argus_package)
 

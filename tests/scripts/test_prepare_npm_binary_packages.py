@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.prepare_npm_binary_packages import validate_version
+from scripts.prepare_npm_binary_packages import platform_version, validate_version
 
 
 def test_beta_version_validation() -> None:
@@ -17,6 +17,9 @@ def test_beta_version_validation() -> None:
         validate_version("0.1.1")
     with pytest.raises(ValueError):
         validate_version("0.1.1-beta.latest")
+    assert platform_version("0.1.1-beta.7", "linux", "x64") == (
+        "0.1.1-beta.7-linux-x64"
+    )
 
 
 def test_prepared_packages_use_argus_brand_and_exact_allowlist(tmp_path: Path) -> None:
@@ -61,8 +64,11 @@ def test_prepared_packages_use_argus_brand_and_exact_allowlist(tmp_path: Path) -
         (output / "argus-linux-x64" / "package.json").read_text()
     )
     assert main["name"] == "@argusevolve/argus"
-    assert platform["name"] == "@argusevolve/argus-linux-x64"
-    assert main["optionalDependencies"][platform["name"]] == "0.1.1-beta.7"
+    assert platform["name"] == "@argusevolve/argus"
+    assert platform["version"] == "0.1.1-beta.7-linux-x64"
+    assert main["optionalDependencies"]["@argusevolve/argus-linux-x64"] == (
+        "npm:@argusevolve/argus@0.1.1-beta.7-linux-x64"
+    )
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     assert (
         output / "argus-linux-x64" / "bin" / "argus-core.sha256"

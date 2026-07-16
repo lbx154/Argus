@@ -54,6 +54,8 @@ def main() -> int:
         platform_package = json.loads(
             (platform / "package.json").read_text(encoding="utf-8")
         )
+        if platform_package.get("name") != "@argusevolve/argus":
+            raise SystemExit("platform variants must use the single Argus package name")
         binary_rel = str(platform_package["main"])
         digest_rel = f"{binary_rel}.sha256"
         expected_files = {
@@ -71,14 +73,16 @@ def main() -> int:
         expected_digest = hashlib.sha256(binary.read_bytes()).hexdigest()
         if digest_line != f"{expected_digest}  {binary.name}":
             raise SystemExit(f"SHA-256 mismatch for {binary}")
-        version = platform_package["version"]
-        dependency_version = argus_package.get("optionalDependencies", {}).get(
-            platform_package["name"]
-        )
-        if dependency_version != version:
+        platform_os = str(platform_package["os"][0])
+        platform_cpu = str(platform_package["cpu"][0])
+        alias_name = f"@argusevolve/argus-{platform_os}-{platform_cpu}"
+        version = str(platform_package["version"])
+        dependency_spec = argus_package.get("optionalDependencies", {}).get(alias_name)
+        expected_spec = f"npm:@argusevolve/argus@{version}"
+        if dependency_spec != expected_spec:
             raise SystemExit(
-                f"launcher/platform version mismatch: expected {version}, "
-                f"found {dependency_version}"
+                f"launcher/platform alias mismatch: expected {expected_spec}, "
+                f"found {dependency_spec}"
             )
     print(f"npm binary package verification passed: {root}")
     return 0
