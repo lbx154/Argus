@@ -3,18 +3,25 @@ name: Binary release
 on:
   push:
     branches:
-      - release/binary-only
+      - main
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish Linux/Windows x64 packages and the launcher to npm
+        description: Publish the audited tarballs to the npm beta channel
         required: true
         default: false
         type: boolean
+      version:
+        description: New immutable MAJOR.MINOR.PATCH version (required when publishing)
+        required: false
+        type: string
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: binary-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   platform:
@@ -43,7 +50,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: https://registry.npmjs.org
+
+      - name: Set immutable publish version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test -n "$RELEASE_VERSION"
+          python scripts/set_binary_release_version.py "$RELEASE_VERSION"
 
       - name: Install frontend dependencies
         run: |
@@ -58,9 +72,16 @@ jobs:
       - name: Install binary build dependencies
         run: python -m pip install --upgrade pip '.[binary]' pytest
 
+      - name: Scan only shipped inputs for credentials
+        run: python scripts/scan_binary_release_inputs.py
+
       - name: Run binary release tests
         run: |
-          python -m pytest -q tests/core/test_release.py tests/apps/test_tui_launcher.py
+          python -m pytest -q \
+            tests/core/test_release.py \
+            tests/apps/test_tui_launcher.py \
+            tests/daemon/test_windows_terminal_process.py \
+            tests/tools/test_verify_npm_tarballs.py
           npm test --prefix frontend/web
           npm test --prefix frontend/tui
 
@@ -69,7 +90,7 @@ jobs:
           python scripts/build_binary.py
           python scripts/verify_binary.py dist-binary/${{ matrix.binary }}
 
-      - name: Prepare npm packages
+      - name: Prepare isolated npm staging directories
         run: |
           python scripts/prepare_npm_binary_packages.py \
             --binary dist-binary/${{ matrix.binary }} \
@@ -77,31 +98,45 @@ jobs:
             --arch x64 \
             --notices dist-binary/THIRD_PARTY_NOTICES.txt
           python scripts/verify_npm_binary_packages.py
-          npm pack --dry-run dist-binary/npm/cli-${{ matrix.platform }}-x64
-          npm pack --dry-run dist-binary/npm/cli
+
+      - name: Pack and audit exact npm tarballs
+        run: |
+          mkdir -p dist-binary/packs
+          npm pack \
+            --pack-destination dist-binary/packs \
+            dist-binary/npm/cli-${{ matrix.platform }}-x64
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            npm pack \
+              --pack-destination dist-binary/packs \
+              dist-binary/npm/cli
+          fi
+          python scripts/verify_npm_tarballs.py dist-binary/packs/*.tgz
 
       - uses: actions/upload-artifact@v4
         with:
           name: argus-${{ matrix.platform }}-x64
+          if-no-files-found: error
           path: |
             dist-binary/${{ matrix.binary }}
             dist-binary/${{ matrix.binary }}.sha256
             dist-binary/THIRD_PARTY_NOTICES.txt
-            dist-binary/npm
+            dist-binary/packs/*.tgz
 
-      - name: Publish platform package
-        if: ${{ inputs.publish }}
-        run: npm publish --provenance --access public --tag beta
-        working-directory: dist-binary/npm/cli-${{ matrix.platform }}-x64
-
-  launcher:
-    if: ${{ inputs.publish }}
+  publish:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     needs: platform
     runs-on: ubuntu-22.04
+    environment: npm-beta
     permissions:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -110,8 +145,41 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: argus-linux-x64
-          path: dist-binary
+          path: release/linux
 
-      - name: Publish launcher package
-        run: npm publish --provenance --access public --tag beta
-        working-directory: dist-binary/npm/cli
+      - uses: actions/download-artifact@v4
+        with:
+          name: argus-win32-x64
+          path: release/windows
+
+      - name: Re-audit downloaded release tarballs
+        run: |
+          python scripts/verify_npm_tarballs.py \
+            release/linux/packs/*.tgz \
+            release/windows/packs/*.tgz
+
+      - name: Refuse an already-published immutable version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          for package in \
+            @argusbot/cli-linux-x64 \
+            @argusbot/cli-win32-x64 \
+            @argusbot/cli; do
+            if npm view "$package@$RELEASE_VERSION" version >/dev/null 2>&1; then
+              echo "$package@$RELEASE_VERSION already exists; npm versions are immutable" >&2
+              exit 1
+            fi
+          done
+
+      - name: Publish audited platform tarballs, then launcher
+        run: |
+          linux_tarball=$(find release/linux/packs -name 'argusbot-cli-linux-x64-*.tgz' -print -quit)
+          windows_tarball=$(find release/windows/packs -name 'argusbot-cli-win32-x64-*.tgz' -print -quit)
+          launcher_tarball=$(find release/linux/packs -name 'argusbot-cli-[0-9]*.tgz' -print -quit)
+          test -n "$linux_tarball"
+          test -n "$windows_tarball"
+          test -n "$launcher_tarball"
+          npm publish "$linux_tarball" --provenance --access public --tag beta
+          npm publish "$windows_tarball" --provenance --access public --tag beta
+          npm publish "$launcher_tarball" --provenance --access public --tag beta

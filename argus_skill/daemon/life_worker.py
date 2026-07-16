@@ -1978,4 +1978,10 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:
-    return run_foreground_process(config, worker_factory=LifeWorker)
+    return run_foreground_process(
+        config,
+        worker_factory=LifeWorker,
+        workspace_start_error=_workspace_start_error,
+        acquire_workspace_lease=_acquire_daemon_workspace_lease,
+        release_workspace_lease=_release_daemon_workspace_lease,
+    )

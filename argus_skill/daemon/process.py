@@ -19,6 +19,7 @@ from .state import (
     _daemon_status_payload,
     _new_boot_id,
     _point_active_daemon_log,
+    _process_alive,
     _redirect_std_to_log,
     read_daemon_status,
 )
@@ -341,18 +342,39 @@ def run_foreground_process(
     config: Any,
     *,
     worker_factory: Callable[[Any], Any],
+    workspace_start_error: Callable[[Any], str] | None = None,
+    acquire_workspace_lease: Callable[[Any], int | None] | None = None,
+    release_workspace_lease: Callable[..., None] | None = None,
 ) -> int:
     """Run the worker in the foreground (for systemd / debugging).
 
     Same lock + status sidecar as the detached path, but logs go to
     stderr and SIGINT/SIGTERM stop the process directly.
     """
+    workspace_error = (
+        workspace_start_error(config)
+        if workspace_start_error is not None
+        else ""
+    )
+    if workspace_error:
+        sys.stderr.write(f"argus-skill: {workspace_error}.\n")
+        return 3
+    workspace_lease_fd: int | None = None
+    if acquire_workspace_lease is not None:
+        try:
+            workspace_lease_fd = acquire_workspace_lease(config)
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"argus-skill: {exc}.\n")
+            return 3
+
     config.life_dir.mkdir(parents=True, exist_ok=True)
     pid_path = _daemon_pid_path(config.life_dir)
     status_path = _daemon_status_path(config.life_dir)
     try:
         lock = acquire_global_daemon_lock(pid_path=pid_path)
     except DaemonAlreadyRunning as exc:
+        if release_workspace_lease is not None:
+            release_workspace_lease(workspace_lease_fd)
         sys.stderr.write(
             f"argus-skill: daemon already running for this life-dir "
             f"(pid={exc.pid}, lock={exc.lock_path}).\n"
@@ -403,5 +425,10 @@ def run_foreground_process(
             status_path.unlink()
         except OSError:
             pass
+        if release_workspace_lease is not None:
+            try:
+                release_workspace_lease(workspace_lease_fd)
+            except Exception:  # noqa: BLE001
+                log.exception("daemon-fg: failed to release workspace lease")
 
 __all__ = ["run_foreground_process", "spawn_detached_process"]
