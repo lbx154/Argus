@@ -14,11 +14,17 @@ Honesty contract (the same split style_lint uses):
   DETERMINISTIC FACT — the span literally appears in both — so a run at/over the
   block threshold is a BLOCKING ``verbatim_copy`` finding. Copying is categorically
   different from stylistic taste: there is a ground truth, so it earns real teeth.
-* The THRESHOLDS (how long a run blocks; the overlap-ratio budget) are MODEL-SEED,
-  pending corpus calibration, and are set conservatively HIGH so legitimate short
-  quotation / idiom / allusion passes as a note and only sentence-level lifting
-  blocks. Medium runs and the aggregate overlap ratio are NON-blocking notes unless
-  the author declares a tighter ``novelty_budget``.
+* Comparison is punctuation- AND whitespace-insensitive (zh compares the stream of
+  letters/ideographs/digits only), so swapping a comma for a period cannot split a
+  verbatim run to evade the gate. en compares word tokens (punctuation already
+  dropped).
+* Besides a single long run, the AGGREGATE verbatim-overlap ratio blocks when it
+  exceeds a conservative model-seed default (guarded by an absolute floor so a
+  short legitimate quotation in a tiny excerpt never trips it) — this catches
+  lightly-edited 洗稿 that reorders/rebreaks copied text into medium runs.
+* The THRESHOLDS (run length, overlap ratio) are MODEL-SEED, pending corpus
+  calibration, and set conservatively HIGH so legitimate short quotation/allusion
+  passes as a note. An author may TIGHTEN via ``novelty_budget``.
 * Semantic / paraphrase plagiarism is NOT machine-reliable, so it earns NO teeth
   here — that stays reviewer guidance. We never fake a similarity score.
 
@@ -27,6 +33,7 @@ Absent a reference text (an original, not a continuation) nothing fires.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from .style import novelty_budget
@@ -38,9 +45,10 @@ NOVELTY_FINDING_TYPE = "verbatim_copy"
 
 _CALIBRATION = "model-seed (BCC-pending)"
 
-#: Model-seed run thresholds per language, in TOKENS (zh: characters; en: words).
-#: Conservatively high: a 24-char / 12-word contiguous verbatim run is a lifted
-#: sentence, not an idiom. The run LENGTH is a fact; only these numbers are seeds.
+#: Model-seed run thresholds per language, in TOKENS (zh: letters/ideographs/digits
+#: with punctuation stripped; en: words). Conservatively high: a 24-char / 12-word
+#: contiguous verbatim run is a lifted sentence, not an idiom. The run LENGTH is a
+#: fact; only these numbers are seeds.
 _DEFAULTS: dict[str, dict[str, int]] = {
     "zh": {"note_run": 12, "block_run": 24},
     "en": {"note_run": 6, "block_run": 12},
@@ -50,14 +58,22 @@ _DEFAULTS: dict[str, dict[str, int]] = {
 #: the unavoidable handful of short shared spans any continuation carries).
 _RATIO_NOTE_FLOOR = 0.05
 
+#: Model-seed DEFAULT: a draft whose verbatim overlap with the source exceeds this
+#: fraction blocks even without an author-declared budget — but only once an
+#: absolute amount of text has been copied (``_MIN_COVERED_FOR_RATIO_BLOCK``), so a
+#: single short quotation in a tiny excerpt can never trip the ratio gate. Real
+#: original continuations measure ≈0 here; near-verbatim 洗稿 measures ≫0.5.
+_DEFAULT_OVERLAP_BLOCK = 0.5
+_MIN_COVERED_FOR_RATIO_BLOCK = 40
+
 
 def _tokens(text: str, language: str) -> tuple[list[str], list[int]]:
     """Return ``(tokens, original_char_index_per_token)`` for run detection.
 
-    zh: each non-whitespace CHARACTER is a token (punctuation kept — copied prose
-    keeps it; only whitespace / line-rewrap is normalized away). en: each
-    lowercased WORD is a token (case + spacing normalized; copying survives both).
-    The char index lets a run map back to a source line for the finding.
+    zh: each letter / ideograph / digit is a token — whitespace AND punctuation are
+    dropped, so a punctuation-only edit cannot split a verbatim run. en: each
+    lowercased WORD is a token (case + spacing + punctuation normalized). The char
+    index lets a run map back to a source line for the finding.
     """
     tokens: list[str] = []
     idx: list[int] = []
@@ -67,7 +83,7 @@ def _tokens(text: str, language: str) -> tuple[list[str], list[int]]:
             idx.append(m.start())
     else:
         for i, ch in enumerate(text):
-            if not ch.isspace():
+            if unicodedata.category(ch)[0] in ("L", "N"):
                 tokens.append(ch)
                 idx.append(i)
     return tokens, idx
@@ -160,7 +176,15 @@ def check_novelty(
 
     if d_tokens:
         ratio = covered / len(d_tokens)
-        if max_ratio is not None and ratio > float(max_ratio):
+        if max_ratio is not None:
+            blocks_ratio = ratio > float(max_ratio)
+            thr = f"declared novelty_budget.max_overlap_ratio {max_ratio}"
+        else:
+            blocks_ratio = (
+                ratio > _DEFAULT_OVERLAP_BLOCK and covered >= _MIN_COVERED_FOR_RATIO_BLOCK
+            )
+            thr = f"model-seed default {_DEFAULT_OVERLAP_BLOCK}"
+        if blocks_ratio:
             findings.append({
                 "type": NOVELTY_FINDING_TYPE,
                 "severity": "major",
@@ -168,8 +192,8 @@ def check_novelty(
                 "line": None,
                 "run_len": None,
                 "detail": (
-                    f"verbatim overlap ratio {ratio:.2f} exceeds declared "
-                    f"novelty_budget.max_overlap_ratio {max_ratio}"
+                    f"verbatim overlap ratio {ratio:.2f} ({covered} tokens) exceeds "
+                    f"{thr}"
                 ),
                 "calibration": _CALIBRATION,
             })

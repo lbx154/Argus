@@ -94,3 +94,35 @@ def test_novelty_budget_validates_against_schema():
         "meta": {"language": "zh"},
         "novelty_budget": {"max_verbatim_run": 20, "max_overlap_ratio": 0.2},
     })
+
+
+def test_punctuation_swap_does_not_evade_block():
+    # a lazy copier swaps 、，。 to try to split the verbatim run — punctuation is
+    # stripped before comparison, so the full run still blocks.
+    evaded = "黛玉自那日弃舟登岸时。便有荣国府打发了轿子并拉行李的车辆久候了。"  # ，→。
+    assert not is_original(evaded, _REF, {}, "zh")
+    assert any(f["blocking"] and f["type"] == NOVELTY_FINDING_TYPE
+               for f in check_novelty(evaded, _REF, {}, "zh"))
+
+
+def test_default_high_overlap_blocks_light_edit_without_budget():
+    # 洗稿: copies three canon sentences verbatim but rebreaks them with distinct
+    # connectors so NO single run reaches the 24-token block threshold. The
+    # aggregate overlap ratio (over the absolute floor) blocks by default.
+    s1 = "话说那年冬月里贾府上下正忙着预备过年"
+    s2 = "王熙凤管着家中一应大小事务十分辛苦"
+    s3 = "宝玉黛玉两个每日一处顽笑却不知愁为何物"
+    ref = f"{s1}。{s2}。{s3}。"
+    draft = f"却说{s1}，此其一。{s2}，此其二。{s3}，此其三。"
+    findings = check_novelty(draft, ref, {}, "zh")
+    assert not is_original(draft, ref, {}, "zh")
+    assert any(f["blocking"] and "overlap ratio" in f["detail"] for f in findings)
+    # it was the RATIO that caught it, not any single over-threshold run
+    assert not any(f["blocking"] and (f.get("run_len") or 0) >= 24 for f in findings)
+
+
+def test_short_quotation_in_tiny_excerpt_is_not_ratio_blocked():
+    # the absolute-covered floor means a lone short quote can't ratio-block a tiny
+    # excerpt even though its ratio is high (only a declared budget could).
+    assert is_original(_ECHO, _REF2, {}, "zh")
+
