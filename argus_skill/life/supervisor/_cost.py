@@ -106,6 +106,16 @@ class _CostTrackingSink:
                 self.engineer_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
                 self._engineer_round_count += 1
+            elif kind == EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED:
+                in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
+                    event,
+                    layer="engineer_skill_maintenance",
+                )
+                self.engineer_input_tokens += in_tok
+                self.engineer_cached_input_tokens += cached_tok
+                self.engineer_output_tokens += out_tok
+                self.engineer_reasoning_output_tokens += reasoning_out_tok
+                self.copilot_premium_requests += self._premium_delta(event)
             elif kind == EventType.ROUND_REVIEW_STARTED:
                 if not self._reviewer_notified and self._on_phase_change:
                     self._reviewer_notified = True

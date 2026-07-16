@@ -4,19 +4,18 @@ This is the new code that argus-skill exists to deliver. It composes:
 
   * ``SkillStore`` (vendored from skill-agent): horizontal skill cache.
   * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
-    vertical round-loop that supervises the engineer until the reviewer
-    is satisfied.
+    vertical round-loop that accepts decisive Engineer self-verification for
+    bounded work or otherwise supervises until the Reviewer is satisfied.
 
-Skill AND wiki memory are REVIEWER-owned: there is no separate authoring
-agent and no Manager approval gate. The executable Reviewer receives the exact
-project skill/wiki paths and directly edits durable reusable memory before its
-final verdict. Legacy ``skill_ops`` / ``wiki_ops`` parsing remains only for old
-event replay and compatibility.
+Skill and wiki memory normally use independent review. For a bounded mission,
+the Engineer may explicitly self-verify and waive Reviewer; if it also identifies
+durable skill learning, the same Engineer thread is resumed once to author the
+create/update candidate, which still passes through SkillRouter safeguards.
 
 End-to-end shape:
 
-    task → matcher/Scientist → engineer round-loop (engineer turn → reviewer)
-            outcome → record skill use and preserve direct Reviewer edits
+    task → matcher/Scientist → engineer round-loop (engineer → self-review|reviewer)
+            outcome → record skill use and preserve validated memory edits
             continue → inject next_action, next round
             blocked → stop with reason; direct memory edits remain persisted
 """
@@ -26,16 +25,22 @@ import logging
 import math
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, RoundRecord
+from .core.models import LoopOutcome, RoundRecord, RunnerOptions
 from .core.ports import RunnerBackend
+from .core.run_gateway import run_exec as gateway_run_exec
+from .core.secret_guard import known_secret_values, redact_secrets_text
 from .core.stop_kinds import stop_kind_is_recoverable
 from .core.task_contract import EFFECTIVE_TASK_CONTRACT
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from .engineer.self_review import (
+    EngineerCompletionDecision,
+    EngineerSkillMaintenanceOutcome,
+)
 from .reviewer import Reviewer, ReviewerConfig
 from .skills.missions import EngineerMission
 from .skills.role_match import render_skill_playbook
@@ -105,6 +110,25 @@ class SkillLoopConfig:
     dangerous_yolo: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
+    # Engineer-authored review waivers are explicit and fail closed: no valid
+    # marker or no verbatim verification means the ordinary Reviewer still runs.
+    engineer_self_review_enabled: bool = field(
+        default_factory=lambda: (
+            os.environ.get("ARGUS_SKILL_ENGINEER_SELF_REVIEW", "1").strip().lower()
+            not in {"0", "false", "no", "off"}
+        )
+    )
+    # If a self-approved Engineer requests skill create/update, resume that same
+    # provider thread once and apply its candidate through SkillRouter.
+    engineer_skill_maintenance_enabled: bool = field(
+        default_factory=lambda: (
+            os.environ.get(
+                "ARGUS_SKILL_ENGINEER_SKILL_MAINTENANCE",
+                "1",
+            ).strip().lower()
+            not in {"0", "false", "no", "off"}
+        )
+    )
     # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
     # deliverable; the Engineer and Reviewer still run normally.
     workflow_mode: str = "staged"
@@ -743,6 +767,10 @@ class SkillLoop:
                 original_request=request_anchor,
                 include_static=include_static,
                 role_banner=engineer_role_banner,
+                allow_self_review=(
+                    self.config.engineer_self_review_enabled
+                    and str(scope or "").strip().lower() != "final_submission"
+                ),
             )
             guidance: list[str] = []
             if self.extra_guidance_provider is not None:
@@ -795,6 +823,177 @@ class SkillLoop:
                 on_event=self.on_event,
             )
 
+        def maintain_skill_with_engineer(
+            decision: EngineerCompletionDecision,
+            thread_id: str | None,
+            engineer_summary: str,
+        ) -> EngineerSkillMaintenanceOutcome:
+            nonlocal skill_name, skill_distilled
+            action = decision.skill_action
+            if action not in {"create", "update"}:
+                return EngineerSkillMaintenanceOutcome()
+            if not thread_id:
+                return EngineerSkillMaintenanceOutcome(
+                    attempted=False,
+                    success=False,
+                    summary="same-session continuation unavailable: no thread id",
+                )
+            target_name = decision.skill_name.strip()
+            action_instruction = (
+                "Create one new reusable Engineer skill."
+                if action == "create"
+                else (
+                    "Return a complete replacement for the existing Engineer "
+                    f"skill named `{target_name}`; preserve that exact title."
+                )
+            )
+            prompt = (
+                "Continue the SAME Engineer session. The project task is already "
+                "complete and self-verified. Do not change project deliverables, "
+                "rerun the task, invoke a Reviewer, or launch subagents. Perform "
+                "only the requested reusable skill maintenance.\n\n"
+                f"Action: {action_instruction}\n"
+                f"Why this is reusable: {decision.skill_reason}\n"
+                f"Verified lesson: {decision.verification}\n\n"
+                "Generalize away mission IDs, local absolute paths, exact issue "
+                "text, and one-off constants. Return exactly one Markdown skill "
+                "with these sections: `# <title>`, `## Description`, "
+                "`## Category`, `## When to use`, `## When NOT to use`, "
+                "`## How to solve`, and `## Pitfalls`. If the trajectory does "
+                "not support a defensible reusable skill after all, output "
+                "exactly `NONE`.\n\n"
+                "For context, the completed Engineer summary was:\n"
+                + engineer_summary[-8000:]
+            )
+            self._emit({
+                "type": EventType.ENGINEER_SKILL_MAINTENANCE_STARTED,
+                "action": action,
+                "name": target_name,
+                "session_id": thread_id,
+                "text": (
+                    "resuming Engineer session for skill "
+                    f"{action}{f' `{target_name}`' if target_name else ''}"
+                ),
+            })
+            backend_name = str(
+                getattr(self.engineer_runner, "_backend_name", "") or ""
+            ).strip().lower()
+            extra_args = list(self.config.extra_args or [])
+            sandbox_mode: str | None = "read-only"
+            if backend_name == "copilot":
+                sandbox_mode = None
+                extra_args.extend([
+                    "--no-custom-instructions",
+                    "--disable-builtin-mcps",
+                    "--available-tools=",
+                ])
+            try:
+                result = gateway_run_exec(
+                    self.engineer_runner,
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        model=self.config.engineer_model,
+                        reasoning_effort=self.config.engineer_reasoning_effort,
+                        extra_args=extra_args or None,
+                        full_auto=False,
+                        dangerous_yolo=False,
+                        sandbox_mode=sandbox_mode,
+                        skip_git_repo_check=True,
+                        working_dir=str(workdir),
+                    ),
+                    run_label="engineer-skill-maintenance",
+                    resume_thread_id=thread_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._emit({
+                    "type": EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
+                    "action": action,
+                    "name": target_name,
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "input_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_output_tokens": 0,
+                    "premium_requests": 0.0,
+                    "usage_scope": "delta",
+                    "text": "Engineer skill maintenance call failed",
+                })
+                return EngineerSkillMaintenanceOutcome(
+                    attempted=True,
+                    success=False,
+                    summary=f"failed: {type(exc).__name__}: {exc}",
+                    thread_id=thread_id,
+                )
+
+            raw_content = str(getattr(result, "last_agent_message", "") or "").strip()
+            content = redact_secrets_text(
+                raw_content,
+                known_values=known_secret_values(),
+            )
+            counts = {"created": 0, "updated": 0, "archived": 0, "rejected": 0}
+            error = str(getattr(result, "fatal_error", "") or "").strip()
+            call_ok = int(getattr(result, "exit_code", 0) or 0) == 0 and not error
+            if call_ok and content and not content.upper().startswith("NONE"):
+                op = {
+                    "op": action,
+                    "content": content,
+                    "why": decision.skill_reason,
+                }
+                if action == "update":
+                    op["name"] = target_name
+                counts = self.skill_router.apply_ops(
+                    [op],
+                    task=skill_task,
+                    on_event=self._emit,
+                )
+                if action == "create" and counts["created"]:
+                    from .skills.skill_prompts import Prompts
+
+                    created_name, _, _, _ = Prompts.parse_skill_output(content)
+                    skill_name = created_name
+                    skill_distilled = True
+            success = bool(counts["created"] or counts["updated"])
+            if call_ok and content.upper().startswith("NONE"):
+                summary = "Engineer found no defensible reusable skill"
+            elif success:
+                summary = (
+                    f"{action} applied"
+                    + (f" for `{target_name}`" if target_name else "")
+                )
+            elif error:
+                summary = f"failed: {error}"
+            else:
+                summary = "skill candidate rejected or empty"
+            self._emit({
+                "type": EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
+                "action": action,
+                "name": target_name,
+                "success": success,
+                "counts": counts,
+                "error": error,
+                "session_id": getattr(result, "thread_id", None) or thread_id,
+                "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
+                "cached_input_tokens": int(
+                    getattr(result, "cached_input_tokens", 0) or 0
+                ),
+                "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+                "reasoning_output_tokens": int(
+                    getattr(result, "reasoning_output_tokens", 0) or 0
+                ),
+                "premium_requests": float(
+                    getattr(result, "premium_requests", 0.0) or 0.0
+                ),
+                "usage_scope": "delta",
+                "text": summary,
+            })
+            return EngineerSkillMaintenanceOutcome(
+                attempted=True,
+                success=success,
+                summary=summary,
+                thread_id=getattr(result, "thread_id", None) or thread_id,
+            )
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -809,6 +1008,12 @@ class SkillLoop:
                 session_id=self.config.session_id,
                 checkpoint_path=self.config.checkpoint_path,
                 engineer_log_path=self.config.engineer_log_path,
+                allow_engineer_self_review=(
+                    self.config.engineer_self_review_enabled
+                ),
+                allow_engineer_skill_maintenance=(
+                    self.config.engineer_skill_maintenance_enabled
+                ),
             ),
             workdir=workdir,
             on_event=self.on_event,
@@ -818,12 +1023,13 @@ class SkillLoop:
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
+            engineer_skill_maintenance=maintain_skill_with_engineer,
         )
 
-        # Step 4: learn from the OUTCOME. The executable Reviewer has already
-        # received and directly edited the project skill/wiki paths when durable
-        # learning existed. Here we record effectiveness evidence and keep the
-        # legacy proposal path available only for old replay compatibility.
+        # Step 4: learn from the OUTCOME. A called Reviewer may already have
+        # edited durable memory; a self-approved Engineer may instead have used
+        # its same-session maintenance continuation. Here we record effectiveness
+        # evidence and retain legacy proposal replay compatibility.
         if skill is not None:
             try:
                 if status == "done":
@@ -1045,6 +1251,7 @@ class SkillLoop:
         original_request: str = "",
         include_static: bool = True,
         role_banner: str = "",
+        allow_self_review: bool = False,
     ) -> str:
         # STATIC remains byte-stable for provider prefix caching. Autonomous
         # Engineer calls are always fresh and receive the full prompt.
@@ -1085,7 +1292,29 @@ class SkillLoop:
             "## Required output\n"
             "End with `## Verification (verbatim)` containing literal decisive "
             "command output in a fenced block, then `## Summary` with at most 8 "
-            "bullets. Do not paraphrase verification evidence."
+            "bullets. Do not paraphrase verification evidence.\n\n"
+            + (
+                "You have authority to waive an independent Reviewer only when "
+                "you judge this mission bounded and low-risk, all requested work "
+                "is complete, decisive local verification passed, and no unresolved "
+                "failure or judgment-heavy claim remains. Simple inspections, "
+                "small deterministic repairs, and narrow checks are typical cases. "
+                "Otherwise require review. If a reusable Engineer skill should be "
+                "created or updated from the verified trajectory, request it here; "
+                "the harness will resume this same session once for skill maintenance.\n"
+                if allow_self_review
+                else
+                "Independent review is required for this mission; set `review` to "
+                "`required`.\n"
+            )
+            + "Your FINAL line must be exactly:\n"
+            'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
+            '"reason":"<brief judgment>","verification":"<what passed>",'
+            '"skill_action":"none|create|update","skill_name":"<required for '
+            'update, else empty>","skill_reason":"<required for create/update, '
+            'else empty>"}\n'
+            "The marker is a decision, not evidence: the literal evidence must "
+            "remain in the fenced Verification block."
         )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)

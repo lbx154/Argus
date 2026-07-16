@@ -1,4 +1,4 @@
-"""Reviewer-owned skill evolution applied after one supervised mission."""
+"""Post-mission skill evolution after Engineer self-review or independent review."""
 
 from __future__ import annotations
 

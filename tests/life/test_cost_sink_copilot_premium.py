@@ -111,6 +111,25 @@ def test_sink_folds_manager_util_and_scientist_premium() -> None:
     assert sink.total_usd() >= sink.copilot_usd()
 
 
+def test_sink_counts_same_session_skill_maintenance_as_engineer_cost() -> None:
+    sink = _sink()
+    sink.handle_event({
+        "type": "engineer.skill_maintenance.completed",
+        "input_tokens": 120,
+        "cached_input_tokens": 20,
+        "output_tokens": 30,
+        "reasoning_output_tokens": 10,
+        "premium_requests": 7.5,
+        "usage_scope": "delta",
+    })
+
+    assert sink.engineer_input_tokens == 120
+    assert sink.engineer_cached_input_tokens == 20
+    assert sink.engineer_output_tokens == 30
+    assert sink.engineer_reasoning_output_tokens == 10
+    assert sink.copilot_premium_requests == 7.5
+
+
 def test_copilot_rate_is_configurable(monkeypatch) -> None:
     from argus_skill.life.supervisor import _cost
 

@@ -5,7 +5,8 @@ This is the heart of the argus-skill v0.1 integration:
   * Each round, run the engineer with the current task prompt
     (initial task + optional skill block + optional reviewer next_action
     from prior round).
-  * Call the reviewer to render a structured verdict.
+  * Accept an explicit, decisively verified Engineer self-review waiver for a
+    bounded task; otherwise call the Reviewer for a structured verdict.
   * If ``done``, stop. If ``continue``, capture ``next_action`` and loop.
     If ``blocked``, stop and surface the reason.
 
@@ -62,6 +63,13 @@ from .background_subagents import (
     wait_for_subagent_cadence,
 )
 from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
+from .self_review import (
+    EngineerCompletionDecision,
+    EngineerSkillMaintenanceOutcome,
+    engineer_self_approved_review,
+    parse_engineer_completion_decision,
+    verbatim_verification_output,
+)
 
 log = logging.getLogger(__name__)
 
@@ -303,6 +311,7 @@ def _review_event_payload(
     round_max: int,
     text: str,
     review_skipped: bool = False,
+    review_source: str = "",
 ) -> dict[str, object]:
     """Adapter — runner adds ``round_max`` / ``text`` / ``review_skipped``
     on top of the canonical reviewer payload. The reviewer JSON schema's
@@ -314,6 +323,7 @@ def _review_event_payload(
             round_max=round_max,
             text=text,
             review_skipped=review_skipped,
+            review_source=review_source,
         ),
         known_values=known_secret_values(),
     )
@@ -743,8 +753,13 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
-    # Every Engineer turn is followed by a Reviewer turn. Retained only for
-    # source compatibility with older callers.
+    # The Engineer may explicitly waive independent review after decisive
+    # self-verification. Missing/malformed waivers fail closed to Reviewer.
+    allow_engineer_self_review: bool = False
+    # When a self-approved Engineer requests reusable skill maintenance, resume
+    # that exact provider thread for one bounded create/update continuation.
+    allow_engineer_skill_maintenance: bool = False
+    # Retained only for source compatibility with older callers.
     review_deferral_limit: int = 0
 
 
@@ -1122,7 +1137,7 @@ def _is_effective_codex_session_line(line: str) -> bool:
 
 
 class SupervisedEngineer:
-    """Run the engineer with reviewer-gated retries.
+    """Run the Engineer with self-verification or Reviewer-gated retries.
 
     Stateless across calls. Construct once with backends, call ``run``
     per task.
@@ -1156,6 +1171,10 @@ class SupervisedEngineer:
         prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
+        engineer_skill_maintenance: Callable[
+            [EngineerCompletionDecision, str | None, str],
+            EngineerSkillMaintenanceOutcome,
+        ] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -1199,8 +1218,7 @@ class SupervisedEngineer:
             # ``round_index > 1`` guarantees round 1 always runs (spend is 0 at
             # entry); a misconfigured cap<=0 is a no-op via ``exceeded()``. This is
             # a hard STOP, NOT a completion — the supervisor leaves the item pending
-            # and journals a budget_pause; the reviewer stays the sole done-ness
-            # authority (anti-cheat). CHECKPOINT.md stays on disk for the next
+            # and journals a budget_pause. CHECKPOINT.md stays on disk for the next
             # fresh mission attempt.
             if (
                 per_mission_budget is not None
@@ -1568,6 +1586,140 @@ class SupervisedEngineer:
                 no_progress_streak += 1
             else:
                 no_progress_streak = 0
+
+            completion_decision = parse_engineer_completion_decision(
+                engineer_message
+            )
+            if (
+                completion_decision is not None
+                and completion_decision.requests_review_skip
+            ):
+                self_review_rejection = ""
+                verification_output = verbatim_verification_output(
+                    engineer_message
+                )
+                if not supervised_config.allow_engineer_self_review:
+                    self_review_rejection = "Engineer self-review is disabled"
+                elif str(scope or "").strip().lower() == "final_submission":
+                    self_review_rejection = (
+                        "final_submission requires independent Reviewer certification"
+                    )
+                elif int(getattr(engineer_result, "exit_code", 0) or 0) != 0:
+                    self_review_rejection = "Engineer process did not exit successfully"
+                elif fatal_error:
+                    self_review_rejection = "Engineer reported a fatal backend error"
+                elif pending_secret_guard_notes:
+                    self_review_rejection = (
+                        "secret-guard findings require independent review"
+                    )
+                elif no_progress_streak:
+                    self_review_rejection = (
+                        "Engineer produced no successful work signal"
+                    )
+                elif not verification_output:
+                    self_review_rejection = (
+                        "missing non-empty `## Verification (verbatim)` output"
+                    )
+
+                if self_review_rejection:
+                    if on_event:
+                        on_event({
+                            "type": EventType.ENGINEER_SELF_REVIEW_REJECTED,
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "reason": self_review_rejection,
+                            "text": (
+                                "Engineer review waiver rejected; invoking Reviewer: "
+                                + self_review_rejection
+                            ),
+                        })
+                else:
+                    maintenance = EngineerSkillMaintenanceOutcome()
+                    if completion_decision.skill_action != "none":
+                        if (
+                            supervised_config.allow_engineer_skill_maintenance
+                            and engineer_skill_maintenance is not None
+                        ):
+                            try:
+                                maintenance = engineer_skill_maintenance(
+                                    completion_decision,
+                                    round_thread_id,
+                                    engineer_message,
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                log.exception(
+                                    "Engineer same-session skill maintenance failed"
+                                )
+                                maintenance = EngineerSkillMaintenanceOutcome(
+                                    attempted=True,
+                                    success=False,
+                                    summary=(
+                                        "failed: "
+                                        f"{type(exc).__name__}: {exc}"
+                                    ),
+                                    thread_id=round_thread_id,
+                                )
+                        else:
+                            maintenance = EngineerSkillMaintenanceOutcome(
+                                attempted=False,
+                                success=False,
+                                summary="requested but maintenance is disabled",
+                                thread_id=round_thread_id,
+                            )
+                    review = engineer_self_approved_review(
+                        completion_decision,
+                        maintenance_summary=maintenance.summary,
+                    )
+                    pending_secret_guard_notes.clear()
+                    if on_event:
+                        on_event({
+                            "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "reason": completion_decision.reason,
+                            "verification": completion_decision.verification,
+                            "skill_action": completion_decision.skill_action,
+                            "skill_maintenance_attempted": maintenance.attempted,
+                            "skill_maintenance_success": maintenance.success,
+                            "text": (
+                                "Engineer self-verification accepted; "
+                                "independent Reviewer waived"
+                            ),
+                        })
+                        on_event(_review_event_payload(
+                            review,
+                            round_index=round_index,
+                            round_max=supervised_config.max_rounds,
+                            text=(
+                                "review: skipped (Engineer self-verification) — "
+                                + review.reason
+                            ),
+                            review_skipped=True,
+                            review_source="engineer_self_review",
+                        ))
+                    record = RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=review,
+                        fatal_error=engineer_result.fatal_error,
+                    )
+                    rounds.append(record)
+                    if review_completed_hook is not None:
+                        try:
+                            review_completed_hook(record)
+                        except Exception:  # noqa: BLE001
+                            log.warning(
+                                "self-review completion hook failed",
+                                exc_info=True,
+                            )
+                    return (
+                        "done",
+                        rounds,
+                        last_engineer_message,
+                        review.reason,
+                        maintenance.thread_id or round_thread_id,
+                    )
 
             if prepare_review_context is not None:
                 try:
@@ -2006,7 +2158,6 @@ class SupervisedEngineer:
                         waited_s,
                     )
                     no_progress_streak = 0
-                    last_next_action = review.next_action or ""
                     continue
                 else:
                     rejection_code, rejection_reason = _review_wait_rejection(

@@ -66,6 +66,10 @@ class EventType(StrEnum):
     ROUND_STALL = "round.stall"
     ROUND_REVIEWER_BACKEND_FAILURE = "round.reviewer_backend_failure"
     ENGINEER_PROGRESS = "engineer.progress"
+    ENGINEER_SELF_REVIEW_ACCEPTED = "engineer.self_review.accepted"
+    ENGINEER_SELF_REVIEW_REJECTED = "engineer.self_review.rejected"
+    ENGINEER_SKILL_MAINTENANCE_STARTED = "engineer.skill_maintenance.started"
+    ENGINEER_SKILL_MAINTENANCE_COMPLETED = "engineer.skill_maintenance.completed"
     LIFE_STATUS = "life.status"
     LIFE_PHASE_STARTED = "life.phase.started"
     LIFE_MISSION_STARTED = "life.mission.started"
@@ -172,6 +176,10 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
     EventType.ROUND_REVIEWER_BACKEND_FAILURE,
+    EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
+    EventType.ENGINEER_SELF_REVIEW_REJECTED,
+    EventType.ENGINEER_SKILL_MAINTENANCE_STARTED,
+    EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
@@ -285,7 +293,7 @@ class EventValidation:
 
 def _category(event_type: EventType) -> EventCategory:
     value = event_type.value
-    if value.startswith("agent.io.") or value == EventType.ENGINEER_PROGRESS:
+    if value.startswith("agent.io.") or value.startswith("engineer."):
         return EventCategory.AGENT_IO
     if value.startswith("provider."):
         return EventCategory.PROVIDER
