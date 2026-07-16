@@ -66,6 +66,17 @@ test('protocol contract accepts the current server and rejects missing capabilit
   }));
   assert.equal(wrongRelease.compatible, false);
   assert.match(wrongRelease.reason, /does not match client release/);
+  // A source/editable checkout whose working tree drifted from the last release
+  // build reports release_matches_source=false but keeps a matching release_id;
+  // this must remain compatible so `argus-skill --web` from source is not bricked.
+  const driftedSource = inspectApiMeta(meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      release_matches_source: false,
+      runtime_source_digest: 'deadbeef',
+    },
+  }));
+  assert.equal(driftedSource.compatible, true);
 });
 
 test('snapshot contract fails closed when budget fields are absent', () => {

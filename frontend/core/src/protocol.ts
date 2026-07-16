@@ -134,12 +134,15 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
       reason: `backend loaded source ${String(runtime.source_root)} but ARGUS_SKILL_SOURCE_ROOT points to ${String(runtime.configured_source_root)}`,
     };
   }
-  if (runtime.release_matches_source === false) {
-    return {
-      compatible: false,
-      reason: `backend release manifest does not match loaded source (${String(runtime.runtime_source_digest)} != ${String(runtime.manifest_source_digest)})`,
-    };
-  }
+  // NOTE: `release_matches_source === false` is intentionally NOT a hard failure.
+  // It only ever fires for source/editable checkouts (a packaged wheel has no
+  // `frontend/core/src`, so the backend reports `null`). For a dev checkout it
+  // merely means the working tree drifted from the last release-artifact
+  // regeneration — an expected, benign condition that must not brick the Web UI
+  // / TUI. Genuine backend<->frontend build incompatibility is still caught by
+  // the protocol name/major/minor, snapshot schema, required-capability, and
+  // `release_id` checks below (release_id embeds the source digest at build
+  // time, so two truly different builds never share one).
   if (runtime.release_id !== RELEASE_ID) {
     return {
       compatible: false,
