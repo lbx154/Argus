@@ -52,7 +52,6 @@ body { background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-ser
 .evidence { display: grid; grid-template-rows: auto 1fr auto; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: .07in; min-height: 0; }
 .metric-card { border: 1px solid #d8e0e8; border-left: .045in solid #315bce; background: white; border-radius: .06in; padding: .08in .10in; display: grid; grid-template-rows: auto auto auto 1fr; }
-.metric-card.digest { border-left-color: #c38a20; }
 .metric-head { display: flex; justify-content: space-between; gap: .05in; align-items: start; }
 .metric-head span { font-size: 8.5pt; font-weight: 700; }
 .metric-head i { color: #6d7783; font-size: 6.7pt; font-style: normal; text-align: right; }
@@ -64,9 +63,6 @@ body { background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-ser
 .portfolio span { font-size: 8.7pt; font-weight: 700; }
 .portfolio small { color: #687380; font-size: 7.3pt; text-align: right; }
 footer { border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justify-content: space-between; color: #66717d; font-size: 7.6pt; }
-.legend { display: flex; gap: .14in; }
-.legend span::before { content: ''; display: inline-block; width: .07in; height: .07in; border-radius: 50%; background: #315bce; margin-right: .04in; }
-.legend span:first-child::before { background: #c38a20; }
 </style>
 </head>
 <body>
@@ -95,38 +91,38 @@ footer { border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justi
     </article>
     <article class="panel evidence">
       <div class="panel-title"><b>B</b><strong>Public evidence in task-native units</strong></div>
-      <div class="metrics"><div class="metric-card snapshot">
-              <div class="metric-head"><span>SOL-ExecBench</span><i>website snapshot</i></div>
+      <div class="metrics"><div class="metric-card">
+              <div class="metric-head"><span>SOL-ExecBench</span><i>GPT-5.5 · Codex</i></div>
               <strong>Global #6 · 2× #1 · 7 top-3</strong>
               <small>B200 · 101 kernels</small>
               <p>Two head-to-head wins over Recursive</p>
             </div>
-<div class="metric-card digest">
-              <div class="metric-head"><span>nanochat · B200</span><i>artifact digest</i></div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanochat · B200</span><i>GPT-5.5 · Codex</i></div>
               <strong>0.9636 BPB</strong>
               <small>5 min · 1×B200 · 426 attempts</small>
               <p>Human SOTA: 0.9646</p>
             </div>
-<div class="metric-card snapshot">
-              <div class="metric-head"><span>nanochat · H100</span><i>website snapshot</i></div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanochat · H100</span><i>GPT-5.5 · Codex</i></div>
               <strong>0.9855 BPB</strong>
               <small>5 min · 1×H100 · 37 mechanisms</small>
               <p>Human SOTA: 0.9879</p>
             </div>
-<div class="metric-card digest">
-              <div class="metric-head"><span>nanoGPT speedrun</span><i>artifact digest</i></div>
+<div class="metric-card">
+              <div class="metric-head"><span>nanoGPT speedrun</span><i>GPT-5.5 · Codex</i></div>
               <strong>79.77 seconds</strong>
               <small>8×H100 · N=10</small>
               <p>Same-device human #83: 80.18s</p>
             </div>
-<div class="metric-card snapshot">
-              <div class="metric-head"><span>AARRI-Bench</span><i>website snapshot</i></div>
+<div class="metric-card">
+              <div class="metric-head"><span>AARRI-Bench</span><i>GPT-5.5 · Codex</i></div>
               <strong>63/82 · 76.8%</strong>
               <small>82 research-intern tasks</small>
               <p>Paper-reported best: 68.3%</p>
             </div>
-<div class="metric-card snapshot">
-              <div class="metric-head"><span>Arbor comparison</span><i>website snapshot</i></div>
+<div class="metric-card">
+              <div class="metric-head"><span>Arbor comparison</span><i>GPT-5.5 · Codex</i></div>
               <strong>28.0 gap</strong>
               <small>Math-Reasoning Data</small>
               <p>Arbor 20.83 · Claude Code 8.33 · Codex 6.25</p>
@@ -134,7 +130,7 @@ footer { border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justi
       <div class="portfolio"><strong>41</strong><span>de-duplicated research artifacts across 6 programs</span><small>35 manuscripts · 6 drafts</small></div>
     </article>
   </section>
-  <footer><span>Architecture is schematic; result cards are source-quoted under their printed protocols and are not cross-normalized.</span><span class="legend"><span>artifact digest</span><span>website snapshot</span></span></footer>
+  <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>All six runs: GPT-5.5 · Codex</span></footer>
 </main>
 </body>
 </html>

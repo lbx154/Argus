@@ -63,7 +63,6 @@ BLUE = "#315BCE"
 BLUE_DEEP = "#214884"
 GOLD = "#C38A20"
 PANEL_LINE = "#D8D6CE"
-EVIDENCE_LINE = "#9AAE93"
 
 HERE = Path(__file__).resolve().parent
 EVIDENCE = HERE.parent / "evidence"
@@ -110,16 +109,15 @@ def build_public_results() -> dict:
     fig.subplots_adjust(left=0.07, right=0.985, top=0.80, bottom=0.07,
                         hspace=1.15, wspace=0.34)
 
-    def style(ax, title, sub, tier, better):
+    def style(ax, title, sub, row, better):
         ax.set_facecolor(BONE)
         ax.text(0.0, 1.26, title, transform=ax.transAxes, fontsize=8.8,
                 fontweight="bold", color=GRAPHITE, ha="left", va="bottom")
         ax.text(0.0, 1.13, sub, transform=ax.transAxes, fontsize=6.8,
                 color=GRAPHITE_SOFT, ha="left", va="bottom")
-        tag = "artifact digest" if tier == "local_artifact" else "website snapshot"
-        tcol = EVIDENCE_LINE if tier == "local_artifact" else BLUE
-        ax.text(0.0, 1.00, f"{tag}  \u00b7  {better}", transform=ax.transAxes,
-                fontsize=6.5, color=tcol, ha="left", va="bottom")
+        execution = f"{row['agent_backbone']}  \u00b7  {row['agent_backend']}"
+        ax.text(0.0, 1.00, f"{execution}  \u00b7  {better}", transform=ax.transAxes,
+                fontsize=6.5, color=BLUE, ha="left", va="bottom")
         for spine in ("top", "right"):
             ax.spines[spine].set_visible(False)
         for spine in ("left", "bottom"):
@@ -144,7 +142,7 @@ def build_public_results() -> dict:
     ax.set_ylim(0, 8.4)
     ax.set_ylabel("kernels (of 101)", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "NVIDIA SOL-ExecBench", "B200 \u00b7 101 kernels \u00b7 Global #6",
-          r["NVIDIA SOL-ExecBench"]["corroboration"], "rank")
+          r["NVIDIA SOL-ExecBench"], "rank")
 
     # Panel B: nanochat B200 (BPB, lower better).
     ax = axes[0][1]
@@ -155,7 +153,7 @@ def build_public_results() -> dict:
     label_bars(ax, bars, vals, "{:.4f}", dy=0.00012)
     ax.set_ylabel("val BPB", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "nanochat \u00b7 B200", "5 min \u00b7 1\u00d7B200 \u00b7 426 attempts",
-          r["nanochat \u00b7 B200"]["corroboration"], "lower better")
+          r["nanochat \u00b7 B200"], "lower better")
 
     # Panel C: nanochat H100 (BPB, lower better).
     ax = axes[0][2]
@@ -166,7 +164,7 @@ def build_public_results() -> dict:
     label_bars(ax, bars, vals, "{:.4f}", dy=0.00014)
     ax.set_ylabel("val BPB", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "nanochat \u00b7 H100", "5 min \u00b7 1\u00d7H100 \u00b7 37 mechanisms",
-          r["nanochat \u00b7 H100"]["corroboration"], "lower better")
+          r["nanochat \u00b7 H100"], "lower better")
 
     # Panel D: nanoGPT speedrun (seconds, lower better).
     ax = axes[1][0]
@@ -178,7 +176,7 @@ def build_public_results() -> dict:
     label_bars(ax, bars, vals, "{:.2f}s", dy=0.03)
     ax.set_ylabel("wall-clock (s)", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "nanoGPT speedrun", "8\u00d7H100 \u00b7 N=10",
-          r["nanoGPT speedrun"]["corroboration"], "lower better")
+          r["nanoGPT speedrun"], "lower better")
 
     # Panel E: AARRI-Bench (percent, higher better).
     ax = axes[1][1]
@@ -190,7 +188,7 @@ def build_public_results() -> dict:
     label_bars(ax, bars, vals, "{:.1f}%", dy=1.0)
     ax.set_ylabel("solve rate (%)", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "AARRI-Bench", "82 research-intern tasks",
-          r["AARRI-Bench"]["corroboration"], "higher better")
+          r["AARRI-Bench"], "higher better")
 
     # Panel F: Arbor (gap metric, grouped systems).
     ax = axes[1][2]
@@ -203,7 +201,7 @@ def build_public_results() -> dict:
     label_bars(ax, bars, vals, "{:.2f}", dy=0.3)
     ax.set_ylabel("gap score", fontsize=7.0, color=GRAPHITE_SOFT)
     style(ax, "Arbor \u00b7 RUC NLPIR", "Math-Reasoning Data",
-          r["Arbor \u00b7 RUC NLPIR"]["corroboration"], "site-reported metric")
+          r["Arbor \u00b7 RUC NLPIR"], "site-reported metric")
 
     fig.suptitle("Public results across six arenas (units differ; panels are "
                  "not cross-normalized)", fontsize=10.5, fontweight="bold",

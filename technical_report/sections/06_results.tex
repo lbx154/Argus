@@ -7,13 +7,15 @@ Figure~\ref{fig:public-results} and Table~\ref{tab:public-results} report the si
 public benchmark cards in their native units. The results span kernel optimization,
 small-language-model training, training-speed optimization, research-assistant
 tasks, and data synthesis. Because the protocols differ, the figure uses separate
-panels and the table carries the protocol beside every value.
+panels and the table states the research-agent backbone and backend beside every
+protocol and result.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.67\linewidth]{figures/public_results.pdf}
+  \includegraphics[width=0.80\linewidth]{figures/public_results.pdf}
   \caption{Public results across six arenas. Each panel retains its task-native
-  metric and evidence status; values are not cross-normalized. The figure is
+  metric and identifies the GPT-5.5 backbone and Codex backend; values are not
+  cross-normalized. The figure is
   generated from \srcpath{evidence/website\_results.json}.}
   \label{fig:public-results}
 \end{figure}
@@ -21,21 +23,21 @@ panels and the table carries the protocol beside every value.
 \begin{table}[H]
 \centering
 \footnotesize
-\begin{tabularx}{\linewidth}{@{}p{2.25cm} p{2.55cm} p{1.85cm} X p{1.25cm}@{}}
+\begin{tabularx}{\linewidth}{@{}p{2.05cm} p{1.35cm} p{1.15cm} p{2.45cm} p{1.65cm} X@{}}
 \toprule
-\textbf{Arena} & \textbf{Protocol} & \textbf{Argus result} & \textbf{Published comparison} & \textbf{Evidence} \\
+\textbf{Benchmark} & \textbf{Backbone} & \textbf{Backend} & \textbf{Hardware / protocol} & \textbf{Result} & \textbf{Comparison} \\
 \midrule
-NVIDIA SOL-ExecBench & B200; 101 kernels & Global \#6; 2$\times$\#1; 7 top-3 & Global rank; two head-to-head wins over Recursive & snapshot \\
-nanochat (B200) & 5 min; 1$\times$B200; 426 attempts & 0.9636 BPB & Human SOTA 0.9646 & \textbf{digest} \\
-nanochat (H100) & 5 min; 1$\times$H100; 37 mechanisms & 0.9855 BPB & Human SOTA 0.9879 & snapshot \\
-nanoGPT speedrun & 8$\times$H100; $N{=}10$ & 79.77 s & Same-device human \#83: 80.18 s & \textbf{digest} \\
-AARRI-Bench & 82 research-intern tasks & 63/82 (76.8\%) & Paper-reported best 68.3\% & snapshot \\
-Arbor (RUC NLPIR) & Math-reasoning data & 28.0 gap & Arbor 20.83; Claude Code 8.33; Codex 6.25 & snapshot \\
+NVIDIA SOL-ExecBench & GPT-5.5 & Codex & B200; 101 kernels & Global \#6; 2$\times$\#1; 7 top-3 & Global rank; two H2H wins over Recursive \\
+nanochat (B200) & GPT-5.5 & Codex & 5 min; 1$\times$B200; 426 attempts & 0.9636 BPB & Human SOTA 0.9646 \\
+nanochat (H100) & GPT-5.5 & Codex & 5 min; 1$\times$H100; 37 mechanisms & 0.9855 BPB & Human SOTA 0.9879 \\
+nanoGPT speedrun & GPT-5.5 & Codex & 8$\times$H100; $N{=}10$ & 79.77 s & Same-device human \#83: 80.18 s \\
+AARRI-Bench & GPT-5.5 & Codex & 82 research-intern tasks & 63/82 (76.8\%) & Paper-reported best 68.3\% \\
+Arbor (RUC NLPIR) & GPT-5.5 & Codex & Math-reasoning data & 28.0 gap & Arbor 20.83; Claude Code 8.33; Codex 6.25 \\
 \bottomrule
 \end{tabularx}
-\caption{Six public benchmark results~\citep{argus_results}. ``Digest'' means that
-the website claim additionally has committed artifact-digest metadata; ``snapshot''
-means that the present repository preserves the public card and page hash only.}
+\caption{Six public benchmark results~\citep{argus_results}. Backbone denotes the
+research-agent model driving Argus; Backend denotes the agent execution surface,
+not the target model or comparison system.}
 \label{tab:public-results}
 \end{table}
 

@@ -14,6 +14,8 @@
     {
       "arena": "NVIDIA SOL-ExecBench",
       "protocol": "B200 · 101 kernels",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "Global #6 · 2× #1 · 7 top-3",
       "human_comparison": "Two head-to-head wins over Recursive",
       "website_quote": "NVIDIA SOL-ExecBench — B200 · 101 kernels — Global #6 · 2× #1 · 7 top-3 — Two head-to-head wins over Recursive",
@@ -24,6 +26,8 @@
     {
       "arena": "nanochat · B200",
       "protocol": "5 min · 1×B200 · 426 attempts",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "0.9636 BPB",
       "human_comparison": "Human SOTA: 0.9646",
       "website_quote": "nanochat · B200 — 5 min · 1×B200 · 426 attempts — 0.9636 BPB — Human SOTA: 0.9646",
@@ -34,6 +38,8 @@
     {
       "arena": "nanochat · H100",
       "protocol": "5 min · 1×H100 · 37 mechanisms",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "0.9855 BPB",
       "human_comparison": "Human SOTA: 0.9879",
       "website_quote": "nanochat · H100 — 5 min · 1×H100 · 37 mechanisms — 0.9855 BPB — Human SOTA: 0.9879",
@@ -44,6 +50,8 @@
     {
       "arena": "nanoGPT speedrun",
       "protocol": "8×H100 · N=10",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "79.77 seconds",
       "human_comparison": "Same-device human #83: 80.18s",
       "website_quote": "nanoGPT speedrun — 8×H100 · N=10 — 79.77 seconds — Same-device human #83: 80.18s",
@@ -54,6 +62,8 @@
     {
       "arena": "AARRI-Bench",
       "protocol": "82 research-intern tasks",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "63/82 · 76.8%",
       "human_comparison": "Paper-reported best: 68.3%",
       "website_quote": "AARRI-Bench — 82 research-intern tasks — 63/82 · 76.8% — Paper-reported best: 68.3%",
@@ -64,6 +74,8 @@
     {
       "arena": "Arbor · RUC NLPIR",
       "protocol": "Math-Reasoning Data",
+      "agent_backbone": "GPT-5.5",
+      "agent_backend": "Codex",
       "result": "28.0 gap",
       "human_comparison": "Arbor 20.83 · Claude Code 8.33 · Codex 6.25",
       "website_quote": "Arbor · RUC NLPIR — Math-Reasoning Data — 28.0 gap — Arbor 20.83 · Claude Code 8.33 · Codex 6.25",

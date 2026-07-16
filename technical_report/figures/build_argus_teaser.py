@@ -37,13 +37,11 @@ def sha256(path: Path) -> str:
 def result_cards(payload: dict) -> str:
     cards: list[str] = []
     for row in payload["results"]:
-        digest = row["corroboration"] == "local_artifact"
-        tier = "artifact digest" if digest else "website snapshot"
-        direction = "digest" if digest else "snapshot"
+        execution = f"{row['agent_backbone']} · {row['agent_backend']}"
         cards.append(
             f"""
-            <div class="metric-card {direction}">
-              <div class="metric-head"><span>{html.escape(SHORT_NAMES[row['arena']])}</span><i>{tier}</i></div>
+            <div class="metric-card">
+              <div class="metric-head"><span>{html.escape(SHORT_NAMES[row['arena']])}</span><i>{execution}</i></div>
               <strong>{html.escape(row['result'])}</strong>
               <small>{html.escape(row['protocol'])}</small>
               <p>{html.escape(row['human_comparison'])}</p>
@@ -110,7 +108,6 @@ body {{ background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-se
 .evidence {{ display: grid; grid-template-rows: auto 1fr auto; }}
 .metrics {{ display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: .07in; min-height: 0; }}
 .metric-card {{ border: 1px solid #d8e0e8; border-left: .045in solid #315bce; background: white; border-radius: .06in; padding: .08in .10in; display: grid; grid-template-rows: auto auto auto 1fr; }}
-.metric-card.digest {{ border-left-color: #c38a20; }}
 .metric-head {{ display: flex; justify-content: space-between; gap: .05in; align-items: start; }}
 .metric-head span {{ font-size: 8.5pt; font-weight: 700; }}
 .metric-head i {{ color: #6d7783; font-size: 6.7pt; font-style: normal; text-align: right; }}
@@ -122,9 +119,6 @@ body {{ background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-se
 .portfolio span {{ font-size: 8.7pt; font-weight: 700; }}
 .portfolio small {{ color: #687380; font-size: 7.3pt; text-align: right; }}
 footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justify-content: space-between; color: #66717d; font-size: 7.6pt; }}
-.legend {{ display: flex; gap: .14in; }}
-.legend span::before {{ content: ''; display: inline-block; width: .07in; height: .07in; border-radius: 50%; background: #315bce; margin-right: .04in; }}
-.legend span:first-child::before {{ background: #c38a20; }}
 </style>
 </head>
 <body>
@@ -157,7 +151,7 @@ footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; just
       <div class="portfolio"><strong>{totals['papers']}</strong><span>de-duplicated research artifacts across {totals['programs']} programs</span><small>{totals['manuscript']} manuscripts · {totals['draft']} drafts</small></div>
     </article>
   </section>
-  <footer><span>Architecture is schematic; result cards are source-quoted under their printed protocols and are not cross-normalized.</span><span class="legend"><span>artifact digest</span><span>website snapshot</span></span></footer>
+  <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>All six runs: GPT-5.5 · Codex</span></footer>
 </main>
 </body>
 </html>

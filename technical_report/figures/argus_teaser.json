@@ -4,12 +4,12 @@
   "claim": "Argus couples role-separated research with an evidence gate and reports heterogeneous public outcomes without cross-normalizing their metrics.",
   "sources": {
     "results": "evidence/website_results.json",
-    "results_sha256": "b9c2c2ee51bf4a190520898e3676153b87bd4b70996fd835d8fdc9097cb3c44e",
+    "results_sha256": "d3b578ffa07c8ea35c9624b628967869452eeaef58924fd320eec1336a097c0a",
     "paper_inventory": "evidence/paper_inventory.json",
     "paper_inventory_sha256": "441679d40d9c073299d812c17e38abbe7948ec93ba23deae71e56f5fd60b8835"
   },
   "editable_source": "argus_teaser.html",
   "vector_export": "argus_teaser.pdf",
   "renderer": "google-chrome",
-  "html_sha256": "92413a9db908f5728b977f3c97c89f6d0f539ffe9bc6b1fd085f74cbb80e99fe"
+  "html_sha256": "09be7a8dab813f83f3fe3847b7109d6fb811bec1a25eac4ee627bb05bae08b07"
 }

@@ -9,9 +9,9 @@
     },
     "public_results": {
       "pdf": "public_results.pdf",
-      "pdf_sha256": "b72f9e002079ddc75da2cdac9bbcb86533581fcaeeeb8811afe9d2d81a834433",
+      "pdf_sha256": "022fe31b6cdb29d4f47e4c3c1a275bfe1e85441050f01888d33a73345023accf",
       "png": "public_results.png",
-      "png_sha256": "c661ea2a156380af697a684f40f37b2903fe12e5c443e69c57acc9b520c2a852"
+      "png_sha256": "cd5d2cfeb0f9f2e7644b6e98bcfb32ab035026cbd39ace64c491d6f9c5d01849"
     }
   },
   "generator": "technical_report/figures/build_report_figures.py",
