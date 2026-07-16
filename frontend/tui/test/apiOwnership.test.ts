@@ -47,7 +47,7 @@ test('default ownership path is stable per local host and port', () => {
   );
   assert.equal(
     defaultApiOwnershipPath('localhost', 8799, { HOME: '/home/alex' }),
-    '/home/alex/.argus-skill/runtime/webapi-localhost-8799.owner.json',
+    join('/home/alex', '.argus-skill', 'runtime', 'webapi-localhost-8799.owner.json'),
   );
   assert.equal(defaultApiOwnershipPath('10.0.0.5', 8799, { HOME: '/home/alex' }), undefined);
 });
