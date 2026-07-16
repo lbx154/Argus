@@ -1,6 +1,9 @@
 name: Binary release
 
 on:
+  push:
+    branches:
+      - release/binary-only
   workflow_dispatch:
     inputs:
       publish:
