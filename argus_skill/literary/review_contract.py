@@ -115,6 +115,11 @@ def normalize_review(raw: dict[str, Any], *,
         if not isinstance(f, dict):
             raise ReviewError("each finding must be an object")
         g = dict(f)
+        # Real models routinely emit an integer finding id (1, 2, ...) though the
+        # contract types it as a string; coerce deterministically rather than
+        # reject an otherwise-valid, evidence-bearing review.
+        if isinstance(g.get("id"), (int, float)) and not isinstance(g.get("id"), bool):
+            g["id"] = str(g["id"])
         g.setdefault("must_not_break", [])
         g.setdefault("violated_constraint", "")
         norm.append(g)

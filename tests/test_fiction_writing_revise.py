@@ -60,5 +60,21 @@ def test_fiction_parses_reviewer_text_output():
 
 def test_all_fiction_continuity_types_are_valid_vocabulary():
     for t in ("status", "knowledge", "item_location", "co_location", "timeline",
-              "world_rule", "motivation", "foreshadowing", "viewpoint", "language"):
+              "world_rule", "motivation", "foreshadowing", "viewpoint", "language",
+              "temporal_consistency"):
         assert t in FICTION_FINDING_TYPES
+
+
+def test_blocking_voice_finding_passes_the_contract():
+    # the style lint may raise a craft-vocabulary type (voice/ai_tell) to
+    # blocking=True on an author-declared hard contract; that must validate and
+    # order first, exactly like a continuity finding.
+    review = _review([
+        {"id": "v1", "type": "voice", "severity": "major", "blocking": True,
+         "location": "第2段", "evidence": "forbidden term '手机' present",
+         "suggested_action": "改为符合语域的说法"},
+    ])
+    plan = fiction_revision_plan(review)
+    assert plan[0]["finding_id"] == "v1"
+    assert plan[0]["blocking"] is True
+

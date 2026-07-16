@@ -1,0 +1,16 @@
+{
+  "_note": "领域预设 (Layer 1): 言情. Close, dialogue-driven, feeling shown through gesture; avoided_terms are romance's OWN AI clichés. Compose over base.json.",
+  "meta": {"register": "contemporary"},
+  "abstract_features": {
+    "sentence_rhythm": "varied",
+    "narrative_distance": "close",
+    "dialogue_ratio": "high",
+    "imagery_density": "medium",
+    "emotional_expression": "balanced",
+    "ending_strategy": "open"
+  },
+  "lexicon": {
+    "avoided_terms": ["怦然心动", "小鹿乱撞", "情不自禁", "深情款款", "宠溺", "薄唇"]
+  },
+  "dialogue_conventions": {"quote_style": "cjk_corner", "tag_discipline": "action_beats"}
+}

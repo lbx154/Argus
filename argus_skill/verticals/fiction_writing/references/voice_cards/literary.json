@@ -1,0 +1,16 @@
+{
+  "_note": "领域预设 (Layer 1): 严肃 / 纯文学. High imagery, restraint, no stated moral; avoided_terms are the uplift/therapy words literary prose must not reach for. Compose over base.json.",
+  "meta": {"register": "literary"},
+  "abstract_features": {
+    "sentence_rhythm": "long_and_flowing",
+    "narrative_distance": "mid",
+    "imagery_density": "high",
+    "exposition_level": "restrained",
+    "emotional_expression": "indirect",
+    "ending_strategy": "image_out"
+  },
+  "lexicon": {
+    "avoided_terms": ["升华", "治愈", "温暖", "救赎", "在这个时代", "生命的意义"]
+  },
+  "sentence_targets": {"parallelism_ok": true}
+}

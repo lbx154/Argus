@@ -1,0 +1,13 @@
+{
+  "_note": "通用底卡 (Layer 0). Every work inherits this; a domain preset and the work overlay compose on top. Holds only universal, register-neutral anti-AI defaults. No hard forbidden_lexicon and no blocking ai_tell_budget here — the base never blocks; teeth are opt-in per work.",
+  "meta": {"register": "contemporary"},
+  "abstract_features": {
+    "sentence_rhythm": "varied",
+    "exposition_level": "restrained",
+    "emotional_expression": "indirect",
+    "ending_strategy": "image_out"
+  },
+  "lexicon": {
+    "avoided_terms": ["其实", "仿佛", "不禁", "顿时", "一丝", "一抹", "淡淡的", "涌起", "泛起"]
+  }
+}

@@ -18,13 +18,23 @@ from ...literary.review_contract import extract_review, normalize_review, revisi
 
 #: Blocking continuity finding types (mirror the reviewer skill + the engine's
 #: machine-decidable guarantees). A finding typed outside the fiction vocabulary
-#: is rejected by the shared contract.
+#: is rejected by the shared contract. ``temporal_consistency`` is arithmetic-
+#: provable over story_state (age == current_year − birth_year; no birth in the
+#: future; timeline order vs year) — see :mod:`.temporal`. ``verbatim_copy`` is
+#: likewise machine-provable (a long shared verbatim run is a fact, not a taste),
+#: the '不能抄' hard line — see :mod:`.novelty`.
 FICTION_CONTINUITY_TYPES: frozenset[str] = frozenset({
     "status", "knowledge", "item_location", "co_location", "timeline",
     "world_rule", "motivation", "foreshadowing", "viewpoint", "language",
+    "temporal_consistency", "verbatim_copy",
 })
 
-#: Non-blocking craft / AI-tell finding types (heuristic observations).
+#: Non-blocking craft / AI-tell finding types (heuristic observations). NOTE:
+#: ``voice`` and ``ai_tell`` MAY carry ``blocking=True`` when the deterministic
+#: style lint (:mod:`.style_lint`) trips an author-declared HARD contract — a
+#: forbidden_lexicon term present or a declared ai_tell_budget exceeded. The
+#: shared contract gates on the per-finding ``blocking`` flag, not on which set a
+#: type belongs to, so this needs no separate vocabulary.
 FICTION_CRAFT_TYPES: frozenset[str] = frozenset({
     "style", "voice", "concreteness", "show_tell", "over_summary",
     "mechanical_twist", "pacing", "ending", "ai_tell",

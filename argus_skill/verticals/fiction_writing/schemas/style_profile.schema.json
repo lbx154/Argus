@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "argus://fiction_writing/style_profile.schema.json",
+  "title": "style_profile",
+  "description": "The fine-grained VOICE CARD (the SillyTavern-style '预设') for a fiction mission. Every field is OPTIONAL — a thin card validates, a rich one becomes machine-checkable at review time. Captured at intake, injected into drafting, enforced at review. The SHAPE is language- and genre-agnostic: a zh 红楼梦 continuation and an en thriller differ only in DATA (register, appellations, forbidden_lexicon, sentence targets), never in schema or pipeline. Style is ABSTRACT FEATURES + an EXPLICIT lexicon, never 'imitate author X'. forbidden_lexicon and ai_tell_budget are the only author-declared HARD contracts; everything else is guidance the reviewer weighs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": {"type": "string", "enum": ["zh", "en"]},
+        "work_title": {"type": "string"},
+        "register": {
+          "type": "string",
+          "enum": ["classical", "literary", "contemporary", "web", "colloquial"]
+        }
+      }
+    },
+    "abstract_features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sentence_rhythm": {"type": "string", "enum": ["short_and_tense", "long_and_flowing", "varied"]},
+        "narrative_distance": {"type": "string", "enum": ["close", "mid", "distant"]},
+        "dialogue_ratio": {"type": "string", "enum": ["high", "medium", "low"]},
+        "imagery_density": {"type": "string", "enum": ["high", "medium", "low"]},
+        "exposition_level": {"type": "string", "enum": ["restrained", "moderate", "direct"]},
+        "emotional_expression": {"type": "string", "enum": ["indirect", "balanced", "direct"]},
+        "ending_strategy": {"type": "string", "enum": ["image_out", "open", "reversal", "stated_moral"]}
+      }
+    },
+    "lexicon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "appellations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["referent", "address_forms"],
+            "properties": {
+              "referent": {"type": "string"},
+              "address_forms": {"type": "array", "items": {"type": "string"}},
+              "by": {"type": "string"}
+            }
+          }
+        },
+        "preferred_terms": {"type": "array", "items": {"type": "string"}},
+        "avoided_terms": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "forbidden_lexicon": {"type": "array", "items": {"type": "string"}},
+    "character_voices": {
+      "type": "array",
+      "description": "Per-character idiolect ('什么样的人物什么卡'): each character's speech register, verbal tics, favored diction, and words that must never come out of THIS character's mouth. Drafting + reviewer guidance (dialogue attribution is not machine-deterministic, so per-character terms are NOT a hard lint gate — only the work-level forbidden_lexicon is).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["character"],
+        "properties": {
+          "character": {"type": "string"},
+          "register": {"type": "string", "enum": ["classical", "literary", "contemporary", "web", "colloquial"]},
+          "sentence_rhythm": {"type": "string", "enum": ["short_and_tense", "long_and_flowing", "varied"]},
+          "verbal_tics": {"type": "array", "items": {"type": "string"}},
+          "diction": {"type": "array", "items": {"type": "string"}},
+          "forbidden_for_character": {"type": "array", "items": {"type": "string"}},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "sentence_targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_mean_sentence_len": {"type": ["integer", "null"], "minimum": 1},
+        "min_mean_sentence_len": {"type": ["integer", "null"], "minimum": 1},
+        "parallelism_ok": {"type": "boolean"}
+      }
+    },
+    "dialogue_conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quote_style": {"type": "string", "enum": ["cjk_corner", "straight", "curly"]},
+        "tag_discipline": {"type": "string", "enum": ["action_beats", "plain_said", "any"]}
+      }
+    },
+    "ai_tell_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_hits_per_1000_chars": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "novelty_budget": {
+      "description": "Anti-copy ('不能抄') thresholds enforced by the deterministic novelty gate against fiction/reference_text.md. A long verbatim run always blocks; these only TIGHTEN the model-seed default. max_verbatim_run is in the language's token unit (zh characters / en words); max_overlap_ratio (0..1) blocks when the draft's verbatim overlap with the source exceeds it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_verbatim_run": {"type": ["integer", "null"], "minimum": 1},
+        "max_overlap_ratio": {"type": ["number", "null"], "minimum": 0}
+      }
+    }
+  }
+}

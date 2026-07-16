@@ -1,0 +1,17 @@
+{
+  "_note": "领域预设 (Layer 1): 网文. Fast, hook-dense, low imagery, dialogue-heavy; chapters end on a turn. Compose over base.json.",
+  "meta": {"register": "web"},
+  "abstract_features": {
+    "sentence_rhythm": "short_and_tense",
+    "narrative_distance": "close",
+    "dialogue_ratio": "high",
+    "imagery_density": "low",
+    "exposition_level": "direct",
+    "ending_strategy": "reversal"
+  },
+  "lexicon": {
+    "avoided_terms": ["仿佛", "宛如", "五味杂陈", "空气仿佛凝固"]
+  },
+  "dialogue_conventions": {"quote_style": "cjk_corner", "tag_discipline": "any"},
+  "sentence_targets": {"max_mean_sentence_len": 30, "parallelism_ok": false}
+}

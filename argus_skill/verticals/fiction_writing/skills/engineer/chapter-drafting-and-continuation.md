@@ -41,8 +41,17 @@ Do NOT use for expository/academic writing, summaries, or non-narrative text.
 4. **Apply the anti-AI discipline** from the language reference: no slogan/uplift
    summarizing ending, no abstract-emotion telling in place of showing, no
    piled-on synonyms or homogeneous imagery, no telegraphed/mechanical twist.
-   Prefer to end on an image and withhold the thesis.
-5. **Do NOT touch story_state here** — state changes are extracted in the next
+   Prefer to end on an image and withhold the thesis. Avoid the **register-level
+   tells** that survive plagiarism checks but read as "AI 味": the 情绪涌动 fill-in
+   ("心中涌起一股暖流"), 凝固时刻 ("空气仿佛凝固"), 时刻拔高 ("这一刻/那一瞬间"),
+   虚化感受 ("说不出的…/难以言喻"), manner-adverb stacking (无声地/静静地/轻轻地);
+   in en, "the air seemed to freeze", "an odd sense of", filter words.
+5. **Do NOT copy the source ('不能抄')**: for a continuation, capture the author's
+   VOICE through the voice card's abstract features (register / 称谓 / 句式 /
+   character idiolect) — NEVER by reproducing their sentences. Do not lift verbatim
+   spans from `reference_text.md`; the deterministic novelty gate BLOCKS a long
+   copied run. Allude to and echo the source; do not transcribe it.
+6. **Do NOT touch story_state here** — state changes are extracted in the next
    stage as a structured patch.
 
 ## When NOT to use

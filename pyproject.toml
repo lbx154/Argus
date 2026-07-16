@@ -79,6 +79,15 @@ binary = [
   "python-multipart>=0.0.20",
   "itsdangerous>=2",
 ]
+# `argus-skill[zh-fold]` — enables 繁↔简 folding in the fiction anti-copy gate
+# (argus_skill/verticals/fiction_writing/novelty.py). Without it the novelty gate
+# still runs (NFKC + punctuation/whitespace normalization always apply); it just
+# cannot catch a lift converted between traditional and simplified script — a gap
+# the module docstring documents. Kept OUT of base deps because opencc is a native
+# build most installs never need, and the gate degrades honestly when it is absent.
+zh-fold = [
+  "opencc>=1.1",
+]
 # `argus-skill[web]` — the optional web/TUI backend API (argus_skill/webapi/).
 # A thin FastAPI layer over the file-based daemon pub/sub (events.jsonl +
 # backlog/inbox) that the Ink terminal frontend (frontend/tui/) and the React

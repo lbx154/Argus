@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ...literary.task_envelope import EnvelopeError
 from .intake import FictionIntakeError, brief_from_envelope
+from .style import StyleProfileError, validate_voice_card
 
 
 def _load_json(path: str) -> object:
@@ -47,6 +48,18 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_validate_style(args: argparse.Namespace) -> int:
+    # The voice card (the SillyTavern-style '预设'). A thin card ({}) is valid; a
+    # rich one with a bad enum / stray key fails the intake gate loudly.
+    card = _load_json(args.style_profile)
+    validate_voice_card(card)
+    reg = (card.get("meta") or {}).get("register", "unset")
+    forbidden = len(card.get("forbidden_lexicon") or [])
+    print(f"OK: style profile (voice card) well-formed "
+          f"(register={reg}, forbidden_lexicon={forbidden} term(s))")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fiction-intake-check")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -55,10 +68,14 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("envelope")
     pv.set_defaults(func=_cmd_validate)
 
+    ps = sub.add_parser("validate-style", help="validate fiction/style_profile.json")
+    ps.add_argument("style_profile")
+    ps.set_defaults(func=_cmd_validate_style)
+
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (EnvelopeError, FictionIntakeError) as exc:
+    except (EnvelopeError, FictionIntakeError, StyleProfileError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
 

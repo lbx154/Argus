@@ -20,7 +20,7 @@
             "properties": {
               "op": {"const": "set_meta"},
               "set": {"type": "object", "additionalProperties": false,
-                "properties": {"form": {}, "title": {}, "language": {}}}
+                "properties": {"form": {}, "title": {}, "language": {}, "world_clock": {}}}
             }
           },
           {
@@ -31,7 +31,8 @@
               "value": {"type": "object", "additionalProperties": false, "required": ["name"],
                 "properties": {"id": {"type": "string", "minLength": 1},
                   "name": {"type": "string", "minLength": 1}, "aliases": {}, "status": {},
-                  "knows": {}, "location": {}, "motivation": {}, "notes": {}}}
+                  "knows": {}, "location": {}, "birth_year": {}, "age": {},
+                  "motivation": {}, "notes": {}}}
             },
             "oneOf": [{"required": ["id"]}, {"properties": {"value": {"required": ["id"]}}}]
           },
@@ -64,7 +65,7 @@
               "id": {"type": "string", "minLength": 1},
               "set": {"type": "object", "additionalProperties": false,
                 "properties": {"name": {}, "aliases": {}, "status": {}, "knows": {},
-                  "location": {}, "motivation": {}, "notes": {}}}
+                  "location": {}, "birth_year": {}, "age": {}, "motivation": {}, "notes": {}}}
             }
           },
           {
@@ -96,7 +97,7 @@
                 "required": ["id", "order", "label"],
                 "properties": {"id": {"type": "string", "minLength": 1},
                   "order": {"type": "integer"},
-                  "label": {"type": "string", "minLength": 1}, "chapter": {}}}
+                  "label": {"type": "string", "minLength": 1}, "year": {}, "chapter": {}}}
             }
           },
           {
