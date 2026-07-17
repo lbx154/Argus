@@ -663,8 +663,15 @@ def test_hook_persistent_empty_done_satisfied_advances(
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
     sink = _Sink()
+    contract = resolve_stage_checklist_contract("research", project_root=root)
+    review = _review(
+        checklist=[
+            {"item": item.id, "satisfied": True, "evidence": item.evidence_hint}
+            for item in contract.items
+        ]
+    )
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review())], workdir=root, sink=sink
+        rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert backend.calls == 3
     assert decision["action"] == "advance"

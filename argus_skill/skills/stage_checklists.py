@@ -68,11 +68,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.literature",
             statement=(
-                "Literature grounding lists at least 10 recent high-quality papers "
-                "and at least 3 classic anchor papers, with verifiable venue/URL "
-                "and a paper-relevant summary for each."
+                "The canonical literature ledger covers the claims the project "
+                "actually depends on: the nearest competing methods, the relevant "
+                "lineage/classic anchors, contradictory or negative evidence, and "
+                "the unresolved frontier. Each retained source has a verifiable "
+                "primary URL and a project-relevant implication. Judge connected "
+                "claim coverage, not a fixed paper or query count."
             ),
-            evidence_hint="research/LITERATURE_GROUNDING.json, research/LIT_MATRIX.tsv",
+            evidence_hint=(
+                "research/LITERATURE_GROUNDING.json (canonical); "
+                "research/LIT_MATRIX.tsv is generated with "
+                "`python -m argus_skill.verticals.research.literature_ledger sync`"
+            ),
         ),
         ChecklistItem(
             id="research.brief",
@@ -101,29 +108,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.signal_derisk",
             statement=(
-                "Before leaving the research stage, the locked idea passed a REAL "
-                "judgemental minimal experiment (<=10 min, <=$1 cheap screen) on a "
-                "model/data this box can actually run: research/SIGNAL_DERISK.json "
-                "records verdict=pass where proposed_metric BEATS a REPRODUCED, "
-                "competitive baseline_metric by at least min_meaningful_delta in the "
-                "success_direction (the method provably wins on a cheap slice or its "
-                "faithful proxy — not merely that a phenomenon moves), within budget "
-                "(cost_usd<=1.0, duration_s<=600), and research/SIGNAL_DERISK_LOG.txt "
-                "carries the verbatim commands + raw outputs of that run. Numbers "
-                "are COMPUTED from the run, never estimated. A dead result "
-                "(proposed does not beat the reproduced baseline by the margin, wrong "
-                "direction, a straw-man baseline, or the model cannot even exhibit "
-                "the behaviour the idea needs) means PIVOT the "
-                "idea and re-run the de-risk — it is NOT allowed to enter the plan "
-                "stage. The reviewer may run `python -m "
-                "argus_skill.skills.signal_derisk validate` as a consistency "
-                "and provenance diagnostic; the reviewer, not that command's "
-                "exit code, decides whether the active checklist is satisfied."
+                "Before leaving research, the locked idea survives the cheapest REAL "
+                "falsification probe that tests its binding premise on this machine. "
+                "The Planner authors the evidence contract for the research shape: a "
+                "comparative method may use measured baseline/proposed deltas; a "
+                "systems or architecture idea may test fidelity plus the claimed "
+                "resource/stability signal; theoretical or survey work uses its own "
+                "decisive counterexample/coverage test. Prefer <=10 minutes / <=$1 "
+                "when faithful, but do not substitute a toy proxy merely to meet that "
+                "budget. Preserve commands and raw outputs. A failed necessary premise "
+                "forces pivot; a passed wiring-only smoke does not prove the thesis. "
+                "`argus_skill.skills.signal_derisk validate` is available only for "
+                "the default scalar-comparison shape and never decides quality."
             ),
             evidence_hint=(
-                "research/SIGNAL_DERISK.json (verdict=pass, non-degenerate delta in "
-                "success_direction, in budget) + research/SIGNAL_DERISK_LOG.txt "
-                "(real commands + raw outputs)"
+                "Planner-authored research.signal_derisk evidence paths; for the "
+                "default scalar shape use research/SIGNAL_DERISK.json + raw log"
             ),
         ),
         ChecklistItem(
@@ -133,44 +133,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "shallow-cloned locally with origin URL and commit recorded."
             ),
             evidence_hint="code/references/<repo>/.git/config + a notes file",
-        ),
-        ChecklistItem(
-            id="research.infra_shortlist",
-            statement=(
-                "If the project will involve gradient-based training or "
-                "large-scale inference, an initial training-infra and "
-                "inference-infra shortlist is recorded. Each shortlisted "
-                "framework must be (a) actively maintained (last release or "
-                "default-branch commit in 2026 or later), (b) a real, "
-                "non-trivial open-source repository — not a snippet, gist, "
-                "or 'starter template'; framework selection is a *find*, "
-                "not a *write*, exercise, and (c) verified by actually "
-                "cloning the repo under `code/references/<repo>/` and "
-                "reading its `README` / `docs/` / example scripts so the "
-                "shortlist rationale reflects how the framework is meant "
-                "to be used. **Critically, the README must be scanned for "
-                "supersession / migration hints** — phrases like \"now "
-                "supported by X\", \"moved to X\", \"superseded by X\", "
-                "\"recommended\", \"upstreamed into X\", \"deprecated, use X\", "
-                "\"this repo is archived\", or a top-of-readme note pointing "
-                "at a successor project. If such a hint exists, the "
-                "shortlist row must (i) add the named successor as its "
-                "own candidate, (ii) compare the two in the rationale, "
-                "and (iii) usually pick the successor unless there is a "
-                "concrete reason to stay on the older repo (e.g. the "
-                "successor does not yet support the specific algorithm "
-                "this project needs). The shortlist must anchor against "
-                "the bundled `argus_builtin_skills/engineer/training-"
-                "infrastructure-guide.md`, add at least one candidate the "
-                "agent independently discovered, and note any guide entry "
-                "that turned out stale and must be excluded."
-            ),
-            evidence_hint=(
-                "research/INFRA_SHORTLIST.md (cites URL + last-commit-date + "
-                "paper if any + a 1-line note on whether the README points "
-                "at a successor) plus the actual cloned repos under "
-                "`code/references/`"
-            ),
         ),
     ),
     "plan": _checklist(
@@ -213,21 +175,19 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="plan.infra_choice",
             statement=(
                 "If training or large-scale inference is required, a final "
-                "training-infra and inference-infra choice is locked in (one "
-                "framework per axis, picked from research.infra_shortlist) with "
-                "an explicit rationale tying each choice to the project's domain "
-                "(e.g. diffusion RL post-training vs LLM SFT vs agent RL) and to "
-                "the resource budget. The chosen frameworks must be 2026+-active, "
-                "open-source, **actually cloned and readme-studied**, and "
-                "explicitly NOT a self-written stub or starter template. Cite "
-                "the chosen project's repo URL, last release/commit date, and "
-                "(if from a paper) the paper. Record both the final choice and "
-                "any explicitly-rejected alternative with a one-line reason."
+                "training-infra and inference-infra choice is locked in after the "
+                "idea survives research de-risk. Compare only credible candidates "
+                "that materially differ for this workload; reuse previously "
+                "certified framework evidence when current. Clone and inspect the "
+                "chosen framework and any code-critical comparator, not an arbitrary "
+                "quota. The choice must be maintained, open-source, non-trivial, and "
+                "compatible with the method and resource budget; record the decisive "
+                "tradeoff and one rejected alternative. Do not write a custom "
+                "trainer/inference stub when a suitable maintained framework exists."
             ),
             evidence_hint=(
-                "research/INFRA_CHOICE.md + research/EXPERIMENT_PLAN.md "
-                "`## Infra` section + the actually-cloned framework repo under "
-                "`code/references/<chosen-framework>/`"
+                "research/INFRA_CHOICE.md (short comparison + final choice) + "
+                "research/EXPERIMENT_PLAN.md `## Infra` + chosen repo evidence"
             ),
         ),
         ChecklistItem(
@@ -1489,6 +1449,7 @@ def format_stage_checklist(
     *,
     role: str = "engineer",
     project_root=None,
+    scope: str = "",
 ) -> str:
     """Render the checklist for ``stage`` as prompt-injectable markdown.
 
@@ -1535,7 +1496,19 @@ def format_stage_checklist(
             "Do not mark the stage complete until required checklist items load."
         )
 
-    if role_norm == "reviewer":
+    scope_norm = (scope or "").strip().lower().replace("-", "_")
+    if role_norm == "reviewer" and scope_norm == "bounded":
+        framing = (
+            "You are the L2 reviewer for a bounded mission. Verify the mission's "
+            "explicit acceptance criteria and only the checklist items materially "
+            "touched by this mission. Unrelated open items belong to later bounded "
+            "missions: report them honestly, but do not use them to keep this "
+            "mission running. Reply `done` when this bounded objective is satisfied; "
+            "the Manager separately keeps the project stage on HOLD until every "
+            "stage item is certified. Do not run any `validate-*` shell command — "
+            "there isn't one. Read the relevant artifacts yourself."
+        )
+    elif role_norm == "reviewer":
         framing = (
             "You are the L2 reviewer. Verify each item by reading the cited "
             "evidence. Reply `continue` if any item is unmet; reply `done` only "

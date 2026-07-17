@@ -25,6 +25,7 @@ from argus_skill.skills.stage_checklists import (
     ChecklistItem,
     ChecklistLoadState,
     StageChecklistContract,
+    resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -629,7 +630,15 @@ def test_decide_persistent_empty_done_satisfied_advances(
     root = _project(tmp_path, current="research")
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
-    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+    contract = resolve_stage_checklist_contract("research", project_root=root)
+    checklist = [
+        {"item": item.id, "satisfied": True, "evidence": item.evidence_hint}
+        for item in contract.items
+    ]
+    st = mgr.decide_stage_transition(
+        review=_review(checklist=checklist),
+        project_root=root,
+    )
     assert backend.calls == 3
     assert st.action == "advance"
     assert st.target_stage == "plan"
@@ -859,6 +868,35 @@ def test_fallback_empty_stage_decision_unknown_current_holds() -> None:
     )
     assert d.action == "hold"
     assert d.diagnostic == "empty_output_unknown_current_stage"
+
+
+def test_fallback_empty_stage_decision_requires_every_contract_item() -> None:
+    contract = StageChecklistContract(
+        stage="research",
+        state=ChecklistLoadState.LOADED,
+        checklist_optional=False,
+        items=(
+            ChecklistItem("research.brief", "brief", "brief.md"),
+            ChecklistItem("research.literature", "literature", "ledger.json"),
+        ),
+    )
+    d = fallback_empty_stage_decision(
+        _review(
+            checklist=[
+                {
+                    "item": "research.brief",
+                    "satisfied": True,
+                    "evidence": "brief.md",
+                }
+            ]
+        ),
+        current_stage="research",
+        stage_order=ORDER,
+        checklist_contract=contract,
+    )
+
+    assert d.action == "hold"
+    assert d.diagnostic == "empty_output_missing_required_checklist_items"
 
 
 # --- F3: the manager-stage codex turn is metered ----------------------------

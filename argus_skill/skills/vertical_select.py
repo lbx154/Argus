@@ -257,21 +257,22 @@ def _persisted_vertical(project_root: object) -> str | None:
 
 
 def resolve_workflow_mode(project_root: object = ".") -> str:
-    """Return the Manager-persisted execution mode, separate from vertical."""
+    """Return the Manager-persisted orchestration mode."""
     try:
         raw = _state_path(project_root).read_text(encoding="utf-8")
     except FileNotFoundError:
-        return "staged"
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
-        )
+        payload: dict = {}
+    else:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
+            )
     mode = _normalize_workflow_mode(payload.get("workflow_mode"))
     if mode:
         return mode
@@ -280,6 +281,30 @@ def resolve_workflow_mode(project_root: object = ".") -> str:
     if str(payload.get("vertical") or "").strip().lower() == "direct":
         return "direct"
     return "staged"
+
+
+def resolve_evidence_mode(project_root: object = ".") -> str:
+    """Return direct/staged/proportional evidence policy for agent prompts.
+
+    ``workflow_mode`` is a Manager-owned orchestration axis (direct vs staged).
+    ``WORKFLOW_MODE = "proportional"`` on a vertical is an evidence-reuse policy,
+    not a request to bypass stage orchestration. A direct Manager decision still
+    wins; otherwise the vertical may choose proportional evidence inside its
+    staged pipeline.
+    """
+    orchestration = resolve_workflow_mode(project_root)
+    if orchestration == "direct":
+        return "direct"
+    try:
+        from ..verticals._base import load_vertical, vertical_workflow_mode
+
+        vertical = resolve_vertical(project_root)
+        mode = vertical_workflow_mode(
+            load_vertical(vertical, project_root=project_root)
+        )
+        return "proportional" if mode == "proportional" else "staged"
+    except Exception:  # noqa: BLE001 — evidence policy must not break prompts
+        return "staged"
 
 
 def _is_project_data_domain(value: str | None, project_root: object) -> bool:
@@ -603,6 +628,7 @@ __all__ = [
     "resolve_vertical_if_decided",
     "resolve_vertical",
     "resolve_workflow_mode",
+    "resolve_evidence_mode",
     "persist_vertical",
     "vertical_reached_own_terminal_stage",
     "reset_stage_for_new_intent",

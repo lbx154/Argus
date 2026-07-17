@@ -191,6 +191,7 @@ def _engineer_log_audit_block(
     engineer_call_id: str = "",
     round_index: int,
     measured: bool,  # noqa: ARG001 — round_index kept for call-site symmetry with the other audit blocks
+    compact: bool = False,
 ) -> str:
     """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
 
@@ -219,6 +220,20 @@ def _engineer_log_audit_block(
     if not path:
         return ""
     call_id = (engineer_call_id or "").strip()
+    if compact:
+        scope = (
+            f"current engineer call id `{call_id}`"
+            if call_id
+            else "the current engineer round"
+        )
+        return (
+            "## Engineer execution log (on-demand)\n"
+            f"Log: `{path}`; scope: {scope}. Do not read or grep it routinely. "
+            "Previously certified process evidence remains valid. Inspect this log "
+            "only for a concrete contradiction, implausible result, missing material "
+            "provenance, or suspected shortcut; otherwise spend the review judging "
+            "the result and next research decision.\n\n"
+        )
     progress_filter = '\'"type": "engineer.progress"\''
     if call_id:
         def shell_quote(value: str) -> str:
@@ -668,7 +683,7 @@ class Reviewer:
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
         from ..skills.harness_overlay import resolve_project_root
-        from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
+        from ..skills.vertical_select import resolve_evidence_mode, resolve_vertical
         from ..verticals._base import (
             load_vertical,
             vertical_completion_gate,
@@ -812,7 +827,12 @@ class Reviewer:
         elif is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer", project_root=_proot)
         else:
-            stage_checklist = format_stage_checklist(stage, role="reviewer", project_root=_proot)
+            stage_checklist = format_stage_checklist(
+                stage,
+                role="reviewer",
+                project_root=_proot,
+                scope=scope_normalized,
+            )
 
         # Academic peer-review benchmark skill: advisory rubric for reviewing
         # a near-complete manuscript. Gate it on the structured stage/scope
@@ -946,6 +966,11 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             round_index=round_index,
             measured=_measured,
+            compact=(
+                resolve_evidence_mode(_proot) == "proportional"
+                and not is_final_submission
+                and stage not in {"review", "submission"}
+            ),
         )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
@@ -969,7 +994,7 @@ class Reviewer:
             final_submission_block = ""
         # Byte-stable static policy; every fresh Reviewer receives it in full.
         static = (
-            _reviewer_evidence_contract(resolve_workflow_mode(_proot))
+            _reviewer_evidence_contract(resolve_evidence_mode(_proot))
             + optimize_banner
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT

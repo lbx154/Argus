@@ -135,9 +135,15 @@ research → plan → benchmark → run → analysis → draft → review → su
   - arXiv (`arxiv-paper-search.md`): latest preprints and cutting-edge work
   - Semantic Scholar (`semantic-scholar-search.md`): published papers with citation counts
   - 机器之心/新智元 etc. (`research-brief-to-experiment-plan.md` §3): trend signals, hot topics, practitioner insights
-- Write `research/LITERATURE_GROUNDING.json` (10+ recent papers, 3+ classic anchors, trend_sources)
-- Write `research/LIT_MATRIX.tsv`, `research/SOURCE_DISCOVERY.md`, `research/TREND_INSIGHTS.md`
-- Gate: real gap identified, relevant baselines found, benchmark options exist, trend sources checked
+- Write one canonical `research/LITERATURE_GROUNDING.json` whose retained primary
+  sources cover every material premise, nearest competitor, relevant foundation,
+  contradiction, and open frontier; do not optimize for a paper-count quota.
+- Generate `research/LIT_MATRIX.tsv` mechanically with
+  `python -m argus_skill.verticals.research.literature_ledger sync --project-root .`.
+  Put the connected lineage and decision-relevant trend implications in
+  `RESEARCH_BRIEF.md`; do not maintain duplicate survey files merely as gates.
+- Gate: real gap identified, relevant baselines and benchmark origins covered,
+  unresolved source gaps explicit
 - Reviewer LLM check: none (code checks only)
 
 ### 2. plan (experiment design)

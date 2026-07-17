@@ -41,7 +41,9 @@ from argus_skill.skills.vertical_select import (
     persist_vertical,
     require_vertical,
     reset_stage_for_new_intent,
+    resolve_evidence_mode,
     resolve_vertical,
+    resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
 from argus_skill.verticals._base import (
@@ -100,6 +102,33 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
     assert contract.state is ChecklistLoadState.LOADED
     assert contract.checklist_optional is False
     assert len(contract.items) > 0
+
+
+def test_research_vertical_defaults_to_proportional_evidence_reuse(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research")
+
+    assert resolve_workflow_mode(tmp_path) == "staged"
+    assert resolve_evidence_mode(tmp_path) == "proportional"
+
+
+def test_explicit_staged_mode_overrides_research_vertical_default(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="staged")
+
+    assert resolve_workflow_mode(tmp_path) == "staged"
+    assert resolve_evidence_mode(tmp_path) == "proportional"
+
+
+def test_direct_orchestration_overrides_proportional_evidence_default(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct")
+
+    assert resolve_workflow_mode(tmp_path) == "direct"
+    assert resolve_evidence_mode(tmp_path) == "direct"
 
 
 # --- resolve_vertical precedence: env > state > research --------------------

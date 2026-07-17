@@ -62,9 +62,9 @@ Evidence paths must already exist inside the project workspace. Reporting record
 - Stopping after a partial fix because one narrow check passed.
 - Claiming that a daemon, benchmark, PDF, or experiment is complete without inspecting fresh artifacts.
 
-## Training & inference infra (research + plan stages)
-Before any gradient-based training or large-scale inference begins, the
-agent MUST commit to existing open-source frameworks on each axis. Custom
+## Training & inference infra (plan stage)
+After the idea survives research de-risk and before gradient-based training or
+large-scale inference begins, commit to existing open-source frameworks on each axis. Custom
 training loops, hand-rolled PPO/GRPO/RLHF trainers, custom KV-cache
 management, and bare `model.generate()` benchmark loops are hard
 blockers at the reviewer gate.
@@ -72,24 +72,17 @@ blockers at the reviewer gate.
 1. Read `argus_builtin_skills/training-infrastructure-guide.md` as the
    curated baseline (LLM SFT/DPO/RLHF, agent RL, diffusion, LLM
    inference, API inference).
-2. Supplement with your own search of recent arXiv (2026+) and GitHub
-   trending repos for your specific domain; add at least one credible
-   candidate the bundled guide does not name.
-3. Every shortlisted framework must have a release or default-branch
-   commit dated **2026 or later** (older repos excluded as
-   unmaintained, regardless of prior prestige).
-4. Paper-released code is allowed if (a) repo meets the 2026+ bar and
-   (b) the paper is in `research/LITERATURE_GROUNDING.json`; prefer the
-   official authors' repo over third-party reimplementations.
-5. Produce `research/INFRA_SHORTLIST.md` (research stage) and
-   `research/INFRA_CHOICE.md` (plan stage) — one training framework
-   and one inference framework locked in with rationale and the chosen
-   repo's URL + last release/commit date. Mirror the choice in an
+2. Compare only credible candidates that materially differ for this workload;
+   reuse previously certified framework evidence when current.
+3. Select an actively maintained, method-compatible framework; a calendar-year
+   cutoff is not a substitute for maintenance or compatibility.
+4. Paper-released code is allowed when maintained and represented in canonical
+   `research/LITERATURE_GROUNDING.json`; prefer official code.
+5. Produce `research/INFRA_CHOICE.md` (plan stage) with a short comparison,
+   the final choice, and one rejected runner-up. Mirror the choice in an
    `## Infra` section of `research/EXPERIMENT_PLAN.md`.
-6. Skip both artifacts only if the project literally has no training
-   and no large-scale inference (record the skip in
-   `research/RESEARCH_BRIEF.md`); otherwise the reviewer fails the
-   `research.infra_shortlist` and `plan.infra_choice` items.
+6. Skip the artifact only if the project has no training and no large-scale
+   inference; otherwise the reviewer checks `plan.infra_choice`.
 
 ## Consult the project wiki before non-trivial work
 

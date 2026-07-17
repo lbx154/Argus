@@ -35,8 +35,6 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         ("Research brief exists", "test -f research/RESEARCH_BRIEF.md"),
         ("Literature grounding exists", "test -f research/LITERATURE_GROUNDING.json"),
-        ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
-        ("Trend insights exists", "test -f research/TREND_INSIGHTS.md"),
         ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
         # Research quality and task-specific de-risk evidence are certified by
         # the L2 reviewer against the active Planner-authored checklist below.
@@ -121,25 +119,23 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "engineer/research-brief-to-experiment-plan.md",
         "Evaluate the research foundation on these dimensions:\n"
         "1. Problem clarity — is the research gap well-defined and grounded in literature?\n"
-        "2. TIMELINE coverage (NOT paper count) — does `research/RESEARCH_TIMELINE.md` reconstruct the field's lineage end-to-end (founding work → key turning points → current SOTA → open frontier = the paper's entry point)? Depth is a CONNECTED timeline you can trace founding→frontier without gaps, NOT a paper tally; a flat list or a broken/gappy timeline is shallow regardless of how many papers it cites.\n"
-        "3. Source diversity — both scholarly (arXiv, Semantic Scholar) and trend sources (机器之心 etc.) checked?\n"
+        "2. Lineage coverage (NOT paper count) — does the canonical literature "
+        "ledger plus RESEARCH_BRIEF reconstruct the field from relevant foundations "
+        "through the nearest competitors to the open frontier? A flat list is "
+        "shallow regardless of how many papers it contains.\n"
+        "3. Source fitness — are primary scholarly/official sources used for "
+        "technical claims, with trend sources used only when they add a concrete "
+        "testable signal?\n"
         "4. Trend grounding — are trend insights converted to testable research questions?\n"
         "5. Direction viability — is this a real frontier gap, not just an incremental tweak?\n"
         "6. Reference code — were related papers' official repos cloned and studied?\n"
-        "7. **Real-search audit (HARD)** — the literature must be EARNED from real "
-        "retrieval, not recited from model knowledge. Run engineer-process-audit: "
-        "grep the engineer's execution log for real `curl` calls to "
-        "`export.arxiv.org` and `api.crossref.org` and confirm there are ≥5 such "
-        "real arxiv/Crossref queries (GPT-Researcher-style fan-out). Then spot-check "
-        "≥2 entries in LITERATURE_GROUNDING.json by independently `curl`-ing their "
-        "`url`/DOI to confirm the paper actually exists and the title/abstract match "
-        "(not hallucinated). BLOCK the stage if any of: the execution log shows 0 "
-        "(or <5) real curl arxiv/Crossref calls; the literature was clearly backed "
-        "from the model's own knowledge with no `retrieved_via`/`url`/real-`abstract` "
-        "provenance per entry; or any file's metadata claims it 'queried/searched "
-        "official scholarly sources' with no matching real curl in the log "
-        "(fabricated provenance). On block, require a redo with real `curl` evidence "
-        "per the engineer/deep-research-timeline + deep-research-via-api skills (real curl search, organized as a CONNECTED timeline, not a count).\n"
+        "7. **Source-integrity audit (HARD)** — retained literature must come from "
+        "real primary URLs, not model memory. Validate the canonical ledger with "
+        "`python -m argus_skill.verticals.research.literature_ledger check`. "
+        "Independently refetch an entry only when its URL/provenance is missing, "
+        "contradictory, implausible, or material to a disputed claim. Do not grade "
+        "research quality by curl/query counts and do not repeat a source audit "
+        "already certified in an earlier bounded mission without a concrete conflict.\n"
         "8. **Research de-risk audit (HARD)** — read the active "
         "`research.signal_derisk` project checklist item and audit exactly the "
         "task-specific evidence contract the Planner authored there. For the "
@@ -151,11 +147,9 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "the evidence is missing, fabricated, internally inconsistent, or does not "
         "satisfy the active checklist; do not require inapplicable performance "
         "metrics and do not let a task-specific Python validator decide quality.\n"
-        "Pass threshold: clear gap identified with literature backing earned from "
-        "real curl arxiv/Crossref searches, not just agent brainstorming or recalled papers.",
-        ["research/RESEARCH_TIMELINE.md", "research/RESEARCH_BRIEF.md",
-         "research/LITERATURE_GROUNDING.json",
-         "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md",
+        "Pass threshold: a clear gap with claim-complete primary-source backing, "
+        "not agent brainstorming or recalled papers.",
+        ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
          "research/CHECKLISTS.json", "research/SIGNAL_DERISK.json",
          "research/SIGNAL_DERISK_LOG.txt"],
     ),
@@ -510,6 +504,13 @@ CHECKLIST_ITEMS = STAGE_CHECKLISTS
 #: Research missions complete on the full EMNLP/paper final-submission gate.
 completion_gate = "full_paper"
 
+# Research proceeds through strict stage gates, but evidence reuse within those
+# stages is proportional: once a Reviewer certifies a source or artifact, later
+# bounded missions verify only the new claim/delta unless a concrete conflict
+# reopens it. This keeps scientific integrity without repeatedly rebuilding the
+# same provenance tree.
+WORKFLOW_MODE = "proportional"
+
 
 def role_banner(_role: str = "engineer") -> str:
     """No top-of-prompt override for the research vertical (the default).
@@ -527,6 +528,7 @@ __all__ = [
     "_PIPELINE_CHECK",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
+    "WORKFLOW_MODE",
     "role_banner",
     "completion_gate",
 ]

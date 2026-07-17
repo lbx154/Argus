@@ -11,32 +11,24 @@ created_at: 2026-05-28T00:00:00+00:00
 
 When experiments involve model training or large-scale inference, use established frameworks. Do NOT write custom loops from scratch.
 
-## 🔒 Selection contract (research + plan stages)
+## 🔒 Selection contract (plan stage, after idea de-risk)
 
-This guide is the **starting baseline**, not the final answer. During the
-**research** and **plan** stages every project that needs training or
-large-scale inference must commit to a specific framework on each axis
-(training / inference), and that decision must satisfy ALL of the following:
+This guide is a starting baseline, not a reason to survey generic frameworks
+before the research idea survives its cheapest faithful falsification probe.
+During the **plan** stage, projects that need training or large-scale inference
+must commit to a specific framework on each required axis.
 
-1. **Open-source, actively maintained, 2026+.** The last meaningful release
-   or commit must be in **2026 or later**. Anything older is treated as
-   unmaintained and rejected — even if it was once state-of-the-art.
+1. **Open-source and actively maintained.** Judge maintenance, compatibility,
+   and method support from current releases/issues/docs; do not use a calendar
+   year as a proxy.
 2. **No self-written training or inference loops.** A custom `for epoch`
    loop, a bare `model.generate()` benchmark loop, or a hand-rolled
    RL/PPO trainer is a hard blocker. Wrap an existing framework instead.
-3. **Paper-released frameworks are allowed** if (a) the repo meets the
-   2026+ recency bar and (b) the paper is cited in
-   `research/LITERATURE_GROUNDING.json`. Prefer official authors' code
-   over third-party reimplementations.
-4. **Anchor against this guide first, then supplement.** Use the tables
-   below as the curated baseline. You must additionally do at least one
-   round of independent research (recent arXiv, GitHub trending, papers
-   that match your domain) to (a) confirm those baseline frameworks are
-   still maintained at decision time and (b) add at least one credible
-   candidate of your own with URL + last-commit date + paper.
-5. **Excluded entries from this guide.** If a baseline framework below
-   is no longer maintained, explicitly note it as "excluded — stale" in
-   `research/INFRA_SHORTLIST.md` so the reasoning is auditable.
+3. **Paper-released frameworks are allowed** when the repo is maintained and
+   its paper is in the canonical literature ledger. Prefer official code.
+4. **Compare only decision-relevant candidates.** Reuse previously certified
+   framework evidence when current. Search further only when the guide lacks a
+   compatible option or a concrete tradeoff remains unresolved.
 
 ### 🚨 Always scan the README for supersession hints
 
@@ -50,9 +42,8 @@ verl-style training framework for Flow-GRPO users." A naive shortlist
 that just notices "flow_grpo matches my domain" misses that the
 recommended path is now `verl-omni`.
 
-For every candidate framework you shortlist, you MUST do the
-following on the freshly cloned repo before writing a row in
-`research/INFRA_SHORTLIST.md`:
+For the selected framework and any decision-critical runner-up, inspect the
+README before writing `research/INFRA_CHOICE.md`:
 
 ```bash
 # Get the README text (handle both common spellings + .md/.rst):
@@ -68,11 +59,9 @@ grep -nEi 'now supported by|upstreamed (in)?to|merged (in)?to|moved to|migrated 
     code/references/<repo>/README* 2>/dev/null
 ```
 
-If any hit names a successor project, the shortlist row must:
+If any hit names a successor project:
 
-1. **Add the successor as its own candidate** in `INFRA_SHORTLIST.md`
-   (clone it under `code/references/<successor>/`, repeat the
-   maintenance + README check there too).
+1. **Evaluate the successor** as the likely current choice.
 2. **Compare the two in the rationale**: what does the original repo
    still offer that the successor does not (e.g. an algorithm-specific
    recipe the successor hasn't ported yet)?
@@ -85,26 +74,16 @@ Also do one sanity pass at the *paper* level: if the chosen framework
 backs a paper that was itself surpassed by a follow-up paper with
 its own released code, the follow-up wins on the same logic.
 
-### Artifacts the L2 reviewer will check
+### Artifact the L2 reviewer will check
 
-- **research stage** (`research.infra_shortlist`):
-  `research/INFRA_SHORTLIST.md` listing every candidate framework you
-  evaluated, with URL, last release/commit date, paper (if any),
-  README-supersession note (or "no supersession hint found" — both
-  are valid; the absence is itself a positive signal), and a one-line
-  "fit" rationale.
-- **plan stage** (`plan.infra_choice`): `research/INFRA_CHOICE.md`
-  locking in exactly one training framework and exactly one inference
-  framework, citing the chosen repo's URL + last release/commit date,
-  and a one-line reason why the rejected runner-up was rejected. If a
-  runner-up was rejected because of a supersession hint, name the
-  successor in the reason. The same choice must also appear in an
-  `## Infra` section of `research/EXPERIMENT_PLAN.md`.
+The **plan stage** (`plan.infra_choice`) owns `research/INFRA_CHOICE.md`.
+Include a short comparison, the final training/inference choice where
+applicable, repository/maintenance evidence, the decisive compatibility
+reason, and one rejected runner-up. Mirror the choice in the `## Infra`
+section of `research/EXPERIMENT_PLAN.md`.
 
-Skip both artifacts only if the project genuinely needs neither
-training nor large-scale inference (e.g. a pure literature analysis
-paper). In that case record the decision in `research/RESEARCH_BRIEF.md`
-and proceed.
+Skip this artifact only if the project genuinely needs neither training nor
+large-scale inference. Record the decision in the experiment plan.
 
 ## 🧬 Backbone model selection contract (research + plan stages)
 

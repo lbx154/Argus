@@ -268,7 +268,7 @@ Use the repository's existing conventions if they are already present; otherwise
 ## Research and experiment plan contract
 1. Start from a research brief, not from a paper title.
 2. Before selecting the final thesis, survey credible sources: recent high-quality papers, classic anchor papers, benchmark/dataset papers, official repos, and operator-specified trend sources when available.
-3. Write `research/LITERATURE_GROUNDING.json` and require at least 10 recent high-quality papers plus at least 3 classic anchors unless access constraints are documented as blockers.
+3. Write one canonical `research/LITERATURE_GROUNDING.json` whose primary sources cover every material premise, nearest competitor, relevant foundation, contradictory result, and open frontier. Judge connected claim coverage rather than fixed paper counts; generate `LIT_MATRIX.tsv` with the literature-ledger tool.
 7. Never copy paper or media prose. Store metadata, short paraphrased summaries, and original analysis.
 
 ## Training & inference infrastructure contract (research + plan stages)
@@ -279,23 +279,19 @@ the agent must select an existing open-source framework on each axis
 training loops, bare `model.generate()` benchmark loops, and hand-rolled
 PPO/GRPO/RLHF trainers are **hard blockers** at the reviewer gate.
 
-Frameworks are real, non-trivial repositories — they cannot be a snippet,
-a gist, or a "starter template" the agent writes itself. The agent must
-**actually `git clone` each shortlisted framework** into
-`code/references/<repo>/`, **read its `README` / `docs/` / example
-scripts**, and only then judge whether the framework fits the project.
-A shortlist row that names a framework without a corresponding cloned
-copy + a notes file summarizing the README fails the reviewer gate.
+Frameworks are real, non-trivial repositories — not snippets, gists, or a
+"starter template" the agent writes itself. Investigate infrastructure in the
+plan stage after the idea survives de-risk. Clone and inspect the selected
+framework plus any decision-critical runner-up; do not clone every search hit.
 
 1. **Anchor against the bundled baseline:** read
    `argus_builtin_skills/training-infrastructure-guide.md` first. It is
    the operator-curated starting point covering LLM SFT/DPO/RLHF, agent
    RL, diffusion (T2I), LLM inference, and API inference.
-2. **Supplement with your own search** of recent arXiv (2026+) and
-   GitHub trending for frameworks that match your specific domain. You
-   must add at least one credible candidate the bundled guide does not
-   name, with URL + last release/commit date + paper (if any).
-3. **Clone and study before shortlisting.** For every candidate framework:
+2. **Search further only when needed** for method compatibility or an
+   unresolved tradeoff. Reuse previously certified framework evidence when current.
+3. **Clone and study before choosing.** For the selected framework and a
+   decision-critical runner-up:
    ```bash
    git clone --depth=1 <repo-url> code/references/<repo-name>/
    git -C code/references/<repo-name>/ log -1 --format='%cI' > code/references/<repo-name>/.last-commit-iso
@@ -315,34 +311,26 @@ copy + a notes file summarizing the README fails the reviewer gate.
     If any hit names a successor, clone the successor too, compare the
     two in the rationale, and **default to the successor** unless there
     is a concrete reason to stay on the older repo.
-4. **Maintenance bar:** every shortlisted framework must have a release
-   or default-branch commit dated **2026 or later** (record the date
-   from `.last-commit-iso` above). Older repos are excluded as
-   unmaintained, no matter how prestigious they once were.
-5. **Paper-released frameworks are allowed** when (a) the repo meets the
-   2026+ recency bar and (b) the paper appears in
+4. **Maintenance bar:** verify active maintenance and compatibility from current
+   releases/issues/docs; do not use a fixed calendar cutoff.
+5. **Paper-released frameworks are allowed** when maintained and the paper appears in
    `research/LITERATURE_GROUNDING.json`. Prefer the official authors'
    repo over third-party reimplementations.
 6. **No self-written training or inference loops.** Wrap an existing
    framework. Excepted: thin glue scripts that import the framework's
    trainer/inferencer object and configure it.
-7. **Research stage artifact:** `research/INFRA_SHORTLIST.md` listing
-   every candidate considered with URL, last release/commit date (from
-   the cloned repo), paper (if any), a one-line domain-fit rationale,
-   the path to the cloned copy under `code/references/`, and a
-   "maintained" yes/no — including a note for any bundled-guide entry
-   you found stale and excluded.
-8. **Plan stage artifact:** `research/INFRA_CHOICE.md` locking in
+7. **Plan stage artifact:** `research/INFRA_CHOICE.md` contains a short
+   comparison and locks in
    exactly one training framework and exactly one inference framework
    with rationale tying the choice to the project domain and the
    GPU / API budget. Mirror the locked choice in
    `research/EXPERIMENT_PLAN.md` under an `## Infra` section. Record
    one explicitly-rejected runner-up with a one-line reason.
-9. **Skip both artifacts only if** the project does not train any model
+8. **Skip the artifact only if** the project does not train any model
    AND does not run large-scale inference (e.g. a pure literature
    analysis paper). Record the skip explicitly in
-   `research/RESEARCH_BRIEF.md`; otherwise the reviewer fails the
-   `research.infra_shortlist` and `plan.infra_choice` checklist items.
+   `research/EXPERIMENT_PLAN.md`; otherwise the reviewer checks
+   `plan.infra_choice`.
 
 ## Pipeline state machine and stage rollback
 

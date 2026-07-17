@@ -23,44 +23,39 @@ Turn a loose operator research direction into a concrete, evidence-first experim
 - The proposed method must train or adapt a domain-appropriate modern backbone at meaningful scale for the target field, using LoRA/QLoRA/FSDP/DeepSpeed/Accelerate or an equivalent efficient recipe when full fine-tuning is too expensive. Record the model family, parameter scale, trainable parameters, dataset size, GPU memory plan, and expected GPU-hours.
 - Final benchmark evidence must come from existing real benchmarks or their official task/data releases. Do not create a synthetic benchmark, synthetic proxy, generated task set, or locally invented oracle as the main evidence source. Synthetic data may be used only for unit tests, debugging, or clearly labeled smoke tests with no paper-facing result claims.
 
-## Training & inference infrastructure contract (REQUIRED if any training or large-scale inference)
+## Training & inference infrastructure contract (plan stage, after idea de-risk)
 
-Custom training loops and bare `model.generate()` inference loops are **hard
-blockers** at the planner / reviewer gate. Every project that involves
-gradient-based training or large-scale inference must lock in an existing
-open-source framework on each axis before drafting the experiment plan.
+Do not spend the research stage surveying generic frameworks before the idea's
+binding premise survives a real falsification probe. Once it does, the plan must
+lock maintained open-source training/inference infrastructure instead of
+inventing custom loops.
 
 1. **Read `argus_builtin_skills/training-infrastructure-guide.md` first.**
    It is the bundled curated baseline (LLM SFT/DPO/RLHF, agent RL,
    diffusion, LLM inference, API inference). Anchor your selection there.
-2. **Then do your own search.** Look at recent arXiv (2026+) repos that
-   match your specific domain (e.g. for diffusion RL: SimpleTuner /
-   diffusers / SimpleTuner-RL / flow_grpo / Dense_Reward_T2I-style
-   official repos; for agent RL: AgentGym-RL / veRL / SLIME; for LLM
-   post-training: LLaMA-Factory / TRL / OpenRLHF / veRL). Add at least
-   one candidate the bundled guide does not name.
-3. **Maintenance bar: 2026-or-later.** Every candidate must have a
-   release or default-branch commit in 2026+. Older repos are excluded
-   regardless of historical prestige.
-4. **No self-written trainers / inference loops.** Including: hand-rolled
+2. **Search only as needed for the surviving method.** Compare credible
+   candidates that materially differ for this workload. Reuse previously
+   certified framework evidence when current; do not clone a quota.
+3. **Maintenance bar.** The selected project must be actively maintained and
+   compatible with the required model/method/hardware. A calendar-year cutoff
+   is not a substitute for compatibility or maintenance evidence.
+4. **No self-written trainers / inference loops when a suitable framework exists.** Including: hand-rolled
    PPO/GRPO trainers, custom KV-cache management, custom mixed-precision
    or distributed-training scaffolding. Wrap an existing framework.
-5. **Paper-released code allowed** when the repo meets the 2026+ bar and
-   the paper appears in `research/LITERATURE_GROUNDING.json`.
-6. **Write `research/INFRA_SHORTLIST.md`** during the research stage with
-   every candidate you considered (URL + last release/commit date + paper
-   if any + one-line fit rationale + maintained-yes/no).
-7. **Write `research/INFRA_CHOICE.md`** during the plan stage locking in
+5. **Paper-released code allowed** when the repository is maintained,
+   method-compatible, and its paper appears in the canonical literature ledger.
+6. **Write `research/INFRA_CHOICE.md`** during the plan stage with a short
+   comparison of the credible candidates considered, then lock in
    exactly one training framework and exactly one inference framework
    with rationale tying the choice to the project domain and the GPU /
    API budget. Mirror the same locked choice in
    `research/EXPERIMENT_PLAN.md` under an `## Infra` section.
-8. **Skip both artifacts only if** the project does not train any model
+7. **Skip the artifact only if** the project does not train any model
    and does not run large-scale inference (e.g. pure literature analysis).
-   Record that skip explicitly in `research/RESEARCH_BRIEF.md`.
+   Record that skip explicitly in `research/EXPERIMENT_PLAN.md`.
 
-The L2 reviewer ticks these checklist items as `research.infra_shortlist`
-and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
+The L2 reviewer checks `plan.infra_choice`. Empty / hand-waved choices fail;
+generic pre-idea framework surveys are not research-stage progress.
 
 ## When to use
 - The operator asks for an EMNLP/ACL-style paper plan, research plan, experiment roadmap, or agent-science hypothesis.
@@ -88,17 +83,17 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
    - Record local GPU capability only in internal planning artifacts and use it to choose the strongest feasible training setup. If the workspace has large GPUs, do not default to a tiny custom scorer; justify any smaller model as a baseline, ablation, or operator-approved scope change. Do not plan to copy local device ordinals, CUDA variables, cache paths, workstation names, or Argus/Codex route configuration into the manuscript.
 
 3. Run literature and specified-source grounding before locking the plan:
-   - Write `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, and `research/LITERATURE_GROUNDING.json` before finalizing hypotheses. Target 10 recent high-quality papers from the current system year when credible sources exist; otherwise include the strongest recent papers from the previous two years and record the current-year shortfall.
-   - Include at least 3 classic anchor papers that define the task, benchmark, evaluation protocol, or method family. A hot news topic without classic anchors is not ready for EMNLP planning.
+   - Author **one canonical ledger**, `research/LITERATURE_GROUNDING.json`, before finalizing hypotheses. Include enough primary sources to cover every material premise: the nearest competing methods, relevant foundations/classic anchors, contradictory or negative evidence, and the unresolved frontier. Coverage is claim-driven, not a fixed paper count.
+   - Generate `research/LIT_MATRIX.tsv` mechanically with `python -m argus_skill.verticals.research.literature_ledger sync --project-root .`; never ask a model to maintain the same paper metadata independently in JSON and TSV.
+   - Put the connected founding-work → turning-points → nearest-SOTA → open-frontier synthesis directly in `research/RESEARCH_BRIEF.md`. A separate `LITERATURE_REVIEW.md` or `RESEARCH_TIMELINE.md` is optional, not a gate.
    - Use scholarly sources first: ACL Anthology, arXiv, Semantic Scholar, OpenReview, Papers with Code, official conference award/program pages, and benchmark/dataset project pages.
-   - Write `research/SOURCE_DISCOVERY.md` for non-peer-reviewed trend sources. Include operator-specified sources such as 机器之心 and 新智元, plus official lab/blog posts when useful.
+   - Record useful non-peer-reviewed trend sources in the canonical ledger and summarize only decision-relevant signals in the brief. Do not create a separate news digest merely to satisfy a filename.
    - Treat media posts as discovery signals only. They may suggest hot topics, systems, authors, datasets, pain points, or code releases. They do not need paper/benchmark/code backing to be recorded, but they cannot by themselves support paper claims.
    - First record source access status: direct URL tried, HTTP result, date, accessible fallback, and whether the source is usable. For 新智元, try the currently accessible official site (`aiera.com.cn`) before marking the source blocked; for 机器之心, record whether article/search pages or only the data-service page are reachable.
-   - Write `research/TREND_INSIGHTS.md` as a decision artifact, not a news digest. Extract repeated pain points, emerging evaluation settings, datasets/tools people care about, surprising practitioner constraints, unresolved questions, and hype claims that require verification.
-   - Convert each useful trend into a testable research question with possible benchmark, baseline implication, cost/risk estimate, and decision: `use`, `watch`, `reject`, or `needs-scholarly-grounding-for-claim`.
+   - Convert each useful trend into a testable research question in the brief with a benchmark/baseline implication, cost/risk estimate, and decision: `use`, `watch`, `reject`, or `needs-scholarly-grounding-for-claim`.
    - Do not spend model/API budget on benchmark runs until at least one candidate research question is backed by both the literature matrix and a usable trend insight or an explicit reason why the trend scan is unavailable.
    - Never copy paper or media prose into artifacts. Store metadata, URLs, short paraphrased summaries, and your own analysis.
-   - `research/LITERATURE_GROUNDING.json` must contain `recent_high_quality_papers` (minimum 10), `classic_papers` (minimum 3), and `trend_sources` with source name, URL, access date, and extracted signals. Trend sources do not need paper/benchmark/code backing and do not require `paper_or_benchmark_backing`; if a trend later becomes a technical paper claim, the claim must be supported by surveyed papers/code/benchmarks or local experiment artifacts. The literature matrix must include: source type, date, title, venue/status, URL, task, method, dataset, baseline, metric, key result, limitation, and implication for this project.
+   - The canonical ledger must retain title, primary URL, source provenance, and project implication for every paper. Trend sources do not need paper/benchmark/code backing, but any trend promoted into a technical claim must be supported by primary literature/code/benchmarks or local experiment artifacts. Run `literature_ledger check` for identity/source-shape errors; the Reviewer, not a quota, judges coverage.
 
 4. Derive candidate ideas from evidence, not brainstorming:
    - Each candidate must cite `source_refs` from surveyed recent papers, classic papers, benchmarks, official projects, or code releases. The selected idea must have at least 2 `derived_from` references and a concrete `research_gap`, `novelty_delta`, and `selection_rationale`.
@@ -116,7 +111,7 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
 
 5. Survey reusable code and download reference implementations:
    - Search official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and well-licensed libraries related to the selected idea.
-   - **Download and study reference implementations**: for the top-3 most relevant papers, clone their official code repos into `code/references/` (shallow clone: `git clone --depth 1`). Read their model architecture, training loop, evaluation scripts, and data processing. Record what you learned in `research/CODE_STUDY_NOTES.md`.
+   - **Download and study reference implementations** for the papers whose code will actually be reused, reproduced, or used as a strong baseline. Clone those official repos into `code/references/` (shallow clone: `git clone --depth 1`). Read the exact entrypoints relevant to this project and record what you learned in `research/CODE_STUDY_NOTES.md`; do not clone an arbitrary quota of repos.
    - This is NOT optional. You cannot design a competitive method without understanding how existing methods actually work. Reading the paper abstract is not enough — you must read the code.
    - For each downloaded repo, record: paper title, repo URL, license, what you learned about the method, what code/ideas you can reuse, and what limitations you found.
    - Prefer license-compatible official paper code, benchmark harnesses, and libraries over writing everything from scratch. If all external code is rejected, record `from_scratch_justification` or `no_usable_external_code_reason`.
@@ -173,7 +168,7 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
    - Ensure every planned paper claim maps to at least one concrete run.
    - Ensure every run has an expected output path and a success/failure criterion.
    - Ensure no result number appears unless it already exists in a cited artifact.
-   - Self-audit the literature-grounding requirement; do not mark the plan stage ready while review finds missing recent papers, classic papers, or trend-source metadata.
+   - Self-audit claim coverage in the canonical literature ledger; do not mark the plan stage ready while a material premise, nearest competitor, relevant foundation, or contradictory result is unsupported.
    - Self-audit the idea-provenance requirement and the code-reuse requirement; do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
 
 ## Response shape

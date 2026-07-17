@@ -72,6 +72,17 @@ def test_format_stage_checklist_reviewer_framing() -> None:
     assert "Do not run any `validate-*` shell command" in text
 
 
+def test_bounded_reviewer_only_gates_on_mission_relevant_items() -> None:
+    text = format_stage_checklist("research", role="reviewer", scope="bounded")
+
+    assert "bounded mission" in text
+    assert "only the checklist items materially touched by this mission" in text
+    assert "do not use them to keep this mission running" in text
+    assert "Manager separately keeps the project stage on HOLD" in text
+    assert "reply `done` only when every item is satisfied" not in text.lower()
+    assert "research.literature" in text
+
+
 def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None:
     text = format_stage_checklist("plan", role="reviewer")
     assert "Clinical or mechanism projects" in text

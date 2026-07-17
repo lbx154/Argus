@@ -343,7 +343,7 @@ class Planner:
             current_stage,
             format_stage_checklist,
         )
-        from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
+        from ..skills.vertical_select import resolve_evidence_mode, resolve_vertical
         from ..verticals._base import (
             load_vertical,
             vertical_checklist_stage_order,
@@ -539,9 +539,8 @@ class Planner:
             "   and any nearby evidence that might already cover the gap\n"
             "   under a different name. Do not flag a rollback on a typo.\n"
             "2. **Identify the EARLIEST broken stage**, not the latest one.\n"
-            "   If both `research.infra_shortlist` and `plan.infra_choice`\n"
-            "   are missing, the rollback target is `research`, not `plan` —\n"
-            "   the engineer cannot lock a choice without a shortlist.\n"
+            "   Infrastructure comparison and choice belong to `plan`; their "
+            "absence is not a reason to roll back a completed research stage.\n"
             "3. **REPORT the defect for the Manager.** Name the earliest broken\n"
             "   stage and the missing artifact in your verdict `reason` (and in\n"
             "   any structured blocker field) so the Manager can roll the stage\n"
@@ -705,7 +704,7 @@ class Planner:
         return (
             ground_truth_mandate(
                 "planner",
-                workflow_mode=resolve_workflow_mode(_proot),
+                workflow_mode=resolve_evidence_mode(_proot),
             )
             + optimize_banner
             + research_target_block

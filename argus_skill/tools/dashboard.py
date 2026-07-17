@@ -704,8 +704,11 @@ def find_life_dir(fingerprint: str, roots: list[Path] | None = None) -> Path | N
 # speedrun artifacts and vice versa.
 _STAGE_ARTIFACTS: dict[str, list[str]] = {
     # research vertical
-    "research": ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
-                 "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
+    "research": [
+        "research/RESEARCH_BRIEF.md",
+        "research/LITERATURE_GROUNDING.json",
+        "research/LIT_MATRIX.tsv",
+    ],
     "plan": ["research/EXPERIMENT_PLAN.md", "research/BASELINE_AND_BENCHMARK_PLAN.md",
              "paper/DRAFT_OUTLINE.md", "research/CLAIMS_TO_TEST.md"],
     "benchmark": ["experiments/BENCHMARK_PROVENANCE.json", "experiments/BENCHMARK_PROVENANCE.md",

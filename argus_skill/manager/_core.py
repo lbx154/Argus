@@ -1690,7 +1690,10 @@ class Manager:
                     )
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
-                    review, current_stage=cur, stage_order=order
+                    review,
+                    current_stage=cur,
+                    stage_order=order,
+                    checklist_contract=checklist_contract,
                 )
             else:
                 try:

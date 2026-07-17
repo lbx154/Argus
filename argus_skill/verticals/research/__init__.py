@@ -134,6 +134,7 @@ from .stages import (
     REVIEWER_CHECKLISTS,
     STAGE_CHECKS,
     STAGE_ORDER,
+    WORKFLOW_MODE,
 )
 
 __all__ = [
@@ -211,4 +212,5 @@ __all__ = [
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
     "STAGE_ORDER",
+    "WORKFLOW_MODE",
 ]

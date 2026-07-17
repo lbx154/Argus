@@ -70,7 +70,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
    - Ablations must isolate the proposed mechanism; metrics must match the claim.
 
 4. **Literature, related work, and citation quality**
-   - Literature grounding should include at least 10 recent high-quality papers and 3 classic anchors.
+   - Literature grounding should cover every material premise, nearest competitor, relevant foundation, contradiction, and frontier claim with retained primary sources; do not reward padding to a paper-count quota.
    - The bibliography should be deep enough for a long paper: at least 35 verified BibTeX entries, at least 30 unique cited keys, and no invented or `% UNVERIFIED` entries unless explicitly disclosed.
    - Related work should be methodological and contrastive, not a chronological list.
 

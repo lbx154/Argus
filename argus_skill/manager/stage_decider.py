@@ -272,6 +272,7 @@ def fallback_empty_stage_decision(
     *,
     current_stage: str,
     stage_order: Sequence[str],
+    checklist_contract: Any | None = None,
 ) -> StageDecision:
     """Resolve persistent empty manager-stage output without wedging a stage.
 
@@ -314,6 +315,18 @@ def fallback_empty_stage_decision(
             return hold("empty_output_unsatisfied_checklist")
         if not str(item.get("evidence", "")).strip():
             return hold("empty_output_missing_checklist_evidence")
+    if checklist_contract is not None:
+        required_ids = {
+            str(getattr(item, "id", "") or "").strip()
+            for item in getattr(checklist_contract, "items", ())
+            if str(getattr(item, "id", "") or "").strip()
+        }
+        reviewed_ids = {
+            str(item.get("item") or item.get("id") or "").strip()
+            for item in items
+        }
+        if required_ids - reviewed_ids:
+            return hold("empty_output_missing_required_checklist_items")
 
     next_stage = order[cur_idx + 1]
     return StageDecision(

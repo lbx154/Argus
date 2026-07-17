@@ -31,6 +31,7 @@ from argus_skill.engineer.runner import (
     SupervisedEngineer,
 )
 from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 _CALL_ID = "0123456789abcdef"
@@ -42,8 +43,14 @@ def _build(
     call_id: str = "",
     monkeypatch=None,
     measured: bool = False,
+    workflow_mode: str | None = "staged",
 ) -> str:
     if monkeypatch is not None:
+        if workflow_mode is not None:
+            monkeypatch.setattr(
+                "argus_skill.skills.vertical_select.resolve_evidence_mode",
+                lambda _root: workflow_mode,
+            )
         if measured:
             monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
         else:
@@ -101,6 +108,39 @@ def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
     assert "Current engineer call id:" not in p
     assert "grep -nE 'use_attach" in p
     assert "grep -nE 'pytest" in p
+
+
+def test_proportional_research_uses_compact_on_demand_audit(monkeypatch) -> None:
+    p = _build(
+        _LOG_PATH,
+        call_id=_CALL_ID,
+        monkeypatch=monkeypatch,
+        workflow_mode="proportional",
+    )
+
+    assert "Engineer execution log (on-demand)" in p
+    assert "Do not read or grep it routinely" in p
+    assert _CALL_ID in p
+    assert "use_attach" not in p
+    assert "grep recipes" not in p.lower()
+
+
+def test_manager_staged_research_still_uses_vertical_proportional_policy(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="staged")
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+
+    p = _build(
+        _LOG_PATH,
+        call_id=_CALL_ID,
+        monkeypatch=monkeypatch,
+        workflow_mode=None,
+    )
+
+    assert "Engineer execution log (on-demand)" in p
+    assert "Do not read or grep it routinely" in p
 
 
 def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
