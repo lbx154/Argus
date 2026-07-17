@@ -1773,19 +1773,19 @@ class _DaemonSink:
 # ---------------------------------------------------------------------------
 
 def _max_active_daemons(config: LifeWorkerConfig) -> int:
-    """Host-wide daemon cap; conservative by default for Copilot accounts."""
+    """Host-wide daemon cap; provider guards separately control call concurrency."""
     try:
-        from ..core.knob_store import persisted_knob
+        from ..core.knobs import DEFAULT_MAX_ACTIVE_DAEMONS, resolve_knob
 
-        default = 2
-        raw = (
-            os.environ.get("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
-            or persisted_knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
-            or str(default)
+        raw = resolve_knob(
+            "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+            str(DEFAULT_MAX_ACTIVE_DAEMONS),
         )
-        return max(0, int(raw))
+        return max(0, int(raw.value))
     except Exception:  # noqa: BLE001
-        return 2
+        from ..core.knobs import DEFAULT_MAX_ACTIVE_DAEMONS
+
+        return DEFAULT_MAX_ACTIVE_DAEMONS
 
 
 def _daemon_global_root(config: LifeWorkerConfig) -> Path:

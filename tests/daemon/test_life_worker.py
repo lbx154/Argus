@@ -53,6 +53,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "ARGUS_SKILL_MAX_ROUNDS",
     "ARGUS_SKILL_MODEL",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
@@ -75,6 +76,35 @@ _ENV_VARS_TO_CLEAR = (
 def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in _ENV_VARS_TO_CLEAR:
         monkeypatch.delenv(name, raising=False)
+
+
+def test_max_active_daemons_defaults_to_64(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs",
+        lambda: {},
+    )
+
+    assert life_worker_mod._max_active_daemons(
+        LifeWorkerConfig(life_dir=tmp_path)
+    ) == 64
+
+
+def test_max_active_daemons_preserves_env_and_persisted_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs",
+        lambda: {"ARGUS_SKILL_MAX_ACTIVE_DAEMONS": "12"},
+    )
+    config = LifeWorkerConfig(life_dir=tmp_path)
+    assert life_worker_mod._max_active_daemons(config) == 12
+
+    monkeypatch.setenv("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "7")
+    assert life_worker_mod._max_active_daemons(config) == 7
 
 
 def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> None:

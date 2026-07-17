@@ -54,6 +54,11 @@ BUDGET_KNOB_DEFAULTS: dict[str, str] = {
     "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "30.0",
 }
 
+# Daemon count is not provider concurrency: every backend still obeys its own
+# host-wide call/concurrency guard. Keep this high enough for independent
+# long-running projects while those lower-level guards control actual load.
+DEFAULT_MAX_ACTIVE_DAEMONS = 64
+
 
 #: The operator control surface. Defaults verified against read-sites 2026-06-26.
 KNOBS: tuple[Knob, ...] = (
@@ -126,7 +131,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "60", "host-wide Copilot provider-call cap per rolling hour", "budget"),
     Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "2", "maximum concurrent Copilot calls across all Argus projects", "budget"),
-    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "2", "host-wide active daemon cap", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
