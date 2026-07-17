@@ -1083,7 +1083,10 @@ class SkillLoop:
                         # ephemeral; put durable artifacts under /data") into the
                         # "Research direction" field and caused the search agent to
                         # relocate an assigned project instead of researching it.
-                        direction=request_anchor,
+                        direction=(
+                            self.config.continuous_objective.strip()
+                            or request_anchor
+                        ),
                         model=self.config.engineer_model,
                     )
                     self._emit({

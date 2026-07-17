@@ -176,7 +176,11 @@ def test_loop_emits_idea_search_events(tmp_path):
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=2, paper_mission=True),
+        config=SkillLoopConfig(
+            max_rounds=2,
+            paper_mission=True,
+            continuous_objective="discover methods for faithful reasoning",
+        ),
         on_event=events.append,
     )
     loop.run(
@@ -204,7 +208,8 @@ def test_loop_emits_idea_search_events(tmp_path):
     assert getattr(opts, "live_search", False) is True
     assert opts.working_dir == str(tmp_path.resolve())
     assert opts.full_auto is True
-    assert "detect unfaithful chain-of-thought reasoning" in idea_prompt
+    assert "discover methods for faithful reasoning" in idea_prompt
+    assert "detect unfaithful chain-of-thought reasoning" not in idea_prompt
     assert "put durable blobs under /data" not in idea_prompt
     assert "bootstrap this project" not in idea_prompt
 
