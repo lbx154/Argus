@@ -391,6 +391,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         self._usage_project_root = (
             Path(raw_usage_root).expanduser() if raw_usage_root else None
         )
+        raw_global_root = str(getattr(args, "global_root", "") or "").strip()
+        self._usage_global_root = (
+            Path(raw_global_root).expanduser() if raw_global_root else None
+        )
+        if self._usage_global_root is None and self._usage_project_root is not None:
+            parent = self._usage_project_root.parent
+            if parent.name == "projects":
+                self._usage_global_root = parent.parent
         self._active_usage_mission_id: str | None = None
         self._set_usage_context(None)
         # The ONE Manager instance for this runner. All daemon-side Manager uses
@@ -563,6 +571,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             try:
                 setter(
                     project_root=self._usage_project_root,
+                    global_root=self._usage_global_root,
                     mission_id=mission_id,
                 )
             except Exception:  # noqa: BLE001 — metering must not break a mission

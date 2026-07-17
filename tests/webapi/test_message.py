@@ -18,6 +18,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.project_budget import (
+    GlobalBudget,
+    read_global_budget,
+    write_global_budget,
+)
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
@@ -1163,6 +1168,14 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     assert spawned == []  # no fork
     assert (tmp_path / "projects" / sid / "session.json").exists()
     assert not (tmp_path / "projects" / sid / "continuous.json").exists()  # no campaign armed
+
+
+def test_create_daemon_never_overwrites_global_budget(tmp_path: Path) -> None:
+    write_global_budget(tmp_path, GlobalBudget(global_daily_cap_usd=4321.0))
+
+    server.create_daemon(global_root=tmp_path)
+
+    assert read_global_budget(tmp_path).global_daily_cap_usd == 4321.0
 
 
 def test_create_daemon_at_cap_returns_replacement_candidates(

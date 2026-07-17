@@ -1620,6 +1620,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         else os.environ.get("ARGUS_SKILL_WORKDIR")
     )
     ns.manager_session_root = str(cfg.life_dir)
+    ns.global_root = str(cfg.global_root or core_paths.global_root())
     # Canonical per-session state directory for checkpoint + execution log.
     # This must not be re-derived by hashing project_workdir.
     ns.project_state_dir = str(cfg.life_dir)

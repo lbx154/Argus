@@ -162,6 +162,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             operator_workspace=str(operator_workspace),
             manager_session_root=str(session_root) if session_root else None,
             project_state_dir=str(session_root) if session_root else None,
+            global_root=str(mem.global_root),
             life_dir=getattr(mem, "root", None),
             stop_event=None,
         )

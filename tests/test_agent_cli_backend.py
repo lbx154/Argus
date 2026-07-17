@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -261,6 +262,62 @@ def test_run_exec_translates_options_and_result(
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == result.call_id
     assert result.call_id_log_correlated is True
+
+
+def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None:
+    backend = AgentCliBackend(backend="codex")
+    project = tmp_path / "state" / "projects" / "s-test"
+    global_root = tmp_path / "state"
+
+    backend.set_usage_context(
+        project_root=project,
+        global_root=global_root,
+        mission_id="mission-1",
+    )
+
+    assert backend._usage_context_snapshot() == (
+        project,
+        "mission-1",
+        global_root,
+    )
+
+
+def test_run_exec_passes_global_budget_root_to_cost_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="codex")
+    project = tmp_path / "state" / "projects" / "s-test"
+    global_root = tmp_path / "state"
+    backend.set_usage_context(
+        project_root=project,
+        global_root=global_root,
+        mission_id="mission-1",
+    )
+    captured: dict[str, Any] = {}
+
+    def deny_after_capture(**kwargs):
+        captured.update(kwargs)
+        return None, "captured reservation"
+
+    monkeypatch.setattr(
+        "argus_skill.core.cost_control.cost_control_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.cost_control.reserve_call_budget",
+        deny_after_capture,
+    )
+
+    result = backend.run_exec(
+        prompt="test",
+        options=RunnerOptions(working_dir=str(tmp_path)),
+        run_label="manager-frontdoor-classify",
+    )
+
+    assert result.exit_code == -1
+    assert captured["project_root"] == project
+    assert captured["global_root"] == global_root
 
 
 def test_completed_run_exec_counts_after_mission_process_is_killed(

@@ -653,6 +653,7 @@ class AgentCliBackend:
         self._thread_premium_totals: dict[str, float] = {}
         self._usage_context_lock = threading.Lock()
         self._usage_project_root: Path | None = None
+        self._usage_global_root: Path | None = None
         self._usage_mission_id: str | None = None
         self._known_secret_values = known_secret_values()
 
@@ -699,19 +700,29 @@ class AgentCliBackend:
         self,
         *,
         project_root: Path | str | None,
+        global_root: Path | str | None = None,
         mission_id: str | None = None,
     ) -> None:
-        """Set the project ledger and optional mission owning subsequent calls."""
+        """Set the project/global ledgers and mission owning subsequent calls."""
         with self._usage_context_lock:
             self._usage_project_root = (
                 Path(project_root).expanduser() if project_root is not None else None
             )
+            self._usage_global_root = (
+                Path(global_root).expanduser() if global_root is not None else None
+            )
             text = str(mission_id or "").strip()
             self._usage_mission_id = text or None
 
-    def _usage_context_snapshot(self) -> tuple[Path | None, str | None]:
+    def _usage_context_snapshot(
+        self,
+    ) -> tuple[Path | None, str | None, Path | None]:
         with self._usage_context_lock:
-            return self._usage_project_root, self._usage_mission_id
+            return (
+                self._usage_project_root,
+                self._usage_mission_id,
+                self._usage_global_root,
+            )
 
     def _configured_pricing_model(self, *, profile: str = "") -> str:
         """Read the implicit model from Codex's own config, never another route."""
@@ -782,7 +793,9 @@ class AgentCliBackend:
         call_id = uuid.uuid4().hex
         started_at = time.time()
         log_path = self._agent_io_log_path(options)
-        usage_project_root, usage_mission_id = self._usage_context_snapshot()
+        usage_project_root, usage_mission_id, usage_global_root = (
+            self._usage_context_snapshot()
+        )
         if usage_project_root is None and log_path is not None:
             usage_project_root = log_path.parent
         cost_reservation = None
@@ -1061,6 +1074,7 @@ class AgentCliBackend:
                     provider=self._backend_name,
                     model=reservation_model,
                     run_label=run_label,
+                    global_root=usage_global_root,
                     per_mission_cap_usd=mission_cap_from_guard(
                         self._budget_reason_provider
                     ),
@@ -1525,7 +1539,7 @@ class AgentCliBackend:
         )
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
-        project_root, _mission_id = self._usage_context_snapshot()
+        project_root, _mission_id, _global_root = self._usage_context_snapshot()
         if project_root is not None:
             try:
                 from ..core.usage import ensure_project_events_standardized
