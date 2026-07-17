@@ -39,8 +39,8 @@ from ...core.planner_verdict import (
 from ...core.ports import EventSink
 from ...core.pricing import price_for
 from ...core.usage import project_usage_summary
-from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
+from ..mission_outcome import mission_outcome_class
 from ..planner_verdict_outbox import (
     OUTBOX_FILE,
     clear_planner_verdict_outbox,
@@ -448,6 +448,19 @@ class LifeSupervisor(
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
         while True:
+            yield_provider = getattr(
+                self.config,
+                "manager_pipeline_yield_provider",
+                None,
+            )
+            if callable(yield_provider):
+                try:
+                    manager_yield = bool(yield_provider())
+                except Exception:  # noqa: BLE001 - a stale marker must not crash work
+                    manager_yield = False
+                if manager_yield:
+                    stopped_by = "manager_config_pending"
+                    break
             # Hot-reload continuous config from provider (disk, etc.)
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()

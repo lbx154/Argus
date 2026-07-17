@@ -386,6 +386,10 @@ class LifeSupervisorConfig:
     # elsewhere. When ``None``, the static ``continuous`` /
     # ``continuous_objective`` fields are used unchanged.
     continuous_config_provider: Any = None  # Callable[[], tuple[bool, str]] | None
+    # Optional mission-boundary yield signal. A live operator Manager request
+    # uses this to make ``run()`` return before the next tick/planner cycle so
+    # the host can release its outer pipeline lock and commit configuration.
+    manager_pipeline_yield_provider: Any = None  # Callable[[], bool] | None
     # Optional callback consulted immediately before each continuous
     # planner cycle. Return a non-empty stop reason to let the host
     # process defer planning and yield control, e.g. for daemon handoff.

@@ -1745,6 +1745,7 @@ def _build_supervisor_config(
         _paper_mission_for_project_root,
     )
     from ..life.telemetry import telemetry_interval_from_env
+    from ..manager._core import manager_pipeline_yield_requested
 
     paper_mission = _paper_mission_for_project_root(
         cfg.project_workdir or runtime_root
@@ -1772,6 +1773,9 @@ def _build_supervisor_config(
         paper_mission=paper_mission,
         full_paper_gate=paper_mission and cfg.continuous_open_ended,
         continuous_config_provider=continuous_provider,
+        manager_pipeline_yield_provider=(
+            lambda: manager_pipeline_yield_requested(runtime_root)
+        ),
         planner_runtime_context_provider=planner_runtime_context_provider,
         planner_restart_handler=planner_restart_handler,
         post_mission_hook=post_mission_hook,
