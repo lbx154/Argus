@@ -255,11 +255,10 @@ def _research_bootstrap_objective(
         else ""
     )
     state_rule = (
-        " `research/PIPELINE_STATE.json` already exists and is Manager-owned: "
-        "treat it as read-only and never rewrite `vertical`, `workflow_mode`, "
-        "`target_venue`, `current_stage`, or any stage status."
-        if (root / "research" / "PIPELINE_STATE.json").exists()
-        else ""
+        " Before touching `research/PIPELINE_STATE.json`, re-check it at execution "
+        "time because the Manager may create it after this mission is queued. If it "
+        "exists, treat it as read-only and never rewrite `vertical`, "
+        "`workflow_mode`, `target_venue`, `current_stage`, or any stage status."
     )
     return (
         "Seed a research bootstrap mission"
