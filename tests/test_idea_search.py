@@ -179,7 +179,13 @@ def test_loop_emits_idea_search_events(tmp_path):
         config=SkillLoopConfig(max_rounds=2, paper_mission=True),
         on_event=events.append,
     )
-    loop.run("detect unfaithful chain-of-thought reasoning", workdir=tmp_path)
+    loop.run(
+        "## Operator Directives\n- put durable blobs under /data\n\n"
+        "## Live objective\nbootstrap this project",
+        workdir=tmp_path,
+        objective_for_skill="bootstrap this project",
+        original_objective="detect unfaithful chain-of-thought reasoning",
+    )
 
     types = [e.get("type") for e in events]
     assert "idea.search.started" in types
@@ -194,9 +200,13 @@ def test_loop_emits_idea_search_events(tmp_path):
     labels = [lbl for lbl, _p, _o in backend.history]
     assert "idea-search" in labels
     opts = next(o for lbl, _p, o in backend.history if lbl == "idea-search")
+    idea_prompt = next(p for lbl, p, _o in backend.history if lbl == "idea-search")
     assert getattr(opts, "live_search", False) is True
     assert opts.working_dir == str(tmp_path.resolve())
     assert opts.full_auto is True
+    assert "detect unfaithful chain-of-thought reasoning" in idea_prompt
+    assert "put durable blobs under /data" not in idea_prompt
+    assert "bootstrap this project" not in idea_prompt
 
 
 def test_loop_idea_search_run_once_no_reemit(tmp_path):

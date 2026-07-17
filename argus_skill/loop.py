@@ -1077,7 +1077,13 @@ class SkillLoop:
                     _n = _augment_ideas(
                         self.engineer_runner,
                         workdir,
-                        direction=task,
+                        # Candidate discovery needs the clean research direction,
+                        # not the Engineer's full task prelude. Passing ``task``
+                        # leaked machine special prompts (for example "/root is
+                        # ephemeral; put durable artifacts under /data") into the
+                        # "Research direction" field and caused the search agent to
+                        # relocate an assigned project instead of researching it.
+                        direction=request_anchor,
                         model=self.config.engineer_model,
                     )
                     self._emit({
