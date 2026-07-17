@@ -133,17 +133,23 @@ This is the section that separates a fixed-budget LM run from a kernel task, and
 run bled the most hours. There is no t-test handed to you — **establishing the noise floor is
 YOUR job**, and every keep/reject decision is a hypothesis test against it.
 
-- **Measure the seed-to-seed sd FIRST.** Run the baseline at N≥5 seeds and compute σ_seed before
-  optimizing. A single-seed `val_bpb` is **not** reproducible to 4 decimals; you cannot judge a
-  win without σ.
+- **Respect the five-minute cost.** Every official candidate consumes 300 seconds of training
+  plus compile/evaluation overhead. Default ordinary candidate screens to **ONE clean run**.
+  Do not spend 3/5/10 seeds proving every mediocre idea to death.
+- **Calibrate noise once, cheaply.** Run the retained baseline at N=3 seeds and compute an initial
+  σ_seed before optimizing. Extend to N=5 only when N=3 is unstable or a final/SOTA claim needs
+  tighter uncertainty. Keep same-seed fresh-process variance separate from cross-seed variance.
 - **Gate every keep/reject at 2-3 σ_seed.** If `|floor − mean|` is smaller than that, the call is
   a **coin flip** — re-screen at higher N before banking, or do not bank it. Banking sub-σ
   "wins" builds a floor out of lucky seeds.
 - **Classify every result: REAL signal vs SUB-NOISE jitter.** A −0.0007 "improvement" with
   σ_seed≈0.001+ is jitter; a −0.009 jump is real. Only the latter banks.
-- **Multi-seed-confirm only SOTA-level candidates.** Screen at 1 seed for throughput; reserve the
-  expensive multi-seed confirmation for a candidate that clears the floor by a clear margin AND is
-  near the target (the operator's job, not every screen).
+- **Multi-seed-confirm only SOTA-level candidates.** Reserve the expensive confirmation for a
+  mechanism-credible candidate that clears the floor by a clear margin AND is near the target;
+  start small and extend only if the decision genuinely depends on tighter uncertainty.
+- **Be confidently selective.** A diagnosis-backed hypothesis plus one clean real run is enough
+  to discard a regression and choose the next direction. Confidence means making the research
+  decision instead of hedging with repetitive seeds; it never means promoting a sub-noise tie.
 - **Bank the floor only on a REAL win, and then STACK.** Maintain a current-best `train.py`; add
   each REAL lever onto it and co-tune. Revert only a lever that measurably (>σ) hurts. A run that
   reverts to bare vanilla after every experiment can never reach a stacked frontier.
