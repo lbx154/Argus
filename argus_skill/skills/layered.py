@@ -360,6 +360,7 @@ class LayeredSkillStore:
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Skill] | None, int]:
         """Run the matcher across the merged (project + global) summaries.
 
@@ -395,6 +396,7 @@ class LayeredSkillStore:
                 on_event=on_event,
                 role=role,
                 exclude_files=exclude_files,
+                force_empty_match=force_empty_match,
             )
         finally:
             ps_any.list_summaries = original_list

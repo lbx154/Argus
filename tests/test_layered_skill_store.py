@@ -296,6 +296,27 @@ def test_find_relevant_short_circuits_when_both_layers_empty(
     assert backend.history == []
 
 
+def test_find_relevant_can_force_match_when_both_layers_empty(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message='{"matched": []}',
+            input_tokens=8,
+            output_tokens=2,
+        ),
+    )
+    layered = _layered(tmp_path, runner=backend, matcher_model="m")
+
+    matched, tokens = layered.find_relevant("anything", force_empty_match=True)
+
+    assert matched is None
+    assert tokens == 10
+    assert len(backend.history) == 1
+
+
 def test_layer_summaries_rejects_unknown_layer(tmp_path: Path) -> None:
     layered = _layered(tmp_path)
     with pytest.raises(ValueError, match="unknown skill layer"):

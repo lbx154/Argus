@@ -48,9 +48,11 @@ class SkillSource(Protocol):
     def find_relevant(
         self,
         task_description: str,
+        on_event: Callable[[dict], None] | None = None,
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Any] | None, int]:
         ...
 
