@@ -44,7 +44,7 @@ def test_skill_loop_defaults_use_xhigh_reasoning_effort() -> None:
 
     assert config.engineer_model == "gpt-5.5"
     assert config.engineer_reasoning_effort == "xhigh"
-    assert config.matcher_reasoning_effort == "high"
+    assert config.matcher_reasoning_effort == "low"
     assert config.reviewer_reasoning_effort == "xhigh"
 
 

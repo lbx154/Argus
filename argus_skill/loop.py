@@ -162,7 +162,7 @@ class SkillLoopConfig:
     matcher_model: str | None = None   # default: same as engineer
     engineer_reasoning_effort: str | None = "xhigh"
     reviewer_reasoning_effort: str = "xhigh"
-    matcher_reasoning_effort: str | None = "high"
+    matcher_reasoning_effort: str | None = "low"
     # Cheap task-conditioning pass over the closest matched skill. This is a
     # single no-tool input/output request, not a Scientist or execution agent.
     skill_adapter_model: str | None = None
