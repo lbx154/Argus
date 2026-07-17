@@ -396,6 +396,61 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert "daemon" in body
 
 
+def test_manager_handoff_failure_persists_and_streams_error_reply(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-handoff-failure"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    class _FailingManager:
+        def decide_vertical(self, text, **kwargs):
+            raise RuntimeError("provider quota reached")
+
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda *args, **kwargs: SimpleNamespace(manager=_FailingManager()),
+    )
+    fragments: list[tuple[str, dict]] = []
+
+    result = manager_bridge.manager_message(
+        sid,
+        "why no reply",
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "error"
+    assert "provider quota reached" in result["reply"]
+    assert LifeMemory.open(life).backlog.all() == []
+    transcript = [
+        json.loads(line)
+        for line in (life / "transcript.jsonl").read_text().splitlines()
+    ]
+    assert transcript[-1]["role"] == "argus"
+    assert transcript[-1]["text"] == result["reply"]
+    assert any(
+        kind == "delta" and payload.get("text") == result["reply"]
+        for kind, payload in fragments
+    )
+    events = [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        event.get("type") == "ui.argus" and event.get("text") == result["reply"]
+        for event in events
+    )
+
+
 def test_active_mission_message_cannot_enqueue_even_if_classified_team(
     tmp_path: Path, monkeypatch,
 ) -> None:

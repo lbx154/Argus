@@ -904,6 +904,11 @@ def manager_message(
             if _cancelled():
                 return _cancelled_result()
             error_reply = f"could not enqueue: {exc}"
+            _fragment("delta", {"text": error_reply})
+            try:
+                append_turn(life_dir, "argus", error_reply)
+            except Exception:  # noqa: BLE001
+                pass
             _emit_ui_turn(life_dir, "argus", error_reply, message_id=f"{turn_id}-argus")
             return {"kind": "error", "reply": error_reply}
 

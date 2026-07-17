@@ -23,6 +23,7 @@ import {
 } from '../../../core/src';
 import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes } from '../lib/format';
+import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
 import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
 import {
@@ -248,6 +249,39 @@ describe('shared frontend core', () => {
       tone: 'warn',
       text: 'invalid event agent.io.error: missing required fields: error',
     });
+  });
+
+  it('surfaces Manager error results instead of silently dropping the reply', () => {
+    expect(managerMessageError({
+      kind: 'error',
+      reply: 'could not enqueue: provider quota reached',
+    })).toBe('could not enqueue: provider quota reached');
+    expect(managerMessageError({ kind: 'error', reply: '' })).toBe(
+      'Manager could not handle this message.',
+    );
+    expect(managerMessageError({ kind: 'chat', reply: 'hello' })).toBeNull();
+  });
+
+  it('notifies and refetches for streaming and blocking Manager errors without dispatching', () => {
+    const dispatchTask = vi.fn();
+    const notifyError = vi.fn();
+    const refetchTranscript = vi.fn();
+    const complete = (result: Record<string, unknown>) => finishManagerMessage(
+      result,
+      { dispatchTask, notifyError, refetchTranscript },
+    );
+
+    const streamingOnDone = complete;
+    streamingOnDone({ kind: 'error', reply: 'stream dispatch failed' });
+    const blockingFallbackResult = { kind: 'error', reply: 'blocking dispatch failed' };
+    complete(blockingFallbackResult);
+
+    expect(dispatchTask).not.toHaveBeenCalled();
+    expect(notifyError.mock.calls).toEqual([
+      ['stream dispatch failed'],
+      ['blocking dispatch failed'],
+    ]);
+    expect(refetchTranscript).toHaveBeenCalledTimes(2);
   });
 
   it('selects live work first and gives replayed events one identity', () => {

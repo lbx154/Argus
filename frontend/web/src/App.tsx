@@ -32,6 +32,7 @@ import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
+import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseEventViewArgs } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
@@ -863,6 +864,17 @@ export default function App() {
       snapQ.refetch?.();
     };
 
+    const finishMessage = (result: Record<string, unknown>) => {
+      if (!isCurrent()) return;
+      finishManagerMessage(result, {
+        dispatchTask,
+        notifyError: (error) => notify('error', error),
+        refetchTranscript: () => {
+          void transcriptQ.refetch();
+        },
+      });
+    };
+
     // Dispatch the streaming work fire-and-forget so the draft clears immediately.
     // Errors that surface during the stream are surfaced via notify().
     void (async () => {
@@ -882,8 +894,7 @@ export default function App() {
             onDone: (result) => {
               if (!isCurrent()) return;
               showManagerText(result.reply);
-              if (result.kind === 'task') dispatchTask(result);
-              void transcriptQ.refetch();
+              finishMessage(result);
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -901,8 +912,7 @@ export default function App() {
             const result = await api.message(requestSid, text, controller.signal);
             if (!isCurrent()) return;
             showManagerText(result.reply);
-            if (result.kind === 'task') dispatchTask(result);
-            void transcriptQ.refetch();
+            finishMessage(result);
           } catch (error) {
             if (!isCurrent()) return;
             notify('error', `Message failed: ${errorText(error)}`);
