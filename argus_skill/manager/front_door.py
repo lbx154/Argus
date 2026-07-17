@@ -555,6 +555,12 @@ def manager_continuous_handoff(
             raise ManagerHandoffError("Manager request cancelled before commit")
         committed["division"] = prepared.commit(acquire_lock=False)
 
+    from ._core import (
+        clear_manager_pipeline_yield,
+        request_manager_pipeline_yield,
+    )
+
+    yield_token = request_manager_pipeline_yield(life_dir)
     try:
         lock_factory = getattr(prepared.manager, "pipeline_lock", None)
         pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
@@ -571,6 +577,8 @@ def manager_continuous_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
+    finally:
+        clear_manager_pipeline_yield(life_dir, yield_token)
     if not swapped:
         prepared.superseded()
         current = read_continuous_state(life_dir)

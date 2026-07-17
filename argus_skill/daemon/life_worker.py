@@ -1291,6 +1291,11 @@ class LifeWorker:
             while not self._stop.is_set():
                 summary: dict = {}
                 try:
+                    from ..manager._core import manager_pipeline_yield_requested
+
+                    if manager_pipeline_yield_requested(runtime_root):
+                        self._stop.wait(0.2)
+                        continue
                     manager = getattr(runner, "manager", None)
                     lock_factory = getattr(manager, "pipeline_lock", None)
                     pipeline_lock = (

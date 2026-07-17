@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +63,7 @@ _DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS = 32_000
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
+_PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
 
 def _manager_reasoning_effort() -> str:
     for key in (
@@ -172,6 +174,69 @@ def manager_pipeline_lock(root: Path | str):
         finally:
             if fcntl is not None:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def request_manager_pipeline_yield(root: Path | str) -> str:
+    """Ask the daemon to leave the next mission boundary open for Manager."""
+    path = Path(root) / _PIPELINE_YIELD_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex
+    payload = {
+        "schema_version": 1,
+        "token": token,
+        "pid": os.getpid(),
+        "requested_at": time.time(),
+    }
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{token}.tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    return token
+
+
+def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or str(payload.get("token") or "") != token:
+        return False
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def clear_manager_pipeline_yield(root: Path | str, token: str) -> bool:
+    return _clear_pipeline_yield_if_token(
+        Path(root) / _PIPELINE_YIELD_FILE,
+        token,
+    )
+
+
+def manager_pipeline_yield_requested(root: Path | str) -> bool:
+    """Return whether a live Manager request is waiting for the boundary."""
+    path = Path(root) / _PIPELINE_YIELD_FILE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        token = str(payload.get("token") or "")
+        pid = int(payload.get("pid") or 0)
+        requested_at = float(payload.get("requested_at") or 0.0)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not token or pid <= 0:
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    if requested_at <= 0 or time.time() - requested_at > _pipeline_lock_timeout_s() + 60:
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    return True
 
 
 @contextmanager
