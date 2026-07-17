@@ -414,6 +414,17 @@ def test_waiting_external_capability_documented_in_role() -> None:
     assert "no independent high-impact work remains" in text
 
 
+def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    compact = " ".join(text.split())
+
+    assert "Decision-frontier rule" in text
+    assert "enqueue ONLY that decision node" in compact
+    assert "Do not speculatively enqueue training" in compact
+    assert "Re-plan from the reviewed outcome" in compact
+    assert "waiting=true" in text and "waiting_contract" in text
+
+
 def test_stage_ordering_rule_in_role() -> None:
     """The role must carry a GENERAL stage-ordering rule (all verticals):
     finish the current stage before any downstream work; no skipping."""

@@ -65,6 +65,14 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Prefer a small DAG whenever current-stage work separates cleanly into parallel evidence
   gathering or sequential discovery, implementation, verification, and synthesis. Keep a
   flat task only when the remaining work is genuinely atomic and independently verifiable.
+- **Decision-frontier rule:** when one preflight, access check, feasibility probe,
+  baseline reproduction, or other decision node determines whether downstream work is
+  legal or feasible, enqueue ONLY that decision node in the current cycle. Do not
+  speculatively enqueue training, full execution, analysis, or synthesis behind it.
+  Re-plan from the reviewed outcome in the next cycle. If that outcome records a
+  non-local external blocker and no independent high-impact work remains, return the
+  structured `waiting=true` + `waiting_contract` outcome above instead of a repair or
+  polling mission.
 - Each DAG node is one simple, short-horizon Engineer mission. Do not make one node carry
   an entire stage or combine discovery, implementation, independent verification, and
   synthesis when those steps can hand off through artifacts.
