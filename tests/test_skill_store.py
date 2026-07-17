@@ -184,7 +184,7 @@ def test_find_relevant_fatal_without_keyword_match_returns_none(
     assert store.last_match_output_tokens == 0
 
 
-def test_find_relevant_rechecks_skill_library_every_mission(tmp_path: Path) -> None:
+def test_find_relevant_caches_until_skill_library_changes(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
 
@@ -222,7 +222,25 @@ def test_find_relevant_rechecks_skill_library_every_mission(tmp_path: Path) -> N
         "install nginx and serve a static site"
     )
     assert matched_again is not None
-    assert tokens_again == 95
+    assert tokens_again == 0
+    assert store.last_match_input_tokens == 0
+    assert store.last_match_cached_input_tokens == 0
+    assert store.last_match_output_tokens == 0
+    assert [label for label, _prompt, _options in backend.history] == ["matcher"]
+
+    # Self-evolution changes the summary fingerprint, so the same task rematches
+    # immediately and can see the newly-created skill instead of using stale cache.
+    _write_skill(
+        skills_dir,
+        "nginx-healthcheck",
+        "verify nginx health and static-site delivery",
+        "nginx healthcheck",
+    )
+    matched_after_update, tokens_after_update = store.find_relevant(
+        "install nginx and serve a static site"
+    )
+    assert matched_after_update is not None
+    assert tokens_after_update == 95
     assert store.last_match_input_tokens == 90
     assert store.last_match_cached_input_tokens == 20
     assert store.last_match_output_tokens == 5

@@ -21,6 +21,7 @@ import pytest
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
+from argus_skill.manager.domain_author import VerticalDecision
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
@@ -616,7 +617,7 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
     assert result["continuous"] is True
 
 
-def test_explicit_math_vertical_web_enqueue_enters_backlog(
+def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -631,7 +632,18 @@ def test_explicit_math_vertical_web_enqueue_enters_backlog(
         lambda *args, **kwargs: "exploratory",
     )
 
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setattr(
+        manager,
+        "decide_vertical",
+        lambda task, **kwargs: VerticalDecision(
+            choice="existing",
+            vertical="math",
+            workflow_mode="direct",
+            execution_task=task,
+            research_target_level="exploratory",
+        ),
+    )
     monkeypatch.setattr(
         config_intent,
         "_front_door_classify",

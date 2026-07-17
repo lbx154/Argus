@@ -105,8 +105,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "xhigh", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
     Knob("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "low", "interactive /plan preview effort; execution planning keeps the planner setting", "reasoning"),
+    Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low", "post-task skill-maintenance reasoning effort", "reasoning"),
     # --- budget ---
     Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
     Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
@@ -129,6 +131,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
+    Knob("ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", "0.12", "minimum semantic score for injecting a full nearest-skill fallback", "mission"),
+    Knob("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0", "force every task to create/update a skill; selective learning is default", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", "12", "soft first-pass relevant-file inspection budget", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", "3", "soft focused verification-run budget before the final verifier", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),

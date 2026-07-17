@@ -284,7 +284,7 @@ def test_find_relevant_prefers_project_when_names_collide(
     assert "project flavor" in matched[0].description
 
 
-def test_find_relevant_returns_none_when_both_layers_empty(
+def test_find_relevant_short_circuits_when_both_layers_empty(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
@@ -293,7 +293,7 @@ def test_find_relevant_returns_none_when_both_layers_empty(
     matched, tokens = layered.find_relevant("anything")
     assert matched is None
     assert tokens == 0
-    assert [label for label, _prompt, _options in backend.history] == ["matcher"]
+    assert backend.history == []
 
 
 def test_layer_summaries_rejects_unknown_layer(tmp_path: Path) -> None:

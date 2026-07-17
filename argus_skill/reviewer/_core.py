@@ -364,6 +364,7 @@ class Reviewer:
         escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
+        preselected_skill_block: str | None = None,
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
@@ -439,6 +440,7 @@ class Reviewer:
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
+            preselected_skill_block=preselected_skill_block,
             working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
@@ -649,6 +651,7 @@ class Reviewer:
         escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
+        preselected_skill_block: str | None = None,
         working_dir: str | Path | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
@@ -677,7 +680,14 @@ class Reviewer:
         _active_vertical = resolve_vertical(_proot)
         _vmod = load_vertical(_active_vertical, project_root=_proot)
         matched_review_skill_block = ""
-        if self.skill_store is not None:
+        if preselected_skill_block is not None:
+            if preselected_skill_block.strip():
+                matched_review_skill_block = (
+                    "Matched reviewer skill(s) selected by the mission's single "
+                    "matcher pass (read first; apply only what is relevant):\n"
+                    f"{preselected_skill_block.strip()}\n\n"
+                )
+        elif self.skill_store is not None:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(

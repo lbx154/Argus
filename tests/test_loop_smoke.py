@@ -39,13 +39,18 @@ SKILL_MD = (
 )
 
 
-def test_skill_loop_defaults_use_xhigh_reasoning_effort() -> None:
+def test_skill_loop_defaults_use_adaptive_reasoning_effort() -> None:
     config = SkillLoopConfig()
 
     assert config.engineer_model == "gpt-5.5"
+    assert config.engineer_initial_reasoning_effort == "high"
     assert config.engineer_reasoning_effort == "xhigh"
     assert config.matcher_reasoning_effort == "low"
-    assert config.reviewer_reasoning_effort == "xhigh"
+    assert config.reviewer_reasoning_effort == "high"
+    # Staged/paper work stays xhigh from round one; direct work opts into high.
+    assert config.resolved_initial_engineer_effort() == "xhigh"
+    config.workflow_mode = "direct"
+    assert config.resolved_initial_engineer_effort() == "high"
 
 
 def test_nearest_transfer_ignores_self_reinforcing_task_history() -> None:
@@ -143,6 +148,7 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert outcome.skill_used == "Write a hello message"
     assert outcome.rounds[0].review.status == "continue"
     assert outcome.rounds[1].review.status == "done"
+    assert [label for label, _prompt, _options in backend.history].count("matcher") == 1
 
     # Cross-round guidance lives in CHECKPOINT.md, not duplicated in the prompt.
     r2_prompt = next(
@@ -154,6 +160,34 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     store = SkillStore(skills_dir)
     summaries = store.list_summaries()
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
+
+
+def test_direct_work_escalates_engineer_effort_only_after_review(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="partial"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=2,
+            workflow_mode="direct",
+            skill_adapter_enabled=False,
+        ),
+    ).run("say hi to the user", workdir=tmp_path)
+
+    assert outcome.successful
+    options = {label: opts for label, _prompt, opts in backend.history}
+    assert options["engineer-r1"].reasoning_effort == "high"
+    assert options["engineer-r2"].reasoning_effort == "xhigh"
+    assert options["reviewer"].reasoning_effort == "high"
 
 
 def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> None:
@@ -189,6 +223,7 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
         if label == "skill-adapter"
     )
     assert "Closest reusable skill" in adapter_prompt
+    assert "at most 8 short bullets" in adapter_prompt
     assert adapter_options.reasoning_effort == "low"
     engineer_prompt = next(
         prompt for label, prompt, _options in backend.history if label == "engineer-r1"
@@ -196,6 +231,38 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     assert "Task-adapted skill guideline" in engineer_prompt
     assert "Emit exactly one concise greeting" in engineer_prompt
     assert any(event.get("type") == "skill.transfer.completed" for event in events)
+
+
+def test_low_confidence_transfer_uses_compact_hint_without_adapter(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("engineer-r1", CannedResponse(message="implemented and verified"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            require_post_task_learning=True,
+            nearest_transfer_min_score=1.0,
+        ),
+    ).run("repair a database migration", workdir=tmp_path)
+
+    assert outcome.successful
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels.count("matcher") == 1
+    assert "skill-adapter" not in labels
+    prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Low-confidence transfer hint" in prompt
+    assert "Treat this only as an analogy" in prompt
 
 
 def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path) -> None:

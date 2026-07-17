@@ -85,6 +85,20 @@ _TRANSFER_TOKEN_ALIASES: dict[str, str] = {
 }
 
 
+def _env_float_setting(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int_setting(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _transfer_terms(text: object) -> list[str]:
     """Return normalized, discriminative terms for cheap Skill retrieval."""
     terms: list[str] = []
@@ -160,16 +174,28 @@ class SkillLoopConfig:
     engineer_model: str | None = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
+    # Direct/bounded work starts at high. A Reviewer-requested second round
+    # escalates to ``engineer_reasoning_effort`` (xhigh by default). Staged and
+    # paper missions retain xhigh from round one.
+    engineer_initial_reasoning_effort: str | None = "high"
     engineer_reasoning_effort: str | None = "xhigh"
-    reviewer_reasoning_effort: str = "xhigh"
+    reviewer_reasoning_effort: str = "high"
     matcher_reasoning_effort: str | None = "low"
     # Cheap task-conditioning pass over the closest matched skill. This is a
     # single no-tool input/output request, not a Scientist or execution agent.
     skill_adapter_model: str | None = None
     skill_adapter_reasoning_effort: str = "low"
     skill_adapter_enabled: bool = True
-    # Evaluation/continuous-learning mode: every completed task must leave a
-    # reusable skill update/create plus a wiki note for the next task.
+    skill_adapter_max_bullets: int = 8
+    nearest_transfer_min_score: float = field(
+        default_factory=lambda: _env_float_setting(
+            "ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", 0.12
+        )
+    )
+    nearest_transfer_max_bullets: int = 4
+    # Evaluation/continuous-learning mode: completed tasks are asked to retain
+    # only durable reusable learning. ``force_post_task_learning`` restores the
+    # legacy every-task create/update contract for controlled ablations.
     require_post_task_learning: bool = field(
         default_factory=lambda: (
             os.environ.get("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
@@ -240,6 +266,32 @@ class SkillLoopConfig:
             not in {"0", "false", "no", "off"}
         )
     )
+    skill_maintenance_reasoning_effort: str = field(
+        default_factory=lambda: os.environ.get(
+            "ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low"
+        )
+    )
+    # ``require_post_task_learning`` asks for selective durable learning. This
+    # stronger compatibility flag restores the legacy every-task create/update
+    # requirement for controlled evaluations only.
+    force_post_task_learning: bool = field(
+        default_factory=lambda: (
+            os.environ.get("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+    )
+    engineer_file_read_budget: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", 12
+        )
+    )
+    engineer_test_run_budget: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", 3
+        )
+    )
     # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
@@ -288,6 +340,14 @@ class SkillLoopConfig:
     def resolved_skill_adapter_model(self) -> str:
         env = os.environ.get("ARGUS_SKILL_ADAPTER_MODEL", "").strip()
         return env or self.skill_adapter_model or self.engineer_model or ""
+
+    def resolved_initial_engineer_effort(self) -> str | None:
+        if self.workflow_mode != "direct" or self.paper_mission:
+            return self.engineer_reasoning_effort
+        env = os.environ.get(
+            "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", ""
+        ).strip()
+        return env or self.engineer_initial_reasoning_effort
 
 
 class SkillLoop:
@@ -349,6 +409,9 @@ class SkillLoop:
             engineer_config=EngineerConfig(
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
+                initial_reasoning_effort=(
+                    self.config.resolved_initial_engineer_effort()
+                ),
                 extra_args=self.config.extra_args,
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
@@ -431,7 +494,11 @@ class SkillLoop:
         from .skills.venue_profiles import venue_excluded_skill_files
 
         match = self.skill_router.select(
-            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+            skill_task,
+            extra_exclude=venue_excluded_skill_files(workdir),
+            # Every formal Argus workflow exercises Skill matching, including
+            # the initial empty-library task used to bootstrap self-evolution.
+            force_empty_match=True,
         )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
@@ -444,7 +511,17 @@ class SkillLoop:
         reference_skills: list[Skill] = list(match.reference_skills)
         skill: Skill | None = match.primary
         strict_skill_hit = skill is not None
+        # Reuse this one matcher result for Reviewer context too. Engineer-role
+        # references are Reviewer-owned skills; the Engineer's own strict hit
+        # becomes read-only context for Reviewer. This avoids a second matcher
+        # call before every review round.
+        reviewer_skill_block = render_skill_playbook(
+            self.skill_store,
+            reference_skills[:1],
+            primary_skills[:1] if strict_skill_hit else [],
+        )
         nearest_transfer_fallback = False
+        low_confidence_transfer_hint = ""
         skill_distilled = False
         distill_result = None
 
@@ -511,30 +588,58 @@ class SkillLoop:
             ]
             if candidates:
                 candidates.sort(key=lambda item: (-item[0], item[1]))
-                score, _name, skill = candidates[0]
-                primary_skills = [skill]
-                nearest_transfer_fallback = True
+                score, _name, candidate = candidates[0]
+                candidate_scores = [
+                    {"name": item.name, "score": round(candidate_score, 6)}
+                    for candidate_score, _candidate_name, item in candidates[:3]
+                ]
+                if score >= max(0.0, self.config.nearest_transfer_min_score):
+                    skill = candidate
+                    primary_skills = [skill]
+                    nearest_transfer_fallback = True
+                    text = (
+                        f"no high-fit skill; transfer fallback selected nearest "
+                        f"`{skill.name}` (static semantic score={score:.3f})"
+                    )
+                else:
+                    low_confidence_transfer_hint = (
+                        "## Low-confidence transfer hint\n"
+                        f"Nearest prior skill: {candidate.name} "
+                        f"(score {score:.3f}, below reuse threshold).\n"
+                        "- Treat this only as an analogy, not a task playbook.\n"
+                        "- Reuse project conventions and verification discipline only.\n"
+                        "- Derive implementation details from the current repository.\n"
+                        "- Ignore domain-specific steps that do not independently fit."
+                    )
+                    text = (
+                        f"no high-fit skill; nearest `{candidate.name}` scored "
+                        f"{score:.3f} below threshold; injecting compact hint only"
+                    )
                 self._emit({
                     "type": "match.info",
                     "selection_method": "static-semantic-tfidf",
                     "score": round(score, 6),
-                    "candidate_scores": [
-                        {"name": candidate.name, "score": round(candidate_score, 6)}
-                        for candidate_score, _candidate_name, candidate in candidates[:3]
-                    ],
-                    "text": (
-                        f"no high-fit skill; transfer fallback selected nearest "
-                        f"`{skill.name}` (static semantic score={score:.3f})"
-                    ),
+                    "candidate_scores": candidate_scores,
+                    "text": text,
                 })
 
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
         )
+        if low_confidence_transfer_hint:
+            skill_text = (
+                low_confidence_transfer_hint
+                + (f"\n\n{skill_text}" if skill_text else "")
+            )
         skill_name = skill.name if skill else None
         learning_target_name = skill.name if strict_skill_hit and skill is not None else ""
         if skill is not None and self.config.skill_adapter_enabled:
             source_skill_text = self.skill_store.render_skill(skill)
+            max_bullets = (
+                self.config.nearest_transfer_max_bullets
+                if nearest_transfer_fallback
+                else self.config.skill_adapter_max_bullets
+            )
             adapter_prompt = (
                 "You are a low-cost Skill Adapter. Rewrite the reusable skill below "
                 "into a concise guideline for the CURRENT task. Do not solve the "
@@ -542,7 +647,7 @@ class SkillLoop:
                 "adaptation process. Preserve the skill's valid mechanism, replace "
                 "generic placeholders with task-relevant abstractions, remove "
                 "irrelevant steps, and output only the adapted guideline in at most "
-                "12 short bullets.\n\n"
+                f"{max(1, int(max_bullets))} short bullets.\n\n"
                 f"## Current task\n{skill_task}\n\n"
                 f"## Closest reusable skill: {skill.name}\n{source_skill_text}"
             )
@@ -1002,6 +1107,9 @@ class SkillLoop:
                 allow_self_review=True,
                 matched_skill_name=learning_target_name,
                 require_post_task_learning=self.config.require_post_task_learning,
+                force_post_task_learning=self.config.force_post_task_learning,
+                file_read_budget=self.config.engineer_file_read_budget,
+                test_run_budget=self.config.engineer_test_run_budget,
             )
             guidance: list[str] = []
             if self.extra_guidance_provider is not None:
@@ -1124,7 +1232,9 @@ class SkillLoop:
                     prompt=prompt,
                     options=RunnerOptions(
                         model=self.config.engineer_model,
-                        reasoning_effort=self.config.engineer_reasoning_effort,
+                        reasoning_effort=(
+                            self.config.skill_maintenance_reasoning_effort
+                        ),
                         extra_args=extra_args or None,
                         full_auto=False,
                         dangerous_yolo=False,
@@ -1247,7 +1357,10 @@ class SkillLoop:
                 ),
                 required_skill_action=(
                     ("update" if learning_target_name else "create")
-                    if self.config.require_post_task_learning
+                    if (
+                        self.config.require_post_task_learning
+                        and self.config.force_post_task_learning
+                    )
                     else ""
                 ),
                 required_skill_name=learning_target_name,
@@ -1260,6 +1373,7 @@ class SkillLoop:
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
+            reviewer_skill_block=reviewer_skill_block,
             engineer_skill_maintenance=maintain_skill_with_engineer,
         )
 
@@ -1448,6 +1562,9 @@ class SkillLoop:
                 "skill_name": skill_name or "",
                 "skill_hit": bool(strict_skill_hit),
                 "nearest_transfer_fallback": bool(nearest_transfer_fallback),
+                "low_confidence_transfer_hint": bool(
+                    low_confidence_transfer_hint
+                ),
                 "skill_distilled": bool(skill_distilled),
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
@@ -1497,6 +1614,9 @@ class SkillLoop:
         allow_self_review: bool = False,
         matched_skill_name: str = "",
         require_post_task_learning: bool = False,
+        force_post_task_learning: bool = False,
+        file_read_budget: int = 12,
+        test_run_budget: int = 3,
     ) -> str:
         # STATIC remains byte-stable for provider prefix caching. Autonomous
         # Engineer calls are always fresh and receive the full prompt.
@@ -1524,44 +1644,40 @@ class SkillLoop:
             )
         sections.append(
             "## This turn\n"
-            "This is a fresh session. Land one coherent, verifiable increment; "
-            "directly update CHECKPOINT.md; then yield to Reviewer. Do not rely on "
-            "this thread continuing. A measured failure or real build step is "
-            "progress; pure reading with no artifact or measurement is not.\n"
-            "Work directly in the current directory. Unless the mission explicitly "
-            "requires it, do not write planning/spec/brief documents, initialize Git, "
-            "create branches/worktrees, commit, spawn subagents, or invoke meta-workflow "
-            "playbooks."
+            "Land one coherent, verifiable increment; update "
+            "CHECKPOINT.md, then yield. Pure reading without an artifact or "
+            "measurement is not progress.\n"
+            "Work in the current directory. Unless required, do not write "
+            "planning/spec/brief documents, initialize Git, branch/worktree, commit, "
+            "spawn subagents, or invoke meta-workflows.\n"
+            f"Budget: inspect about {max(1, int(file_read_budget))} relevant files "
+            "before editing and avoid rereads; run at most "
+            f"{max(1, int(test_run_budget))} focused verification commands plus the "
+            "decisive verifier. Exceed only after a concrete failure or code change. "
+            "Ignore `.autors` unless retaining durable learning."
         )
         sections.append(
             "## Required output\n"
-            "End with `## Verification (verbatim)` containing literal decisive "
-            "command output in a fenced block, then `## Summary` with at most 8 "
-            "bullets. Do not paraphrase verification evidence.\n\n"
+            "End with `## Verification (verbatim)` containing command "
+            "output in a fenced block, then `## Summary` (at most 8 bullets).\n\n"
             + (
-                "You have authority to waive an independent Reviewer only when "
-                "you judge this mission bounded and low-risk, all requested work "
-                "is complete, decisive local verification passed, and no unresolved "
-                "failure or judgment-heavy claim remains. Simple inspections, "
-                "small deterministic repairs, and narrow checks are typical cases. "
-                "Otherwise require review. If a reusable Engineer skill should be "
-                "created or updated from the verified trajectory, request it here; "
-                "the harness will resume this same session once for skill maintenance.\n"
+                "Set `review=skip` only for complete, bounded, low-risk work whose "
+                "decisive verifier passed. Require Reviewer for unresolved failures, "
+                "risky cross-module API/schema/migration/security/concurrency changes, "
+                "or unsettled judgment—not reassurance. Request skill maintenance "
+                "only for durable reusable learning; the harness resumes this session.\n"
                 if allow_self_review
                 else
-                "Independent review is required for this mission; set `review` to "
-                "`required`.\n"
+                "Independent review required; set `review=required`.\n"
             )
-            + "Your FINAL line must be exactly:\n"
+            + "Final line exactly:\n"
             'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
             '"reason":"<brief judgment>","verification":"<what passed>",'
             '"skill_action":"none|create|update","skill_name":"<required for '
             'update, else empty>","skill_reason":"<required for create/update, '
-            'else empty>"}\n'
-            "The marker is a decision, not evidence: the literal evidence must "
-            "remain in the fenced Verification block."
+            'else empty>"}'
         )
-        if require_post_task_learning:
+        if require_post_task_learning and force_post_task_learning:
             required_action = "update" if matched_skill_name else "create"
             target = (
                 f" the matched skill `{matched_skill_name}`"
@@ -1570,13 +1686,18 @@ class SkillLoop:
             )
             sections.append(
                 "## Required self-evolution\n"
-                "This run is part of a sequential transfer evaluation. After "
-                "verification, request `skill_action=" + required_action + "` for"
+                "After verification, request `skill_action=" + required_action + "` for"
                 + target
-                + " in the final decision marker; the harness will resume this "
-                "same session to author it. Also write or update one concise wiki "
-                "note under the existing `.autors/<project>/wiki/` tree describing "
-                "the reusable mechanism, failed approach, and decisive verification."
+                + "; the harness resumes this session to author it. Also retain one "
+                "concise `.autors/<project>/wiki/` note with the reusable mechanism, "
+                "failed approach, and decisive verification."
+            )
+        elif require_post_task_learning:
+            sections.append(
+                "## Selective self-evolution\n"
+                "Use `skill_action=create|update` only for a verified durable mechanism "
+                "that changes future work; otherwise use `skill_action=none`. Write a "
+                "wiki note only for similarly durable project knowledge."
             )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)

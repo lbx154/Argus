@@ -45,7 +45,6 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_PER_MISSION_CAP_USD",
         "ARGUS_SKILL_DAILY_CAP_USD",
         "ARGUS_SKILL_MAX_ROUNDS",
-        "ARGUS_SKILL_VERTICAL",
         "ARGUS_SKILL_DAEMON_AUTO_RESTART",
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
         "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -60,14 +59,9 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     assert "ARGUS_SKILL_PLANNER_RUNNER_BIN" in names
 
 
-def test_vertical_help_lists_math_without_changing_default() -> None:
-    vertical = next(k for k in KNOBS if k.name == "ARGUS_SKILL_VERTICAL")
-
-    assert vertical.default == "(unset → research; see LANES #1)"
-    assert "math" in vertical.doc.split(": ", 1)[1].split("|")
-    rendered = format_config_help(env={})
-    assert "ARGUS_SKILL_VERTICAL" in rendered
-    assert "default: (unset → research; see LANES #1)" in rendered
+def test_config_help_does_not_advertise_formal_vertical_override() -> None:
+    assert all(k.name != "ARGUS_SKILL_VERTICAL" for k in KNOBS)
+    assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
 
 
 def test_registry_covers_the_team_teammate_knobs() -> None:

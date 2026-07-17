@@ -260,7 +260,7 @@ DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "manager_effort": "xhigh",
     "planner_effort": "xhigh",
     "engineer_effort": "xhigh",
-    "reviewer_effort": "xhigh",
+    "reviewer_effort": "high",
 }
 
 _ROLE_EFFORT_ENVS: dict[str, str] = {

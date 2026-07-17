@@ -25,7 +25,7 @@ class LifeWorkerConfig:
     engineer_model: str = "gpt-5.5"
     reviewer_model: str = "gpt-5.5"
     engineer_reasoning_effort: str = "xhigh"
-    reviewer_reasoning_effort: str = "xhigh"
+    reviewer_reasoning_effort: str = "high"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
     global_daily_cap_usd: float = 0.0
@@ -116,7 +116,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
             data.get("engineer_reasoning_effort") or "xhigh"
         ),
         reviewer_reasoning_effort=str(
-            data.get("reviewer_reasoning_effort") or "xhigh"
+            data.get("reviewer_reasoning_effort") or "high"
         ),
         per_mission_cap_usd=_number("per_mission_cap_usd", 30.0),
         daily_cap_usd=_number("daily_cap_usd", 180.0),

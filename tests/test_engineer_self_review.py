@@ -238,6 +238,12 @@ def test_skill_creation_resumes_same_engineer_session(tmp_path: Path) -> None:
     assert outcome.status == "done"
     labels = [label for label, _prompt, _options in backend.history]
     assert labels == ["matcher", "engineer-r1", "engineer-skill-maintenance"]
+    maintenance_options = next(
+        options
+        for label, _prompt, options in backend.history
+        if label == "engineer-skill-maintenance"
+    )
+    assert maintenance_options.reasoning_effort == "low"
     resumes = dict(backend.resume_history)
     assert resumes["engineer-skill-maintenance"] == "engineer-session"
     summaries = SkillStore(skills_dir).list_summaries()
@@ -293,6 +299,7 @@ def test_required_post_task_learning_forces_same_session_create(tmp_path: Path) 
             max_rounds=1,
             workflow_mode="direct",
             require_post_task_learning=True,
+            force_post_task_learning=True,
         ),
         on_event=events.append,
     ).run("repair one deterministic parser test", workdir=tmp_path)
@@ -305,3 +312,34 @@ def test_required_post_task_learning_forces_same_session_create(tmp_path: Path) 
         and event.get("success") is True
         for event in events
     )
+
+
+def test_selective_post_task_learning_does_not_force_maintenance(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="learn-session"),
+    )
+    outcome = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            workflow_mode="direct",
+            require_post_task_learning=True,
+        ),
+    ).run("repair one deterministic parser test", workdir=tmp_path)
+
+    assert outcome.status == "done"
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels == ["matcher", "engineer-r1"]
+    engineer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Selective self-evolution" in engineer_prompt
+    assert "skill_action=none" in engineer_prompt
+    assert "inspect about 12 relevant files" in engineer_prompt
+    assert "at most 3 focused verification commands" in engineer_prompt

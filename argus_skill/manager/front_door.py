@@ -151,7 +151,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
                 "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
             ),
             reviewer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
+                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
             ),
             plan_mode="auto",
             plan_model=None,

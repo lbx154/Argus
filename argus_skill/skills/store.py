@@ -615,6 +615,7 @@ class SkillStore:
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Skill] | None, int]:
         """Use small model to judge which skills are relevant to the task.
 
@@ -638,23 +639,46 @@ class SkillStore:
             self._last_match_premium_requests = 0.0
             if on_event:
                 msg = (
-                    "skill store empty - matcher will record an explicit no-match"
+                    "skill store empty - will distill a new playbook"
                     if role is None
-                    else (
-                        f"no skills in scope for role={role}; matcher will record "
-                        "an explicit no-match"
-                    )
+                    else f"no skills in scope for role={role}"
                 )
                 on_event({"type": "match.info", "text": msg})
-            # Still call the matcher with an empty candidate list. Every mission
-            # exercises the same skill-selection mechanism, and the explicit
-            # no-match result is evidence for Engineer-owned skill creation.
+            if not force_empty_match:
+                return None, 0
 
         cache_key = (
             " ".join(task_description.lower().split()),
             role or "",
             self._fingerprint_summaries(summaries),
         )
+        cached = self._match_cache.get(cache_key)
+        if cached is not None or cache_key in self._match_cache:
+            # Refresh LRU order and report zero new usage for a cache hit.
+            self._match_cache.pop(cache_key, None)
+            self._match_cache[cache_key] = cached
+            self._last_match_input_tokens = 0
+            self._last_match_cached_input_tokens = 0
+            self._last_match_output_tokens = 0
+            self._last_match_premium_requests = 0.0
+            if on_event:
+                label = (
+                    ", ".join(Path(path).stem for path in cached)
+                    if cached
+                    else "no match"
+                )
+                on_event({
+                    "type": "match.info",
+                    "text": f"matcher cache hit: {label} (0 tok)",
+                })
+            if cached is None:
+                return None, 0
+            try:
+                return [self.load(path) for path in cached], 0
+            except OSError:
+                # A skill changed or disappeared after caching; rematch safely.
+                self._match_cache.pop(cache_key, None)
+
         if self.runner is None:
             log.warning("SkillStore.find_relevant called with no runner; "
                         "cannot run matcher")

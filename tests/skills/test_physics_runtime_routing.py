@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from argus_skill.skills.vertical_select import (
-    VERTICALS,
     VERTICAL_PURPOSES,
+    VERTICALS,
     explicit_builtin_vertical,
     persist_vertical,
     require_vertical,
@@ -44,20 +44,24 @@ def test_physics_is_a_selectable_builtin_vertical() -> None:
     assert set(VERTICAL_PURPOSES) == set(VERTICALS)
 
 
-def test_env_forces_physics_vertical(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Requirement (Part 4.2): ARGUS_SKILL_VERTICAL=physics is honored.
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "physics")
-    assert explicit_builtin_vertical() == "physics"
-    assert resolve_vertical(tmp_path) == "physics"
-
-
-def test_env_physics_overrides_persisted_state(
+def test_legacy_env_hint_is_inspectable_but_does_not_route(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Precedence sanity: an explicit env force wins over a persisted built-in.
+    # Compatibility only: callers may inspect the old hint, but Manager remains
+    # the sole authority and an undecided low-level read keeps its safe fallback.
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "physics")
+    assert explicit_builtin_vertical() == "physics"
+    assert resolve_vertical(tmp_path) == "research"
+
+
+def test_env_physics_cannot_override_manager_persisted_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Formal task routing always follows Manager's persisted classification.
     persist_vertical(tmp_path, "research")
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "physics")
-    assert resolve_vertical(tmp_path) == "physics"
+    assert explicit_builtin_vertical() == "physics"
+    assert resolve_vertical(tmp_path) == "research"
 
 
 def test_persist_physics_writes_pipeline_state_and_seeds_scope(tmp_path: Path) -> None:
@@ -90,7 +94,7 @@ def test_planner_resolution_chain_reads_physics_role_banner(tmp_path: Path) -> N
 def test_physics_is_custom_kind_not_optimize_not_paper() -> None:
     # Requirement (Part 4): the Manager routes physics as a dynamic/report ("custom")
     # vertical — never a lean optimize loop and never the paper/full_paper kind.
-    from argus_skill.manager._core import Manager, _OPTIMIZE_VERTICALS
+    from argus_skill.manager._core import _OPTIMIZE_VERTICALS, Manager
 
     assert Manager._kind_for("physics") == "custom"
     assert "physics" not in _OPTIMIZE_VERTICALS

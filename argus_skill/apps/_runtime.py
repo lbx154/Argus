@@ -635,6 +635,9 @@ class _SkillLoopRunner(SelfReplyMixin):
         config_kwargs = {
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
+            "engineer_initial_reasoning_effort": os.environ.get(
+                "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high"
+            ),
             "engineer_reasoning_effort": getattr(
                 args, "engineer_reasoning_effort", "xhigh"
             ),

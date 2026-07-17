@@ -121,6 +121,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
 #: The safe default vertical when intent is unclear or state is missing.
 DEFAULT_VERTICAL: str = "research"
 
+#: Legacy environment name retained for low-level compatibility/introspection.
+#: Formal task routing does not consult it; Manager owns vertical classification.
+ENV_VERTICAL: str = "ARGUS_SKILL_VERTICAL"
+
 _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
 
 
@@ -186,6 +190,18 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
         except Exception:  # noqa: BLE001 — data-domain probe must never raise here
             return None
     return None
+
+
+def explicit_builtin_vertical() -> str | None:
+    """Return a legacy built-in environment hint without applying it.
+
+    This compatibility accessor supports low-level callers that inspect the old
+    ``ARGUS_SKILL_VERTICAL`` signal.  It deliberately has no authority over
+    ``resolve_vertical`` or Manager dispatch: formal tasks are classified and
+    persisted by Manager, and users cannot bypass that decision via environment.
+    Project-local data domains are excluded because they are Manager-owned state.
+    """
+    return _known_vertical(os.environ.get(ENV_VERTICAL))
 
 
 def require_vertical(value: object, project_root: object = None) -> str:
@@ -308,7 +324,6 @@ def resolve_vertical(project_root: object = ".") -> str:
         "compatibility fallback (formal tasks must classify through Manager)",
         project_root,
     )
-    return DEFAULT_VERTICAL
     return DEFAULT_VERTICAL
 
 
@@ -579,8 +594,10 @@ __all__ = [
     "VERTICALS",
     "VERTICAL_PURPOSES",
     "DEFAULT_VERTICAL",
+    "ENV_VERTICAL",
     "VerticalResolutionError",
     "UnknownVerticalError",
+    "explicit_builtin_vertical",
     "require_vertical",
     "resolve_checklist_vertical",
     "resolve_vertical_if_decided",

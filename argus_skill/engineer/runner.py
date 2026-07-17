@@ -535,6 +535,7 @@ def _event_has_successful_work_signal(event: dict) -> bool:
 class EngineerConfig:
     model: str
     reasoning_effort: str | None = None
+    initial_reasoning_effort: str | None = None
     extra_args: list[str] | None = None
     full_auto: bool = True
     skip_git_repo_check: bool = True
@@ -1175,6 +1176,7 @@ class SupervisedEngineer:
         prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
+        reviewer_skill_block: str | None = None,
         engineer_skill_maintenance: Callable[
             [EngineerCompletionDecision, str | None, str],
             EngineerSkillMaintenanceOutcome,
@@ -1288,6 +1290,11 @@ class SupervisedEngineer:
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
                 resume_thread_id=None,
+                reasoning_effort=(
+                    self.engineer_config.initial_reasoning_effort
+                    if round_index == 1
+                    else self.engineer_config.reasoning_effort
+                ),
                 supervised_config=supervised_config,
                 on_event=on_event,
             )
@@ -1785,6 +1792,7 @@ class SupervisedEngineer:
                             )
                             else ""
                         ),
+                        preselected_skill_block=reviewer_skill_block,
                         resume_thread_id=None,
                         prior_static_fingerprint="",
                     )
@@ -2209,6 +2217,7 @@ class SupervisedEngineer:
         workdir: Path,
         run_label: str,
         resume_thread_id: str | None = None,
+        reasoning_effort: str | None = None,
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
     ) -> tuple[RunnerResult, int]:
@@ -2238,7 +2247,11 @@ class SupervisedEngineer:
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.engineer_config.model,
-                    reasoning_effort=self.engineer_config.reasoning_effort,
+                    reasoning_effort=(
+                        reasoning_effort
+                        if reasoning_effort is not None
+                        else self.engineer_config.reasoning_effort
+                    ),
                     extra_args=self.engineer_config.extra_args,
                     full_auto=self.engineer_config.full_auto,
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,

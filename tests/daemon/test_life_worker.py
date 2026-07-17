@@ -823,7 +823,7 @@ def test_runner_namespace_uses_global_skills_root(
     assert ns.skills_dir == str(expected_path)
     assert ns.workdir == str(tmp_path / "repo")
     assert ns.engineer_reasoning_effort == "xhigh"
-    assert ns.reviewer_reasoning_effort == "xhigh"
+    assert ns.reviewer_reasoning_effort == "high"
 
 
 def test_workspace_start_rejects_another_live_session_on_same_workdir(
