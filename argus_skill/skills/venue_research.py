@@ -24,6 +24,7 @@ from typing import Any
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from .venue_profiles import (
+    _normalize_venue_key,
     _venue_key_from_pipeline_state,
     is_builtin_venue,
     load_local_venue_profile,
@@ -85,9 +86,13 @@ def _target_venue(workdir: Any) -> str | None:
 def needs_venue_research(workdir: Any) -> bool:
     """True when venue selection/profile research is still required."""
     try:
-        if venue_profile_path(Path(workdir)).is_file():
-            return False
         venue = _target_venue(workdir)
+        local = load_local_venue_profile(Path(workdir))
+        if local is not None and (
+            not venue
+            or _normalize_venue_key(local.key) == _normalize_venue_key(str(venue))
+        ):
+            return False
         if _completed_attempt_matches(workdir, venue):
             return False
         return not venue or not is_builtin_venue(venue)
@@ -172,7 +177,7 @@ def research_venue_profile(
             return False
         venue = _target_venue(workdir)
         log.info("venue-research: codex live web-search for venue %r", venue)
-        gateway_run_exec(
+        result = gateway_run_exec(
             runner,
             prompt=_build_prompt(venue),
             options=RunnerOptions(
@@ -185,6 +190,11 @@ def research_venue_profile(
             ),
             run_label="venue-research",
         )
+        if (
+            int(getattr(result, "exit_code", 0) or 0) != 0
+            or getattr(result, "fatal_error", None)
+        ):
+            return False
         _record_completed_attempt(workdir, venue)
         # Verify the agent actually produced a loadable profile.
         return load_local_venue_profile(Path(workdir)) is not None

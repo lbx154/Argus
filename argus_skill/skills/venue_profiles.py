@@ -515,10 +515,16 @@ def resolve_venue_profile(project_root: Path) -> VenueProfile:
     env_key = os.environ.get(_VENUE_ENV)
     if env_key:
         return get_venue_profile(env_key)
+    state_key = _venue_key_from_pipeline_state(project_root)
+    if state_key and is_builtin_venue(state_key):
+        return get_venue_profile(state_key)
     local = load_local_venue_profile(project_root)
-    if local is not None:
+    if local is not None and (
+        not state_key
+        or _normalize_venue_key(local.key) == _normalize_venue_key(state_key)
+    ):
         return local
-    return get_venue_profile(_venue_key_from_pipeline_state(project_root))
+    return get_venue_profile(state_key)
 
 
 VENUE_PROFILE_FILENAME = "VENUE_PROFILE.json"

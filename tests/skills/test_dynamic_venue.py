@@ -215,6 +215,26 @@ def test_research_venue_profile_fail_open(tmp_path):
     assert load_local_venue_profile(root) is None
 
 
+def test_failed_runner_result_remains_retryable(tmp_path):
+    root = _project(tmp_path, "ICML")
+
+    class FailedRunner:
+        def run_exec(self, **_):
+            return type(
+                "R",
+                (),
+                {
+                    "exit_code": 1,
+                    "fatal_error": "provider unavailable",
+                    "agent_messages": [],
+                },
+            )()
+
+    assert research_venue_profile(FailedRunner(), root) is False
+    assert needs_venue_research(root) is True
+    assert not (root / "research" / "VENUE_RESEARCH_ATTEMPT.json").exists()
+
+
 def test_completed_failed_selection_is_not_retried_every_mission(tmp_path):
     root = tmp_path
     (root / "research").mkdir(parents=True)
@@ -243,6 +263,23 @@ def test_completed_failed_selection_is_not_retried_every_mission(tmp_path):
     )
     assert attempt["provider_call_completed"] is True
     assert attempt["profile_created"] is False
+
+
+def test_explicit_builtin_venue_overrides_stale_dynamic_profile(tmp_path):
+    root = _project(tmp_path, "AAAI")
+    write_venue_profile(root, _neurips())
+
+    assert resolve_venue_profile(root).key == "AAAI"
+    assert needs_venue_research(root) is False
+
+
+def test_changed_dynamic_target_requires_a_matching_profile(tmp_path):
+    root = _project(tmp_path, "ICML")
+    write_venue_profile(root, _neurips())
+
+    assert needs_venue_research(root) is True
+    with pytest.raises(KeyError):
+        resolve_venue_profile(root)
 
 
 def test_memory_bootstrap_does_not_seed_implicit_emnlp(
