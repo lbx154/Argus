@@ -9,6 +9,7 @@ deleted along with the dead code.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -342,6 +343,10 @@ def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
 
     verdict = Planner(runner).plan_next(
         continuous_objective=(
@@ -437,6 +442,48 @@ def test_theorem_contract_allows_honest_prior_no_theorem_context(
     assert not verdict.error
     assert [task.title for task in verdict.new_tasks] == [
         "Prove structural no-C4/C8/C16 cubic lemma"
+    ]
+
+
+def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "close the accepted theorem's review delta",
+        "new_tasks": [{
+            "title": "Close review-stage venue profile after round 12",
+            "objective": (
+                "Record the already accepted theorem's review-stage venue delta "
+                "without changing its proof or novelty classification."
+            ),
+            "impact_score": 4,
+            "impact_area": "requirement_gap",
+            "evidence": "Reviewer-certified theorem and current venue artifacts.",
+            "scope": "bounded",
+            "stage_closing": True,
+            "key": "review-delta",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "review")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Close review-stage venue profile after round 12"
     ]
 
 

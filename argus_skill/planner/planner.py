@@ -172,8 +172,16 @@ def _theorem_proof_task_issue(task: TaskSpec) -> str:
 def _hard_objective_task_issues(
     continuous_objective: str,
     tasks: list[TaskSpec],
+    *,
+    current_stage: str = "solve",
 ) -> list[str]:
     if not _requires_theorem_proof_contract(continuous_objective):
+        return []
+    # The contract governs theorem-producing solve work. Scope and review may
+    # still need bounded statement/venue/audit closure so the accepted theorem
+    # can move through the ordinary staged lifecycle without being forced to
+    # prove a second theorem inside bookkeeping.
+    if str(current_stage or "").strip().lower() != "solve":
         return []
     issues: list[str] = []
     for task in tasks:
@@ -381,9 +389,18 @@ class Planner:
                 premium_requests=premium_requests,
             )
         parsed = parse_planner_text(text)
+        active_stage = "solve"
+        try:
+            from ..skills.harness_overlay import resolve_project_root
+            from ..skills.stage_checklists import current_stage
+
+            active_stage = current_stage(resolve_project_root())
+        except Exception:  # noqa: BLE001 - fail closed on the proof contract
+            pass
         hard_objective_issues = _hard_objective_task_issues(
             continuous_objective,
             parsed.new_tasks,
+            current_stage=active_stage,
         )
         if hard_objective_issues:
             issue_text = "; ".join(hard_objective_issues[:6])
