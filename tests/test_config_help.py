@@ -116,7 +116,7 @@ def test_budget_caps_share_env_persisted_default_precedence() -> None:
 
     assert caps.per_mission_cap_usd == 12.5
     assert caps.daily_cap_usd == 90.0
-    assert caps.global_daily_cap_usd == 30.0
+    assert caps.global_daily_cap_usd == 10_000.0
 
 
 @pytest.mark.parametrize("value", ["nope", "-1", "nan", "inf"])

@@ -98,6 +98,10 @@ def test_global_budget_file_applies_without_project_context(tmp_path) -> None:
     assert caps.global_daily_cap_usd == 7
 
 
+def test_global_budget_default_is_10000(tmp_path) -> None:
+    assert read_global_budget(tmp_path) == GlobalBudget(10_000.0)
+
+
 def test_global_budget_migrates_once_and_ignores_later_env(tmp_path) -> None:
     first = read_global_budget(
         tmp_path,

@@ -51,7 +51,7 @@ class BudgetCaps:
 BUDGET_KNOB_DEFAULTS: dict[str, str] = {
     "ARGUS_SKILL_PER_MISSION_CAP_USD": "30.0",
     "ARGUS_SKILL_DAILY_CAP_USD": "180.0",
-    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "30.0",
+    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "10000.0",
 }
 
 # Daemon count is not provider concurrency: every backend still obeys its own
@@ -127,10 +127,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "60", "host-wide Copilot provider-call cap per rolling hour", "budget"),
-    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "2", "maximum concurrent Copilot calls across all Argus projects", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "10000", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per rolling hour", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "10000", "maximum concurrent Copilot calls across all Argus projects", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
