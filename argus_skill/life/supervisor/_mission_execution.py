@@ -15,8 +15,8 @@ from ...core.stop_kinds import (
     stop_kind_is_recoverable,
 )
 from ...core.usage import UsageLedger, UsageRecord
-from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
+from ..mission_outcome import mission_outcome_class
 from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
 from ._cost import _CostTrackingSink
 from ._helpers import _normalize_planner_text
@@ -75,6 +75,9 @@ class MissionExecutionMixin:
             # real goal instead of "objective=-".
             "objective": item.objective,
             "scope": self._planner_scope_from_item(item),
+            "independent_review_required": (
+                self._item_requires_independent_review(item)
+            ),
             "missions_started": self._missions_started,
             "attempt": item.attempt,
             "usage_attempt_id": usage_attempt_id,
@@ -178,6 +181,10 @@ class MissionExecutionMixin:
                         str(tag).strip().lower() == "planner"
                         for tag in getattr(item, "tags", [])
                     )
+                if "require_independent_review" in params or _accepts_kw:
+                    execute_kwargs["require_independent_review"] = (
+                        self._item_requires_independent_review(item)
+                    )
                 if "mission_id" in params or _accepts_kw:
                     execute_kwargs["mission_id"] = item.id
                 if "usage_mission_id" in params or _accepts_kw:
@@ -196,6 +203,9 @@ class MissionExecutionMixin:
                 execute_kwargs["per_mission_budget"] = mission_budget
                 execute_kwargs["mission_id"] = item.id
                 execute_kwargs["usage_mission_id"] = usage_attempt_id
+                execute_kwargs["require_independent_review"] = (
+                    self._item_requires_independent_review(item)
+                )
             outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
@@ -501,6 +511,9 @@ class MissionExecutionMixin:
             "title": item.title,
             "objective": item.objective,
             "scope": self._planner_scope_from_item(item),
+            "independent_review_required": (
+                self._item_requires_independent_review(item)
+            ),
             "success": success,
             "status": status,
             "outcome_class": mission_outcome_class(status=status, success=success),

@@ -14,9 +14,9 @@ import json
 from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
+from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
 from argus_skill.planner import WaitingContract
@@ -385,6 +385,47 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     # And the DAG actually schedules: a/b are ready, c is gated until both done.
     ready_titles = {it.title for it in sup.memory.backlog.ready()}
     assert ready_titles == {"run seed 0", "run seed 1"}
+
+
+def test_stage_closing_planner_task_persists_required_review_tags(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = json.loads(_dag_verdict_json())
+    payload["new_tasks"] = [payload["new_tasks"][0]]
+    payload["new_tasks"][0]["stage_closing"] = True
+    sup = _make_supervisor(tmp_path, monkeypatch, json.dumps(payload))
+
+    assert sup._plan_next_work() is True
+
+    [item] = sup.memory.backlog.all()
+    assert "stage_closing" in item.tags
+    assert "review:required" in item.tags
+
+
+def test_stage_closing_task_is_not_deduped_by_prior_unreviewed_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = json.loads(_dag_verdict_json())
+    payload["new_tasks"] = [payload["new_tasks"][0]]
+    payload["new_tasks"][0]["stage_closing"] = True
+    sup = _make_supervisor(tmp_path, monkeypatch, json.dumps(payload))
+    prior = BacklogItem.new(
+        title=payload["new_tasks"][0]["title"],
+        objective=payload["new_tasks"][0]["objective"],
+        tags=["planner", "scope:bounded"],
+    )
+    sup.memory.backlog.add(prior)
+    sup.memory.backlog.mark_done(prior.id)
+
+    assert sup._plan_next_work() is True
+
+    items = sup.memory.backlog.all()
+    assert len(items) == 2
+    stage_closing = [item for item in items if "review:required" in item.tags]
+    assert len(stage_closing) == 1
+    assert stage_closing[0].status == "pending"
 
 
 def test_planner_can_enqueue_dynamic_math_route_as_a_dag(tmp_path, monkeypatch) -> None:

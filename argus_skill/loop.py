@@ -1155,7 +1155,7 @@ class SkillLoop:
                 original_request=request_anchor,
                 include_static=include_static,
                 role_banner=engineer_role_banner,
-                allow_self_review=True,
+                allow_self_review=self.config.engineer_self_review_enabled,
                 matched_skill_name=learning_target_name,
                 require_post_task_learning=self.config.require_post_task_learning,
                 force_post_task_learning=self.config.force_post_task_learning,

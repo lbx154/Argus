@@ -59,6 +59,9 @@ class TaskSpec:
     impact_area: str = ""
     evidence: str = ""
     scope: str = TASK_SCOPE_BOUNDED
+    # A mission expected to satisfy the current-stage gate must receive an
+    # independent Reviewer verdict so the Manager gets per-item evidence.
+    stage_closing: bool = False
     # --- DAG fields (optional; flat tasks leave both at their defaults) ----
     # ``key`` is this task's *local* reference name, unique within one batch
     # of ``new_tasks``. Sibling tasks point at it via ``deps``. The supervisor
@@ -965,6 +968,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             impact_area = str(entry.get("impact_area", "")).strip()
             evidence = str(entry.get("evidence", "")).strip()
             scope = _parse_task_scope(entry.get("scope"))
+            stage_closing = _parse_json_bool(
+                entry.get("stage_closing", False),
+                False,
+            )
             # Optional DAG fields; back-compat: a flat task simply omits them.
             key = str(entry.get("key") or "").strip()
             deps = [
@@ -987,6 +994,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     impact_area=impact_area,
                     evidence=evidence,
                     scope=scope,
+                    stage_closing=stage_closing,
                     key=key,
                     deps=deps,
                 )

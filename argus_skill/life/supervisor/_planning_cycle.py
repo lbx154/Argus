@@ -710,6 +710,7 @@ class PlanningCycleMixin:
                             "certifying full-pipeline final-submission readiness."
                         ),
                         scope=PLANNER_SCOPE_FINAL_SUBMISSION,
+                        stage_closing=True,
                     )
                 ],
             )
@@ -924,6 +925,15 @@ class PlanningCycleMixin:
                 )
             signature = _planner_task_signature(task.title, task.objective)
             duplicate_item = seen_signatures.get(signature)
+            if (
+                duplicate_item is not None
+                and bool(getattr(task, "stage_closing", False))
+                and not self._item_requires_independent_review(duplicate_item)
+            ):
+                # Review semantics are part of task identity. A prior ordinary
+                # or self-reviewed task cannot satisfy a later stage-closing
+                # certification request, even when its prose is identical.
+                duplicate_item = None
             if duplicate_item is not None:
                 skipped_duplicate_titles.append(task.title)
                 duplicate_reason = (

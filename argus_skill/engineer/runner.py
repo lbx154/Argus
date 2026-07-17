@@ -1637,6 +1637,7 @@ class SupervisedEngineer:
             if (
                 completion_decision is not None
                 and completion_decision.requests_review_skip
+                and supervised_config.allow_engineer_self_review
             ):
                 # Engineer owns this judgment. The harness parses the explicit
                 # decision but does not second-guess it with extra gates.

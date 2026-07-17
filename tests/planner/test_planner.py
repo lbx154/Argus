@@ -67,6 +67,7 @@ def test_parse_planner_text_emits_task_specs() -> None:
             "impact_area": "correctness",
             "evidence": "loader crashes on empty input",
             "scope": "bounded",
+            "stage_closing": True,
             "objective": "patch code/loader.py to handle empty input and add a regression test",
         }],
     })
@@ -78,6 +79,7 @@ def test_parse_planner_text_emits_task_specs() -> None:
     assert spec.title == "fix the loader"
     assert spec.impact_score == 5
     assert spec.scope == "bounded"
+    assert spec.stage_closing is True
 
 
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
@@ -620,6 +622,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "impact_area": "reliability",
             "evidence": "e",
             "scope": "bounded",
+            "stage_closing": False,
             "objective": "o",
             "key": None,
             "deps": None,

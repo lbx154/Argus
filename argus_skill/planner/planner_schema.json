@@ -93,6 +93,7 @@
           "impact_area",
           "evidence",
           "scope",
+          "stage_closing",
           "objective",
           "key",
           "deps"
@@ -141,6 +142,10 @@
               "bounded",
               "final_submission"
             ]
+          },
+          "stage_closing": {
+            "type": "boolean",
+            "description": "Set true only when this mission is intended to satisfy the complete current-stage checklist and hand a per-item independent Reviewer certification to the Manager. The harness disables Engineer self-review for this task."
           },
           "objective": {
             "type": "string",

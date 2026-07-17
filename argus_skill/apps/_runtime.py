@@ -606,6 +606,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         usage_mission_id: str | None = None,
         max_rounds_override: int | None = None,
         workflow_mode_override: str = "",
+        require_independent_review: bool = False,
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -674,6 +675,10 @@ class _SkillLoopRunner(SelfReplyMixin):
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,
+            "engineer_self_review_enabled": (
+                _env_flag("ARGUS_SKILL_ENGINEER_SELF_REVIEW", default=True)
+                and not require_independent_review
+            ),
             # Filled from the resolved vertical below.  Fail-safe default: an
             # undecided task is bounded/non-paper.
             "paper_mission": False,

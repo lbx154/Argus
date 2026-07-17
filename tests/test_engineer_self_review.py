@@ -118,6 +118,39 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert completed[0]["review_source"] == "engineer_self_review"
 
 
+def test_required_independent_review_ignores_engineer_skip_request(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="engineer-1"),
+    )
+    reviewer = _DoneReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=backend,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="test"),
+        reviewer_config=ReviewerConfig(model="test"),
+    )
+
+    status, rounds, *_ = engine.run(
+        objective="close the current stage",
+        engineer_prompt_builder=lambda _next, _static=True: "do it",
+        supervised_config=SupervisedConfig(
+            max_rounds=1,
+            allow_engineer_self_review=False,
+            effective_progress_timeout_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert reviewer.calls == 1
+    assert rounds[0].review.reason == "independently reviewed"
+
+
 def test_engineer_skip_is_not_second_guessed_for_missing_verbatim_block(tmp_path: Path) -> None:
     backend = MemoryBackend()
     message = _engineer_message().replace(

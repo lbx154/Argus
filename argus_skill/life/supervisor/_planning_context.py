@@ -56,7 +56,18 @@ class PlanningContextMixin:
             # and re-plan it forever. Normalize at the enqueue boundary; the
             # old skip path remains as migration support for persisted rows.
             scope = PLANNER_SCOPE_BOUNDED
-        return ["planner", f"scope:{scope}"]
+        tags = ["planner", f"scope:{scope}"]
+        if bool(getattr(task, "stage_closing", False)):
+            tags.extend(["stage_closing", "review:required"])
+        return tags
+
+    @staticmethod
+    def _item_requires_independent_review(item: BacklogItem) -> bool:
+        return any(
+            str(tag).strip().lower().replace("-", "_")
+            in {"review:required", "independent_review:required"}
+            for tag in item.tags
+        )
 
     @staticmethod
     def _normalize_planner_scope(scope: object) -> str:
@@ -111,6 +122,11 @@ class PlanningContextMixin:
             lines.append(f"- node_key: {item.node_key}")
         if scope:
             lines.append(f"- planner_scope: {scope}")
+        if self._item_requires_independent_review(item):
+            lines.append(
+                "- independent_review: REQUIRED; Engineer self-review cannot close "
+                "this stage-closing mission."
+            )
         if item.tags:
             lines.append("- tags: " + ", ".join(item.tags))
         if scope == PLANNER_SCOPE_FINAL_SUBMISSION:

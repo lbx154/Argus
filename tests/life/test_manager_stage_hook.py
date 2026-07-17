@@ -1206,3 +1206,35 @@ def test_execute_path_writes_open_ended_into_skill_loop_config_kwargs(
     assert captured.get("continuous_objective") == "prove or disprove the conjecture", (
         "execute() did not forward continuous_objective into SkillLoopConfig kwargs"
     )
+
+
+def test_execute_path_disables_self_review_when_independent_review_required(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    class _SpyConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            raise _ConfigKwargsCaptured(kwargs)
+
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._allow_chat_fast_path = False
+    runner._SkillLoopConfig = _SpyConfig
+    runner._args = SimpleNamespace(
+        engineer_model="stub-model",
+        reviewer_model="stub-model",
+        max_rounds=1,
+        workdir=str(tmp_path),
+        open_ended=True,
+        continuous_objective="complete the current research stage",
+    )
+
+    with pytest.raises(_ConfigKwargsCaptured):
+        runner.execute(
+            objective="complete and certify the research gate",
+            sink=_Sink(),
+            require_independent_review=True,
+        )
+
+    assert captured.get("engineer_self_review_enabled") is False
