@@ -23,7 +23,6 @@ Design rules:
 """
 from __future__ import annotations
 
-import functools
 import logging
 from pathlib import Path
 from typing import Any
@@ -64,43 +63,16 @@ _RESEARCH_MOVES = (
     "15. Design a Property-Targeting Pretext Objective — inject a relational/geometric property via a pretext objective\n"
 )
 
-#: Directory of vendored ideation-pattern reference cards (the evidence tier
-#: shared with ``idea-discovery``): 15 pattern cards + 31 sub-pattern cards.
-_PATTERN_REF_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "builtin_skills"
-    / "engineer"
-    / "references"
-    / "ideation"
-)
-
-
-@functools.lru_cache(maxsize=1)
 def _pattern_reference() -> str:
-    """The full 15-pattern + 31-sub-pattern selection vocabulary, read from the
-    vendored ideation cards so this web-search source uses the SAME evidence tier
-    as ``idea-discovery`` (definitions, operational signatures, when-to-apply,
-    and the sub-pattern → parent mapping). Falls back to the compact inline
-    :data:`_RESEARCH_MOVES` menu when the reference files are unavailable, so the
-    fail-open / never-raise contract still holds."""
-    try:
-        patterns = (
-            _PATTERN_REF_DIR / "ideation-patterns" / "overview.md"
-        ).read_text(encoding="utf-8")
-        subs = (
-            _PATTERN_REF_DIR / "ideation-sub-patterns" / "overview.md"
-        ).read_text(encoding="utf-8")
-    except OSError:
-        return "Research-move menu (15 corpus-derived patterns):\n" + _RESEARCH_MOVES
-    blob = (
-        "## Ideation patterns (15 moves — definition · operational signature · "
-        "when-to-apply)\n\n"
-        + patterns.strip()
-        + "\n\n## Sub-patterns (31 tactical clusters, each mapped to its parent "
-        "pattern)\n\n"
-        + subs.strip()
-    )
-    return blob[:20000]
+    """Compact move vocabulary for the one-shot live-search source.
+
+    The full 15-pattern/31-sub-pattern cards remain available to the downstream
+    ``idea-discovery`` skill. Reinjecting those ~20k characters into this call
+    duplicates that later reasoning and materially increases every web-search
+    turn's context. The compact menu preserves mechanism diversity while leaving
+    detailed tactical refinement to candidate selection.
+    """
+    return "Research-move menu (15 corpus-derived patterns):\n" + _RESEARCH_MOVES
 
 
 def _candidates_path(workdir: Any) -> Path:
@@ -155,8 +127,7 @@ def _build_prompt(direction: str, n: int) -> str:
         "show, not on model memory.\n"
         "STEP 2 — RESEARCH MOVE: from the corpus-derived ideation patterns below, "
         "pick the ONE pattern whose operational signature structurally closes the "
-        "gap, then name the specific sub-pattern (`C##`) whose tactic you will "
-        "apply. The pattern is thinking vocabulary, never the contribution itself, "
+        "gap. The pattern is thinking vocabulary, never the contribution itself, "
         "and never a hard filter (a common pattern is fine if the delivery is "
         "substantive):\n\n"
         f"{_pattern_reference()}\n\n"
@@ -176,7 +147,7 @@ def _build_prompt(direction: str, n: int) -> str:
         "**Lineage & gap type**: <the 3-5 method refine/replace chain; label the "
         "gap ADDITIVE or SUBTRACTIVE; one line for the regression check — which "
         "ancestor could already do this, and why yours differs>\n\n"
-        "**Research move**: <the ONE pattern by name + the `C##` sub-pattern whose tactic you applied>\n\n"
+        "**Research move**: <the ONE pattern by number and name>\n\n"
         "**Contribution shape**: <method, system, theorem, diagnostic, "
         "characterization, evaluation, benchmark/data, negative result, or "
         "boundary finding>\n\n"

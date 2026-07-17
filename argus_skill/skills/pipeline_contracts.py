@@ -112,7 +112,6 @@ MANIFEST_GENERATED_EXCLUDED_PATHS = {
 NONTERMINAL_RUN_TERMINAL_STATES = {"completed", "failed", "cancelled"}
 MANIFEST_CANONICAL_RESEARCH_PATHS = {
     "research/RESEARCH_BRIEF.md",
-    "research/LITERATURE_REVIEW.md",
     "research/LIT_MATRIX.tsv",
     "research/LITERATURE_GROUNDING.json",
     "research/SOURCE_DISCOVERY.md",

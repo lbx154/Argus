@@ -16,6 +16,7 @@ import tempfile
 from argus_skill.core.models import RunnerResult
 from argus_skill.skills.idea_search import (
     SOURCE_MARKER,
+    _build_prompt,
     _already_seeded,
     augment_idea_candidates,
 )
@@ -99,6 +100,17 @@ def test_codex_call_uses_live_search():
     opts = r.calls[0]
     assert getattr(opts, "live_search", False) is True
     assert opts.model == "gpt-5.5"
+
+
+def test_live_search_prompt_has_a_bounded_move_vocabulary() -> None:
+    prompt = _build_prompt("quantized memory for long-running agents", 6)
+
+    assert "15. Design a Property-Targeting Pretext Objective" in prompt
+    assert "31 tactical clusters" not in prompt
+    assert "`C##`" not in prompt
+    # Keep the one-shot source compact; detailed cards are loaded later by the
+    # idea-discovery skill only when the project actually needs refinement.
+    assert len(prompt) < 12_000
 
 
 def test_fail_open_on_runner_exception():
