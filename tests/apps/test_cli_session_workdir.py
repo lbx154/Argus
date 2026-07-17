@@ -71,3 +71,28 @@ def test_cli_legacy_resume_persists_first_explicit_workdir(
     assert bundle.project_worktree == workspace.resolve()
     assert meta is not None
     assert meta.workdir == str(workspace.resolve())
+
+
+def test_cli_daemon_uses_persisted_shared_backend(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (None, False),
+    )
+    from argus_skill.core.knob_store import write_persisted_knob
+
+    assert write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    args = _args()
+    args.backend = None
+
+    config = _core._build_worker_config(args)
+
+    assert config.backend == "copilot"

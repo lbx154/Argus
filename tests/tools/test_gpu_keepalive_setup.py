@@ -184,6 +184,58 @@ def test_gpu_load_arg_defaults() -> None:
     assert args2.util == 15.0
 
 
+def test_setup_defaults_to_only_installed_copilot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.setattr(
+        _wizard.shutil,
+        "which",
+        lambda name: "/usr/local/bin/copilot" if name == "copilot" else None,
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert _wizard._configure_runner_backend() == "copilot"
+    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+
+
+def test_setup_rejects_selected_backend_missing_from_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.setattr(_wizard.shutil, "which", lambda _name: None)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "copilot")
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert _wizard._configure_runner_backend() is None
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in read_persisted_knobs()
+
+
+def test_setup_replaces_stale_persisted_backend_with_only_installed_cli(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knob
+
+    assert write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    monkeypatch.setattr(
+        _wizard.shutil,
+        "which",
+        lambda name: "/usr/local/bin/copilot" if name == "copilot" else None,
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+
+    assert _wizard._configure_runner_backend() == "copilot"
+    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+
+
 def test_experiment_api_prompt_content() -> None:
     body = _wizard._render_experiment_api_prompt()
     assert body.startswith("---\nscope: paper\n---")

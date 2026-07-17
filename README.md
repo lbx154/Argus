@@ -152,13 +152,20 @@ quality stays a structured agent decision grounded in the artifacts of the run.
 
 Argus requires Python 3.11 or newer and one supported agent CLI.
 
+For GitHub Copilot subscribers:
+
+```bash
+npm install -g @github/copilot
+copilot login
+```
+
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
 cd argus-skill
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-argus-skill --setup
+argus-skill --setup  # defaults to Copilot when it is the only supported CLI on PATH
 ```
 
 The setup wizard creates a trusted baseline machine-policy prompt when none

@@ -234,7 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.skill_stats = bool(args.skill_stats or args.skill_stats_json)
-    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    from ...core.knobs import resolve_role_backend
+
+    backend_default = resolve_role_backend("")
     continuous_error = _continuous_contract_error(
         continuous=bool(args.continuous),
         objective=str(getattr(args, "objective", "") or ""),
@@ -407,10 +409,9 @@ def main(argv: list[str] | None = None) -> int:
 def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig
     bundle = _resolve_project_bundle(args)
-    backend = getattr(args, "backend", None) or os.environ.get(
-        "ARGUS_SKILL_LIFE_BACKEND",
-        "codex",
-    )
+    from ...core.knobs import resolve_role_backend
+
+    backend = getattr(args, "backend", None) or resolve_role_backend("")
     from ...core.knobs import (
         resolve_budget_caps,
         resolve_role_model,
@@ -457,9 +458,11 @@ def _build_worker_config(args: argparse.Namespace):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
+    from ...core.knobs import resolve_role_backend
     from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
-    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+
+    backend_default = resolve_role_backend("")
     continuous_error = _continuous_contract_error(
         continuous=bool(getattr(args, "continuous", False)),
         objective=str(getattr(args, "objective", "") or ""),

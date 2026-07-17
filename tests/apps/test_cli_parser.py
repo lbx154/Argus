@@ -264,6 +264,25 @@ def test_main_rejects_continuous_on_memory_backend_for_daemon(
     assert "cannot plan" in err
 
 
+def test_main_rejects_continuous_on_persisted_memory_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus_skill.core.knob_store import write_persisted_knob
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    assert write_persisted_knob("ARGUS_SKILL_LIFE_BACKEND", "memory")
+
+    rc = main(["--continuous", "--objective", "hardening objective"])
+
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "cannot plan" in err
+
+
 def _seed_trusted_special_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Create one trusted operator directive so the lifetime entry gate passes.
 

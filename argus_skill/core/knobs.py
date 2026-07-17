@@ -58,7 +58,12 @@ BUDGET_KNOB_DEFAULTS: dict[str, str] = {
 #: The operator control surface. Defaults verified against read-sites 2026-06-26.
 KNOBS: tuple[Knob, ...] = (
     # --- backend / runner ---
-    Knob("ARGUS_SKILL_LIFE_BACKEND", "codex", "agent backend: codex | claude | memory (test only)", "backend"),
+    Knob(
+        "ARGUS_SKILL_LIFE_BACKEND",
+        "codex",
+        "agent backend: codex | copilot | claude | memory (test only)",
+        "backend",
+    ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
     Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),

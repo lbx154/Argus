@@ -1139,7 +1139,9 @@ def _codex_preflight_warning() -> str | None:
     # warning on every banner / `/doctor` run. Check whichever backend is
     # actually configured; "codex" (the default) keeps its exact original
     # message for backward compatibility.
-    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
+    from ..core.knobs import resolve_role_backend
+
+    backend = resolve_role_backend("")
     bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which(backend)
     if not bin_path:
         if backend == "codex":
