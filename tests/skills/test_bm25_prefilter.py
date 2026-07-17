@@ -55,7 +55,7 @@ def test_invalid_threshold_falls_back_to_default(monkeypatch: pytest.MonkeyPatch
 def test_default_topk_is_30(monkeypatch):
     # No top_k arg + no env → the default top_k=30 narrows a >30 pool to 30.
     monkeypatch.delenv("ARGUS_SKILL_BM25_PREFILTER_TOPK", raising=False)
-    pool = [_summary(f"s{i}", "x y z") for i in range(50)]
+    pool = [_summary(f"s{i}", f"task handling skill number {i}") for i in range(50)]
     out = bm25_prefilter("task", pool)
     assert len(out) == 30
 
@@ -98,10 +98,60 @@ def test_bm25_respects_topk_env(monkeypatch: pytest.MonkeyPatch):
     assert len(out) == 1
 
 
-def test_bm25_empty_query_returns_topk_of_pool():
+def test_bm25_empty_query_returns_full_pool():
     pool = [_summary(f"s{i}", "x") for i in range(5)]
     out = bm25_prefilter("", pool, top_k=3)
-    assert len(out) == 3
+    assert out == pool
+
+
+def test_bm25_pure_chinese_query_without_metadata_overlap_skips_prefilter():
+    pool = [
+        _summary("first", "audio waveform processing"),
+        _summary("second", "vision transformer experiments"),
+        _summary("third", "distributed training runtime"),
+    ]
+    out = bm25_prefilter("研究小模型长上下文注意力机制", pool, top_k=1)
+    assert out == pool
+
+
+def test_bm25_chinese_metadata_ranks_relevant_skill_first():
+    pool = [
+        _summary("audio", "音频波形处理与语音识别"),
+        _summary("attention", "小模型长上下文注意力机制研究"),
+        _summary("runtime", "分布式训练运行时"),
+    ]
+    out = bm25_prefilter("研究长上下文注意力机制", pool, top_k=1)
+    assert [item["name"] for item in out] == ["attention"]
+
+
+def test_bm25_mixed_chinese_english_query_uses_known_english_terms():
+    pool = [
+        _summary("audio", "audio waveform processing"),
+        _summary("inference", "vllm batched inference runtime"),
+        _summary("figures", "matplotlib paper figures"),
+    ]
+    out = bm25_prefilter("研究 vLLM inference 吞吐优化", pool, top_k=1)
+    assert [item["name"] for item in out] == ["inference"]
+
+
+def test_bm25_normalizes_fullwidth_ascii_for_matching():
+    pool = [
+        _summary("audio", "audio waveform processing"),
+        _summary("inference", "vllm batched inference runtime"),
+        _summary("figures", "matplotlib paper figures"),
+    ]
+    out = bm25_prefilter("研究 ｖＬＬＭ 推理", pool, top_k=1)
+    assert [item["name"] for item in out] == ["inference"]
+
+
+def test_bm25_normalizes_halfwidth_katakana_for_cjk_matching():
+    pool = [
+        _summary("audio", "音声認識パイプライン"),
+        _summary("model", "モデル圧縮と推論"),
+        _summary("runtime", "分散訓練ランタイム"),
+    ]
+    out = bm25_prefilter("ﾓﾃﾞﾙ", pool, top_k=1)
+    assert [item["name"] for item in out] == ["model"]
 
 
 def test_bm25_empty_pool_returns_empty():

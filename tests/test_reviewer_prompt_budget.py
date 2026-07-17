@@ -55,3 +55,25 @@ def test_compression_removed_redundant_examples(monkeypatch):
     assert "you are not a JSON robot" not in p
     assert "Anti-pattern: agent shows test_accuracy=0.98" not in p
     assert "expense_tracker/ package using unittest" not in p
+
+
+def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+    reviewer = Reviewer(runner=None, skill_store=None)
+    prompt = reviewer._build_prompt(
+        objective="audit the current research result",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="RESULT: evidence exists",
+        main_error=None,
+        prior_checkpoint={},
+    )
+
+    stats = reviewer.last_prompt_block_stats
+    assert stats["static_total"]["chars"] > 0
+    assert stats["delta_total"]["chars"] > 0
+    assert stats["main_summary"]["chars"] == len("RESULT: evidence exists")
+    assert stats["static_total"]["estimated_tokens"] > 0
+    assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)

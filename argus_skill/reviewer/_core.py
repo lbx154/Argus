@@ -16,7 +16,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
@@ -159,6 +159,19 @@ def _verification_directive() -> str:
         "Spend the saved effort judging whether the work is genuinely novel/useful "
         "and naming the specific NEXT work or unexplored direction.\n\n"
     )
+
+
+def _prompt_block_stats(blocks: Mapping[str, str]) -> dict[str, dict[str, int]]:
+    stats: dict[str, dict[str, int]] = {}
+    for name, text in blocks.items():
+        rendered = str(text or "")
+        byte_count = len(rendered.encode("utf-8"))
+        stats[str(name)] = {
+            "chars": len(rendered),
+            "bytes": byte_count,
+            "estimated_tokens": (byte_count + 3) // 4,
+        }
+    return stats
 
 
 def _reviewer_evidence_contract(workflow_mode: str) -> str:
@@ -348,6 +361,7 @@ class Reviewer:
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
         self.schema_path = SCHEMA_PATH
+        self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional: when wired, the reviewer runs the same role-mission skill
         # matcher every other role uses, surfacing adaptive reviewer skills
         # (e.g. stage-specific review playbooks) plus cross-role engineer
@@ -459,6 +473,17 @@ class Reviewer:
             working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
+        prompt_block_stats = {
+            name: dict(stats)
+            for name, stats in self._last_prompt_block_stats.items()
+        }
+        if schema_contract:
+            schema_bytes = len(schema_contract)
+            prompt_block_stats["output_schema"] = {
+                "chars": len(schema_contract.decode("utf-8", errors="replace")),
+                "bytes": schema_bytes,
+                "estimated_tokens": (schema_bytes + 3) // 4,
+            }
         fingerprint_input = bytearray(static.encode("utf-8"))
         if schema_path:
             fingerprint_input.extend(b"\0output-schema\0")
@@ -591,6 +616,7 @@ class Reviewer:
         parsed.output_tokens = rev_out
         parsed.reasoning_output_tokens = rev_reasoning_output_tokens
         parsed.premium_requests = rev_premium
+        parsed.prompt_block_stats = prompt_block_stats
         # Transport metadata remains useful in events even though the next
         # Reviewer call is always fresh.
         parsed.thread_id = rev_tid
@@ -966,10 +992,10 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             round_index=round_index,
             measured=_measured,
-            compact=(
-                resolve_evidence_mode(_proot) == "proportional"
-                and not is_final_submission
-                and stage not in {"review", "submission"}
+            compact=not (
+                is_final_submission
+                or stage in {"review", "submission"}
+                or bool((main_error or "").strip())
             ),
         )
         # Final-submission completion contract. This block replaces the
@@ -1089,6 +1115,32 @@ class Reviewer:
             f"{main_summary}\n\n"
             f"{evidence_block}"
         )
+        objective_context = (
+            f"{(original_objective or objective).strip()}\n"
+            f"{objective}\n"
+            f"{operator_text}\n"
+            f"{planner_review_instruction or 'none'}"
+        )
+        self._last_prompt_block_stats = _prompt_block_stats(
+            {
+                "static_total": static,
+                "delta_total": delta,
+                "stage_checklist": stage_checklist,
+                "matched_skill": matched_review_skill_block,
+                "direct_memory": direct_memory_edit_block,
+                "wiki_curator": wiki_curator_skill_block,
+                "paper_review": paper_review_skill_block,
+                "research_result": research_result_instruction,
+                "final_submission": final_submission_block,
+                "objective_context": objective_context,
+                "checkpoint": checkpoint_block,
+                "execution_log_audit": engineer_log_audit_block,
+                "background": background_block,
+                "shared_context": shared_context_block,
+                "main_summary": main_summary,
+                "raw_evidence": evidence_block,
+            }
+        )
         return static, delta
 
     def _build_prompt(self, **kwargs: Any) -> str:
@@ -1106,6 +1158,13 @@ class Reviewer:
         """This round's delta alone; ``resumed`` prepends the RE-EVALUATE header."""
         _, delta = self._render(resumed=resumed, **kwargs)
         return delta
+
+    @property
+    def last_prompt_block_stats(self) -> dict[str, dict[str, int]]:
+        return {
+            name: dict(stats)
+            for name, stats in self._last_prompt_block_stats.items()
+        }
 
 
 _MAX_SHARED_CTX_CHARS = 100_000_000  # effectively no cap: reviewer must see the FULL engineer reasoning/prev-review to audit honesty

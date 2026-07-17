@@ -119,6 +119,43 @@ def test_unified_query_filters_zero_score_skills(isolated_home: Path, tmp_path: 
     assert len(r["skills"]) == 1
     assert r["skills"][0]["name"] == "latex-overflow-fix"
 
+    empty = query_unified.unified_query(
+        "!!!",
+        skills_dir=skills_dir,
+        wiki_search_roots=[tmp_path],
+        auto_index=False,
+    )
+    assert empty["skills"] == []
+
+    no_overlap = query_unified.unified_query(
+        "quantum compiler",
+        skills_dir=skills_dir,
+        wiki_search_roots=[tmp_path],
+        auto_index=False,
+    )
+    assert no_overlap["skills"] == []
+
+
+def test_unified_query_matches_cjk_skill_tokens(isolated_home: Path, tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "attention.md").write_text(
+        "---\nname: attention\ndescription: 小模型长上下文注意力机制研究\n---\nbody\n",
+        encoding="utf-8",
+    )
+    (skills_dir / "audio.md").write_text(
+        "---\nname: audio\ndescription: 音频波形处理与语音识别\n---\nbody\n",
+        encoding="utf-8",
+    )
+    r = query_unified.unified_query(
+        "研究长上下文注意力机制",
+        skills_dir=skills_dir,
+        wiki_search_roots=[tmp_path],
+        auto_index=False,
+    )
+    assert len(r["skills"]) == 1
+    assert r["skills"][0]["name"] == "attention"
+
 
 def test_unified_query_finds_wiki_pages(isolated_home: Path, tmp_path: Path) -> None:
     project_dir = tmp_path / "myproj"

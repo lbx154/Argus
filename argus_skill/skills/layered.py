@@ -183,8 +183,8 @@ class LayeredSkillStore:
     def save(self, skill: Skill) -> Path:
         return self.store_for_skill(skill).save(skill)
 
-    def render_skill(self, skill: Skill) -> str:
-        return self.project.render_skill(skill)
+    def render_skill(self, skill: Skill, *, full: bool = False) -> str:
+        return self.store_for_skill(skill).render_skill(skill, full=full)
 
     def save_distilled(
         self,

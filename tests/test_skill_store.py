@@ -67,6 +67,51 @@ def test_legacy_provisional_frontmatter_loads_as_active(tmp_path: Path) -> None:
     assert "provisional:" not in path.read_text(encoding="utf-8")
 
 
+def test_large_skill_uses_progressive_disclosure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    path = tmp_path / "skills" / "long.md"
+    path.parent.mkdir(parents=True)
+    content = (
+        "# Long Skill\n\n"
+        "Core instructions.\n\n"
+        "## Setup\n\n"
+        + ("setup detail " * 300)
+        + "\n\n## Verification\n\n"
+        + ("verification detail " * 300)
+    )
+    path.write_text(
+        "---\nname: Long\ndescription: long skill\ncategory: test\n---\n\n"
+        + content,
+        encoding="utf-8",
+    )
+    store = SkillStore(path.parent)
+    skill = store.load(str(path))
+
+    rendered = store.render_skill(skill)
+
+    assert "Progressive skill disclosure" in rendered
+    assert str(path) in rendered
+    assert "## Setup" in rendered
+    assert "## Verification" in rendered
+    assert len(rendered) < len(content)
+    assert store.render_skill(skill, full=True) == content.strip()
+
+
+def test_small_skill_still_renders_in_full(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    skill = Skill(
+        name="Small",
+        description="small",
+        category="test",
+        content="# Small\n\nComplete instructions.",
+        path=str(tmp_path / "small.md"),
+    )
+    assert SkillStore(tmp_path).render_skill(skill) == skill.content
+
+
 def test_find_relevant_returns_high_fit_skill(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")

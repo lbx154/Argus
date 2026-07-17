@@ -677,7 +677,7 @@ class SkillLoop:
         skill_name = skill.name if skill else None
         learning_target_name = skill.name if strict_skill_hit and skill is not None else ""
         if skill is not None and self.config.skill_adapter_enabled:
-            source_skill_text = self.skill_store.render_skill(skill)
+            source_skill_text = self.skill_store.render_skill(skill, full=True)
             max_bullets = (
                 self.config.nearest_transfer_max_bullets
                 if nearest_transfer_fallback

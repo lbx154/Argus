@@ -109,6 +109,9 @@ Use `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE`.
   provenance, and model-backed review.
 - Require the canonical paper-prompt scaffold and 6–20 reviewed Figma-style
   layout variants.
+- Require a current `IMAGE2_CONTEXT_FREEZE.json` and candidate cache. Once six
+  reviewed candidates pass under that freeze, prose/layout-only manuscript
+  changes must reuse them rather than regenerating image-2 assets.
 
 ### 8. Academic language and paper infrastructure
 

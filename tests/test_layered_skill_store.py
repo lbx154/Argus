@@ -122,6 +122,25 @@ def test_load_dispatches_to_owning_layer(tmp_path: Path) -> None:
     assert layered.load(g.path).name == "g"
 
 
+def test_render_skill_full_flag_dispatches_to_owning_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    layered = _layered(tmp_path)
+    skill = Skill(
+        name="long-global",
+        description="large shared playbook",
+        category="x",
+        content="# Long Global\n\n" + ("detailed shared procedure " * 300),
+    )
+    layered.global_.save(skill)
+    loaded = layered.load(skill.path)
+
+    assert "Progressive skill disclosure" in layered.render_skill(loaded)
+    assert layered.render_skill(loaded, full=True) == loaded.content.strip()
+
+
 # --- writes ---------------------------------------------------------------
 
 def test_save_distilled_lands_in_project_by_default(tmp_path: Path) -> None:

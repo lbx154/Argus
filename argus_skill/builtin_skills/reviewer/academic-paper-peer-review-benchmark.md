@@ -99,6 +99,9 @@ Score each dimension 1–5.
      `argus-image2-paper-prompt-v1` and
      `paper-framework-figure-studio-pro-v3.1.4a`, with 6–20 reviewed Figma-style
      layout variants.
+   - Verify the image-2 context freeze is current. Do not request regeneration
+     for prose/caption/layout-only edits when six passing cached candidates
+     already exist under the same evidence/structure fingerprint.
    - Hard reject self-drawn non-data substitutes from matplotlib,
      FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvas, screenshots,
      Inkscape/manual vectors, or cleaned PDFs.

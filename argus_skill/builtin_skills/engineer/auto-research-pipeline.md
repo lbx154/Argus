@@ -144,9 +144,13 @@ write the strongest honest paper supported by the evidence.
   `python -m argus_skill.tools.image_tool paper-prompt ...` and retain
   `argus-image2-paper-prompt-v1` plus
   `paper-framework-figure-studio-pro-v3.1.4a`.
+- Freeze claim/evidence and `PAPER_STRUCTURE_BLUEPRINT.md` first with
+  `image_tool freeze-paper-context`; do not generate while either is moving.
 - Generate and review 6–20 Figma-style layout variants by changing only the
-  named layout/candidate-contract fields. Keep the strongest reviewed,
-  page-readable raster.
+  named layout/candidate-contract fields. Register each through
+  `sync-paper-metadata`. Once six passing candidates are cached for the current
+  freeze, reuse them; ordinary manuscript wording/layout changes do not justify
+  regeneration.
 - Preserve the exact accepted raster bytes after provenance is recorded. If the
   figure is weak, regenerate through image-2; do not repair only metadata or
   substitute a locally drawn asset.

@@ -259,6 +259,140 @@ def test_sync_paper_metadata_accepts_raw_file_prompt_hash_with_stripped_sidecar_
     assert entry["prompt_sha256"] == prompt_sha
 
 
+def _seed_frozen_paper_context(root: Path) -> dict[str, Any]:
+    (root / "research").mkdir(parents=True, exist_ok=True)
+    (root / "research" / "RESEARCH_BRIEF.md").write_text(
+        "# Brief\n\nStable research thesis.\n",
+        encoding="utf-8",
+    )
+    style = root / "paper" / "style_ref"
+    style.mkdir(parents=True, exist_ok=True)
+    (style / "PAPER_STRUCTURE_BLUEPRINT.md").write_text(
+        "# Blueprint\n\nFigure 1 explains the frozen mechanism.\n",
+        encoding="utf-8",
+    )
+    (root / "paper" / "CLAIM_GRAPH.json").write_text(
+        json.dumps({"claims": [{"id": "c1", "claim": "Mechanism improves X"}]}),
+        encoding="utf-8",
+    )
+    return image_tool.freeze_paper_figure_context(project_root=root)
+
+
+def _sync_reviewed_candidate(root: Path, index: int) -> dict[str, Any]:
+    figures = root / "paper" / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    prompt_path = figures / f"method-{index}.prompt.txt"
+    prompt = image_tool.render_paper_figure_prompt(
+        figure_title=f"Method Candidate {index}",
+        layout_variant=f"variant {index}",
+    ).strip()
+    prompt_path.write_text(prompt + "\n", encoding="utf-8")
+    output_path = figures / f"method-{index}.png"
+    output_path.write_bytes(_PNG_BYTES + bytes([index]))
+    info = image_tool.inspect_image(output_path)
+    prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+    output_path.with_suffix(output_path.suffix + ".json").write_text(
+        json.dumps(
+            {
+                "model": "gpt-image-2",
+                "created_at_unix": 1700000000 + index,
+                "prompt": prompt,
+                "prompt_path": f"paper/figures/{prompt_path.name}",
+                "prompt_sha256": prompt_sha,
+                "output_path": f"paper/figures/{output_path.name}",
+                "output_sha256": info["sha256"],
+                "requested_size": "1536x1024",
+                "image": info,
+                "api": {"endpoint": "/images/generations"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path.with_suffix(output_path.suffix + ".review.json").write_text(
+        json.dumps(
+            {
+                "image": info,
+                "model": "gpt-5.4",
+                "endpoint": "/responses",
+                "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return image_tool.sync_paper_metadata(
+        project_root=root,
+        image=Path(f"paper/figures/{output_path.name}"),
+        prompt_file=Path(f"paper/figures/{prompt_path.name}"),
+        figure_id=f"method-candidate-{index}",
+        figure_type="method",
+    )
+
+
+def test_reviewed_candidate_cache_reuses_frozen_context(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    frozen = _seed_frozen_paper_context(tmp_path)
+    for index in range(6):
+        entry = _sync_reviewed_candidate(tmp_path, index)
+    assert entry["candidate_cache_reusable"] is True
+    assert entry["candidate_cache_passed_count"] == 6
+
+    status = image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )
+    assert status["context_sha256"] == frozen["context_sha256"]
+    assert status["reusable"] is True
+    assert status["passed_candidates"] == 6
+
+    main_tex = tmp_path / "paper" / "main.tex"
+    main_tex.write_text("minor prose v1", encoding="utf-8")
+    main_tex.write_text("minor prose v2", encoding="utf-8")
+    assert image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )["reusable"] is True
+
+    prompt_out = tmp_path / "paper" / "figures" / "should-not-exist.prompt.txt"
+    rc = image_tool.main(
+        [
+            "paper-prompt",
+            "--project-root",
+            str(tmp_path),
+            "--figure-type",
+            "method",
+            "--out",
+            str(prompt_out),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["cache_hit"] is True
+    assert not prompt_out.exists()
+
+
+def test_candidate_cache_invalidates_only_on_frozen_input_change(
+    tmp_path: Path,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+    for index in range(6):
+        _sync_reviewed_candidate(tmp_path, index)
+    claim_graph = tmp_path / "paper" / "CLAIM_GRAPH.json"
+    claim_graph.write_text(
+        json.dumps({"claims": [{"id": "c2", "claim": "Changed evidence"}]}),
+        encoding="utf-8",
+    )
+    status = image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )
+    assert status["reusable"] is False
+    assert status["reason"] == "evidence_or_structure_changed"
+
+
 def test_generate_image_writes_artifact_and_secret_free_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -597,6 +731,12 @@ def test_project_image2_helper_records_normalized_size(
     manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
     prompt_path.parent.mkdir(parents=True)
     prompt_path.write_text(image_tool.render_paper_figure_prompt(), encoding="utf-8")
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "PIPELINE_STATE.json").write_text(
+        '{"vertical":"research","target_venue":"EMNLP"}',
+        encoding="utf-8",
+    )
 
     def fake_generate_image(
         prompt: str,
@@ -626,7 +766,13 @@ def test_project_image2_helper_records_normalized_size(
             "height": 1088,
         }
 
-    def fake_review_image(image: Path, out: Path, prompt: str) -> dict[str, Any]:
+    def fake_review_image(
+        image: Path,
+        out: Path,
+        prompt: str,
+        venue_profile=None,
+    ) -> dict[str, Any]:
+        assert venue_profile.key == "EMNLP"
         image2_template.write_json(out, {"review": "ok"})
         return {"review": "ok"}
 

@@ -258,6 +258,10 @@ class ReviewDecision:
     # defer/reject it. Fail-soft: ``None`` when the round had no measured result
     # (pure wiring/run-wait) or the reviewer omitted it.
     step_back: dict[str, Any] | None = None
+    # Prompt observability side-channel populated by Reviewer.evaluate. Each
+    # block records chars/bytes/estimated_tokens so token regressions can be
+    # attributed to concrete prompt components rather than one opaque total.
+    prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``Reviewer.evaluate`` and consumed by
     # telemetry/cost reporting. Not part of the reviewer's semantic output.
@@ -361,6 +365,11 @@ class ReviewDecision:
             "wiki_ops": list(self.wiki_ops or []),
             "checklist_feedback": dict(self.checklist_feedback or {}),
             "step_back": (dict(self.step_back) if isinstance(self.step_back, dict) else None),
+            "prompt_block_stats": {
+                str(name): dict(stats)
+                for name, stats in (self.prompt_block_stats or {}).items()
+                if isinstance(stats, dict)
+            },
             # Token bookkeeping (cost-tracking sinks read these).
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),
