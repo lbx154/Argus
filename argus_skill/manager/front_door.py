@@ -452,7 +452,13 @@ def manager_bounded_handoff(
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     prepare_persist: Callable[[str], None] | None = None,
 ) -> Any:
-    """Commit Manager state and durable task enqueue under one pipeline lock."""
+    """Commit Manager state and durable task enqueue under one pipeline lock.
+
+    A bounded operator task submitted while a continuous campaign is active is
+    supplemental work inside that campaign. The Manager may rewrite the task
+    into a role-clean execution handoff, but it must not replace the standing
+    campaign's vertical, stage, target level, or workflow mode.
+    """
     prepared = prepare_manager_execution_task(
         mem,
         body,
@@ -466,7 +472,12 @@ def manager_bounded_handoff(
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
         with pipeline_lock:
-            division = prepared.commit(acquire_lock=False)
+            division = _bounded_handoff_division(
+                prepared,
+                chat_state=chat_state,
+            )
+            if division is None:
+                division = prepared.commit(acquire_lock=False)
             result = persist(prepared.execution_task, division)
             prepared.completed(division)
             return result
@@ -475,6 +486,38 @@ def manager_bounded_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager bounded handoff failed: {exc}") from exc
+
+
+def _bounded_handoff_division(
+    prepared: PreparedManagerHandoff,
+    *,
+    chat_state: dict[str, Any],
+) -> Any | None:
+    """Return a non-mutating Division for supplemental continuous work."""
+    from ..daemon.state import read_continuous_state
+
+    life_dir = _life_dir_for(prepared.mem)
+    continuous = read_continuous_state(life_dir)
+    if not continuous.enabled or not continuous.objective.strip():
+        return None
+
+    from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
+    from ._core import Division
+
+    project_root = Path(
+        getattr(prepared.manager, "project_root", None)
+        or _operator_workspace(chat_state, life_dir)
+    )
+    vertical = resolve_vertical(project_root)
+    return Division(
+        task=prepared.body,
+        vertical=vertical,
+        kind=prepared.manager._kind_for(vertical),
+        regular=True,
+        stages=list(prepared.manager.plan_stages(vertical)),
+        workflow_mode=resolve_workflow_mode(project_root),
+        execution_task=prepared.execution_task,
+    )
 
 
 def manager_continuous_handoff(

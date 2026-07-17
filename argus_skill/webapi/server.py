@@ -80,9 +80,11 @@ from ..daemon.life_worker import (
     _workspace_start_error,
     read_continuous_state,
     read_daemon_status,
-    spawn_detached_daemon,
     stop_daemon,
     write_continuous_config,  # noqa: F401 - compatibility export
+)
+from ..daemon.life_worker import (
+    spawn_detached_daemon_clean as spawn_detached_daemon,
 )
 from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
 from ..manager.front_door import (
@@ -528,6 +530,17 @@ def start_project_daemon(
     config = _worker_config_from_env(life_dir, root)
     if resume_continuous:
         continuous = read_continuous_state(life_dir)
+        if (
+            not continuous.enabled
+            and continuous.objective.strip()
+            and continuous.done_reason.strip().lower().startswith("operator ")
+        ):
+            write_continuous_config(
+                life_dir,
+                enabled=True,
+                objective=continuous.objective,
+            )
+            continuous = read_continuous_state(life_dir)
         if continuous.enabled:
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
@@ -717,6 +730,7 @@ def replace_project_daemon(
 def create_daemon(
     objective: str = "", *, name: str = "",
     launch_cwd: str = "",
+    workdir: str = "",
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Mint a brand-new daemon (session). The objective is OPTIONAL: creating a
@@ -727,9 +741,10 @@ def create_daemon(
     first real task (via POST /message), so an empty daemon leaves no idle
     executor. When an objective IS given, it's armed as a self-directed campaign
     and the daemon starts immediately when admission capacity is available (the
-    web equivalent of ``--new --continuous --objective``). Without an explicit
-    workdir, output goes to ``<ARGUS_SKILL_HOME>/workspaces/<sid>`` — never the
-    Argus source checkout or process cwd. At the host-wide
+    web equivalent of ``--new --continuous --objective``). ``launch_cwd`` is
+    discovery/UI metadata only; without an explicit execution ``workdir``, output
+    goes to ``<ARGUS_SKILL_HOME>/workspaces/<sid>`` — never the Argus source
+    checkout or process cwd. At the host-wide
     daemon cap, the session and objective stay persisted and the response carries
     replacement candidates for an explicit operator choice. Blocking-ish (fs +
     fork) — call from a threadpool. Returns the new sid + daemon status.
@@ -743,23 +758,31 @@ def create_daemon(
     now = _time.time()
     requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
+    if workdir:
+        effective_workdir = str(
+            Path(workdir).expanduser().resolve(strict=True)
+        )
+    else:
+        default_workdir = root / "workspaces" / sid
+        default_workdir.mkdir(parents=True, exist_ok=True)
+        effective_workdir = str(default_workdir.resolve(strict=True))
+    if not Path(effective_workdir).is_dir():
+        raise ValueError(f"workdir is not a directory: {effective_workdir}")
     if launch_cwd:
         effective_launch_cwd = str(
             Path(launch_cwd).expanduser().resolve(strict=True)
         )
     else:
-        default_workdir = root / "workspaces" / sid
-        default_workdir.mkdir(parents=True, exist_ok=True)
-        effective_launch_cwd = str(default_workdir.resolve(strict=True))
+        effective_launch_cwd = effective_workdir
     if not Path(effective_launch_cwd).is_dir():
-        raise ValueError(f"workdir is not a directory: {effective_launch_cwd}")
+        raise ValueError(f"launch cwd is not a directory: {effective_launch_cwd}")
     meta = SessionMeta(
         id=sid,
         display_name=normalize_session_name(name),
         created=now,
         last_active=now,
         cwd=str(life_dir),
-        workdir=effective_launch_cwd,
+        workdir=effective_workdir,
         objective="",
         launch_cwd=effective_launch_cwd,
         origin="web",
@@ -808,7 +831,7 @@ def create_daemon(
         "spawned": bool(start_result is not None and rc == 0),
         "daemon": daemon,
         "objective": obj,
-        "workdir": effective_launch_cwd,
+        "workdir": effective_workdir,
     }
     if start_result is not None:
         response["start"] = start_result
@@ -1924,6 +1947,7 @@ def create_app(
         objective: str = ""
         name: str = ""
         launch_cwd: str = ""
+        workdir: str = ""
 
     class _LaunchCwdIn(BaseModel):
         launch_cwd: str
@@ -2109,6 +2133,7 @@ def create_app(
                 "objective": body.objective,
                 "name": body.name,
                 "launch_cwd": body.launch_cwd,
+                "workdir": body.workdir,
             },
             command_id=body.command_id or None,
             expected_revision=body.expected_revision,
@@ -2117,6 +2142,7 @@ def create_app(
                 body.objective,
                 name=body.name,
                 launch_cwd=body.launch_cwd,
+                workdir=body.workdir,
                 global_root=global_root,
             ),
         )

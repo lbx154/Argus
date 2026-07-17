@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -321,6 +322,7 @@ __all__ = [
     "stop_daemon",
     "wait_for_daemon_status",
     "spawn_detached_daemon",
+    "spawn_detached_daemon_clean",
     "run_handoff_child",
     "read_continuous_state",
     "read_continuous_config",
@@ -1985,6 +1987,45 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
         release_workspace_lease=_release_daemon_workspace_lease,
         quiet=quiet,
     )
+
+
+def spawn_detached_daemon_clean(
+    config: LifeWorkerConfig,
+    *,
+    quiet: bool = False,
+) -> int:
+    """Spawn through a fresh interpreter before the POSIX double-fork.
+
+    WebAPI is multi-threaded. Forking it directly can inherit Python locks in a
+    permanently locked state even after inherited file descriptors are closed.
+    A short-lived exec helper starts from a clean interpreter and performs the
+    existing admission-checked double-fork there.
+    """
+    if getattr(sys, "frozen", False):
+        return spawn_detached_daemon(config, quiet=quiet)
+    env = os.environ.copy()
+    env["ARGUS_BINARY_MODE"] = "cli"
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "argus_skill.daemon.spawn_helper"],
+            input=json.dumps(_config_payload(config)),
+            text=True,
+            capture_output=True,
+            cwd=str(config.project_workdir or Path.cwd()),
+            env=env,
+            close_fds=True,
+            timeout=15.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if not quiet:
+            sys.stderr.write(f"argus-skill: clean daemon launcher failed: {exc}\n")
+        return 2
+    if completed.returncode != 0 and not quiet:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if detail:
+            sys.stderr.write(detail + "\n")
+    return int(completed.returncode)
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:

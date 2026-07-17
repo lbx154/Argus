@@ -13,13 +13,15 @@ from urllib.parse import quote
 
 import pytest
 
-from argus_skill.core.session import touch_session
+from argus_skill.core.session import SessionMeta, touch_session, write_session_meta
+from argus_skill.daemon.state import write_continuous_config
 from argus_skill.life.memory import LifeMemory
 from argus_skill.manager import front_door
 from argus_skill.manager.front_door import (
     ManagerHandoffError,
     ManagerHandoffSupersededError,
 )
+from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.webapi import manager_bridge, project_state, server
 
 pytest.importorskip("fastapi")
@@ -74,6 +76,91 @@ def test_post_task_appends_to_backlog(ctx) -> None:
     # went through the real Backlog store (flock CAS), not a raw write
     items = LifeMemory.open(life).backlog.all()
     assert len(items) == 1 and items[0].objective == "optimize the kernel"
+
+
+def test_post_task_preserves_active_continuous_campaign_governance(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    workspace = root / "workspace"
+    workspace.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            cwd=str(life),
+            workdir=str(workspace),
+            launch_cwd=str(root),
+        ),
+    )
+    persist_vertical(
+        workspace,
+        "math",
+        research_target_level="doctoral",
+        workflow_mode="staged",
+    )
+    write_continuous_config(
+        life,
+        enabled=True,
+        objective="prove the selected Erdős conjecture",
+    )
+    commits: list[str] = []
+
+    class _Manager:
+        project_root = workspace
+
+        def decide_vertical(self, text, **kwargs):
+            return SimpleNamespace(
+                execution_task="verify the migrated scope artifact",
+                vertical="software",
+                workflow_mode="direct",
+            )
+
+        def commit_vertical_decision(self, text, decision, **kwargs):
+            commits.append(text)
+            persist_vertical(workspace, "software", workflow_mode="direct")
+            return SimpleNamespace(
+                execution_task=decision.execution_task,
+                vertical="software",
+                workflow_mode="direct",
+                kind="software",
+                regular=True,
+                stages=[],
+                headline=lambda: "software · direct",
+            )
+
+        def plan_stages(self, vertical):
+            assert vertical == "math"
+            return ["scope", "solve", "review"]
+
+        @staticmethod
+        def _kind_for(vertical):
+            assert vertical == "math"
+            return "research"
+
+    manager_bridge._STATES.clear()
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+    )
+
+    response = server.enqueue_task(
+        sid,
+        "verify scope without changing the campaign",
+        global_root=root,
+    )
+
+    assert response is not None
+    assert response["objective"] == "verify the migrated scope artifact"
+    assert commits == []
+    pipeline = json.loads(
+        (workspace / "research" / "PIPELINE_STATE.json").read_text()
+    )
+    assert pipeline["vertical"] == "math"
+    assert pipeline["workflow_mode"] == "staged"
+    assert pipeline["research_target_level"] == "doctoral"
 
 
 def test_post_task_honours_inline_flags(ctx) -> None:
@@ -555,6 +642,76 @@ def test_daemon_start_delegates(ctx, monkeypatch) -> None:
     r = client.post(f"/api/projects/{sid}/daemon/start")
     assert r.status_code == 200 and r.json()["rc"] == 0
     assert calls["life_dir"] == life.resolve() and calls["quiet"] is True
+
+
+def test_daemon_start_resume_reenables_preserved_continuous_objective(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    write_continuous_config(
+        life,
+        enabled=False,
+        objective="continue the proof campaign",
+        done_reason="operator drain-stop",
+    )
+    spawned = {}
+
+    def fake_spawn(config, *, quiet=False):
+        spawned["objective"] = config.continuous_objective
+        spawned["resume_continuous"] = config.resume_continuous
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+
+    result = server.start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=True,
+    )
+
+    assert result is not None and result["rc"] == 0
+    state = server.read_continuous_state(life)
+    assert state.enabled is True
+    assert state.objective == "continue the proof campaign"
+    assert state.done_reason == ""
+    assert spawned == {
+        "objective": "continue the proof campaign",
+        "resume_continuous": True,
+    }
+
+
+def test_daemon_start_does_not_resume_planner_completed_campaign(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    write_continuous_config(
+        life,
+        enabled=False,
+        objective="completed campaign",
+        done_reason="planner declared project done",
+    )
+    spawned = {}
+
+    def fake_spawn(config, *, quiet=False):
+        spawned["objective"] = config.continuous_objective
+        spawned["resume_continuous"] = config.resume_continuous
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+
+    result = server.start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=True,
+    )
+
+    assert result is not None and result["rc"] == 0
+    state = server.read_continuous_state(life)
+    assert state.enabled is False
+    assert state.done_reason == "planner declared project done"
+    assert spawned == {"objective": "", "resume_continuous": False}
 
 
 def test_daemon_stop_delegates(ctx, monkeypatch) -> None:

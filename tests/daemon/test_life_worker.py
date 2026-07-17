@@ -506,6 +506,42 @@ def test_stop_daemon_returns_1_when_no_daemon(tmp_path: Path) -> None:
     assert stop_daemon(tmp_path) == 1
 
 
+def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    config = LifeWorkerConfig(
+        life_dir=tmp_path / "life",
+        global_root=tmp_path,
+        project_workdir=workdir,
+        continuous=True,
+        continuous_objective="continue research",
+        resume_continuous=True,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(life_worker_mod.subprocess, "run", fake_run)
+
+    assert life_worker_mod.spawn_detached_daemon_clean(config, quiet=True) == 0
+    assert captured["command"] == [
+        life_worker_mod.sys.executable,
+        "-m",
+        "argus_skill.daemon.spawn_helper",
+    ]
+    assert captured["close_fds"] is True
+    assert captured["cwd"] == str(workdir)
+    payload = json.loads(captured["input"])
+    assert payload["life_dir"] == str(config.life_dir)
+    assert payload["continuous_objective"] == "continue research"
+
+
 def test_stop_daemon_does_not_sigkill_after_pid_identity_is_lost(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

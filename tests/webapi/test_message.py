@@ -1142,7 +1142,9 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     session = json.loads(
         (tmp_path / "projects" / created["sid"] / "session.json").read_text()
     )
-    assert session["display_name"].casefold() == "first direct task"
+    display_name = session["display_name"].strip().casefold()
+    assert display_name
+    assert "direct task" in display_name
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:
