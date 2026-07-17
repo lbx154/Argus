@@ -9,6 +9,7 @@ deleted along with the dead code.
 from __future__ import annotations
 
 import json
+import hashlib
 
 import pytest
 
@@ -43,6 +44,21 @@ class _FakeRunner:
             output_tokens=0,
             reasoning_output_tokens=self._reasoning_output_tokens,
         )
+
+
+class _SequencedRunner:
+    def __init__(self, *results: RunnerResult) -> None:
+        self.results = list(results)
+        self.calls: list[dict] = []
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.calls.append({
+            "prompt": prompt,
+            "options": options,
+            "run_label": run_label,
+            "resume_thread_id": resume_thread_id,
+        })
+        return self.results.pop(0)
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +136,120 @@ def test_parse_planner_text_returns_error_verdict_on_garbage() -> None:
     assert v.error or v.new_tasks == []
 
 
+def test_plan_next_repairs_malformed_json_once_in_same_session() -> None:
+    malformed = "I will schedule the loader repair, but this is not JSON."
+    repaired = json.dumps({
+        "project_done": False,
+        "reason": "repair the loader",
+        "restart_daemon": False,
+        "restart_reason": "",
+        "waiting": False,
+        "waiting_reason": "",
+        "waiting_contract": None,
+        "new_tasks": [{
+            "title": "Repair loader",
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "loader test fails",
+            "scope": "bounded",
+            "objective": "Fix the loader and add a regression test.",
+            "key": None,
+            "deps": [],
+        }],
+        "meta_decision": None,
+        "checklist_ops": [],
+    })
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[malformed],
+            thread_id="planner-thread",
+            input_tokens=10,
+            output_tokens=3,
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[repaired],
+            thread_id="planner-thread",
+            input_tokens=4,
+            cached_input_tokens=2,
+            output_tokens=5,
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="keep the loader correct",
+        planning_cycle=7,
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == ["Repair loader"]
+    assert len(runner.calls) == 2
+    assert runner.calls[0]["resume_thread_id"] is None
+    assert runner.calls[1]["resume_thread_id"] == "planner-thread"
+    assert runner.calls[1]["run_label"] == "planner.cycle7.schema-repair"
+    assert runner.calls[1]["options"].sandbox_mode == "read-only"
+    assert verdict.schema_repair_attempted is True
+    assert verdict.schema_repair_succeeded is True
+    assert verdict.schema_repair_original_sha256 == hashlib.sha256(
+        malformed.encode("utf-8")
+    ).hexdigest()
+    assert verdict.input_tokens == 14
+    assert verdict.cached_input_tokens == 2
+    assert verdict.output_tokens == 8
+    assert verdict.schema_repair_input_tokens == 4
+    assert verdict.schema_repair_event_payload() == {
+        "schema_repair_attempted": True,
+        "schema_repair_succeeded": True,
+        "schema_repair_original_sha256": hashlib.sha256(
+            malformed.encode("utf-8")
+        ).hexdigest(),
+        "schema_repair_error": "",
+        "schema_repair_input_tokens": 4,
+        "schema_repair_cached_input_tokens": 2,
+        "schema_repair_output_tokens": 5,
+        "schema_repair_reasoning_output_tokens": 0,
+        "schema_repair_premium_requests": 0.0,
+    }
+
+
+def test_plan_next_does_not_repair_without_resumable_thread() -> None:
+    runner = _SequencedRunner(RunnerResult(
+        exit_code=0,
+        agent_messages=["not json"],
+        thread_id=None,
+    ))
+
+    verdict = Planner(runner).plan_next(continuous_objective="keep working")
+
+    assert verdict.error == "unparseable planner output"
+    assert verdict.schema_repair_attempted is False
+    assert len(runner.calls) == 1
+
+
+def test_plan_next_failed_schema_repair_remains_retryable() -> None:
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=["not json"],
+            thread_id="planner-thread",
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=["still not json"],
+            thread_id="planner-thread",
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(continuous_objective="keep working")
+
+    assert verdict.error == "unparseable planner output"
+    assert verdict.schema_repair_attempted is True
+    assert verdict.schema_repair_succeeded is False
+    assert verdict.schema_repair_error == "unparseable planner output"
+    assert len(runner.calls) == 2
+
+
 @pytest.mark.parametrize(
     ("reason", "waiting_reason", "expected_fragment"),
     [
@@ -161,6 +291,10 @@ def test_parse_planner_text_waiting_is_not_error(
             "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
+            "wait_mode": "event",
+            "wake_on": ["authorization"],
+            "watched_paths": [],
+            "expires_at": 0,
         },
     })
     v = parse_planner_text(txt)
@@ -185,6 +319,10 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
             "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
+            "wait_mode": "event",
+            "wake_on": ["authorization", "artifact_revision"],
+            "watched_paths": ["research/LICENSED_SOURCE.md"],
+            "expires_at": 0,
         },
     })
 
@@ -198,6 +336,10 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
         stage_reconciliation_required=False,
         allow_verification_probe=False,
         recheck_after_seconds=0,
+        wait_mode="event",
+        wake_on=("authorization", "artifact_revision"),
+        watched_paths=("research/LICENSED_SOURCE.md",),
+        expires_at=0.0,
     )
 
 
@@ -207,6 +349,33 @@ def test_waiting_contract_positional_api_remains_backward_compatible() -> None:
     assert contract.allow_verification_probe is True
     assert contract.recheck_after_seconds == 600
     assert contract.stage_reconciliation_required is False
+    assert contract.wait_mode == "poll"
+
+
+def test_waiting_contract_rejects_unsafe_watched_paths() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "await an artifact",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "artifact has not changed",
+        "waiting_contract": {
+            "blocker_fingerprint": "artifact:report",
+            "recheck_condition": "report revision changes",
+            "recheck_token": "report-v1",
+            "stage_reconciliation_required": False,
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+            "wait_mode": "event",
+            "wake_on": ["artifact_revision", "unknown"],
+            "watched_paths": ["../secret", "/etc/passwd", "research/report.json"],
+            "expires_at": 0,
+        },
+    }))
+
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.wake_on == ("artifact_revision",)
+    assert verdict.waiting_contract.watched_paths == ("research/report.json",)
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -603,6 +772,8 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "objective": "o",
             "key": None,
             "deps": None,
+            "authorization_id": None,
+            "authorization_action": None,
         }
         t.update(over)
         return t
@@ -619,6 +790,12 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     flat = dict(base, new_tasks=[_task()])
     jsonschema.validate(flat, schema)
 
+    authorized = dict(base, new_tasks=[_task(
+        authorization_id="auth-123",
+        authorization_action="validator_repair",
+    )])
+    jsonschema.validate(authorized, schema)
+
     waiting = dict(
         base,
         waiting=True,
@@ -630,6 +807,10 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
+                "wait_mode": "event",
+                "wake_on": ["authorization"],
+                "watched_paths": [],
+                "expires_at": 0,
         },
         new_tasks=[],
     )

@@ -15,6 +15,7 @@ import type {
 } from '../api.js';
 import { filterProjects, rankProjects } from '../../../core/src/projects.js';
 import { visibleBacklogItems } from '../../../core/src/backlog.js';
+import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
 import { roleColor, toneColor } from '../eventRender.js';
@@ -405,8 +406,10 @@ function wrapDetail(text: string, width: number): string[] {
 }
 
 function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: number; pageSize: number; width: number }) {
+  const outcome = outcomeDimensionSummary(item.outcome);
   const lines = [
     `status      ${item.status}`,
+    ...(outcome.length ? outcome.map((row, index) => `${index ? '            ' : 'outcome     '}${row}`) : []),
     `priority    p${item.priority}`,
     `budget      $${item.max_cost_usd.toFixed(2)}`,
     ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),

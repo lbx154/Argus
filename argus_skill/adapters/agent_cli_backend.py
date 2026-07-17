@@ -62,7 +62,11 @@ from ..core.secret_guard import (
     redact_secrets_record,
     redact_secrets_text,
 )
-from ..core.stop_kinds import StopKind, normalize_stop_kind
+from ..core.stop_kinds import (
+    StopKind,
+    normalize_stop_kind,
+    stop_kind_from_external_interrupt,
+)
 
 log = logging.getLogger(__name__)
 
@@ -236,7 +240,7 @@ def _raw_backend_stop_kind(
         return None
     low = fatal.casefold()
     if low.startswith("external interrupt:"):
-        return None
+        return stop_kind_from_external_interrupt(fatal)
     if any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
         return "provider_fence"
     if any(pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS):
@@ -1163,6 +1167,7 @@ class AgentCliBackend:
                     exit_code=-1,
                     thread_id=resume_thread_id,
                     fatal_error=reason,
+                    stop_kind=stop_kind_from_external_interrupt(reason),
                 ),
                 status="denied",
                 error=reason,

@@ -11,6 +11,7 @@ import shlex
 from typing import Any, Callable
 
 from ..core.event_catalog import EventType
+from ..life.mission_outcome import outcome_dimension_summary
 
 # map fall back to ``[event.type]`` so internal/dev events stay grep-able
 # in verbose mode.
@@ -541,6 +542,7 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
         parts.append(f"cost=${float(cost):.4f}{suffix}")
     elif pricing_status in {"partial", "unpriced"}:
         parts.append(f"cost={pricing_status}")
+    parts.extend(outcome_dimension_summary(event.get("outcome")))
     if not parts:
         return "mission complete"
     return "mission complete  ·  " + "  ·  ".join(parts)

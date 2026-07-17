@@ -88,6 +88,7 @@ class EventType(StrEnum):
     LIFE_PLANNER_TASK_SKIPPED = "life.planner.task_skipped"
     LIFE_PLANNER_VERDICT = "life.planner.verdict"
     LIFE_PLANNER_WAITING = "life.planner.waiting"
+    LIFE_PLANNER_WAITING_WOKEN = "life.planner.waiting_woken"
     LIFE_PLANNER_TERMINAL_IDLE = "life.planner.terminal_idle"
     LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
     LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
@@ -228,6 +229,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_TASK_SKIPPED,
     EventType.LIFE_PLANNER_VERDICT,
     EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_WAITING_WOKEN,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
     EventType.LIFE_PLANNER_STALL_ESCALATION,

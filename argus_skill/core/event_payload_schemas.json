@@ -218,6 +218,27 @@
             "ended"
           ]
         },
+        "outcome": {
+          "type": "object",
+          "required": [
+            "execution_status",
+            "review_status",
+            "stage_certification",
+            "scientific_decision",
+            "failure_source",
+            "interruption_kind",
+            "resumable"
+          ],
+          "properties": {
+            "execution_status": {"type": "string"},
+            "review_status": {"type": "string"},
+            "stage_certification": {"type": "string"},
+            "scientific_decision": {"type": "string"},
+            "failure_source": {"type": "string"},
+            "interruption_kind": {"type": "string"},
+            "resumable": {"type": "boolean"}
+          }
+        },
         "success": {"type": "boolean"},
         "rounds": {"type": "integer", "minimum": 0},
         "elapsed_seconds": {"type": "number", "minimum": 0},
@@ -225,12 +246,16 @@
         "known_cost_usd": {"type": "number", "minimum": 0},
         "pricing_status": {"type": "string"},
         "research_result": {"type": ["object", "null"]},
+        "repair_capability": {"type": ["object", "null"]},
         "stop_kind": {
           "type": ["string", "null"],
           "enum": [
             "budget_exhausted",
             "provider_cooldown",
             "provider_fence",
+            "daemon_shutdown",
+            "operator_pause",
+            "operator_abort",
             "backend_unavailable",
             "transient_error",
             "permanent_error",
@@ -265,6 +290,9 @@
             "budget_exhausted",
             "provider_cooldown",
             "provider_fence",
+            "daemon_shutdown",
+            "operator_pause",
+            "operator_abort",
             "backend_unavailable",
             "transient_error",
             "permanent_error",
@@ -319,6 +347,9 @@
             "budget_exhausted",
             "provider_cooldown",
             "provider_fence",
+            "daemon_shutdown",
+            "operator_pause",
+            "operator_abort",
             "backend_unavailable",
             "transient_error",
             "permanent_error",
@@ -409,7 +440,19 @@
         "stop_kind": {"type": ["string", "null"]},
         "completion_kind": {"type": ["string", "null"]},
         "delivery_id": {"type": "string", "minLength": 1},
-        "tasks_added": {"type": "integer", "minimum": 0}
+        "tasks_added": {"type": "integer", "minimum": 0},
+        "schema_repair_attempted": {"type": "boolean"},
+        "schema_repair_succeeded": {"type": "boolean"},
+        "schema_repair_original_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "schema_repair_error": {"type": "string"},
+        "schema_repair_input_tokens": {"type": "integer", "minimum": 0},
+        "schema_repair_cached_input_tokens": {"type": "integer", "minimum": 0},
+        "schema_repair_output_tokens": {"type": "integer", "minimum": 0},
+        "schema_repair_reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "schema_repair_premium_requests": {"type": "number", "minimum": 0}
       }
     },
     "life.planner.error": {
@@ -417,7 +460,14 @@
       "required": ["error"],
       "properties": {
         "error": {"type": "string", "minLength": 1},
-        "reason": {"type": "string"}
+        "reason": {"type": "string"},
+        "schema_repair_attempted": {"type": "boolean"},
+        "schema_repair_succeeded": {"type": "boolean"},
+        "schema_repair_original_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "schema_repair_error": {"type": "string"}
       }
     },
     "life.planner.task_added": {

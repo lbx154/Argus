@@ -356,7 +356,15 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert decision["action"] == "advance"
     assert decision["diagnostic"] == "valid_target"
     assert _stage(root) == "plan"
-    assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
+    event = next(
+        e for e in sink.events if e.get("type") == "life.manager.stage_decision"
+    )
+    assert event["campaign_epoch"] == 0
+    assert event["state_revision"] == 1
+    control_head = json.loads(
+        (root / "campaign-control" / "HEAD.json").read_text(encoding="utf-8")
+    )
+    assert control_head["state_revision"] == 1
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
 

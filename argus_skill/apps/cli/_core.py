@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core import paths as core_paths
+from ...life.mission_outcome import outcome_dimension_summary
 from ...life.status import count_backlog_statuses, select_current_running_item
 from .._inbox import count_pending_inbox_messages, queue_inbox_message
 from .._target_paths import resolve_life_root
@@ -1468,6 +1469,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
     ) if part]
     if history_parts:
         print(f"  history  : {' · '.join(history_parts)}")
+    outcome_items = [
+        (float(getattr(item, "finished_ts", 0.0) or 0.0), index, item)
+        for index, item in enumerate(all_items)
+        if outcome_dimension_summary(getattr(item, "outcome", None))
+    ]
+    if outcome_items:
+        latest_outcome_item = max(outcome_items)[2]
+        summary = outcome_dimension_summary(
+            getattr(latest_outcome_item, "outcome", None)
+        )
+        print(f"  outcome  : {' · '.join(summary)}")
     # Total cost from the idempotent call ledger.
     try:
         from ...core.usage import format_usage_cost, project_usage_summary

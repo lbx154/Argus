@@ -191,7 +191,7 @@ def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
 
     # Ends the mission cleanly (not an infinite retry, not a crash) — exactly
     # one round, engineer called exactly once, reviewer never invoked.
-    assert status == "error"
+    assert status == "aborted"
     assert engineer.calls == 1
     assert len(rounds) == 1
     assert rounds[0].review.failure_cause == "operator_interrupt"
@@ -234,7 +234,7 @@ def test_loop_stops_without_backend_retry_when_reviewer_is_operator_aborted(
         on_event=events.append,
     )
 
-    assert status == "error"
+    assert status == "aborted"
     assert engineer.calls == 1
     assert reviewer.calls == 1
     assert len(rounds) == 1

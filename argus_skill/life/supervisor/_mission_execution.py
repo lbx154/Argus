@@ -15,7 +15,7 @@ from ...core.stop_kinds import (
     stop_kind_is_recoverable,
 )
 from ...core.usage import UsageLedger, UsageRecord
-from ..mission_outcome import mission_outcome_class
+from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..memory import BacklogItem
 from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
 from ._cost import _CostTrackingSink
@@ -128,6 +128,10 @@ class MissionExecutionMixin:
 
         outcome: Any = None
         exc_str: str | None = None
+        repair_store: Any = None
+        repair_identity: Any = None
+        repair_capability: dict[str, Any] | None = None
+        recovered_repair_settlement: dict[str, Any] | None = None
         t0 = time.time()
         # Per-item codex SESSION ISOLATION (anti context-pollution). The runner
         # chains its codex thread across execute() calls; left unchecked, a brand
@@ -162,6 +166,83 @@ class MissionExecutionMixin:
                 cap_usd=self._effective_per_mission_cap(item),
                 spent=cost_sink.total_usd,
             )
+            authorization_id = str(
+                getattr(item, "authorization_id", "") or ""
+            ).strip()
+            authorization_action = str(
+                getattr(item, "authorization_action", "") or ""
+            ).strip().lower()
+            if bool(authorization_id) != bool(authorization_action):
+                raise ValueError("backlog authorization reference is incomplete")
+            if authorization_id:
+                if authorization_action != "validator_repair":
+                    raise ValueError("unsupported authorized mission action")
+                from ...manager.control_state import CampaignControlStore
+
+                repair_store = CampaignControlStore(
+                    Path(self.memory.root),
+                    project_root=self._project_workdir(),
+                )
+                existing = repair_store.current_repair_capability(
+                    mission_id=item.id,
+                )
+                if existing is not None:
+                    if (
+                        existing.get("authorization_id") != authorization_id
+                        or existing.get("action") != authorization_action
+                    ):
+                        raise ValueError("running repair capability does not match backlog")
+                    repair_identity = repair_store.campaign_identity(
+                        campaign_epoch=int(existing.get("campaign_epoch") or 0),
+                    )
+                    repair_capability = existing
+                    if existing.get("event") == "closed":
+                        recovered_repair_settlement = existing
+                else:
+                    authorization = repair_store.get_authorization(authorization_id)
+                    if authorization is None:
+                        raise ValueError("Manager authorization is unavailable")
+                    repair_identity = repair_store.campaign_identity(
+                        campaign_epoch=int(authorization.get("campaign_epoch") or 0),
+                    )
+                    claimed = repair_store.claim_repair_capability(
+                        authorization_id=authorization_id,
+                        nonce=str(authorization.get("nonce") or ""),
+                        action=authorization_action,
+                        identity=repair_identity,
+                        mission_id=item.id,
+                    )
+                    repair_capability = {
+                        name: getattr(claimed, name)
+                        for name in claimed.__dataclass_fields__
+                    }
+                if repair_capability.get("status") == "claimed":
+                    started = repair_store.begin_acceptance_retry(
+                        capability_id=str(repair_capability["capability_id"]),
+                        nonce=str(repair_capability["nonce"]),
+                        identity=repair_identity,
+                    )
+                    repair_capability = {
+                        name: getattr(started, name)
+                        for name in started.__dataclass_fields__
+                    }
+                public_repair = (
+                    "## Restricted validator repair capability\n"
+                    f"- authorization_id: {authorization_id}\n"
+                    f"- capability_id: {repair_capability['capability_id']}\n"
+                    f"- validator_id: {repair_capability['validator_id']}\n"
+                    "- allowed_write_paths: "
+                    + ", ".join(repair_capability.get("allowed_write_paths") or [])
+                    + "\n- scientific evidence, preregistration, thresholds, and "
+                    "success criteria are frozen. Edit only the listed paths. "
+                    "Run the same acceptance checks once. Reviewer must compare "
+                    "the old and new validator logic and reject any lowered "
+                    "scientific standard."
+                )
+                execute_kwargs["prelude_context"] = (
+                    public_repair + "\n\n---\n" + prelude
+                    if prelude else public_repair
+                )
             try:
                 from inspect import Parameter, signature
 
@@ -191,12 +272,40 @@ class MissionExecutionMixin:
                         execute_kwargs["max_rounds_override"] = (
                             bounded_dag_node_max_rounds()
                         )
+                if repair_capability is not None:
+                    if "max_rounds_override" in params or _accepts_kw:
+                        execute_kwargs["max_rounds_override"] = 1
+                    if "workflow_mode_override" in params or _accepts_kw:
+                        execute_kwargs["workflow_mode_override"] = "direct"
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
                 execute_kwargs["per_mission_budget"] = mission_budget
                 execute_kwargs["mission_id"] = item.id
                 execute_kwargs["usage_mission_id"] = usage_attempt_id
-            outcome = self.runner.execute(**execute_kwargs)
+                if repair_capability is not None:
+                    execute_kwargs["max_rounds_override"] = 1
+                    execute_kwargs["workflow_mode_override"] = "direct"
+            if recovered_repair_settlement is not None:
+                from types import SimpleNamespace
+
+                recovered_accepted = bool(
+                    recovered_repair_settlement.get("accepted")
+                )
+                outcome = SimpleNamespace(
+                    success=recovered_accepted,
+                    status="done" if recovered_accepted else "error",
+                    stop_reason=str(
+                        recovered_repair_settlement.get("reason") or ""
+                    ),
+                    rounds=0,
+                    final_review_status=(
+                        "done" if recovered_accepted else "not_assessed"
+                    ),
+                    failure_source="",
+                    stage_transition={},
+                )
+            else:
+                outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
@@ -287,11 +396,27 @@ class MissionExecutionMixin:
             pause_status = status
         if pause_status:
             cap = self._effective_per_mission_cap(item)
+            pause_outcome = mission_outcome_dimensions(
+                status=pause_status,
+                success=False,
+                review_status=str(
+                    getattr(outcome, "final_review_status", "") or ""
+                ),
+                scientific_decision=str(
+                    getattr(outcome, "scientific_decision", "") or ""
+                ),
+                failure_source=str(
+                    getattr(outcome, "failure_source", "") or ""
+                ),
+                stop_kind=stop_kind,
+                resumable=True,
+            )
             self.memory.backlog.update(
                 item.id,
                 status=pause_status,
                 finished_ts=time.time(),
                 last_error=stop_reason,
+                outcome=pause_outcome,
             )
             self._emit({
                 "type": EventType.LIFE_MISSION_COMPLETED,
@@ -302,6 +427,7 @@ class MissionExecutionMixin:
                     status=pause_status,
                     success=False,
                 ),
+                "outcome": pause_outcome,
                 "stop_kind": stop_kind,
                 "recoverable": True,
                 "cost_usd": usd,
@@ -320,6 +446,59 @@ class MissionExecutionMixin:
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
             }
+
+        repair_settlement: dict[str, Any] | None = None
+        if recovered_repair_settlement is not None:
+            repair_settlement = recovered_repair_settlement
+            if not bool(repair_settlement.get("accepted")):
+                success = False
+                status = "error"
+                stop_kind = "permanent_error"
+                guard_errors = list(repair_settlement.get("guard_errors") or [])
+                stop_reason = (
+                    "restricted validator repair rejected"
+                    + (": " + "; ".join(guard_errors) if guard_errors else "")
+                )
+        elif repair_capability is not None and repair_store is not None:
+            reviewer_status = str(
+                getattr(outcome, "final_review_status", "") or ""
+            ).strip().lower()
+            failure_source = str(
+                getattr(outcome, "failure_source", "") or ""
+            ).strip().lower()
+            reviewer_accepted = bool(
+                success
+                and status == "done"
+                and reviewer_status == "done"
+                and not failure_source
+            )
+            try:
+                repair_settlement = repair_store.close_repair_capability(
+                    capability_id=str(repair_capability["capability_id"]),
+                    nonce=str(repair_capability["nonce"]),
+                    identity=repair_identity,
+                    accepted=reviewer_accepted,
+                    reason=(
+                        str(getattr(outcome, "stop_reason", "") or "")
+                        or f"Reviewer status={reviewer_status or 'missing'}; "
+                        f"failure_source={failure_source or 'none'}"
+                    ),
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                repair_settlement = {
+                    "status": "rejected",
+                    "accepted": False,
+                    "guard_errors": [f"{type(exc).__name__}: {exc}"],
+                }
+            if not bool(repair_settlement.get("accepted")):
+                success = False
+                status = "error"
+                stop_kind = "permanent_error"
+                guard_errors = list(repair_settlement.get("guard_errors") or [])
+                stop_reason = (
+                    "restricted validator repair rejected"
+                    + (": " + "; ".join(guard_errors) if guard_errors else "")
+                )
 
         stage_transition = getattr(outcome, "stage_transition", {})
         stage_action = (
@@ -405,12 +584,35 @@ class MissionExecutionMixin:
             "infra_blocked",
         }
         replan_requested = status == "replan_requested"
+        intentional_abort = status == "aborted" or stop_kind == "operator_abort"
+        if intentional_abort:
+            success = False
+            status = "aborted"
         err = exc_str or stop_reason or "unspecified failure"
+        resumable = bool(
+            research_pause or stop_kind_is_recoverable(stop_kind)
+        )
+        outcome_dimensions = mission_outcome_dimensions(
+            status=status,
+            success=success,
+            review_status=str(
+                getattr(outcome, "final_review_status", "") or ""
+            ),
+            stage_transition=stage_transition,
+            scientific_decision=str(
+                getattr(outcome, "scientific_decision", "") or ""
+            ),
+            failure_source=str(
+                getattr(outcome, "failure_source", "") or ""
+            ),
+            stop_kind=stop_kind,
+            resumable=resumable,
+        )
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success:
-            self.memory.backlog.mark_done(item.id)
+            self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
         elif replan_requested:
             self.memory.backlog.update(
                 item.id,
@@ -425,9 +627,22 @@ class MissionExecutionMixin:
                 status=status,
                 finished_ts=time.time(),
                 last_error=stop_reason,
+                outcome=outcome_dimensions,
+            )
+        elif intentional_abort:
+            self.memory.backlog.update(
+                item.id,
+                status="aborted",
+                finished_ts=time.time(),
+                last_error=stop_reason,
+                outcome=outcome_dimensions,
             )
         else:
-            self.memory.backlog.mark_failed(item.id, error=err)
+            self.memory.backlog.mark_failed(
+                item.id,
+                error=err,
+                outcome=outcome_dimensions,
+            )
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
         # needs the OPERATOR to make a call — not a bug/crash. Persist the
@@ -458,6 +673,8 @@ class MissionExecutionMixin:
             if success
             else "mission_replan_requested"
             if replan_requested
+            else "mission_aborted"
+            if intentional_abort
             else "mission_failed"
         )
         final_submission_certified = bool(
@@ -504,6 +721,7 @@ class MissionExecutionMixin:
             "success": success,
             "status": status,
             "outcome_class": mission_outcome_class(status=status, success=success),
+            "outcome": outcome_dimensions,
             "rounds": rounds,
             "elapsed_seconds": elapsed,
             "cost_usd": usd,
@@ -519,13 +737,17 @@ class MissionExecutionMixin:
             if kind == "mission_failed"
             else {},
             "terminal_status": status if kind == "mission_failed" else "",
-            "resumable": research_pause or stop_kind_is_recoverable(stop_kind),
+            "resumable": resumable,
             "recoverable": bool(
                 getattr(outcome, "recoverable", False)
                 or stop_kind_is_recoverable(stop_kind)
             ),
             "stop_kind": stop_kind,
-            "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
+            "stop_reason": (
+                stop_reason or err
+                if kind in {"mission_failed", "mission_aborted"}
+                else ""
+            ),
             "failure_reason": err if kind == "mission_failed" else "",
             "agent_layer": "engineer",
             "engineer_model": self.engineer_model,
@@ -568,6 +790,13 @@ class MissionExecutionMixin:
             "checklist_feedback": checklist_feedback,
             "step_back": step_back,
             "final_submission_certified": final_submission_certified,
+            "repair_capability": {
+                "capability_id": str(repair_capability.get("capability_id") or ""),
+                "authorization_id": str(repair_capability.get("authorization_id") or ""),
+                "status": str((repair_settlement or {}).get("status") or ""),
+                "accepted": bool((repair_settlement or {}).get("accepted", False)),
+                "guard_errors": list((repair_settlement or {}).get("guard_errors") or []),
+            } if repair_capability is not None else None,
             "iteration": None,
         })
 

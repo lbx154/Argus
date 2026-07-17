@@ -1,5 +1,6 @@
 import { useBacklogItem } from '../hooks';
 import { isTerminalBacklogItem } from '../../../core/src/backlog';
+import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
 import { Modal } from './Modal';
 import { Button, Chip, Spinner } from './primitives';
 
@@ -38,6 +39,7 @@ export function TaskDetailModal({
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
   const terminal = item ? isTerminalBacklogItem(item) : false;
+  const outcome = outcomeDimensionSummary(item?.outcome);
   return (
     <Modal open={Boolean(itemId)} onClose={onClose} label="Task details" width="max-w-3xl">
       <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
@@ -89,6 +91,14 @@ export function TaskDetailModal({
               <Metric label="started" value={when(item.started_ts)} />
               <Metric label="finished" value={when(item.finished_ts)} />
             </div>
+            {outcome.length ? (
+              <section>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Outcome</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {outcome.map((row) => <Chip key={row}>{row}</Chip>)}
+                </div>
+              </section>
+            ) : null}
             {item.iterate || item.iteration_cycles_done || item.iteration_cost_usd ? (
               <section>
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Iteration</div>

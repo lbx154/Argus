@@ -1,4 +1,4 @@
-import type { EventMsg } from './types.js';
+import type { EventMsg, MissionOutcomeDimensions } from './types.js';
 
 export type MissionOutcomeClass =
   | 'completed'
@@ -75,6 +75,52 @@ function derivedOutcomeClass(event: MissionOutcomeEvent): MissionOutcomeClass {
   if (BLOCKED_STATUSES.has(status)) return 'blocked';
   if (FAILED_STATUSES.has(status)) return 'failed';
   return 'ended';
+}
+
+export function missionOutcomeDimensions(
+  event: MissionOutcomeEvent,
+): MissionOutcomeDimensions {
+  const raw = event.outcome;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const row = raw as Record<string, unknown>;
+    return {
+      execution_status: normalizedString(row.execution_status) || derivedOutcomeClass(event),
+      review_status: normalizedString(row.review_status) || 'not_assessed',
+      stage_certification: normalizedString(row.stage_certification) || 'not_assessed',
+      scientific_decision: normalizedString(row.scientific_decision) || 'undecided',
+      failure_source: normalizedString(row.failure_source),
+      interruption_kind: normalizedString(row.interruption_kind) || 'none',
+      resumable: row.resumable === true,
+    };
+  }
+  return {
+    execution_status: derivedOutcomeClass(event),
+    review_status: 'not_assessed',
+    stage_certification: 'not_assessed',
+    scientific_decision: 'undecided',
+    failure_source: '',
+    interruption_kind: normalizedString(event.stop_kind) || 'none',
+    resumable: event.resumable === true,
+  };
+}
+
+export function outcomeDimensionSummary(
+  outcome: Partial<MissionOutcomeDimensions> | null | undefined,
+): string[] {
+  if (!outcome?.execution_status) return [];
+  return [
+    `execution=${outcome.execution_status}`,
+    outcome.review_status && outcome.review_status !== 'not_assessed'
+      ? `review=${outcome.review_status}` : '',
+    outcome.stage_certification && outcome.stage_certification !== 'not_assessed'
+      ? `stage=${outcome.stage_certification}` : '',
+    outcome.scientific_decision && outcome.scientific_decision !== 'undecided'
+      ? `science=${outcome.scientific_decision}` : '',
+    outcome.failure_source ? `failure=${outcome.failure_source}` : '',
+    outcome.interruption_kind && outcome.interruption_kind !== 'none'
+      ? `interrupt=${outcome.interruption_kind}` : '',
+    outcome.resumable ? 'resumable=yes' : '',
+  ].filter(Boolean);
 }
 
 export function missionOutcomePresentation(

@@ -107,6 +107,48 @@
         null
       ]
     },
+    "failure_source": {
+      "type": ["object", "null"],
+      "description": "Acceptance failure source with concrete evidence; null when no acceptance failure was diagnosed.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "validator_defect",
+            "provenance_binding_defect",
+            "infrastructure_failure",
+            "scientific_evidence_failure"
+          ]
+        },
+        "validator_id": {"type": ["string", "null"], "maxLength": 200},
+        "repair_paths": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "minLength": 1, "maxLength": 500},
+          "description": "Exact project-relative validator/test/provenance paths that a restricted repair may edit; empty unless the diagnosed defect is repairable without changing scientific evidence."
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "artifact": {"type": "string", "minLength": 1, "maxLength": 500},
+              "observation": {"type": "string", "minLength": 1, "maxLength": 1000}
+            },
+            "required": ["artifact", "observation"]
+          }
+        }
+      },
+      "required": ["kind", "validator_id", "repair_paths", "evidence"]
+    },
+    "scientific_decision": {
+      "type": ["string", "null"],
+      "enum": ["go", "pivot", "no_go", "undecided", null]
+    },
     "progress_class": {
       "type": "string",
       "enum": [
@@ -475,6 +517,8 @@
     "completion_summary_markdown",
     "achievement",
     "failure_cause",
+    "failure_source",
+    "scientific_decision",
     "progress_class",
     "control",
     "scope",

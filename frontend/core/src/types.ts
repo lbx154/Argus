@@ -64,6 +64,17 @@ export interface BacklogItem {
   original_objective?: string;
   orphan_retries?: number;
   deps?: string[];
+  outcome?: MissionOutcomeDimensions;
+}
+
+export interface MissionOutcomeDimensions {
+  execution_status: string;
+  review_status: string;
+  stage_certification: string;
+  scientific_decision: string;
+  failure_source: string;
+  interruption_kind: string;
+  resumable: boolean;
 }
 
 export interface ContinuousState {
@@ -291,6 +302,7 @@ export interface MissionView {
   storage: MissionStorageView;
   achievement: MissionAchievement | null;
   review: { status: string; reason: string; rejected_attempts: number };
+  outcome: Partial<MissionOutcomeDimensions>;
   last_event_ts: number;
   updated_at: number;
 }

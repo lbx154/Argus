@@ -68,6 +68,29 @@ def test_mission_idle_renders_in_left_box() -> None:
     assert out.rstrip().endswith(BOX["h"])
 
 
+def test_life_mission_completed_renders_canonical_outcome_dimensions() -> None:
+    event = {
+        "type": "life.mission.completed",
+        "status": "done",
+        "outcome": {
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_certified",
+            "scientific_decision": "no_go",
+            "failure_source": "",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    }
+
+    rendered = render_event_for_terminal(event, theme=_PLAIN)
+
+    assert "execution=completed" in rendered
+    assert "review=done" in rendered
+    assert "stage=not_certified" in rendered
+    assert "science=no_go" in rendered
+
+
 # ── status.report ─────────────────────────────────────────────────────────
 
 def test_status_report_uses_left_box() -> None:

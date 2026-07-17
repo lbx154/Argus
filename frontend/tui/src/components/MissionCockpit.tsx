@@ -6,6 +6,7 @@ import {
   metricDisplay,
   missionMetricImprovement,
 } from '../../../core/src/missionView.js';
+import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import type { MissionTimelineItem, MissionView } from '../../../core/src/types.js';
 import type { RequestUsage } from '../api.js';
 import { theme } from '../theme.js';
@@ -83,6 +84,7 @@ export function MissionCockpit({
     : '';
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
+  const outcome = outcomeDimensionSummary(view.outcome);
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -121,6 +123,12 @@ export function MissionCockpit({
         <Text dimColor>REQUESTS </Text>
         <Text dimColor wrap="truncate-end">{requestSummary(requestUsage)}</Text>
       </Box>
+      {outcome.length ? (
+        <Box>
+          <Text dimColor>OUTCOME </Text>
+          <Text wrap="truncate-end">{outcome.join(' · ')}</Text>
+        </Box>
+      ) : null}
 
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>AI RESEARCH TEAM</Text>

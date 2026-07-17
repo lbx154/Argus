@@ -107,6 +107,18 @@ def test_control_object_requires_all_keys_in_active_schemas() -> None:
         assert "control" in schema["required"]
 
 
+def test_failure_source_is_strict_evidence_backed_and_required_nullable() -> None:
+    for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
+        schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        source = schema["properties"]["failure_source"]
+        assert source["additionalProperties"] is False
+        assert set(source["required"]) == {
+            "kind", "validator_id", "repair_paths", "evidence",
+        }
+        assert "failure_source" in schema["required"]
+        assert "scientific_decision" in schema["required"]
+
+
 def test_operator_question_parsing_blocked_only():
     """blocked uses the reviewer's question (or falls back to next_action's first
     sentence); done/continue never carry one; a blocked verdict still parses with

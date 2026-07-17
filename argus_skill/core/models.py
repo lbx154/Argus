@@ -35,6 +35,9 @@ LoopStatus = Literal[
     "paused_budget",
     "paused_provider_cooldown",
     "paused_provider_fence",
+    "paused_daemon_shutdown",
+    "paused_operator",
+    "aborted",
     "infra_blocked",
     "replan_requested",
     "research_incomplete",
@@ -186,6 +189,14 @@ class ReviewDecision:
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
     failure_cause: str = ""
+    # Acceptance-failure provenance, authored only by Reviewer structured JSON.
+    # ``failure_cause`` above remains the skill-learning diagnosis; this field
+    # controls whether a restricted repair can even be considered.
+    failure_source: str = ""
+    failure_source_evidence: list[dict[str, str]] = field(default_factory=list)
+    validator_id: str = ""
+    repair_paths: list[str] = field(default_factory=list)
+    scientific_decision: str = ""
     # Compact reviewer-authored decision-progress classification. The harness
     # counts it but never infers it from filenames, keywords, or tool activity.
     progress_class: str = ""
@@ -346,6 +357,11 @@ class ReviewDecision:
             "round_summary_markdown": self.round_summary_markdown or "",
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
+            "failure_source": self.failure_source or "",
+            "failure_source_evidence": list(self.failure_source_evidence or []),
+            "validator_id": self.validator_id or "",
+            "repair_paths": list(self.repair_paths or []),
+            "scientific_decision": self.scientific_decision or "",
             "progress_class": self.progress_class or "",
             "control_action": self.control_action or "",
             "control_task_id": self.control_task_id or "",

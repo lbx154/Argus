@@ -44,7 +44,11 @@
         "recheck_token",
         "stage_reconciliation_required",
         "allow_verification_probe",
-        "recheck_after_seconds"
+        "recheck_after_seconds",
+        "wait_mode",
+        "wake_on",
+        "watched_paths",
+        "expires_at"
       ],
       "properties": {
         "blocker_fingerprint": {
@@ -78,6 +82,35 @@
           "minimum": 0,
           "maximum": 604800,
           "description": "Minimum time after first observing this fingerprint/token before its one allowed probe."
+        },
+        "wait_mode": {
+          "type": "string",
+          "enum": ["poll", "event"],
+          "description": "Use event only when a listed durable wake source can change; legacy/general waits use poll."
+        },
+        "wake_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "authorization",
+              "subagent_terminal",
+              "artifact_revision",
+              "manager_stage"
+            ]
+          }
+        },
+        "watched_paths": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "minLength": 1, "maxLength": 500},
+          "description": "Project-relative files or directories whose revision can wake artifact_revision waits."
+        },
+        "expires_at": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Unix timestamp that wakes the wait; 0 means no expiry."
         }
       }
     },
@@ -95,7 +128,9 @@
           "scope",
           "objective",
           "key",
-          "deps"
+          "deps",
+          "authorization_id",
+          "authorization_action"
         ],
         "properties": {
           "key": {
@@ -108,6 +143,16 @@
               "type": "string"
             },
             "description": "OPTIONAL local keys (from sibling tasks' key fields, same batch only) that must complete before this task runs. Use null or [] for parallel or independent tasks."
+          },
+          "authorization_id": {
+            "type": ["string", "null"],
+            "maxLength": 200,
+            "description": "Manager-issued non-secret authorization id from the current authorization block, or null. Never invent an id."
+          },
+          "authorization_action": {
+            "type": ["string", "null"],
+            "enum": ["validator_repair", null],
+            "description": "The single authorized action this task consumes, or null."
           },
           "title": {
             "type": "string",

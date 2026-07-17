@@ -1,6 +1,9 @@
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
 import { eventKey } from './events.js';
-import { missionOutcomePresentation } from './missionOutcome.js';
+import {
+  missionOutcomeDimensions,
+  missionOutcomePresentation,
+} from './missionOutcome.js';
 import type {
   ArtifactInfo,
   EventMsg,
@@ -68,6 +71,7 @@ export function emptyMissionView(): MissionView {
     },
     achievement: null,
     review: { status: '', reason: '', rejected_attempts: 0 },
+    outcome: {},
     last_event_ts: 0,
     updated_at: 0,
   };
@@ -435,6 +439,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.mission.objective = S(event, 'objective') || view.mission.objective;
     view.mission.status = presentation.missionStatus;
     view.mission.completed_at = ts;
+    view.outcome = missionOutcomeDimensions(event);
     addTimeline(
       view,
       event,
@@ -498,6 +503,11 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     };
     upsert(view.dag as Array<MissionDagNode & Record<string, unknown>>, 'id', node.id, node as MissionDagNode & Record<string, unknown>);
   });
+  const latestOutcome = [...snapshot.backlog]
+    .filter((item) => item.outcome?.execution_status)
+    .sort((left, right) => Number(left.finished_ts ?? 0) - Number(right.finished_ts ?? 0))
+    .at(-1)?.outcome;
+  if (!active && latestOutcome) view.outcome = { ...latestOutcome };
   artifacts.forEach((artifact) => {
     upsert(view.artifacts, 'path', artifact.path, {
       id: artifact.path,
@@ -544,6 +554,7 @@ export function projectMissionView(
   view.storage.skill_history_bytes_saved ??= 0;
   view.storage.wiki_retired_bytes_saved ??= 0;
   view.learned_wiki_pages ??= [];
+  view.outcome ??= {};
   const seedTs = view.last_event_ts;
   events
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)

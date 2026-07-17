@@ -919,10 +919,30 @@ class _SkillLoopRunner(SelfReplyMixin):
         step_back: dict | None = None
         operator_question = ""
         research_result: dict = {}
+        final_review_status = ""
+        failure_source = ""
+        validator_id = ""
+        repair_paths: list[str] = []
+        scientific_decision = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
             if _final_review is not None:
+                final_review_status = str(
+                    getattr(_final_review, "status", "") or ""
+                ).strip().lower()
+                failure_source = str(
+                    getattr(_final_review, "failure_source", "") or ""
+                ).strip().lower()
+                validator_id = str(
+                    getattr(_final_review, "validator_id", "") or ""
+                ).strip()
+                repair_paths = list(
+                    getattr(_final_review, "repair_paths", []) or []
+                )
+                scientific_decision = str(
+                    getattr(_final_review, "scientific_decision", "") or ""
+                ).strip().lower()
                 report = getattr(_final_review, "planner_report", None)
                 if isinstance(report, dict):
                     planner_report = report
@@ -1017,6 +1037,11 @@ class _SkillLoopRunner(SelfReplyMixin):
             stage_transition=stage_transition,
             operator_question=operator_question,
             research_result=research_result,
+            final_review_status=final_review_status,
+            failure_source=failure_source,
+            validator_id=validator_id,
+            repair_paths=repair_paths,
+            scientific_decision=scientific_decision,
         )
 
     def _decide_stage_transition(
@@ -1069,6 +1094,92 @@ class _SkillLoopRunner(SelfReplyMixin):
                 "source": st.source,
                 "diagnostic": st.diagnostic,
             }
+            final_review_status = str(
+                getattr(final_review, "status", "") or ""
+            ).strip().lower()
+            if st.action != "hold" or final_review_status in {"done", "blocked"}:
+                try:
+                    import hashlib
+                    import json
+
+                    from ..manager.control_state import CampaignControlStore
+
+                    state_root = Path(
+                        getattr(self, "_manager_session_root", workdir)
+                    )
+                    control = CampaignControlStore(
+                        state_root,
+                        project_root=getattr(self, "_artifact_root", workdir),
+                    )
+                    identity = control.campaign_identity(
+                        objective=continuous_objective,
+                    )
+                    pipeline_path = (
+                        Path(getattr(self, "_artifact_root", workdir))
+                        / "research"
+                        / "PIPELINE_STATE.json"
+                    )
+                    try:
+                        pipeline_bytes = pipeline_path.read_bytes()
+                        pipeline_sha256 = hashlib.sha256(
+                            pipeline_bytes
+                        ).hexdigest()
+                    except OSError:
+                        pipeline_sha256 = "missing"
+                    review_projection = {
+                        "status": final_review_status,
+                        "final_submission_certified": bool(
+                            getattr(
+                                final_review,
+                                "final_submission_certified",
+                                False,
+                            )
+                        ),
+                        "scientific_decision": str(
+                            getattr(final_review, "scientific_decision", "") or ""
+                        ),
+                        "failure_source": str(
+                            getattr(final_review, "failure_source", "") or ""
+                        ),
+                        "failure_source_evidence": list(
+                            getattr(final_review, "failure_source_evidence", [])
+                            or []
+                        ),
+                        "validator_id": str(
+                            getattr(final_review, "validator_id", "") or ""
+                        ),
+                        "repair_paths": list(
+                            getattr(final_review, "repair_paths", []) or []
+                        ),
+                    }
+                    review_sha256 = hashlib.sha256(
+                        json.dumps(
+                            review_projection,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    control_head = control.clear_wait_for_new_evidence(
+                        identity=identity,
+                        stage_projection={
+                            "action": st.action,
+                            "current_stage": st.current_stage,
+                            "target_stage": st.target_stage,
+                            "pipeline_state_sha256": pipeline_sha256,
+                        },
+                        terminal_evidence=[{
+                            **review_projection,
+                            "sha256": review_sha256,
+                        }],
+                        reason="Manager committed stage and terminal review state",
+                    )
+                    decision["campaign_epoch"] = control_head.campaign_epoch
+                    decision["state_revision"] = control_head.state_revision
+                except Exception:  # noqa: BLE001 - projection cannot own verdict
+                    log.debug(
+                        "manager control revision projection skipped",
+                        exc_info=True,
+                    )
             sink.handle_event({"type": "life.manager.stage_decision", **decision})
             return decision
         except Exception:  # noqa: BLE001 — stage decision must never break a mission

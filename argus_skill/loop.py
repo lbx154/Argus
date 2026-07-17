@@ -1280,19 +1280,19 @@ class SkillLoop:
         sections.append(
             "## This turn\n"
             "This is a fresh session. Land one coherent, verifiable increment; "
-            "directly update CHECKPOINT.md; then yield to Reviewer. Do not rely on "
-            "this thread continuing. A measured failure or real build step is "
-            "progress; pure reading with no artifact or measurement is not.\n"
-            "Work directly in the current directory. Unless the mission explicitly "
-            "requires it, do not write planning/spec/brief documents, initialize Git, "
+            "update CHECKPOINT.md; then yield to Reviewer. Do not assume this thread "
+            "continues. A measured failure or build is progress; pure reading without "
+            "an artifact or measurement is not.\n"
+            "Work in the current directory. Unless required, do not write "
+            "planning/spec/brief documents, initialize Git, "
             "create branches/worktrees, commit, spawn subagents, or invoke meta-workflow "
             "playbooks."
         )
         sections.append(
             "## Required output\n"
-            "End with `## Verification (verbatim)` containing literal decisive "
-            "command output in a fenced block, then `## Summary` with at most 8 "
-            "bullets. Do not paraphrase verification evidence.\n\n"
+            "End with `## Verification (verbatim)`: literal decisive command output "
+            "in a fenced block, then `## Summary` (at most 8 bullets). Do not "
+            "paraphrase evidence.\n\n"
             + (
                 "You have authority to waive an independent Reviewer only when "
                 "you judge this mission bounded and low-risk, all requested work "
@@ -1313,8 +1313,8 @@ class SkillLoop:
             '"skill_action":"none|create|update","skill_name":"<required for '
             'update, else empty>","skill_reason":"<required for create/update, '
             'else empty>"}\n'
-            "The marker is a decision, not evidence: the literal evidence must "
-            "remain in the fenced Verification block."
+            "The marker is not evidence; keep literal evidence in the fenced "
+            "Verification block."
         )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)

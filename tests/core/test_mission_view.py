@@ -275,6 +275,32 @@ def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> N
 
     assert view["mission"]["status"] == "incomplete"
     assert view["timeline"][-1]["title"] == "Mission incomplete"
+
+
+def test_completed_mission_preserves_stage_and_scientific_outcome(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        status="done",
+        success=True,
+        outcome_class="completed",
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_certified",
+            "scientific_decision": "no_go",
+            "failure_source": "scientific_evidence_failure",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    assert view["mission"]["status"] == "complete"
+    assert view["outcome"]["stage_certification"] == "not_certified"
+    assert view["outcome"]["scientific_decision"] == "no_go"
+    assert load_mission_view(tmp_path)["outcome"] == view["outcome"]
 def test_reviewer_handoff_leaves_only_reviewer_active(tmp_path: Path) -> None:
     emit(
         tmp_path,

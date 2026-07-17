@@ -5,6 +5,7 @@ import {
   metricDisplay,
   missionMetricImprovement,
 } from '../../../core/src/missionView';
+import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
 import { formatBytes } from '../lib/format';
 import { theme } from '../lib/theme';
 
@@ -136,6 +137,7 @@ export function MissionControl({
   const dag = dagView.nodes;
   const objective = view.mission.objective || view.mission.title || 'Waiting for a mission';
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
+  const outcome = outcomeDimensionSummary(view.outcome);
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
   return (
@@ -152,6 +154,11 @@ export function MissionControl({
           <div><div className="text-ink-faint">Round</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
           <div><div className="text-ink-faint">Best</div><div className={`mt-0.5 font-mono ${metric?.verification_status === 'accepted' ? 'text-ok' : 'text-warn'}`}>{metricDisplay(metric)}{improvement == null ? '' : ` · ${improvement >= 0 ? '↑' : '↓'}${Math.abs(improvement).toFixed(2)}${metric?.unit || ''}`}</div></div>
         </div>
+        {outcome.length ? (
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-ink-dim">
+            {outcome.map((row) => <span key={row}>{row}</span>)}
+          </div>
+        ) : null}
       </header>
 
       <Achievement view={view} />
