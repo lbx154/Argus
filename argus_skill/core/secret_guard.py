@@ -108,6 +108,15 @@ _SOURCE_SUFFIXES = {
 }
 _MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 _MAX_SCANNED_FILES = 10_000
+# `code/references/<repo>/` is the documented convention (see
+# `argus_skill/builtin_skills/agent-md-new-project-template.md`) for shallow
+# `git clone --depth=1` copies of third-party reference repositories. These
+# trees are unmodified upstream OSS, not artifacts written during this round,
+# so scanning them can never catch a locally introduced secret. Walking into
+# them anyway burns the `_MAX_SCANNED_FILES` / `_MAX_ARTIFACT_BYTES` budget on
+# vendored files and can starve or truncate the scan of the round's real
+# artifacts (observed with large clones such as vllm/axolotl/LLaMA-Factory).
+_VENDORED_REFERENCE_DIR_PARTS = ("code", "references")
 _TEXT_ARTIFACT_SUFFIXES = {
     "",
     ".csv",
@@ -341,6 +350,16 @@ def scrub_recent_text_artifacts(
     walker = os.walk(root, topdown=True, onerror=_walk_error)
     for dirpath, dirnames, filenames in walker:
         dirnames[:] = [name for name in dirnames if name not in _IGNORE_DIRS]
+        try:
+            rel_dir_parts = Path(dirpath).relative_to(root).parts
+        except ValueError:
+            rel_dir_parts = ()
+        if rel_dir_parts == _VENDORED_REFERENCE_DIR_PARTS:
+            # Don't descend into vendored clones at all; see the constant's
+            # docstring above for why scanning them is both wasted work and a
+            # false source of "truncated" scan coverage.
+            dirnames[:] = []
+            continue
         for filename in filenames:
             if scanned_files >= _MAX_SCANNED_FILES:
                 truncated = True
@@ -410,9 +429,3 @@ def scrub_recent_text_artifacts(
         errors=tuple(errors),
         truncated=truncated,
     )
-    "id_token",
-    "idtoken",
-    "private_key",
-    "privatekey",
-    "refresh_token",
-    "refreshtoken",

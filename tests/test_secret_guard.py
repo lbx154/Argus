@@ -159,6 +159,32 @@ def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
     )
 
 
+def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\nstatus: 200\n", encoding="utf-8")
+
+    vendored_repo = tmp_path / "code" / "references" / "some-upstream-repo"
+    vendored_repo.mkdir(parents=True)
+    vendored_file = vendored_repo / "fixture.json"
+    vendored_file.write_text(
+        '{"x-api-key": "vendored-fixture-secret"}\n', encoding="utf-8"
+    )
+    # Give the vendored clone a fresh mtime so the only reason it would be
+    # excluded is the vendored-directory skip, not the modified_since filter.
+    now = time.time()
+    (vendored_repo / "fixture.json").touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert "vendored-fixture-secret" in vendored_file.read_text(encoding="utf-8")
+    # The vendored tree must not even be walked/counted.
+    assert report.scanned_files == 1
+
+
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
     artifact = tmp_path / "response.txt"
     artifact.write_text("Authorization: Bearer live-token-value-123\n", encoding="utf-8")
