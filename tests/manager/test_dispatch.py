@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.event_catalog import validate_event_envelope
 from argus_skill.life import BacklogItem, MemoryBundle
 from argus_skill.manager import dispatch, front_door
 
@@ -87,6 +88,18 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
     assert all("bounded_dag_node" in item.tags for item in items.values())
     assert all(item.iterate is False for item in items.values())
     assert all(item.original_objective == "managed: operator request" for item in items.values())
+    events = [
+        json.loads(line)
+        for line in (memory.project.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    verdict = next(event for event in events if event.get("type") == "life.planner.verdict")
+    assert validate_event_envelope(verdict, require_known=True).valid
+    assert verdict["status"] == "planned"
+    assert verdict["success"] is True
+    assert verdict["recoverable"] is False
+    assert verdict["project_id"] == memory.project.root.name
+    assert verdict["mission_id"] == items["a"].plan_id
+    assert verdict["enqueued_tasks"] == 3
 
 
 def test_continuous_dispatch_persists_only_manager_handoff(memory):

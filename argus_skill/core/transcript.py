@@ -22,19 +22,32 @@ def _path(life_dir: Any) -> Path:
     return Path(life_dir) / _FNAME
 
 
-def append_turn(life_dir: Any, role: str, text: str) -> None:
+def append_turn(
+    life_dir: Any,
+    role: str,
+    text: str,
+    *,
+    message_id: str = "",
+) -> bool:
     """Append one conversation turn. ``role`` is ``"operator"`` or ``"argus"``."""
     try:
         body = str(text or "").strip()
         if not body:
-            return
+            return False
         p = _path(life_dir)
         p.parent.mkdir(parents=True, exist_ok=True)
         rec = {"ts": time.time(), "role": str(role or ""), "text": body}
+        stable_id = str(message_id or "").strip()
+        if stable_id:
+            for prior in read_turns(life_dir):
+                if prior.get("message_id") == stable_id:
+                    return False
+            rec["message_id"] = stable_id
         with p.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return True
     except Exception:  # noqa: BLE001 — never break the cockpit over transcript I/O
-        pass
+        return False
 
 
 def read_turns(life_dir: Any, *, limit: int | None = None) -> list[dict[str, Any]]:

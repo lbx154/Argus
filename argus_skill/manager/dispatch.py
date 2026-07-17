@@ -286,16 +286,24 @@ def enqueue_mission(
         mem.backlog.add_many(items)
         item = items[0]
         try:
+            from ..core.planner_verdict import (
+                PlannerVerdictStatus,
+                build_planner_verdict_event,
+            )
             from ..life.event_log import JsonlEventSink
 
             sink = JsonlEventSink(None, life_dir=Path(life_dir))
-            sink.append({
-                "type": "life.planner.verdict",
-                "reason": str(getattr(plan, "reason", "") or "bounded DAG"),
-                "plan_id": plan_id,
-                "new_tasks": len(items),
-                "text": f"bounded Planner created {len(items)} DAG node(s)",
-            })
+            reason = str(getattr(plan, "reason", "") or "bounded DAG")
+            sink.append(build_planner_verdict_event(
+                status=PlannerVerdictStatus.PLANNED,
+                reason=reason,
+                project_id=Path(life_dir).name,
+                mission_id=plan_id,
+                plan_id=plan_id,
+                enqueued_tasks=len(items),
+                new_tasks=len(items),
+                text=f"bounded Planner created {len(items)} DAG node(s)",
+            ))
             for node_item in items:
                 sink.append({
                     "type": "life.planner.task_added",

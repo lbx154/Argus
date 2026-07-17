@@ -56,6 +56,24 @@ def test_build_curator_distill_fn_calls_the_backend(tmp_path: Path) -> None:
     assert backend.opts and backend.opts[0].working_dir == str(proj)
 
 
+def test_build_curator_summary_uses_manager_backend_and_conversation_root(tmp_path: Path) -> None:
+    backend = _FakeBackend()
+    runner = type("R", (), {})()
+    runner.manager_backend = backend
+    project = tmp_path / "proj"
+    config = _cfg(tmp_path, workdir=project)
+    worker = LifeWorker(config)
+
+    curator = worker._build_curator(runner)
+
+    assert curator is not None
+    assert curator.conversation_root == config.life_dir
+    assert curator._completion_fn is not None
+    assert curator._completion_fn("TEAM FACTS") == _FakeResult.last_agent_message
+    assert "manager.team_summary" in backend.labels
+    assert backend.opts[-1].working_dir == str(project)
+
+
 def test_build_curator_no_distill_fn_without_runner(tmp_path: Path) -> None:
     c = LifeWorker(_cfg(tmp_path, workdir=tmp_path / "proj"))._build_curator()
     assert c is not None and c._distill_fn is None  # deterministic-only Curator

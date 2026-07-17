@@ -1072,7 +1072,44 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: event sink raised")
             return False
-        return accepted is not False
+        delivered = accepted is not False
+        if delivered and str(event.get("type") or "") == EventType.LIFE_BUDGET_PAUSE:
+            self._publish_budget_pause_message(event)
+        return delivered
+
+    def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
+        """Surface a durable, deduplicated budget pause in the Manager chat."""
+        try:
+            import hashlib
+
+            from ...core.operator_messages import publish_operator_message
+
+            project = getattr(self.memory, "project", None)
+            life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
+            if life_dir is None:
+                return
+            item_id = str(event.get("item_id") or "")
+            title = str(event.get("title") or "current task").strip()
+            reason = str(event.get("reason") or "budget cap reached").strip()
+            signature = hashlib.sha256(f"{item_id}\0{reason}".encode("utf-8")).hexdigest()[:16]
+            text = (
+                "Budget pause · 预算不足，任务已暂停。\n"
+                f"Task: {title}\n"
+                f"Reason: {reason}\n"
+                "任务状态与 CHECKPOINT.md 已保留；提高项目预算后可以继续。"
+            )
+            publish_operator_message(
+                life_dir,
+                text=text,
+                message_id=f"budget-pause-{signature}",
+                event_fields={
+                    "budget_pause": True,
+                    "item_id": item_id,
+                    "reason": reason,
+                },
+            )
+        except Exception:  # noqa: BLE001 - alerting must not break supervision
+            log.exception("life supervisor: failed to publish budget pause chat alert")
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})

@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
+from argus_skill.core.event_catalog import EventType
 from argus_skill.core.pricing import usd_for_tokens
+from argus_skill.core.transcript import read_turns
 from argus_skill.life.memory import BacklogItem, Journal, JournalEntry, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,
@@ -193,6 +195,35 @@ def test_successful_research_result_is_journaled_for_planner_gate(tmp_path) -> N
         if event.get("type") == "life.mission.completed"
     )
     assert event["research_result"]["result_class"] == "verified_new_result"
+
+
+def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchBreakthroughRunner(),
+        sink=sink,
+    )
+    event = {
+        "type": EventType.LIFE_BUDGET_PAUSE,
+        "item_id": "task-1",
+        "title": "Long experiment",
+        "reason": "project daily budget exhausted",
+    }
+
+    assert sup._emit(event)
+    assert sup._emit(event)
+
+    (turn,) = read_turns(mem.root)
+    assert "预算不足" in turn["text"]
+    assert "Long experiment" in turn["text"]
+    ui_events = [
+        event
+        for line in (mem.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if (event := json.loads(line)).get("type") == "ui.argus"
+    ]
+    assert len(ui_events) == 1
 
 
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:

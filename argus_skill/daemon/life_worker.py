@@ -762,6 +762,8 @@ class LifeWorker:
             hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
             distill_fn=self._curator_distill_fn(runner),
             distill_interval_s=float(os.environ.get("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260")),
+            completion_fn=self._team_completion_summary_fn(runner),
+            conversation_root=self.config.life_dir,
         )
 
     def _curator_distill_fn(self, runner: Any) -> Any:
@@ -789,6 +791,33 @@ class LifeWorker:
             return getattr(result, "last_agent_message", "") or ""
 
         return _distill
+
+    def _team_completion_summary_fn(self, runner: Any) -> Any:
+        """Use the Manager backend for one concise Team completion chat summary."""
+        backend = getattr(runner, "manager_backend", None) or getattr(runner, "backend", None)
+        if backend is None:
+            return None
+        from ..core.knobs import resolve_role_model
+
+        model = resolve_role_model("manager", role_env="ARGUS_SKILL_MODEL")
+        workdir = str(self.config.project_workdir) if self.config.project_workdir else None
+
+        def _summarize(prompt: str) -> str:
+            result = gateway_run_exec(
+                backend,
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=model or None,
+                    reasoning_effort="low",
+                    skip_git_repo_check=True,
+                    full_auto=True,
+                    working_dir=workdir,
+                ),
+                run_label="manager.team_summary",
+            )
+            return getattr(result, "last_agent_message", "") or ""
+
+        return _summarize
 
     def run_forever(self) -> int:
         self._install_signal_handlers()
