@@ -396,6 +396,50 @@ def test_plan_next_accepts_proof_task_for_hard_theorem_objective(
     ]
 
 
+def test_theorem_contract_allows_honest_prior_no_theorem_context(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "replace the prior finite route with proof work",
+        "new_tasks": [{
+            "title": "Prove structural no-C4/C8/C16 cubic lemma",
+            "objective": (
+                "State a precisely quantified nontrivial lemma and give a complete "
+                "self-contained rigorous proof. Do not accept the mission as a "
+                "successful finite-search-only report. Update the lemma graph and "
+                "claim ledger and require independent Reviewer acceptance."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": (
+                "Prior work has no theorem and only a bounded non-exhaustive prefix."
+            ),
+            "scope": "bounded",
+            "stage_closing": True,
+            "key": "structural-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove structural no-C4/C8/C16 cubic lemma"
+    ]
+
+
 def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
     monkeypatch, tmp_path,
 ) -> None:

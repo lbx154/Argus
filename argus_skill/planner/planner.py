@@ -154,18 +154,17 @@ def _theorem_proof_task_issue(task: TaskSpec) -> str:
 
     # A theorem-first mission may use these methods internally, but it cannot
     # declare success on a fallback that the operator explicitly excluded.
+    acceptance_text = " ".join(task.objective.lower().split())
     excluded_success_patterns = (
         r"feasibility evidence only",
         r"finite (?:verification|computation|enumeration) only",
         r"bounded [^.]{0,100} evidence only",
         r"resource[- ]limited [^.]{0,100} only",
         r"otherwise classify [^.]{0,120} only",
-        r"no theorem",
-        r"without (?:a )?(?:theorem|proof)",
         r"仅(?:作为|算作|提供).{0,30}(?:有限|可行性|枚举|计算)证据",
     )
     for pattern in excluded_success_patterns:
-        if re.search(pattern, text):
+        if re.search(pattern, acceptance_text):
             return "acceptance permits an excluded non-proof-only outcome"
     return ""
 
