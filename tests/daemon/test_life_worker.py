@@ -253,7 +253,11 @@ def test_inspect_project_bootstrap_heals_partial_research_seed(
     assert preflight.should_bootstrap is True
     assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
     assert "research/PIPELINE_STATE.json" not in preflight.missing_artifacts
+    assert "create only these missing" in preflight.bootstrap_objective
+    assert "`research/PIPELINE_STATE.json` already exists" in preflight.bootstrap_objective
+    assert "target_venue" in preflight.bootstrap_objective
     assert "research/EXPERIMENT_PLAN.md" in preflight.missing_artifacts
+    assert "`research/EXPERIMENT_PLAN.md`" in preflight.bootstrap_objective
     assert "research bootstrap requested" in preflight.event_text
     assert "missing research artifacts" in preflight.event_text
 
