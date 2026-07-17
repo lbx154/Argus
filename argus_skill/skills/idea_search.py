@@ -251,6 +251,7 @@ def augment_idea_candidates(
             options=RunnerOptions(
                 model=model,
                 reasoning_effort="high",
+                working_dir=str(Path(workdir).expanduser().resolve()),
                 skip_git_repo_check=True,
                 full_auto=True,
                 live_search=True,

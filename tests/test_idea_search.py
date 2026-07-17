@@ -157,7 +157,6 @@ def test_loop_emits_idea_search_events(tmp_path):
         json.dumps({"vertical": "research", "current_stage": "research"}),
         encoding="utf-8",
     )
-
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=""))
@@ -196,6 +195,8 @@ def test_loop_emits_idea_search_events(tmp_path):
     assert "idea-search" in labels
     opts = next(o for lbl, _p, o in backend.history if lbl == "idea-search")
     assert getattr(opts, "live_search", False) is True
+    assert opts.working_dir == str(tmp_path.resolve())
+    assert opts.full_auto is True
 
 
 def test_loop_idea_search_run_once_no_reemit(tmp_path):
@@ -317,5 +318,3 @@ def test_loop_skips_idea_search_when_paper_mode_is_not_explicit(tmp_path):
 
     assert "idea.search.started" not in [e.get("type") for e in events]
     assert "idea-search" not in [label for label, _prompt, _opts in backend.history]
-
-
