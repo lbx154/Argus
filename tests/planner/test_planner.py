@@ -425,6 +425,15 @@ def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
     assert "waiting=true" in text and "waiting_contract" in text
 
 
+def test_planner_does_not_repeat_skill_loading_in_task_objectives() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    compact = " ".join(text.split())
+
+    assert "Do not tell the Engineer to export, open, or read built-in skill files" in compact
+    assert "SkillLoop already matches and task-adapts" in compact
+    assert "Name at most one exact skill" in compact
+
+
 def test_stage_ordering_rule_in_role() -> None:
     """The role must carry a GENERAL stage-ordering rule (all verticals):
     finish the current stage before any downstream work; no skipping."""

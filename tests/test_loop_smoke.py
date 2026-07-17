@@ -230,6 +230,17 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     )
     assert "Task-adapted skill guideline" in engineer_prompt
     assert "Emit exactly one concise greeting" in engineer_prompt
+    reviewer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "reviewer"
+    )
+    assert "Engineer skill pointer (on demand)" in reviewer_prompt
+    assert "Write a hello message" in reviewer_prompt
+    assert "Expected version/hash" in reviewer_prompt
+    assert "sha256:" in reviewer_prompt
+    assert "Do not read it by default" in reviewer_prompt
+    assert "## Examples" not in reviewer_prompt
+    pointer = reviewer_prompt.split("## Engineer skill pointer (on demand)", 1)[1]
+    assert len(pointer.split("## Stage checklist", 1)[0]) < 500
     assert any(event.get("type") == "skill.transfer.completed" for event in events)
 
 

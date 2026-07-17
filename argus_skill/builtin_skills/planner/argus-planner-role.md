@@ -38,6 +38,10 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   acceptance criteria. Keep it short-horizon: one clear outcome, a small set of tightly
   related artifacts, and one decisive acceptance check. Split work at natural artifact
   or decision boundaries; never queue cosmetic make-work merely to stay busy.
+- Do not tell the Engineer to export, open, or read built-in skill files as a setup
+  step. SkillLoop already matches and task-adapts the relevant playbook before execution.
+  State the required outcome and evidence instead. Name at most one exact skill only when
+  a rare method-specific contract must be consulted beyond the injected guideline.
 - Set `waiting=true` only when a verified live, nonterminal external job is healthy, or
   a non-local external capability blocker is documented by a written action artifact
   naming the required operator action, and no independent high-impact work remains.

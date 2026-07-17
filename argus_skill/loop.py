@@ -21,6 +21,7 @@ End-to-end shape:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -58,6 +59,37 @@ _ADAPTATION_FAILURE_CAUSES: frozenset[str] = frozenset({
     "method_failure",
     "skill_gap",
 })
+
+
+def _reviewer_engineer_skill_pointer(
+    skill: Skill,
+    rendered_skill: str,
+) -> str:
+    """Compact reference to the Engineer's matched skill for L2 review.
+
+    The Reviewer already receives the objective and authoritative stage checklist.
+    Reinjecting the full Engineer playbook duplicates thousands of tokens on every
+    Reviewer tool turn. Keep provenance and an on-demand path without prescribing
+    a second read of the whole skill.
+    """
+    description = " ".join(str(skill.description or "").split())[:80]
+    path = str(skill.path or "").replace("`", "'")
+    digest = hashlib.sha256(rendered_skill.encode("utf-8")).hexdigest()[:16]
+    lines = [
+        "## Engineer skill pointer (on demand)",
+        f"- Used by Engineer: `{skill.name}`",
+        f"- Expected version/hash: `{skill.version}` / `sha256:{digest}`",
+    ]
+    if description:
+        lines.append(f"- Purpose: {description}")
+    if path:
+        lines.append(f"- Source: `{path}`")
+    lines.append(
+        "- Do not read it by default. If needed for a material claim, verify this "
+        "hash first; current objective/artifacts remain authoritative."
+    )
+    return "\n".join(lines)
+
 
 # Generic words that distinguish neither software tasks nor reusable skills.
 # In particular, project/framework names and playbook boilerplate must not make
@@ -561,8 +593,18 @@ class SkillLoop:
         reviewer_skill_block = render_skill_playbook(
             self.skill_store,
             reference_skills[:1],
-            primary_skills[:1] if strict_skill_hit else [],
+            [],
         )
+        if strict_skill_hit and skill is not None:
+            pointer = _reviewer_engineer_skill_pointer(
+                skill,
+                self.skill_store.render_skill(skill),
+            )
+            reviewer_skill_block = (
+                f"{reviewer_skill_block}\n\n{pointer}"
+                if reviewer_skill_block
+                else pointer
+            )
         nearest_transfer_fallback = False
         low_confidence_transfer_hint = ""
         skill_distilled = False

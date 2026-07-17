@@ -325,36 +325,27 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.environment_preflight",
             statement=(
-                "Every pilot / full / ablation launch is preceded by a fresh "
-                "Environment Readiness Gate run (`argus_builtin_skills/"
-                "engineer/environment-readiness-gate.md`). The verbatim "
-                "preflight output is captured to `experiments/runs/<run_id>/"
-                "preflight.txt` for THAT run_id — not reused from an earlier "
-                "run. It verifies the environment, public data/evaluator, storage, "
-                "and compute/API resources actually used by that run. GPU, HF, "
-                "model-weight, and API checks are conditional rather than universal. "
-                "A run launched without its applicable preflight is treated as "
-                "uncertified evidence."
+                "Each pilot/full/ablation launch has a fresh, run-specific "
+                "Environment Readiness Gate transcript. Verify only resources that "
+                "run actually uses (environment, data/evaluator, storage, GPU/model/API "
+                "as applicable); an applicable failed or missing preflight means the "
+                "run is uncertified."
             ),
             evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
         ChecklistItem(
             id="run.model_instruct_not_base",
             statement=(
-                "Every method/baseline that must follow prompts, format answers, "
-                "or do reasoning RL/eval runs on an INSTRUCTION-TUNED checkpoint "
-                "(`-Instruct`/`-Chat`/`-IT`), not the same-size base/pretrained "
-                "model — e.g. `Qwen3.5-9B-Instruct`, not `Qwen3.5-9B-base`. A base "
-                "checkpoint has no instruction-following prior, so near-chance or "
-                "format-collapsed outputs read as a dead method when the real "
-                "cause is the wrong model. The manifest's declared model id and "
-                "the preflight weights path must name the instruct variant. A base "
-                "model is acceptable only when the experiment is explicitly about "
-                "base-model behaviour and says so. This item is NOT APPLICABLE to "
-                "non-LLM experiments or experiments that do not require instruction "
-                "following."
+                "Prompt-following/reasoning methods use an instruction/post-trained "
+                "checkpoint: the manifest model ID, model-card evidence, and actual "
+                "checkpoint/weights path loaded in preflight must agree. A base model "
+                "is allowed only for an explicitly base-model experiment. N/A for "
+                "non-LLM work or tasks requiring no instruction following."
             ),
-            evidence_hint="experiments/<run>/manifest.json model id ends in an instruct/chat variant",
+            evidence_hint=(
+                "manifest model ID + model-card evidence + preflight loaded "
+                "checkpoint/weights path"
+            ),
         ),
         ChecklistItem(
             id="run.manifests",
@@ -388,14 +379,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.score_variance",
             statement=(
-                "Scored rows reflect a real scoring distribution. The reviewer "
-                "must spot-check at least one `scored_rows.jsonl` per benchmark "
-                "family and confirm that the `score` column varies across rows. "
-                "A file with >3 rows whose scores are all identical (e.g. all "
-                "1.0 or all 0.0) is treated as stub evidence — fail this item "
-                "and require the engineer to wire in the real scorer (see "
-                "`benchmark.evaluator_authentic`) before declaring the run "
-                "stage done."
+                "Spot-check scored rows per evidence family. A file with >3 rows "
+                "and one identical score throughout is stub evidence unless the "
+                "official task genuinely permits that outcome; require the authentic "
+                "scorer before completing run."
             ),
             evidence_hint=(
                 "`jq -r .score experiments/runs/<id>/results/<family>/scored_rows.jsonl"
@@ -405,26 +392,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.method_diagnosis_recall",
             statement=(
-                "Before declaring any method DEAD on an underperformance / no-go "
-                "result, attribute the cause from the EXECUTED run's own manifest "
-                "+ diagnostics, NOT from the fact that it matched the plan (a plan "
-                "can itself be underpowered). Identify the method family from the "
-                "plan/manifest; if a method-specific failure-mode skill exists for "
-                "it (a matched or known `*-diagnosis` / `*-collapse` playbook — "
-                "e.g. for RL/preference post-training, "
-                "`rl-training-collapse-diagnosis`), CONSULT it before configuring "
-                "the run AND before judging the result, and apply ITS signatures "
-                "and thresholds — do not re-derive them here. Classify the "
-                "outcome as exactly one of `misconfigured_run` (re-run with the "
-                "correction the skill names; do NOT record the idea as dead), "
-                "`method_failure` (one fair, well-configured run STILL lost — the "
-                "method may be retired), or `infeasible_under_budget` (a fair "
-                "regime is unreachable within compute/budget; not an experimental "
-                "refutation of the idea). Do not demand endless reruns: once one "
-                "fair run exists, or the regime is infeasible, let the verdict "
-                "stand, and never authorize another rerun without a named, "
-                "artifact-backed diagnosis (generic 'more scale' is not one). "
-                "N/A when no method-specific diagnosis skill applies."
+                "Before killing an underperforming method, use its executed manifest/"
+                "diagnostics and any applicable `*-diagnosis` skill. Classify exactly "
+                "as `misconfigured_run`, `method_failure`, or "
+                "`infeasible_under_budget`; rerun only for a named artifact-backed "
+                "correction, not generic more scale. N/A when no method-specific "
+                "diagnosis applies."
             ),
             evidence_hint=(
                 "experiments/<run>/manifest.json executed knobs + progress.jsonl "
@@ -436,36 +409,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.learning_validity",
             statement=(
-                "The MIRROR of method_diagnosis_recall, guarding the opposite "
-                "error: before citing a high / rising / flat / stable reward (or "
-                "any metric trend) as evidence that a run is healthy / "
-                "learning / successful, JUSTIFY that inference — do not treat a "
-                "good-looking reward as success by default. The reviewer must "
-                "rule out the invalid explanations for the signal using the "
-                "matched `*-diagnosis` / `*-collapse` skill (for RL/preference "
-                "post-training, `rl-training-collapse-diagnosis`) and the "
-                "harness's advisory run-health signals: memorisation of a tiny "
-                "admitted / curriculum-repeated set (check the DISTINCT-TASK "
-                "count, not just the reward level), reward-ceiling saturation, "
-                "zero-advantage / zero-variance collapse, a buffer-diluted "
-                "variance metric that only LOOKS healthy "
-                "(`variance_metric_masks_saturation`), evaluator leakage, and "
-                "reward hacking. Treat advisory tokens such as "
-                "`low_task_diversity`, `reward_ceiling_saturation`, "
-                "`variance_metric_masks_saturation`, `zero_advantage` as facts "
-                "to ADDRESS with evidence, NOT as automatic verdicts. You MAY "
-                "mark this satisfied for a legitimately easy / converged run or "
-                "an intentionally tiny / smoke / memorisation-bounded run, but "
-                "ONLY with evidence that NARROWS the claim accordingly — e.g. "
-                "held-out / generalisation evidence, distinct-task coverage "
-                "sufficient for the stated claim, non-saturated "
-                "advantage/variance, or an explicit statement that the result "
-                "shows only 'solves this fixed small set', not general learning. "
-                "An unqualified 'healthy / converged' verdict on a saturated, "
-                "memorised, or reward-hacked run is NOT satisfied. N/A when no "
-                "metric trend is being used as evidence of learning/success "
-                "(e.g. a pure infra/wiring probe), or no method-specific "
-                "diagnosis skill applies."
+                "Before treating a metric trend as learning, use the applicable "
+                "diagnosis skill and evidence to rule out memorisation (including "
+                "distinct-task coverage), saturation, zero variance/advantage, "
+                "leakage, and reward hacking. Address `low_task_diversity` and "
+                "`variance_metric_masks_saturation` as evidence signals, not automatic "
+                "verdicts; narrow claims for intentional smoke/easy runs. N/A for "
+                "pure wiring probes or when no learning claim/diagnosis applies."
             ),
             evidence_hint=(
                 "experiments/<run>/progress.jsonl reward/advantage/variance "
@@ -477,22 +427,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.gpu_saturation",
             statement=(
-                "GPU-bound training / inference runs must actually saturate the "
-                "allocated cards per the Hardware saturation contract in "
-                "`argus_builtin_skills/engineer/training-infrastructure-guide.md`. "
-                "Two things are required: (1) the run RECORDS real hardware "
-                "telemetry — peak VRAM per GPU, observed GPU util%, and throughput "
-                "(step time or samples/sec) — in its manifest/status/progress, not "
-                "left null or absent; and (2) those numbers show MEANINGFUL "
-                "saturation on every allocated card — aim for ≳70% VRAM in steady "
-                "state. A run that leaves allocated A100/H100-class cards "
-                "persistently idle or at ≲55% VRAM (e.g. a `gpu_memory_utilization` "
-                "/ batch / `num_generations` / sequence-length default left low) is "
-                "wasted budget: fail this item and require the engineer to raise the "
-                "saturation knobs and rerun, rather than band-aiding the generated "
-                "run scripts. N/A only for API-route / no-GPU experiments, or a run "
-                "explicitly bounded as a smoke/ablation that records the deliberate "
-                "reason for going small."
+                "GPU runs record per-card peak VRAM, utilization, and throughput and "
+                "use allocated hardware meaningfully under the training-infrastructure "
+                "saturation contract. Persistently idle/low-use cards require a named "
+                "bounded reason or reconfiguration. N/A for no-GPU/API work and "
+                "explicit small smoke/ablations."
             ),
             evidence_hint=(
                 "experiments/<run>/{manifest,status}.json or progress.jsonl record "
@@ -505,17 +444,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.plan_execution_contract_match",
             statement=(
-                "Every full-scale (`scale=full`) training run faithfully "
-                "EXECUTES the frozen research/RUN_CONTRACT.json: the run "
-                "manifest cites the contract_hash, and the launched learning "
-                "rate, group size / num_generations, total steps, batch size, "
-                "model id, and curriculum hash match the contract — no drift. "
-                "The subagent pre-launch interlock refuses a drifting or "
-                "contract-less full-scale RL launch, so a run that reached GPU "
-                "without a matching contract is wasted budget. Re-verify with "
-                "`python -m argus_skill.skills.run_contract check-launch ...`. "
-                "This is a provenance/anti-drift check, not a science verdict. "
-                "N/A for non-training projects or explicitly-bounded pilots."
+                "Every `scale=full` training launch cites the frozen RUN_CONTRACT "
+                "hash and matches its model, curriculum, and launch knobs; "
+                "`check-launch` must pass before GPU work. This is anti-drift "
+                "provenance, not a science verdict. N/A for non-training work or "
+                "explicit bounded pilots."
             ),
             evidence_hint=(
                 "experiments/<run>/manifest.json contract_hash matches "
@@ -525,20 +458,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.curriculum_feasibility_packet",
             statement=(
-                "Before each full-scale run committed GPU, a FEASIBILITY "
-                "PACKET was produced on the EXACT curriculum the run consumes "
-                "(same content hash, post-decontamination, with the real "
-                "repetition factor): it shows the distinct-task count is large "
-                "vs the planned rollout volume (NOT a memorisation regime) AND "
-                "a short probe was non-saturating (advantage span > 0, reward "
-                "not pinned at the ceiling, within-group reward contrast "
-                "present) — OR the run is explicitly labelled smoke_only and is "
-                "NOT cited as general-learning evidence. This closes the gap "
-                "where a readiness screen validated a different slice than the "
-                "full run consumed, so the run saturated mid-flight at zero "
-                "advantage. Build/check with `python -m "
-                "argus_skill.skills.run_contract build-packet` then "
-                "`check-launch`. N/A for non-training projects."
+                "Before full training, a feasibility packet matches the exact "
+                "post-decontamination curriculum hash/repetition and shows adequate "
+                "distinct-task diversity plus a non-saturated real probe; otherwise "
+                "label the run `smoke_only` and never cite it as general learning. "
+                "Build/check through run_contract. N/A for non-training work."
             ),
             evidence_hint=(
                 "feasibility packet JSON whose curriculum_hash == the run's, "

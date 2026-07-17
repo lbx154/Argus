@@ -12,8 +12,11 @@ Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -61,6 +64,49 @@ RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.js
 LEGACY_RESEARCH_SCHEMA_PATH = str(
     Path(__file__).with_name("reviewer_legacy_research_schema.json")
 )
+
+
+def _compact_schema_for_backend(
+    schema_path: str,
+    schema_contract: bytes,
+) -> tuple[str, bytes]:
+    """Return a content-addressed minified schema path for provider input.
+
+    Keep the checked-in schema readable, but do not spend tokens on indentation
+    and descriptive whitespace every review turn. Any parse/cache failure falls
+    back to the authoritative original bytes/path.
+    """
+    try:
+        payload = json.loads(schema_contract)
+        compact = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(compact) >= len(schema_contract):
+            return schema_path, schema_contract
+        digest = hashlib.sha256(compact).hexdigest()[:20]
+        cache_dir = Path(tempfile.gettempdir()) / "argus-skill-reviewer-schemas"
+        cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        cached_path = cache_dir / f"{Path(schema_path).stem}-{digest}.json"
+        if not cached_path.exists() or cached_path.read_bytes() != compact:
+            fd, temp_name = tempfile.mkstemp(
+                dir=cache_dir,
+                prefix=f".{cached_path.name}.",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(compact)
+                os.replace(temp_name, cached_path)
+            finally:
+                try:
+                    os.unlink(temp_name)
+                except FileNotFoundError:
+                    pass
+        return str(cached_path), compact
+    except (OSError, TypeError, ValueError):
+        return schema_path, schema_contract
 
 
 def _project_has_wiki(
@@ -425,6 +471,10 @@ class Reviewer:
         try:
             if schema_path:
                 schema_contract = Path(schema_path).read_bytes()
+                schema_path, schema_contract = _compact_schema_for_backend(
+                    schema_path,
+                    schema_contract,
+                )
         except OSError as exc:
             reason = (
                 "Reviewer output-schema file is unavailable (missing or unreadable) at "
@@ -724,8 +774,9 @@ class Reviewer:
         if preselected_skill_block is not None:
             if preselected_skill_block.strip():
                 matched_review_skill_block = (
-                    "Matched reviewer skill(s) selected by the mission's single "
-                    "matcher pass (read first; apply only what is relevant):\n"
+                    "Preselected mission skill context from the single matcher pass "
+                    "(apply what is relevant; follow any on-demand read instruction "
+                    "inside):\n"
                     f"{preselected_skill_block.strip()}\n\n"
                 )
         elif self.skill_store is not None:

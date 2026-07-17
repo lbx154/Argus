@@ -12,7 +12,15 @@ role/routing/schema explanations must stay compact.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
 from argus_skill.reviewer import Reviewer
+from argus_skill.reviewer._core import (
+    SCHEMA_PATH,
+    _compact_schema_for_backend,
+)
 
 # The token-efficiency pass reduced this representative prompt from ~40k to
 # ~10k chars. Keep modest headroom without permitting role-policy re-bloat.
@@ -77,3 +85,30 @@ def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
     assert stats["main_summary"]["chars"] == len("RESULT: evidence exists")
     assert stats["static_total"]["estimated_tokens"] > 0
     assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)
+
+
+def test_backend_schema_is_minified_without_semantic_change() -> None:
+    source = Path(SCHEMA_PATH).read_bytes()
+    compact_path, compact = _compact_schema_for_backend(SCHEMA_PATH, source)
+
+    assert json.loads(compact) == json.loads(source)
+    assert Path(compact_path).read_bytes() == compact
+    assert len(compact) < len(source) * 0.6
+    assert (len(compact) + 3) // 4 < 1_200
+
+
+def test_compact_schema_cache_is_safe_under_concurrent_reviewers() -> None:
+    source = Path(SCHEMA_PATH).read_bytes()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(
+            pool.map(
+                lambda _index: _compact_schema_for_backend(SCHEMA_PATH, source),
+                range(32),
+            )
+        )
+
+    paths = {path for path, _contract in results}
+    assert len(paths) == 1
+    cached_path = Path(next(iter(paths)))
+    assert cached_path.read_bytes() == results[0][1]
+    assert json.loads(cached_path.read_bytes()) == json.loads(source)
