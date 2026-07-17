@@ -15,7 +15,9 @@ essentials so the one-off ``run_exec`` call is self-contained.
 """
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,48 @@ from .venue_profiles import (
 )
 
 log = logging.getLogger(__name__)
+VENUE_RESEARCH_ATTEMPT_FILENAME = "VENUE_RESEARCH_ATTEMPT.json"
+
+
+def _attempt_path(workdir: Any) -> Path:
+    return Path(workdir) / "research" / VENUE_RESEARCH_ATTEMPT_FILENAME
+
+
+def _attempt_key(venue: str | None) -> str:
+    return " ".join(str(venue or "").strip().split()).casefold()
+
+
+def _completed_attempt_matches(workdir: Any, venue: str | None) -> bool:
+    try:
+        payload = json.loads(_attempt_path(workdir).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("schema_version") == 1
+        and str(payload.get("target_venue") or "").casefold() == _attempt_key(venue)
+        and payload.get("provider_call_completed") is True
+    )
+
+
+def _record_completed_attempt(workdir: Any, venue: str | None) -> None:
+    path = _attempt_path(workdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "target_venue": _attempt_key(venue),
+                "attempted_at": datetime.now(timezone.utc).isoformat(),
+                "provider_call_completed": True,
+                "profile_created": load_local_venue_profile(Path(workdir)) is not None,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _target_venue(workdir: Any) -> str | None:
@@ -44,6 +88,8 @@ def needs_venue_research(workdir: Any) -> bool:
         if venue_profile_path(Path(workdir)).is_file():
             return False
         venue = _target_venue(workdir)
+        if _completed_attempt_matches(workdir, venue):
+            return False
         return not venue or not is_builtin_venue(venue)
     except Exception:  # noqa: BLE001 — never let the guard raise
         return False
@@ -132,12 +178,14 @@ def research_venue_profile(
             options=RunnerOptions(
                 model=model,
                 reasoning_effort="high",
+                working_dir=str(Path(workdir).expanduser().resolve()),
                 skip_git_repo_check=True,
                 full_auto=True,
                 live_search=True,
             ),
             run_label="venue-research",
         )
+        _record_completed_attempt(workdir, venue)
         # Verify the agent actually produced a loadable profile.
         return load_local_venue_profile(Path(workdir)) is not None
     except Exception:  # noqa: BLE001 — must never break the loop

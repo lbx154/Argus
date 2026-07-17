@@ -113,6 +113,15 @@ def test_research_vertical_defaults_to_proportional_evidence_reuse(
     assert resolve_evidence_mode(tmp_path) == "proportional"
 
 
+def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "research", target_venue="  AAAI 2026  ")
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["target_venue"] == "AAAI 2026"
+
+
 def test_explicit_staged_mode_overrides_research_vertical_default(
     tmp_path: Path,
 ) -> None:

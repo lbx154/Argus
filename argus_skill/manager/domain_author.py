@@ -237,6 +237,10 @@ class VerticalDecision:
     # Optional research success bar, decided from the operator's requested
     # outcome rather than re-inferred by Planner/Reviewer/Life independently.
     research_target_level: str = ""
+    # Publication venue explicitly named by the operator for research work.
+    # Empty means "not explicitly selected"; venue discovery remains a separate
+    # bounded research operation rather than a keyword guess in the harness.
+    target_venue: str = ""
     # Raw validated Manager response, applied only when the decision commits.
     rendering_response: str = ""
 
@@ -257,6 +261,7 @@ class FastVerticalRoute:
     confidence: float = 0.0
     rationale: str = ""
     research_target_level: str = ""
+    target_venue: str = ""
 
 
 def build_fast_vertical_decision_prompt(
@@ -297,14 +302,17 @@ def build_fast_vertical_decision_prompt(
         "The following existing verticals require a research target level: "
         f"{target_verticals}. For one of those, use `exploratory`, `publishable`, "
         "or `doctoral` according to the operator's requested success bar. For "
-        "all other verticals use null.\n\n"
+        "all other verticals use null. If and only if the operator explicitly "
+        "names a publication venue for a `research` task, copy it into "
+        "`target_venue`; otherwise use null. Never infer a venue from topic.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         "Reply with exactly one compact JSON object and nothing else:\n"
         '{"choice":"existing","vertical":"<existing name>",'
         '"workflow_mode":"direct|staged",'
         '"confidence":<0.0-1.0>,"research_target_level":'
-        '"<exploratory|publishable|doctoral>"|null,"rationale":"<brief>"}\n'
+        '"<exploratory|publishable|doctoral>"|null,'
+        '"target_venue":"<explicit venue>"|null,"rationale":"<brief>"}\n'
         "OR\n"
         '{"choice":"grounded","confidence":<0.0-1.0>,'
         '"rationale":"<what additional context is needed>"}\n'
@@ -363,6 +371,11 @@ def parse_fast_vertical_decision(
         return None
     if name not in targeted:
         target_level = ""
+    target_venue = " ".join(
+        str(obj.get("target_venue") or "").strip().split()
+    )[:100]
+    if name != "research":
+        target_venue = ""
     return FastVerticalRoute(
         needs_grounding=False,
         vertical=name,
@@ -370,6 +383,7 @@ def parse_fast_vertical_decision(
         confidence=confidence,
         rationale=rationale,
         research_target_level=target_level,
+        target_venue=target_venue,
     )
 
 
@@ -450,7 +464,9 @@ def build_vertical_decision_prompt(
         "satisfy the request; `publishable` when success requires a verified "
         "original result of publication significance; `doctoral` when success "
         "explicitly requires doctoral/thesis-level original research. For every "
-        "vertical outside that declared set, set it to null.\n\n"
+        "vertical outside that declared set, set it to null. For a `research` "
+        "vertical, copy an explicitly operator-named publication venue into "
+        "`target_venue`; otherwise use null. Do not infer one from the topic.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
@@ -458,7 +474,8 @@ def build_vertical_decision_prompt(
         '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"research_target_level": "<exploratory|publishable|doctoral when the '
-        'vertical declares a target contract, otherwise null>"}\n'
+        'vertical declares a target contract, otherwise null>", '
+        '"target_venue": "<explicit venue for research>"|null}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
@@ -577,6 +594,11 @@ def parse_vertical_decision(
             return None
         if name not in targeted:
             target_level = ""
+        target_venue = " ".join(
+            str(obj.get("target_venue") or "").strip().split()
+        )[:100]
+        if name != "research":
+            target_venue = ""
         if name and name in known:
             return VerticalDecision(
                 choice="existing",
@@ -587,6 +609,7 @@ def parse_vertical_decision(
                 live_view_decided=live_view_decided,
                 execution_task=execution_task,
                 research_target_level=target_level,
+                target_venue=target_venue,
             )
         return None
     if choice == "new":

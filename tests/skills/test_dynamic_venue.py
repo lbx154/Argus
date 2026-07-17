@@ -168,6 +168,7 @@ def test_research_venue_profile_writes_and_resolves(tmp_path):
     class MockRunner:
         def run_exec(self, *, prompt, options, run_label):
             assert options.live_search is True and run_label == "venue-research"
+            assert options.working_dir == str(root.resolve())
             write_venue_profile(
                 root,
                 VenueProfile(
@@ -212,6 +213,36 @@ def test_research_venue_profile_fail_open(tmp_path):
     # never raises; no profile produced -> False
     assert research_venue_profile(BadRunner(), root) is False
     assert load_local_venue_profile(root) is None
+
+
+def test_completed_failed_selection_is_not_retried_every_mission(tmp_path):
+    root = tmp_path
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research"}), encoding="utf-8"
+    )
+
+    class NoProfileRunner:
+        calls = 0
+
+        def run_exec(self, **_):
+            self.calls += 1
+            return type("R", (), {"exit_code": 0, "agent_messages": ["no open venue"]})()
+
+    runner = NoProfileRunner()
+    assert research_venue_profile(runner, root) is False
+    assert runner.calls == 1
+    assert needs_venue_research(root) is False
+    assert research_venue_profile(runner, root) is False
+    assert runner.calls == 1
+
+    attempt = json.loads(
+        (root / "research" / "VENUE_RESEARCH_ATTEMPT.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert attempt["provider_call_completed"] is True
+    assert attempt["profile_created"] is False
 
 
 def test_memory_bootstrap_does_not_seed_implicit_emnlp(

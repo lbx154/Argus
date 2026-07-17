@@ -803,6 +803,7 @@ class Manager:
                         workflow_mode=fast_route.workflow_mode,
                         execution_task=task.strip(),
                         research_target_level=fast_route.research_target_level,
+                        target_venue=fast_route.target_venue,
                     )
                 log.info(
                     "Manager fast route escalated to grounded routing: %s",
@@ -1051,6 +1052,7 @@ class Manager:
                 vertical,
                 research_target_level=decision.research_target_level or None,
                 workflow_mode=decision.workflow_mode,
+                target_venue=decision.target_venue or None,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,

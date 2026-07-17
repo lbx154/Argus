@@ -166,6 +166,29 @@ def test_math_divide_persists_manager_owned_research_target(
     assert state["research_target_set_at"] > 0
 
 
+def test_research_divide_persists_explicit_target_venue(tmp_path) -> None:
+    runner = _DecisionRunner(
+        {
+            "choice": "existing",
+            "vertical": "research",
+            "workflow_mode": "staged",
+            "confidence": 0.99,
+            "execution_task": "write the requested paper",
+            "target_venue": "AAAI",
+        }
+    )
+
+    division = Manager(project_root=tmp_path, runner=runner).divide(
+        "produce the requested AAAI paper"
+    )
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
+    )
+    assert division.vertical == "research"
+    assert state["target_venue"] == "AAAI"
+
+
 def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
     decision = parse_vertical_decision(
         json.dumps({

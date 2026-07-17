@@ -381,6 +381,7 @@ def persist_vertical(
     *,
     research_target_level: str | None = None,
     workflow_mode: str | None = None,
+    target_venue: str | None = None,
 ) -> None:
     """Persist the chosen ``vertical`` into ``research/PIPELINE_STATE.json``.
 
@@ -423,6 +424,10 @@ def persist_vertical(
             )
 
     payload["vertical"] = vert
+    if target_venue is not None:
+        venue = " ".join(str(target_venue).strip().split())[:100]
+        if venue:
+            payload["target_venue"] = venue
     if workflow_mode is None and legacy_direct:
         workflow_mode = "direct"
     if workflow_mode is not None:
