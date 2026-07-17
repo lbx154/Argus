@@ -8,6 +8,9 @@ argus --setup
 argus
 ```
 
+`argus --setup` creates the required trusted baseline house-rules directive
+when none exists and preserves any operator-authored directives.
+
 `argus` opens the terminal cockpit. `argus --web` starts and opens the Web UI.
 The compatibility command `argus-skill` remains available for administrative
 operations.

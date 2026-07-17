@@ -161,13 +161,12 @@ pip install -e .
 argus-skill --setup
 ```
 
-Before starting a daemon, configure at least one trusted machine-policy prompt:
+The setup wizard creates a trusted baseline machine-policy prompt when none
+exists. It never overwrites operator-authored prompts. Customize the generated
+directive when the machine has additional house rules:
 
 ```bash
-mkdir -p ~/.argus-skill/special_prompts
-printf 'Operational policy for this machine.\n' \
-  > ~/.argus-skill/special_prompts/10-machine-policy.md
-chmod 0644 ~/.argus-skill/special_prompts/10-machine-policy.md
+${EDITOR:-vi} ~/.argus-skill/special_prompts/10-house-rules.md
 ```
 
 Start a continuous project from its working directory:

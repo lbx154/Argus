@@ -215,6 +215,15 @@ def _special_prompts_dir() -> Path:
     return d
 
 
+_DEFAULT_HOUSE_RULES_PROMPT_NAME = "10-house-rules.md"
+_DEFAULT_HOUSE_RULES_PROMPT_BODY = (
+    "# Machine house rules\n\n"
+    "Work only within projects and resources explicitly assigned by the operator. "
+    "Do not modify unrelated jobs, processes, data, or credentials. Report failures "
+    "and measured results honestly; never fabricate evidence.\n"
+)
+
+
 def _gpu_load_script_path() -> Path:
     """Absolute path to the bundled standalone keep-alive loader."""
     return (Path(__file__).resolve().parent / "gpu_load.py")
@@ -361,6 +370,27 @@ def _write_special_prompt(name: str, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     os.chmod(path, 0o644)
     return path
+
+
+def _ensure_default_house_rules_prompt() -> Path | None:
+    """Create a trusted baseline directive when setup has no operator prompt.
+
+    Existing trusted directives already satisfy the launch gate and remain
+    untouched. If the preferred filename exists but is empty or untrusted, keep
+    that operator-owned file intact and choose a setup-specific fallback name.
+    """
+    from ..life.special_prompts import load_special_prompts
+
+    if load_special_prompts():
+        return None
+
+    directory = _special_prompts_dir()
+    candidate = directory / _DEFAULT_HOUSE_RULES_PROMPT_NAME
+    suffix = 0
+    while candidate.exists():
+        suffix += 1
+        candidate = directory / f"10-house-rules-setup-{suffix}.md"
+    return _write_special_prompt(candidate.name, _DEFAULT_HOUSE_RULES_PROMPT_BODY)
 
 
 # -- Experiment use of the configured model API ----------------------------
@@ -956,6 +986,17 @@ def run_setup() -> int:
         cfg, auth = codex_paths
         print(f"  {_green('✓')} codex config → {cfg}")
         print(f"  {_green('✓')} codex auth   → {auth}")
+
+    house_rules_path = _ensure_default_house_rules_prompt()
+    if house_rules_path is not None:
+        print(f"  {_green('✓')} Base house rules → {house_rules_path}")
+        if house_rules_path.name != _DEFAULT_HOUSE_RULES_PROMPT_NAME:
+            print(
+                _yellow(
+                    f"  Existing {_DEFAULT_HOUSE_RULES_PROMPT_NAME} was preserved "
+                    "because it did not pass the trust gate."
+                )
+            )
 
     _check_codex_prereq()
     print()

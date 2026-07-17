@@ -124,13 +124,11 @@ pip install -e .
 argus-skill --setup
 ```
 
-启动 daemon 前，先配置至少一份受信任的机器策略：
+如果尚无机器策略，setup 向导会自动生成一份受信任的基础策略，并且绝不会覆盖 operator
+已有的 prompt。机器有额外操作规则时，直接编辑生成的文件：
 
 ```bash
-mkdir -p ~/.argus-skill/special_prompts
-printf 'Operational policy for this machine.\n' \
-  > ~/.argus-skill/special_prompts/10-machine-policy.md
-chmod 0644 ~/.argus-skill/special_prompts/10-machine-policy.md
+${EDITOR:-vi} ~/.argus-skill/special_prompts/10-house-rules.md
 ```
 
 从目标项目目录启动一个持续运行的项目：
