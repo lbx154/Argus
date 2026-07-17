@@ -66,7 +66,6 @@ MAX_RULE_LEN = 1200
 PROTECTED_ITEM_IDS = frozenset({
     "research.go_no_go",
     "benchmark.evaluator_authentic",
-    "run.model_instruct_not_base",
     "run.score_variance",
     "run.method_diagnosis_recall",
     "analysis.claims",

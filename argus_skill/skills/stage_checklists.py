@@ -150,9 +150,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="plan.benchmark",
             statement=(
                 "The evaluation-source and comparator plan matches the empirical "
-                "domain. Computational benchmark projects name at least 3 "
-                "independent real benchmark families (not 3 splits of the same "
-                "dataset), with URL, license, task count, and capability tested. "
+                "domain. Every final empirical claim includes at least one "
+                "appropriate public benchmark, dataset, task suite, challenge, or "
+                "official evaluation release with URL, version, license/access, "
+                "evaluation unit, metric, and claim tested. The number of public "
+                "sources, tasks, models, and repeats is justified by the claim scope "
+                "and uncertainty method rather than a universal quota. "
                 "Clinical or mechanism projects instead enumerate every real public "
                 "data source, comparator/control, and planned cohort, including "
                 "source URL (or the prospective registry plan), license/access "
@@ -255,44 +258,45 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="benchmark.environment_preflight",
             statement=(
-                "Before the first real scoring call, the engineer ran the "
+                "Before the first real evidence-producing call, the engineer ran the "
                 "Environment Readiness Gate (`argus_builtin_skills/engineer/"
                 "environment-readiness-gate.md`) and captured the verbatim "
                 "output to `experiments/runs/<run_id>/preflight.txt`. The "
-                "preflight must show: project `.venv` active (NOT the Argus "
-                "framework venv), `CUDA_VISIBLE_DEVICES` matches the vault, "
-                "every chosen-framework `import` succeeds, `torch.cuda.is_"
-                "available()` is True, HF/Torch cache env vars point under "
-                "`<project>/models/`, the base model weights are on disk, "
-                "and any reward/scoring API route returns a non-empty test "
-                "response. No preflight evidence ⇒ this item fails ⇒ no "
-                "downstream benchmark item can be ticked."
+                "preflight verifies only resources the experiment actually uses: "
+                "the declared project environment, required framework/compiler "
+                "imports, public data access, evaluator availability, storage, and "
+                "the selected compute backend. CUDA, HF caches, model weights, or API "
+                "routes are required only when the run uses them. No applicable "
+                "preflight evidence means downstream benchmark items remain open."
             ),
             evidence_hint="experiments/runs/<run_id>/preflight.txt",
         ),
         ChecklistItem(
             id="benchmark.tasks",
             statement=(
-                "Each selected benchmark family has runnable task files prepared "
-                "with their official gold answers (not hand-written placeholders) "
-                "and a deterministic loader."
+                "Each selected public evidence source has a reproducible loader or "
+                "retrieval path and its official labels, outcomes, evaluator, or "
+                "analysis semantics. Locally generated diagnostics are clearly "
+                "separated and never presented as the public benchmark."
             ),
-            evidence_hint="benchmarks/<family>/tasks.jsonl + loader",
+            evidence_hint="public benchmark/data manifest + loader/evaluator",
         ),
         ChecklistItem(
             id="benchmark.provenance",
             statement=(
-                "Benchmark provenance lists ≥3 independent real benchmark families "
-                "with version/date, license, split, task count, evaluation harness, "
-                "and an execution-readiness status."
+                "Benchmark provenance lists every selected public source with "
+                "version/date, license/access, split or cohort, evaluation unit, "
+                "metric/evaluator, filtering, claim tested, and execution-readiness. "
+                "Coverage breadth is justified by the claim; no fixed source count "
+                "or task count is imposed."
             ),
             evidence_hint="experiments/BENCHMARK_PROVENANCE.md and .json",
         ),
         ChecklistItem(
             id="benchmark.smoke",
             statement=(
-                "A small smoke run produced at least one real scored row per "
-                "benchmark family so the eval harness is known to work end-to-end."
+                "A faithful smoke run produced real evidence through each distinct "
+                "evaluation path that the main experiment depends on."
             ),
             evidence_hint="experiments/**/smoke/*.jsonl",
         ),
@@ -326,12 +330,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "engineer/environment-readiness-gate.md`). The verbatim "
                 "preflight output is captured to `experiments/runs/<run_id>/"
                 "preflight.txt` for THAT run_id — not reused from an earlier "
-                "run. Required signals: project `.venv` active, "
-                "`CUDA_VISIBLE_DEVICES` matches the vault, framework imports "
-                "succeed, `torch.cuda.is_available()` True, HF/Torch caches "
-                "rooted under `<project>/models/`, base model weights present, "
-                "API routes test-called. A run launched without a fresh "
-                "preflight is treated as wasted budget and rolled back."
+                "run. It verifies the environment, public data/evaluator, storage, "
+                "and compute/API resources actually used by that run. GPU, HF, "
+                "model-weight, and API checks are conditional rather than universal. "
+                "A run launched without its applicable preflight is treated as "
+                "uncertified evidence."
             ),
             evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
@@ -347,7 +350,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "cause is the wrong model. The manifest's declared model id and "
                 "the preflight weights path must name the instruct variant. A base "
                 "model is acceptable only when the experiment is explicitly about "
-                "base-model behaviour and says so; otherwise fail this item."
+                "base-model behaviour and says so. This item is NOT APPLICABLE to "
+                "non-LLM experiments or experiments that do not require instruction "
+                "following."
             ),
             evidence_hint="experiments/<run>/manifest.json model id ends in an instruct/chat variant",
         ),
@@ -363,17 +368,20 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.matrix",
             statement=(
-                "Proposed method, the strongest feasible literature baseline, and "
-                "all planned ablations have completed on every selected benchmark "
-                "family — not just one slice."
+                "The proposed contribution, strongest relevant comparisons, and "
+                "claim-critical controls/ablations have completed on the selected "
+                "public evidence sources, or have explicit evidence-backed "
+                "exclusions."
             ),
             evidence_hint="experiments/**/scored.jsonl across all method × family cells",
         ),
         ChecklistItem(
             id="run.scale",
             statement=(
-                "Results are full-scale evidence, not pilot or synthetic — every "
-                "row labelled as final is from a real benchmark execution."
+                "Final empirical claims include executed public benchmark/data "
+                "evidence at a scale justified by the claim and uncertainty method. "
+                "Synthetic/generated diagnostics are labeled supplementary and are "
+                "not the sole final evidence."
             ),
             evidence_hint="experiments/**/manifest.json declares scale=full",
         ),
@@ -1112,9 +1120,8 @@ def _resolve_checklist_venue(project_root) -> VenueProfile:
     """Resolve the venue profile for checklist rendering.
 
     ``project_root`` may be None (resolved from env/cwd, matching how the
-    overlay locates the project). A missing target venue keeps the historical
-    EMNLP default; an unknown non-empty venue propagates ``KeyError`` so it
-    cannot be silently certified against the wrong rules.
+    overlay locates the project). Missing or unknown venue selection propagates
+    ``KeyError`` so it cannot be silently certified against unrelated rules.
     """
     import os
 
@@ -1147,10 +1154,11 @@ def _unresolved_venue_checklist(
         f"{header}\n\n"
         "### venue resolution\n"
         f"- [ ] `venue.profile` — {error}. `target_venue` must name a real "
-        "publication venue, not planning commentary. Choose a built-in venue or "
-        "research a non-built-in venue and write `research/VENUE_PROFILE.json` "
-        "from official instructions. Never grade against the EMNLP default while "
-        f"this is unresolved. {instruction}"
+        "publication venue, not planning commentary. If no venue was specified, "
+        "live-search domain-appropriate CCF-A conferences whose deadline has not "
+        "passed, record the official CCF/CFP/deadline evidence in "
+        "`research/VENUE_SELECTION.md`, and write `research/VENUE_PROFILE.json` "
+        f"from the selected official author kit. {instruction}"
     )
 
 

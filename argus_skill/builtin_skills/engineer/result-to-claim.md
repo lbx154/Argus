@@ -139,7 +139,7 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
 
 ## Integration
 
-- Runs after `agent-research-benchmark-runner` completes experiments
+- Runs after `research-experiment-runner` completes experiments
 - Reads from `experiment-audit` if available
 - Routes to `ablation-planner` (if yes + ablations needed)
 - Routes to `emnlp-paper-drafting` (if all claims confirmed)

@@ -6,9 +6,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.apps._runtime_backends import _MemoryRunner
+from argus_skill.core.models import RunnerResult
+from argus_skill.loop import SkillLoop, SkillLoopConfig
 from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     EMNLP_PROFILE,
@@ -51,6 +55,18 @@ def _project(tmp_path: Path, target_venue: str) -> Path:
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
         json.dumps({"vertical": "research", "target_venue": target_venue})
+    )
+    return tmp_path
+
+
+def _research_project_without_target(tmp_path: Path) -> Path:
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "vertical": "research",
+            "current_stage": "research",
+        }),
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -135,6 +151,12 @@ def test_reviewer_checklists_for_dispatch():
 def test_needs_venue_research(tmp_path):
     assert needs_venue_research(_project(tmp_path / "a", "NeurIPS")) is True
     assert needs_venue_research(_project(tmp_path / "b", "AAAI")) is False
+    missing = tmp_path / "missing"
+    (missing / "research").mkdir(parents=True)
+    (missing / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research"}), encoding="utf-8"
+    )
+    assert needs_venue_research(missing) is True
     cached = _project(tmp_path / "c", "NeurIPS")
     write_venue_profile(cached, _neurips())
     assert needs_venue_research(cached) is False
@@ -160,6 +182,26 @@ def test_research_venue_profile_writes_and_resolves(tmp_path):
     assert resolve_venue_profile(root).key == "ICML"
 
 
+def test_research_venue_profile_without_target_requests_open_ccf_a_selection(
+    tmp_path,
+):
+    root = tmp_path
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research"}), encoding="utf-8"
+    )
+
+    class MockRunner:
+        def run_exec(self, *, prompt, options, run_label):
+            assert "CCF-A" in prompt
+            assert "deadline has not passed" in prompt
+            assert "VENUE_SELECTION.md" in prompt
+            write_venue_profile(root, _neurips())
+            return type("R", (), {"exit_code": 0, "agent_messages": ["done"]})()
+
+    assert research_venue_profile(MockRunner(), root) is True
+
+
 def test_research_venue_profile_fail_open(tmp_path):
     root = _project(tmp_path, "ICML")
 
@@ -170,3 +212,82 @@ def test_research_venue_profile_fail_open(tmp_path):
     # never raises; no profile produced -> False
     assert research_venue_profile(BadRunner(), root) is False
     assert load_local_venue_profile(root) is None
+
+
+def test_memory_bootstrap_does_not_seed_implicit_emnlp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_VENUE", raising=False)
+    runner = _MemoryRunner()
+    runner.workdir = tmp_path
+
+    runner._materialize_research_bootstrap_seed("bootstrap a research project")
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert "target_venue" not in state
+
+
+def test_skill_loop_researches_venue_before_matcher_exclusion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _research_project_without_target(tmp_path / "project")
+    monkeypatch.setenv("ARGUS_SKILL_IDEA_SEARCH", "0")
+    monkeypatch.delenv("ARGUS_SKILL_VENUE", raising=False)
+
+    class DummyRunner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(exit_code=0, agent_messages=["ok"])
+
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=DummyRunner(),
+        config=SkillLoopConfig(
+            paper_mission=True,
+            skill_adapter_enabled=False,
+            wiki_ops_enabled=False,
+            auto_compact_enabled=False,
+        ),
+    )
+    observed: dict[str, object] = {}
+
+    def fake_research_venue_profile(_runner, workdir, *, model="gpt-5.5") -> bool:
+        observed["research_called"] = True
+        assert not venue_profile_path(Path(workdir)).exists()
+        write_venue_profile(Path(workdir), AAAI_PROFILE)
+        return True
+
+    monkeypatch.setattr(
+        "argus_skill.skills.venue_research.research_venue_profile",
+        fake_research_venue_profile,
+    )
+
+    def fake_select(task, *, extra_exclude, force_empty_match):
+        observed["profile_exists_before_match"] = venue_profile_path(root).is_file()
+        observed["excluded"] = set(extra_exclude)
+        return SimpleNamespace(
+            primary=None,
+            primary_skills=[],
+            reference_skills=[],
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+            premium_requests=0.0,
+            reasoning_output_tokens=0,
+        )
+
+    loop.skill_router.select = fake_select  # type: ignore[method-assign]
+    loop.supervised.run = lambda **_kwargs: ("done", [], "ok", "review_done", None)  # type: ignore[method-assign]
+
+    outcome = loop.run("draft the selected venue paper", workdir=root)
+
+    assert outcome.successful
+    assert observed["research_called"] is True
+    assert observed["profile_exists_before_match"] is True
+    excluded = observed["excluded"]
+    assert isinstance(excluded, set)
+    assert "emnlp-paper-drafting.md" in excluded
+    assert "aaai-paper-drafting.md" not in excluded

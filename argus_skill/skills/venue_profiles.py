@@ -32,12 +32,12 @@ official AAAI-26 submission instructions and the ``aaai2026.sty`` LaTeX kit):
 
 This module centralizes those facts as a frozen :class:`VenueProfile`, exposes a
 small registry, and resolves the active profile from
-``research/PIPELINE_STATE.json``'s ``target_venue`` field (the previously dead
-seam) — defaulting to EMNLP so existing behavior is byte-identical.
+``research/PIPELINE_STATE.json``'s ``target_venue`` field.
 
-The EMNLP profile here **must** reproduce today's constants exactly; the gates
-default to EMNLP when no venue is resolved, so an unconfigured project keeps its
-current behavior.
+There is deliberately NO implicit venue. An unconfigured research project must
+first select a currently open, domain-appropriate venue and persist either a
+built-in key or a researched ``research/VENUE_PROFILE.json``. Silently grading an
+unconfigured paper as EMNLP is a false certification.
 """
 from __future__ import annotations
 
@@ -441,7 +441,9 @@ VENUE_PROFILES: dict[str, VenueProfile] = {
     FRONTIERS_SLEEP_PROFILE.key: FRONTIERS_SLEEP_PROFILE,
 }
 
-DEFAULT_VENUE_KEY = "EMNLP"
+# No implicit publication venue. Kept as a compatibility export for callers
+# that need to distinguish "explicit profile" from "not selected yet".
+DEFAULT_VENUE_KEY: str | None = None
 
 # Env override (highest precedence) — handy for tests and one-off runs.
 _VENUE_ENV = "ARGUS_SKILL_VENUE"
@@ -470,12 +472,15 @@ def get_venue_profile(key: str | None) -> VenueProfile:
     """Return the profile for ``key`` (case-insensitive, alias- and variant-aware).
 
     Tolerates natural planner tokens (for example ``aaai2026`` and
-    ``Frontiers in Sleep``). An empty key preserves the historical EMNLP default.
-    A non-empty unknown key raises ``KeyError``: silently grading it as EMNLP would
-    be a false venue certification.
+    ``Frontiers in Sleep``). Empty and unknown keys raise ``KeyError``: venue
+    selection must be explicit or backed by a project-local researched profile.
     """
     if not key:
-        return VENUE_PROFILES[DEFAULT_VENUE_KEY]
+        raise KeyError(
+            "no target venue selected: research the currently open, "
+            "domain-appropriate CCF-A venues and write target_venue plus "
+            "research/VENUE_PROFILE.json before venue-dependent paper work"
+        )
     index = _alias_index()
     raw = str(key).strip().upper()
     profile = index.get(raw) or index.get(_normalize_venue_key(raw))
@@ -504,7 +509,8 @@ def resolve_venue_profile(project_root: Path) -> VenueProfile:
 
     Precedence: ``ARGUS_SKILL_VENUE`` env override > a project-local researched
     ``research/VENUE_PROFILE.json`` (dynamic venue) > ``target_venue`` in
-    ``research/PIPELINE_STATE.json`` (built-in registry) > EMNLP default.
+    ``research/PIPELINE_STATE.json`` (built-in registry). Missing selection raises
+    ``KeyError`` so venue-dependent work cannot silently use the wrong template.
     """
     env_key = os.environ.get(_VENUE_ENV)
     if env_key:

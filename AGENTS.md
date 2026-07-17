@@ -332,7 +332,7 @@ paper/
 | Stage | 主要 skill | 主要 artifact / 检查项 |
 | --- | --- | --- |
 | 选题/grounding | `research-brief-to-experiment-plan.md`, `auto-research-pipeline.md` | `validate-grounding`, `validate-idea-provenance`, `validate-code-reuse` |
-| 实验/benchmark | `agent-research-benchmark-runner.md` | `validate-full-scale-evidence`, `experiments/**` |
+| 实验/benchmark | `research-experiment-runner.md` | public evidence provenance, raw `experiments/**` artifacts |
 | 结果到 claim | `research-results-analysis-and-figures.md`, `claims-evidence-audit.md`, `result-to-claim.md` | `validate-claim-graph`, `RESULTS_REPORT.md`, `result_to_claim.tsv` |
 | 初稿/LaTeX | `emnlp-paper-drafting.md` | `validate-paper-contract`, `validate-paper-format`, `main.tex`, `main.pdf` |
 | 格式预检 | `emnlp-format-preflight.md` | `validate-research-md-format`, `FORMAT_PREFLIGHT.md` |

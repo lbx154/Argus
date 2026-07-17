@@ -1,6 +1,6 @@
 ---
 name: Idea Discovery
-description: Systematically mine recent literature for a real research gap where a concrete new METHOD can beat the current strong baseline, before committing to an experiment plan. Searches arXiv / Semantic Scholar / OpenAlex / ACL Anthology, clusters trends, identifies the reported SOTA/baselines that define each gap, and writes IDEA_CANDIDATES.md ranked by novelty × competitiveness × feasibility. Gap-discovery runs on inference + literature lookup; the proposed methods may use training within the machine's resource and time budget.
+description: Systematically mine recent literature for a real, falsifiable research gap before committing to an experiment plan. Supports method, systems, theory, diagnostic, characterization, evaluation, data, positive, negative, and boundary contributions.
 category: paper-ideation
 version: 1
 created_at: 2026-06-01T00:00:00+00:00
@@ -10,11 +10,10 @@ created_at: 2026-06-01T00:00:00+00:00
 
 > Adapted from ARIS `idea-discovery` skill (MIT, © 2026 wanshuiyin).
 
-Strong papers come from finding a **real gap where a concrete method can beat
-the current best**, grounded in the literature — not from imagining mechanisms
-top-down, and not from merely measuring or diagnosing a phenomenon. This skill
-mines recent literature for those beatable gaps and the baselines that define
-them.
+Strong papers come from finding a **real gap or unresolved question** grounded
+in the literature, not from imagining contributions top-down. A useful method,
+system, theorem, benchmark, diagnosis, characterization, negative result, or
+boundary finding may close that gap.
 
 ## When to invoke
 
@@ -43,7 +42,7 @@ For each query, search **at least 3** of:
 
 Pull abstracts + 1-paragraph TLDR for the top 30 hits per query.
 
-### Step 3 — cluster + identify beatable gaps
+### Step 3 — cluster + identify valuable open questions
 
 Reviewer agent (gpt-5.5 via `author` route) reads the abstracts and
 returns clusters of the form:
@@ -53,19 +52,18 @@ CLUSTER C-1: "Self-consistency helps math but hurts code generation"
   measured by: [Paper A, Paper B]
   current best / baseline: [the strongest reported method + its score]
   the gap: no method reliably keeps the math gain WITHOUT the code loss
-  → method opening: <a concrete mechanism that could beat that baseline>
+  → research opening: <method, system, theory, diagnostic, evaluation, data,
+    negative, or boundary contribution that resolves the question>
 ```
 
 The reviewer ranks clusters by:
-- **Stake** — "if solved, X changes practice; the win is worth reporting"
-- **Competitiveness** — is there a concrete method that could plausibly BEAT the
-  reproduced baseline here (not just describe/measure the phenomenon)?
-- **Feasibility** — does the main experiment (training + baselines + method +
-  key ablation) fit the machine's resources and **≤8h wall-clock**? Discover
-  the available compute (`nvidia-smi`, the `## GPU Resource Allocation` /
-  operator directives); if the operator/direction states resource or time
-  limits, honor those.
-- **Recency** — is the baseline current enough that beating it is a real result?
+- **Stake** — "if resolved, X changes understanding or practice"
+- **Research value** — would resolving this question change understanding,
+  evaluation, system design, or practice?
+- **Feasibility** — is there a credible staged execution plan within the
+  operator's resources and time budget? Discover available capabilities and
+  honor explicit limits; do not impose a universal wall-clock cutoff.
+- **Recency** — are the closest references current enough to define the frontier?
 
 ### Step 3.5 — diagnose the bottleneck, then select a research move
 
@@ -115,7 +113,7 @@ at "move-applied-to-gap" rather than free brainstorming.
 For each top-ranked cluster, produce:
 
 ```markdown
-## Candidate I-1: <one line: the proposed method and what it beats>
+## Candidate I-1: <one line: the contribution and question it resolves>
 
 **Problem & gap**: <what's open + the strong prior work/baseline that leaves it open>
 
@@ -127,21 +125,21 @@ could already do this, and why yours differs>
 the `C##` sub-pattern whose Step-by-Step you instantiated; name the failure mode
 you are avoiding>
 
-**Proposed method**: <a concrete, named technique/mechanism you introduce — the
-contribution, NOT a measurement or taxonomy>
+**Contribution shape**: <method, system, theorem, diagnostic, characterization,
+evaluation, benchmark/data contribution, negative result, or boundary finding>
 
-**Baseline to beat + target**: <a reproduced, published, competitive baseline
-(name it), the real benchmark(s), and the margin you expect to win by>
+**Reference comparison + target**: <the strongest relevant published/standard
+reference, the public benchmark(s), and what outcome would support or refute the
+research claim>
 
-**Why it wins (thesis)**: <one sentence — the mechanism/insight that makes the
-gain non-obvious>
+**Why it matters (thesis)**: <one sentence — the non-obvious insight or
+decision-relevant value>
 
-**Experiment sketch (resource-adaptive, main run ≤8h)**:
+**Experiment sketch (resource-adaptive)**:
 - Setup: <models / data / baselines + the method>
-- Falsifier: <what result would refute the win claim>
-- Compute & budget: <training approach if any (LoRA/QLoRA/PEFT, small/base-model
-  FT, trained probe/steering); est. wall-clock — the MAIN experiment must fit
-  ≤8h on the available cards, or state how to descope so it does>
+- Falsifier: <what result would refute or materially weaken the claim>
+- Compute & budget: <method-appropriate resources, staged execution, and the
+  operator-approved budget>
 
 **Local Feasibility** (read this turn's `## GPU Resource Allocation` /
 `## Available APIs` / operator-constraint blocks and `nvidia-smi` — do NOT assume
@@ -149,17 +147,15 @@ a model/GPU you cannot actually run here; if the operator/direction states a
 resource or time limit, that wins):
 - Method runs on: <API-call | local inference | local training (LoRA/FT)>
 - GPU memory needed vs free: <est. vs discovered free memory>
-- **Will the method BEAT the reproduced baseline on a real slice, within budget?**
-  <yes/likely/unknown — and the smallest margin that would count as a win>
-- **Main experiment fits ≤8h?**: YES / NO / CONDITIONAL (condition: <...>)
+- **Can the probe answer the research question on public evidence within the
+  available budget?**: YES / NO / CONDITIONAL
 - **Executable on deployed setup**: YES / NO / CONDITIONAL (condition: <...>)
 
 **Novelty bet**: <what makes this a new method, not a re-run of the cited work>
 
-> A candidate that cannot beat its reproduced baseline within budget, or whose
-> main experiment cannot fit ≤8h on the available compute, is already weak —
-> descope or pivot it here, before it reaches the signal-de-risk gate
-> (engineer/idea-feasibility-derisk) at the end of research.
+> A candidate with no credible evidence path inside the available resources is
+> not executable yet. Stage it, narrow the claim, seek additional resources, or
+> pivot before the signal-de-risk gate.
 
 **Anticipated kill-argument**: <strongest 50-word rejection a hostile
 reviewer would write; this skill must articulate it so kill-argument
@@ -176,21 +172,17 @@ candidates against pilot budgets and selects 1–3 to pilot in parallel.
 - ❌ Start with "I want to do X" — the gap-discovery step is supposed
   to surprise you. If your candidate list is what you walked in with,
   you skipped the discovery.
-- ❌ Commit a **diagnostic-only** candidate — a probe, a benchmark, a taxonomy,
-  or a "we measure that model M does X" study with no method that beats a
-  baseline. A diagnosis is not a paper by itself. Every candidate must name a
-  proposed method and the reproduced baseline it aims to beat. (A pure negative
-  result is acceptable ONLY when it overturns a widely-held assumption with
-  strong, surprising evidence.)
-- ❌ Propose a method whose main experiment cannot fit the machine's compute and
-  ≤8h wall-clock — descope (smaller backbone, LoRA, fewer conditions) instead
-  of retreating to a train-free black-box proxy just to fit.
+- ❌ Dismiss a diagnostic, characterization, taxonomy, benchmark, or negative
+  result merely because it does not propose a new model. Judge whether it
+  resolves an important question with rigorous evidence.
+- ❌ Reject a direction solely because it exceeds an arbitrary wall-clock
+  threshold. Require a credible staged plan and explicit resource needs.
 - ❌ Use only one literature source — confirmation bias by source
   bubble. Three independent sources minimum.
 
 ## Output contract
 
-Writes `research/IDEA_CANDIDATES.md` ranked by novelty × competitiveness ×
-feasibility (can a concrete method beat the reproduced baseline, within the
-compute + ≤8h budget). This is the source of truth for the next skill
+Writes `research/IDEA_CANDIDATES.md` ranked by novelty × research value ×
+falsifiability × feasibility within the operator's actual budget. This is the
+source of truth for the next skill
 (`idea-creator`) and must be present before any experiment plan is written.

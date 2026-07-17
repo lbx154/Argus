@@ -57,6 +57,7 @@ ALLOWED_DIRECTIVE_ACTIONS = {
     "move_local_config_to_artifact",
     "redact_internal_route",
     "rename_internal_label",
+    "resolve_venue_profile",
 }
 
 
@@ -83,7 +84,12 @@ def generate_paper_infrastructure_review(
 
     root = Path(project_root)
     threshold = max(float(threshold), MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
-    venue = resolve_venue_profile(root)
+    venue = None
+    venue_error: KeyError | None = None
+    try:
+        venue = resolve_venue_profile(root)
+    except KeyError as exc:
+        venue_error = exc
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
     source_snapshots = [
@@ -94,6 +100,15 @@ def generate_paper_infrastructure_review(
     source_text_by_path = _read_source_texts(root, source_paths)
 
     issues: list[dict[str, Any]] = []
+    if venue_error is not None:
+        issues.append(
+            _issue(
+                "unresolved_venue_profile",
+                "blocking",
+                str(venue_error),
+                action="resolve_venue_profile",
+            )
+        )
     if not (root / PAPER_MAIN_TEX_PATH).is_file():
         issues.append(
             _issue(
@@ -123,7 +138,7 @@ def generate_paper_infrastructure_review(
     leak_free: bool | None = None
     leak_findings: list[dict[str, Any]] = []
 
-    if source_text_by_path and not blocking_issues:
+    if source_text_by_path and not blocking_issues and venue is not None:
         try:
             model_review = _run_model_review(
                 root=root,
@@ -427,10 +442,11 @@ def _next_iteration(root: Path) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    venue = resolve_venue_profile(Path.cwd())
     parser = argparse.ArgumentParser(
         prog="python -m argus_skill.verticals.research.paper_infrastructure_review",
-        description=f"Score final {venue.reviewer_persona} paper for reader-facing infrastructure leaks.",
+        description=(
+            "Score the selected-venue paper for reader-facing infrastructure leaks."
+        ),
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("model",), default="model")

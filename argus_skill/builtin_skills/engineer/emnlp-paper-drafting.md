@@ -98,17 +98,27 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - The abstract is reader-facing prose, not a validator worksheet: do not mention Appendix Figure/Table, `\ref{}` layout artifacts, raw artifact paths, review gates, evidence spans, or internal provenance files. Do not open with the headline number before the problem/gap.
    - Related work with verified citations where possible. Organize it by method family, benchmark gap, or failure mode, not as a chronological list. Placeholders are allowed only in early drafts and must be listed in `paper/PAPER_DRAFT_REPORT.md`.
    - Place citations adjacent to the claim they support; do not write a paragraph of unsupported claims followed by a citation pile.
-   - Method/system section describing the evaluated paper system in reader-facing terms. A reviewer must be able to identify the paper-facing agent framework, benchmark harness, or controller used by the paper's method; the controller or skill/memory mechanism; the evaluated model/backend such as `gpt-5-mini` for hosted agent calls or `PairScorer` for scorer-based candidate ranking; tool access; state/memory boundaries; and what happens during one task episode. Do not write Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, local device/cache/path details, or image-generation infrastructure into the paper as method details unless the paper's actual research object is that infrastructure. Do not hide these basics only in comments, JSON manifests, or appendix logs.
-   - Benchmark provenance section: benchmark name, source URL, version/date, license or access notes, task count, filtering/sampling rules, and why it is appropriate for EMNLP agent evaluation. Final long-paper evidence needs at least 3 independent executed real benchmark families with raw scored rows for the required conditions; small, same-family, or single-source evidence is a pilot and must trigger a scale-up/public-validation plan instead of final-ready prose.
+   - Method/system section describing the actual research object in reader-facing
+     terms: model, algorithm, system, data, proof, evaluator, or diagnostic
+     protocol as applicable. Include the configuration needed to understand and
+     reproduce the claim without assuming an agent/controller architecture.
+   - Public evidence provenance section: source URL, version/date,
+     license/access, split/cohort, evaluation unit, filtering, metric/evaluator,
+     and why the selected scope supports the claim. Final empirical evidence
+     requires an appropriate public source, but no fixed source count.
    - Experiment setup with tasks, baselines, metrics, budget, evaluated-system model identifiers/routes when applicable, decoding settings when controlled, task source/version/date, and stopping/resume rules.
-   - Results with figures/tables and conservative interpretation. The first major results table should be a large cross-benchmark matrix, preferably a `table*`, spanning all selected benchmark/source families and major baselines/methods. It must include explicit benchmark/source-family and evaluated model/backend columns, task count/split, metric, budget/decoding, and the key result. This is a paper-facing table, not an internal run log; omit Argus/Codex route labels, `gpt-5.5*`, validator names, private endpoints, and raw artifact paths. Lead the prose with the scenario question and the method's supported role in that scenario; then explain comparative losses as boundaries or trade-offs rather than as the whole paper verdict.
+   - Results with figures/tables and conservative interpretation. Use the
+     clearest domain-appropriate evidence presentation for the selected public
+     source(s), strongest comparisons, and claim-critical outcomes. A
+     cross-benchmark matrix is optional, not universal.
    - Analysis/failure taxonomy and error examples.
    - Limitations and ethics/reproducibility.
    - Avoid improvised filler headings such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes`. unmapped sections are blockers. If a genuinely paper-specific section is needed, use a reader-facing title and write a deviation rationale in `STRUCTURE_CONFORMANCE.json`.
 
 6. Fill toward the page target with evidence-bearing content, not fluff:
    - If the paper is short because the Method or Experimental Setup is under-explained, add a compact system/configuration table and readable mechanism prose before adding more result paragraphs. The table should look like an EMNLP experiment table, not an internal run log: include explicit `Benchmark`/`Source` and `Model`/`Backend` columns, task count and split, method or baseline role, paper-facing framework/harness/controller, decoding or scoring budget policy, metric, and the key result. Omit Argus/Codex route names, engineer/reviewer/author roles, `gpt-5.5*`, secrets, API keys, vault paths, and validator artifacts.
-   - If the Results section is fragmented into small per-dataset snippets, consolidate them into a single main results matrix before adding prose. A professional large table is preferred when it lets the reader compare the three benchmark families, baselines, evaluated model/backend, task counts, and metrics at once.
+   - If the Results section is fragmented, consolidate it into the clearest
+     domain-appropriate evidence presentation; do not force a three-family matrix.
    - Add a complete benchmark/source section rather than just saying "synthetic tasks".
    - Add a full related-work section grounded in the style reference.
    - Add ablation/error-analysis tables if raw artifacts support them.

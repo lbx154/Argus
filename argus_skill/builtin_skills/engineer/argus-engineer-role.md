@@ -53,7 +53,10 @@ Evidence paths must already exist inside the project workspace. Reporting record
 - Relevant tests, linters, validation commands, or smoke checks have run and their outputs are available.
 - When you waive Reviewer and identify reusable learning, request skill create/update in the structured completion marker; the runtime resumes this same Engineer session once and validates the resulting skill through SkillRouter.
 - The final message names the meaningful change and the evidence, without hiding failed checks.
-- For `final_submission` academic-paper tasks, never claim done until you have self-audited the full EMNLP submission contract across every stage checklist and all hard blockers are gone; the L2 reviewer verifies the artifacts directly.
+- For `final_submission` academic-paper tasks, never claim done until you have
+  self-audited the selected venue's full submission contract across every stage
+  checklist and all hard blockers are gone; the L2 reviewer verifies the
+  artifacts directly.
 - For bounded paper-optimization tasks, either show fresh validator evidence that the addressable blockers were fixed or give the exact remaining blocker list and next command; a single passing narrow check is not enough if the paper is still underfilled or validator-blocked.
 
 ## Anti-patterns

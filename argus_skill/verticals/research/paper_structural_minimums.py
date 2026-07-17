@@ -327,10 +327,22 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
 def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     from ...skills.venue_profiles import resolve_venue_profile
 
-    venue = resolve_venue_profile(project_root)
+    venue = None
+    venue_error: KeyError | None = None
+    try:
+        venue = resolve_venue_profile(project_root)
+    except KeyError as exc:
+        venue_error = exc
     main_tex = _find_main_tex(project_root)
     if main_tex is None:
         report = StructuralReport(main_tex_path=None)
+        if venue_error is not None:
+            report.issues.append(
+                StructuralIssue(
+                    code="unresolved_venue_profile",
+                    detail=str(venue_error),
+                )
+            )
         report.issues.append(
             StructuralIssue(
                 code="no_main_tex",
@@ -347,6 +359,13 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     tex = _strip_comments(raw)
 
     report = StructuralReport(main_tex_path=main_tex)
+    if venue_error is not None:
+        report.issues.append(
+            StructuralIssue(
+                code="unresolved_venue_profile",
+                detail=str(venue_error),
+            )
+        )
 
     # Figures.
     figure_refs = [m.group(1) for m in _RE_INCLUDEGRAPHICS.finditer(tex)]
@@ -548,7 +567,8 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     # profile's flags, so EMNLP/ACL projects (the default) never see them. They
     # activate only for venues whose preamble contract differs — currently
     # AAAI, whose aaai2026.sty is strict.
-    _append_venue_compliance_issues(report, tex, venue)
+    if venue is not None:
+        _append_venue_compliance_issues(report, tex, venue)
 
     return report
 

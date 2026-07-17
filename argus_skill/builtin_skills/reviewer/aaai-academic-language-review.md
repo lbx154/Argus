@@ -64,10 +64,14 @@ Run the final narrative/prose gate for an AAAI-style paper. This skill adapts wo
    - Acceptable evidence sentence pattern: "In the N-task T slice, X achieves A on metric M versus B for comparator C under protocol P." This satisfies evidence alignment without claiming why X works.
 
 6. Enforce method/system readability:
-   - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its paper-facing framework, benchmark harness, or controller; the controller/skill/memory mechanism; task source/version; baselines; metrics; evaluated model/backend; and budget/stopping rules. For hosted agent experiments, the final paper should name the paper-facing hosted backbone such as `gpt-5-mini` plus decoding/settings/budget. For scorer-based experiments, name the evaluated scorer/backend such as `PairScorer` and describe the candidate-ranking protocol without adding authoring-environment details. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, image-tool infrastructure, or orchestration/reviewer model names such as `gpt-5.5` / `gpt-5.5-mini` as paper-method details.
+   - The Method and Experimental Setup must describe the actual research object,
+     public evidence, strongest relevant comparisons, metrics, uncertainty method,
+     and relevant configuration without assuming an agent/controller design.
    - Add a compact system/configuration table when prose alone would be ambiguous. The table must be professional and paper-facing: benchmark/component name, task count/split, evaluated model/backend, method or baseline role, runtime/harness, metric, budget/decoding, and the numerical takeaway. It must not expose Argus/Codex route names, engineer/reviewer/author roles, `gpt-5.5*`, API keys, private endpoints, capability-vault contents, or validation artifacts.
-   - Require the Results section to contain a large, reader-facing cross-benchmark matrix for final AAAI paper claims. The table should let a reviewer compare the selected 3+ benchmark/source families, evaluated model/backend, task counts/splits, major baselines/methods, metrics, budget/decoding, and key scores in one place. Reject disconnected tiny tables when they hide missing benchmarks or omit model/backend information.
-   - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
+   - Require a clear, reader-facing evidence presentation appropriate to the
+     contribution. Do not force a cross-benchmark matrix or fixed source count.
+   - Reject vague phrases such as "our system" when the paper omits the actual
+     model, algorithm, data, evaluator, proof, or systems configuration.
    - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write` and self-audit the paper-infrastructure review thresholds (leak_free, score). Do not patch this by adding local regex filters to the academic-language skill.
 
 7. Replace agent-looking prose:

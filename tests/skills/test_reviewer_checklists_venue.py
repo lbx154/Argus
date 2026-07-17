@@ -34,9 +34,10 @@ def test_neutral_stages_shared_verbatim():
     a = reviewer_checklists_for(AAAI_PROFILE)
     for stage in ("research", "plan", "benchmark", "analysis", "draft"):
         assert e[stage] is a[stage], f"{stage} should be shared venue-neutral"
+    assert e["run"] == a["run"]
 
 
-@pytest.mark.parametrize("stage", ["run", "review", "submission"])
+@pytest.mark.parametrize("stage", ["review", "submission"])
 def test_format_stages_are_native_no_cross_leak(stage):
     e_skill, e_instr, _ = reviewer_checklists_for(EMNLP_PROFILE)[stage]
     a_skill, a_instr, _ = reviewer_checklists_for(AAAI_PROFILE)[stage]

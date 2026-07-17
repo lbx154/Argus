@@ -29,7 +29,7 @@ immediately pivot to a different idea. Work the ladder in order:
      no cheap change is likely to flip it.
 2. **Decide**:
    - If the cause is **Fixable** or a **Baseline artifact** and the fix is
-     concrete and bounded (fits the remaining ≤8h compute budget), recommend
+     concrete and fits the remaining operator-approved budget, recommend
      **ONE more targeted optimization / re-run pass** aimed at exactly that fix.
      Name the single change and the metric that must move.
    - If the cause is a **genuine null / limited effect** with no credible cheap
@@ -52,11 +52,11 @@ Record the reflection, the cause classification, and the chosen next step
 
 Score each 1–5. Score 3+ on all dimensions = pass.
 
-1. **Statistical significance**
-   - Are improvements statistically significant (p < 0.05)?
-   - Is there a significance test (McNemar, paired bootstrap, permutation test)?
-   - Are confidence intervals or error bars reported?
-   - With small test sets (<100), are results reliable or could they be noise?
+1. **Statistical and evidential support**
+   - Is uncertainty handled appropriately for the data-generating process and claim?
+   - Are confidence intervals, repeated measurements, sensitivity analyses,
+     formal guarantees, or other domain-appropriate support reported?
+   - Are small samples scoped honestly rather than rejected by a universal count?
 
 2. **Ablation fairness**
    - Does each ablation isolate exactly one variable?
@@ -65,9 +65,9 @@ Score each 1–5. Score 3+ on all dimensions = pass.
    - Would a reviewer call any comparison misleading?
 
 3. **Effect size and practical significance**
-   - Are the improvements large enough to matter in practice?
-   - Is a 1% improvement on a 6% baseline meaningful, or is it noise?
-   - Are there benchmarks where the method clearly helps AND benchmarks where it doesn't?
+   - Is the observed effect, null, diagnostic pattern, or boundary meaningful for
+     the stated research question?
+   - Are there regimes where the contribution helps, fails, or changes interpretation?
    - Are null results (no improvement) honestly reported?
 
 4. **Claim support**
@@ -114,16 +114,15 @@ Return JSON:
 ```
 
 ## Hard blockers (auto-fail regardless of score)
-- No significance testing on the headline result
+- No domain-appropriate uncertainty or evidential justification for the headline result
 - Unfair ablation: comparing trained component vs untrained/random component
 - All baselines at 0% or trivially broken
 - Headline claim contradicts the actual numbers
 - Missing a planned benchmark/condition with no explanation
 - Reporting only the best cherry-picked metric while hiding others
 
-## Infrastructure red flags in results
-If results show signs of poor infrastructure choices, note them:
-- Extremely slow training/eval times that suggest no framework was used
-- Results from a custom scorer where a proper trained model was feasible
-- Inference done one-example-at-a-time when batch was possible
-- Model checkpoint is a tiny custom MLP when the compute budget allowed a real model
+## Infrastructure validity
+Flag infrastructure only when it invalidates the comparison, measurement, or
+claim. Do not reject a custom runtime, small model, CPU path, or unbatched
+execution merely because a larger/faster setup was available; those choices may
+be the research subject or a controlled design decision.

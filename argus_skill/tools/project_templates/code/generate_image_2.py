@@ -25,7 +25,7 @@ from argus_skill.tools.image_tool import (
     review_image,
     write_paper_figure_prompt,
 )
-from argus_skill.skills.venue_profiles import DEFAULT_VENUE_KEY, resolve_venue_profile
+from argus_skill.skills.venue_profiles import resolve_venue_profile
 
 DEFAULT_PROMPT_PATH = Path("paper/figures/method_overview.prompt.txt")
 DEFAULT_OUTPUT_PATH = Path("paper/figures/method_overview.png")
@@ -162,15 +162,12 @@ def generate_image2_figure(
 
     review_path = output_path.with_suffix(output_path.suffix + ".review.json")
     if review:
-        # Only thread the resolved venue when it diverges from the EMNLP
-        # default so an unconfigured (EMNLP) project keeps calling
-        # review_image with the exact legacy keyword set — byte-identical
-        # behavior and backward-compatible with callers/mocks that predate
-        # the venue_profile parameter.
-        review_kwargs: dict[str, Any] = {}
-        if venue_profile.key != DEFAULT_VENUE_KEY:
-            review_kwargs["venue_profile"] = venue_profile
-        review_image(image=output_path, out=review_path, prompt=prompt, **review_kwargs)
+        review_image(
+            image=output_path,
+            out=review_path,
+            prompt=prompt,
+            venue_profile=venue_profile,
+        )
 
     sidecar_path = Path(str(generation.get("sidecar") or output_path.with_suffix(output_path.suffix + ".json")))
     provenance_path = output_path.with_suffix(output_path.suffix + ".provenance.json")

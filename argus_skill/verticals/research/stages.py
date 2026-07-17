@@ -162,7 +162,9 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "4. Baseline strength — is at least ONE baseline a reproduced published method (not just random/no-skill)?\n"
         "5. Reference code study — were top related papers' code repos cloned and studied? Check CODE_STUDY_NOTES.md\n"
         "6. Evaluation fairness — same compute/data budget for all conditions?\n"
-        "7. Benchmark adequacy — ≥3 independent real benchmark families?\n"
+        "7. Public evidence adequacy — does every empirical claim have an "
+        "appropriate public benchmark/data/task source, with breadth and scale "
+        "justified by the claim rather than a quota?\n"
         "8. Infrastructure choice — is the right training/inference framework selected?\n"
         "9. Feasibility — can this be executed with available resources?\n"
         "10. RL config sanity (RL post-training plans only) — if the method is "
@@ -179,7 +181,7 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
          "research/CODE_STUDY_NOTES.md", "research/BASELINE_AND_BENCHMARK_PLAN.md"],
     ),
     "benchmark": (
-        "engineer/agent-research-benchmark-runner.md",
+        "engineer/research-experiment-runner.md",
         "Evaluate empirical-evidence preparation against the active Planner-authored "
         "benchmark checklist, not an assumed machine-learning benchmark shape:\n"
         "1. Provenance — are every used public source, planned source/cohort, version, "
@@ -206,13 +208,18 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
     "run": (
         "reviewer/experiment-results-review.md",
         "Evaluate the experiment results on these dimensions:\n"
-        "1. Statistical significance — are gains significant, not noise?\n"
+        "1. Statistical support — is uncertainty handled appropriately for the "
+        "data and claim, including clean null or boundary findings?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
         "3. Effect size — are improvements meaningful, not cosmetic?\n"
         "4. Claim support — does data actually support each claim?\n"
-        "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-        "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an EMNLP paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+        "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+        "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+        "Judge the research value of the valid result, not only whether the method "
+        "won. A positive, negative, diagnostic, null, or boundary finding may "
+        "proceed to analysis when it answers an important question with appropriate "
+        "evidence. Recommend one corrective rerun only for a concrete validity "
+        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "analysis": (
@@ -277,13 +284,18 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
     "run": (
         "reviewer/experiment-results-review.md",
         "Evaluate the experiment results on these dimensions:\n"
-        "1. Statistical significance — are gains significant, not noise?\n"
+        "1. Statistical support — is uncertainty handled appropriately for the "
+        "data and claim, including clean null or boundary findings?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
         "3. Effect size — are improvements meaningful, not cosmetic?\n"
         "4. Claim support — does data actually support each claim?\n"
-        "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-        "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an AAAI paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+        "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+        "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+        "Judge the research value of the valid result, not only whether the method "
+        "won. A positive, negative, diagnostic, null, or boundary finding may "
+        "proceed to analysis when it answers an important question with appropriate "
+        "evidence. Recommend one corrective rerun only for a concrete validity "
+        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "review": (
@@ -421,13 +433,18 @@ def build_reviewer_checklists(
         "run": (
             "reviewer/experiment-results-review.md",
             "Evaluate the experiment results on these dimensions:\n"
-            "1. Statistical significance — are gains significant, not noise?\n"
+            "1. Statistical support — is uncertainty handled appropriately for the "
+            "data and claim, including clean null or boundary findings?\n"
             "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
             "3. Effect size — are improvements meaningful, not cosmetic?\n"
             "4. Claim support — does data actually support each claim?\n"
-            "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-            "6. Completeness — all conditions run, no missing benchmark families?\n"
-            f"If results are too weak to support a {persona} paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+            "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+            "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+            f"Judge the research value for {persona}, not only whether the method "
+            "won. A positive, negative, diagnostic, null, or boundary finding may "
+            "proceed when it answers an important question with appropriate "
+            "evidence. Recommend one corrective rerun only for a concrete validity "
+            "defect; pivot when the result is broken, inconclusive, or lacks research value.",
             ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
         ),
         "review": (
@@ -501,7 +518,7 @@ def reviewer_checklists_for(venue: object) -> dict[str, tuple[str, str, list[str
 CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
 CHECKLIST_ITEMS = STAGE_CHECKLISTS
 
-#: Research missions complete on the full EMNLP/paper final-submission gate.
+#: Research missions complete on the selected venue's full-paper submission gate.
 completion_gate = "full_paper"
 
 # Research proceeds through strict stage gates, but evidence reuse within those
