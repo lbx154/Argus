@@ -42,6 +42,7 @@
         "blocker_fingerprint",
         "recheck_condition",
         "recheck_token",
+        "stage_reconciliation_required",
         "allow_verification_probe",
         "recheck_after_seconds"
       ],
@@ -63,6 +64,10 @@
           "minLength": 1,
           "maxLength": 200,
           "description": "Stable token for the currently observed blocker state. Reuse it until concrete evidence changes."
+        },
+        "stage_reconciliation_required": {
+          "type": "boolean",
+          "description": "Set true only when current_stage itself prevents the prerequisite work that must happen next. This asks the Manager, the sole stage authority, to decide HOLD versus ROLLBACK; it does not authorize Planner to edit stage state."
         },
         "allow_verification_probe": {
           "type": "boolean",

@@ -79,6 +79,7 @@ class WaitingContract:
     recheck_token: str
     allow_verification_probe: bool = False
     recheck_after_seconds: int = 0
+    stage_reconciliation_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -878,6 +879,10 @@ def _parse_waiting_contract(data: dict) -> WaitingContract | None:
         blocker_fingerprint=blocker_fingerprint[:200],
         recheck_condition=recheck_condition[:1600],
         recheck_token=recheck_token[:200],
+        stage_reconciliation_required=_parse_json_bool(
+            raw.get("stage_reconciliation_required", False),
+            False,
+        ),
         allow_verification_probe=_parse_json_bool(
             raw.get("allow_verification_probe", False),
             False,

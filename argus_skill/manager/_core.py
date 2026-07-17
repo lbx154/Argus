@@ -1433,6 +1433,7 @@ class Manager:
             rollback_stage as _rollback,
         )
         from .stage_decider import (
+            StageDecision,
             build_stage_decision_prompt,
             extract_answer,
             fallback_empty_stage_decision,
@@ -1504,17 +1505,28 @@ class Manager:
         # the Planner confirms the operator's objective is still unresolved.
         # The Manager remains the sole rollback authority; the Planner only
         # supplies the advisory reason.
-        open_ended_reconciliation = bool(
+        open_ended_terminal_reconciliation = bool(
             open_ended
             and planner_verdict is not None
             and order
             and cur == order[-1]
         )
+        planner_wait_reconciliation = bool(
+            open_ended
+            and review is None
+            and planner_verdict is not None
+            and bool(getattr(planner_verdict, "waiting", False))
+            and not bool(getattr(planner_verdict, "project_done", False))
+            and not list(getattr(planner_verdict, "new_tasks", []) or [])
+        )
 
-        # No reviewer feedback normally means no stage transition. The sole
-        # exception is the structured open-ended terminal reconciliation above.
+        # No reviewer feedback normally means no stage transition. Structured
+        # open-ended terminal and Planner-wait reconciliations are the exceptions.
         if review is None:
-            if not open_ended_reconciliation:
+            if not (
+                open_ended_terminal_reconciliation
+                or planner_wait_reconciliation
+            ):
                 return StageTransition(
                     "hold", cur, "no reviewer feedback", current_stage=cur,
                     source="no_review_hold",
@@ -1524,23 +1536,43 @@ class Manager:
             planner_reason = str(
                 getattr(planner_verdict, "reason", "") or planner_verdict
             )
-            review = SimpleNamespace(
-                status="done",
-                reason=(
-                    "The final-stage checkpoint is reviewer-certified, but the "
-                    "open-ended campaign objective remains unresolved. "
-                    f"Planner advisory: {planner_reason}"
-                ),
-                planner_report={
-                    "forward_progress": False,
-                    "blocker": planner_reason,
-                    "recommended_next": (
-                        "Manager decides whether to roll back for another "
-                        "evidence-led cycle or hold."
+            if planner_wait_reconciliation:
+                review = SimpleNamespace(
+                    status="blocked",
+                    reason=(
+                        "The Planner reports no dispatchable current-stage work "
+                        "and requests a stage-authority decision. "
+                        f"Planner advisory: {planner_reason}"
                     ),
-                },
-                checklist=[],
-            )
+                    planner_report={
+                        "forward_progress": False,
+                        "blocker": planner_reason,
+                        "recommended_next": (
+                            "HOLD if this is a genuine live external wait. ROLL "
+                            "BACK only if current_stage prevents prerequisite "
+                            "work that belongs to an earlier stage."
+                        ),
+                    },
+                    checklist=[],
+                )
+            else:
+                review = SimpleNamespace(
+                    status="done",
+                    reason=(
+                        "The final-stage checkpoint is reviewer-certified, but the "
+                        "open-ended campaign objective remains unresolved. "
+                        f"Planner advisory: {planner_reason}"
+                    ),
+                    planner_report={
+                        "forward_progress": False,
+                        "blocker": planner_reason,
+                        "recommended_next": (
+                            "Manager decides whether to roll back for another "
+                            "evidence-led cycle or hold."
+                        ),
+                    },
+                    checklist=[],
+                )
 
         # Build the LLM caller (mirrors is_conversational): no backend → safe HOLD.
         if run_exec is None:
@@ -1730,6 +1762,16 @@ class Manager:
                 )
                 if final_decision is not None:
                     decision = final_decision
+            if planner_wait_reconciliation and decision.action in {
+                "advance",
+                "complete",
+            }:
+                decision = StageDecision(
+                    "hold",
+                    cur,
+                    "planner waiting cannot advance without reviewer evidence",
+                    "planner_wait_advance_rejected",
+                )
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(

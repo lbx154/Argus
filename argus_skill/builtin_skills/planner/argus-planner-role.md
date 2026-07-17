@@ -2,7 +2,7 @@
 name: Argus Planner Role
 description: Identity and operating contract for the planner agent across every active vertical.
 category: role-identity
-version: 5
+version: 6
 created_at: 2026-05-28T00:00:00+00:00
 ---
 
@@ -45,6 +45,10 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   pure polling mission. Also emit `waiting_contract`: choose a stable
   `blocker_fingerprint`, state the concrete `recheck_condition`, and keep
   `recheck_token` byte-identical while current evidence is unchanged. Set
+  `stage_reconciliation_required=true` only when `current_stage` itself makes the
+  prerequisite work you need illegal to dispatch; this asks the Manager to decide
+  HOLD versus ROLLBACK. Otherwise set it false for an ordinary external wait.
+  Set
   `allow_verification_probe=false` for an operator-only blocker with no evidence of
   change. If one future probe is justified, set it true and choose
   `recheck_after_seconds`; the harness permits at most one probe for that exact

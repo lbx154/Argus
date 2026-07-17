@@ -426,6 +426,129 @@ def test_open_ended_terminal_reconciliation_can_rollback(tmp_path: Path) -> None
     assert "Continue until a complete proof" in backend.last_prompt
 
 
+def test_open_ended_nonterminal_planner_wait_can_rollback(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "nanochat")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "measure",
+            "vertical": "nanochat",
+            "stages": {
+                "setup": {"status": "done"},
+                "optimize": {"status": "done"},
+                "measure": {"status": "in_progress"},
+                "report": {"status": "pending"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    backend = _StubRunner({
+        "action": "rollback",
+        "target_stage": "optimize",
+        "reason": "the required profile belongs to optimize",
+    })
+    planner_verdict = SimpleNamespace(
+        project_done=False,
+        waiting=True,
+        reason="measure cannot dispatch the prerequisite optimize profile",
+        new_tasks=[],
+    )
+
+    st = Manager(project_root=tmp_path, runner=backend).decide_stage_transition(
+        review=None,
+        planner_verdict=planner_verdict,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Keep improving nanochat.",
+    )
+
+    assert st.action == "rollback"
+    assert st.target_stage == "optimize"
+    assert _read_stage(tmp_path) == "optimize"
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["stages"]["optimize"]["status"] == "in_progress"
+    assert "HOLD if this is a genuine live external wait" in backend.last_prompt
+
+
+def test_planner_wait_cannot_advance_without_reviewer_evidence(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "nanochat")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "measure",
+            "vertical": "nanochat",
+            "stages": {
+                "setup": {"status": "done"},
+                "optimize": {"status": "done"},
+                "measure": {"status": "in_progress"},
+                "report": {"status": "pending"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    planner_verdict = SimpleNamespace(
+        project_done=False,
+        waiting=True,
+        reason="external scorer is still unavailable",
+        new_tasks=[],
+    )
+    backend = _StubRunner({
+        "action": "advance",
+        "target_stage": "report",
+        "reason": "skip the blocked measurement",
+    })
+
+    st = Manager(project_root=tmp_path, runner=backend).decide_stage_transition(
+        review=None,
+        planner_verdict=planner_verdict,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Keep improving nanochat.",
+    )
+
+    assert st.action == "hold"
+    assert st.diagnostic == "planner_wait_advance_rejected"
+    assert _read_stage(tmp_path) == "measure"
+
+
+def test_empty_manager_output_during_planner_wait_holds(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    persist_vertical(tmp_path, "nanochat")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "measure",
+            "vertical": "nanochat",
+            "stages": {
+                "setup": {"status": "done"},
+                "optimize": {"status": "done"},
+                "measure": {"status": "in_progress"},
+                "report": {"status": "pending"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda _seconds: None)
+    planner_verdict = SimpleNamespace(
+        project_done=False,
+        waiting=True,
+        reason="external scorer is still unavailable",
+        new_tasks=[],
+    )
+
+    st = Manager(project_root=tmp_path, runner=_StubRunner("")).decide_stage_transition(
+        review=None,
+        planner_verdict=planner_verdict,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Keep improving nanochat.",
+    )
+
+    assert st.action == "hold"
+    assert _read_stage(tmp_path) == "measure"
+
+
 def test_open_ended_final_review_is_not_forced_complete(tmp_path: Path) -> None:
     persist_vertical(tmp_path, "math")
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(

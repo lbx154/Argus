@@ -158,6 +158,7 @@ def test_parse_planner_text_waiting_is_not_error(
             "blocker_fingerprint": "test:external-dependency",
             "recheck_condition": "the external dependency changes state",
             "recheck_token": "unchanged-v1",
+            "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
         },
@@ -181,6 +182,7 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
             "blocker_fingerprint": "source:chen-2003",
             "recheck_condition": "a licensed full-text path appears",
             "recheck_token": "no-source-v1",
+            "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
         },
@@ -193,9 +195,18 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
         blocker_fingerprint="source:chen-2003",
         recheck_condition="a licensed full-text path appears",
         recheck_token="no-source-v1",
+        stage_reconciliation_required=False,
         allow_verification_probe=False,
         recheck_after_seconds=0,
     )
+
+
+def test_waiting_contract_positional_api_remains_backward_compatible() -> None:
+    contract = WaitingContract("blocker", "condition", "token", True, 600)
+
+    assert contract.allow_verification_probe is True
+    assert contract.recheck_after_seconds == 600
+    assert contract.stage_reconciliation_required is False
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -616,6 +627,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "blocker_fingerprint": "source:chen-2003",
             "recheck_condition": "a licensed full-text path appears",
             "recheck_token": "source-missing-v1",
+            "stage_reconciliation_required": False,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
         },

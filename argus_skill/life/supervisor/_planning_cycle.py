@@ -11,6 +11,7 @@ from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.pricing import price_for, usd_for_tokens
 from ..memory import BacklogItem
 from ._constants import (
+    MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
     PLAN_ERROR,
     PLAN_HANDOFF,
     PLAN_RETRY,
@@ -196,6 +197,111 @@ class PlanningCycleMixin:
         )
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
+        return True
+
+    def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> bool:
+        """Let the Manager repair a stage/Planner mutual wait.
+
+        Planner explicitly requests reconciliation when ``current_stage`` blocks
+        prerequisite work. A missed request still gets one liveness review after
+        repeated idle cycles. The Manager alone decides HOLD versus ROLLBACK.
+        """
+        if not getattr(self.config, "open_ended", False):
+            return False
+        if not bool(getattr(verdict, "waiting", False)):
+            return False
+        if bool(getattr(verdict, "project_done", False)):
+            return False
+        if list(getattr(verdict, "new_tasks", []) or []):
+            return False
+
+        contract = getattr(verdict, "waiting_contract", None)
+        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
+        if not blocker_fingerprint or not recheck_token:
+            return False
+
+        explicitly_requested = bool(
+            getattr(contract, "stage_reconciliation_required", False)
+        )
+
+        root = self._artifact_root()
+        from ...skills.stage_checklists import current_stage
+
+        stage = current_stage(root)
+        key = (
+            stage,
+            blocker_fingerprint,
+            recheck_token,
+            explicitly_requested,
+        )
+        last_key = getattr(
+            self,
+            "_last_planner_wait_reconciliation_key",
+            None,
+        )
+        key_changed = key != last_key
+        waits_since_reconciliation = (
+            1
+            if key_changed
+            else int(
+                getattr(self, "_planner_waits_since_reconciliation", 0) or 0
+            ) + 1
+        )
+        self._last_planner_wait_reconciliation_key = key
+        self._planner_waits_since_reconciliation = waits_since_reconciliation
+        if not (
+            (explicitly_requested and key_changed)
+            or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
+        ):
+            return False
+
+        from ...manager import Manager
+
+        manager = Manager(
+            project_root=root,
+            runner=self.planner_runner,
+            skill_store=self.skill_store,
+        )
+        on_event = getattr(self.sink, "handle_event", None)
+        decision = manager.decide_stage_transition(
+            review=None,
+            planner_verdict=verdict,
+            project_root=root,
+            on_event=on_event,
+            open_ended=True,
+            continuous_objective=self.config.continuous_objective,
+        )
+        self._emit({
+            "type": EventType.LIFE_MANAGER_STAGE_DECISION,
+            "action": decision.action,
+            "target_stage": decision.target_stage,
+            "reason": decision.reason,
+            "current_stage": decision.current_stage,
+            "source": decision.source,
+            "diagnostic": decision.diagnostic,
+            "trigger": "planner_waiting_reconciliation",
+        })
+
+        if decision.source == "manager_llm" or decision.action == "rollback":
+            self._planner_waits_since_reconciliation = 0
+        else:
+            # Backend/failsafe HOLDs are not authoritative. Retry next wait.
+            self._planner_waits_since_reconciliation = (
+                MANAGER_RECONCILE_AFTER_IDLE_CYCLES
+            )
+
+        if decision.action != "rollback":
+            return False
+
+        self._deactivate_planner_waiting_contract()
+        self._last_planner_wait_reconciliation_key = None
+        self._planner_waits_since_reconciliation = 0
+        self._last_open_ended_project_done_signature = ""
+        self._reset_idle_backoff()
+        self._emit_status(
+            "manager resolved planner wait by reopening "
+            f"{decision.target_stage}"
+        )
         return True
 
     def _resolve_vertical_once(self) -> None:
@@ -543,6 +649,8 @@ class PlanningCycleMixin:
                     "expected_plan_id": expected_plan_id,
                     "expected_plan_version": expected_plan_version,
                 })
+            if self._reconcile_open_ended_planner_waiting(verdict):
+                return PLAN_RETRY
             record = self._record_planner_waiting(
                 verdict,
                 planner_cost_usd=planner_cost_usd,
@@ -559,6 +667,8 @@ class PlanningCycleMixin:
         # historical probed-token set for deduplication, but stop injecting the
         # old blocker into subsequent planning context.
         self._deactivate_planner_waiting_contract()
+        self._last_planner_wait_reconciliation_key = None
+        self._planner_waits_since_reconciliation = 0
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).

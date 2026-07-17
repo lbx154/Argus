@@ -256,7 +256,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "actually improving within the budget), OR any flat / wrong-way / noisy / "
                 "early-plateau trajectory is EXPLICITLY explained (e.g. budget-bound, "
                 "schedule, warmup, divergence) rather than silently accepted. A trajectory "
-                "that never improves over the starting point is a dead attempt, not a result."
+                "that never improves over the starting point is a dead attempt, not a result. "
+                "No real trajectory means this item is UNSATISFIED: an external launch "
+                "rejection may justify a blocked mission, but never optimize-stage completion."
             ),
             evidence_hint=(
                 "the metric-vs-step (or vs-wall-clock) series in the run log; a one-line "

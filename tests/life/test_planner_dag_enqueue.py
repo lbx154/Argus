@@ -15,9 +15,12 @@ from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import LifeMemory
+from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
+from argus_skill.planner import WaitingContract
+from argus_skill.skills.vertical_select import persist_vertical
 
 # ---------------------------------------------------------------------------
 # _resolve_task_dep_ids — the load-bearing local-key → real-id mapping
@@ -87,6 +90,61 @@ class _NullRunner:
     """Mission runner; never invoked in the planning-only path under test."""
 
 
+class _WaitingThenManagerRunner:
+    def __init__(self, *, reconcile: bool, manager_action: str) -> None:
+        self.reconcile = reconcile
+        self.manager_action = manager_action
+        self.manager_calls = 0
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        if run_label.startswith("planner.cycle"):
+            payload = {
+                "project_done": False,
+                "reason": "the prerequisite profile cannot run at measure",
+                "restart_daemon": False,
+                "restart_reason": "",
+                "waiting": True,
+                "waiting_reason": (
+                    "maintenance blocks the profile, and current measure stage "
+                    "prevents dispatching optimize work"
+                ),
+                "waiting_contract": {
+                    "blocker_fingerprint": "cluster:maintenance",
+                    "recheck_condition": "the cluster admits the profile job",
+                    "recheck_token": "maintenance-v1",
+                    "stage_reconciliation_required": self.reconcile,
+                    "allow_verification_probe": False,
+                    "recheck_after_seconds": 0,
+                },
+                "new_tasks": [],
+            }
+        else:
+            assert run_label == "manager-stage"
+            self.manager_calls += 1
+            payload = {
+                "action": self.manager_action,
+                "target_stage": (
+                    "optimize" if self.manager_action == "rollback" else "measure"
+                ),
+                "reason": (
+                    "profile belongs to optimize"
+                    if self.manager_action == "rollback"
+                    else "the live external job is correctly owned by measure"
+                ),
+            }
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[json.dumps(payload)],
+            stdout_lines=[],
+            stderr_lines=[],
+            thread_id=None,
+            fatal_error=None,
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+        )
+
+
 def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupervisor:
     memory = LifeMemory.open(tmp_path / "life")
     config = LifeSupervisorConfig(
@@ -123,6 +181,63 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
     return sup
 
 
+def _make_waiting_supervisor(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    reconcile: bool,
+    manager_action: str,
+) -> tuple[LifeSupervisor, _WaitingThenManagerRunner, Path]:
+    project = tmp_path / "project"
+    project.mkdir()
+    persist_vertical(project, "nanochat")
+    (project / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "measure",
+            "vertical": "nanochat",
+            "stages": {
+                "setup": {"status": "done"},
+                "optimize": {"status": "done"},
+                "measure": {"status": "in_progress"},
+                "report": {"status": "pending"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    backend = _WaitingThenManagerRunner(
+        reconcile=reconcile,
+        manager_action=manager_action,
+    )
+    memory = LifeMemory.open(tmp_path / "life")
+    config = LifeSupervisorConfig(
+        continuous=True,
+        continuous_objective="keep improving nanochat",
+        paper_mission=False,
+        full_paper_gate=False,
+        open_ended=True,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    sink = _NullSink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_NullRunner(),
+        sink=sink,
+        config=config,
+        planner_runner=backend,
+    )
+    sup._test_sink = sink  # type: ignore[attr-defined]
+    monkeypatch.setattr(sup, "_maybe_idle_after_unchanged_open_ended_done", lambda: None)
+    monkeypatch.setattr(sup, "_resolve_vertical_once", lambda: None)
+    monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
+    monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
+    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
+    monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
+    monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
+    return sup, backend, project
+
+
 def _dag_verdict_json() -> str:
     """2 parallel runs (a, b) + 1 fan-in analysis (c, deps=[a, b])."""
     def task(key, deps, title, objective):
@@ -154,6 +269,90 @@ def _dag_verdict_json() -> str:
             ),
         ],
     })
+
+
+def test_planner_wait_stage_mismatch_rolls_back_before_idling(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="rollback",
+    )
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="cluster:maintenance",
+        recheck_condition="the cluster admits the profile job",
+        recheck_token="maintenance-v1",
+        stage_reconciliation_required=True,
+    ))
+
+    assert sup._plan_next_work() == PLAN_RETRY
+
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "optimize"
+    assert state["stages"]["optimize"]["status"] == "in_progress"
+    assert backend.manager_calls == 1
+    assert not any(
+        event.get("type") == "life.planner.waiting"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+    contract_state = sup._load_planner_waiting_contract_state()
+    assert contract_state is not None
+    assert contract_state["active"] is False
+
+
+def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+
+    assert [sup._plan_next_work() for _ in range(3)] == [PLAN_AWAITING] * 3
+    # Verification probes and real missions reset idle backoff; reconciliation
+    # cadence must remain independent or the fourth review can be postponed.
+    sup._reset_idle_backoff()
+    assert [sup._plan_next_work() for _ in range(2)] == [PLAN_AWAITING] * 2
+
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "measure"
+    assert backend.manager_calls == 1
+    contract_state = sup._load_planner_waiting_contract_state()
+    assert contract_state is not None
+    assert contract_state["active"] is True
+
+
+def test_new_explicit_stage_request_bypasses_wait_cadence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="rollback",
+    )
+
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.manager_calls == 0
+
+    backend.reconcile = True
+    assert sup._plan_next_work() == PLAN_RETRY
+    assert backend.manager_calls == 1
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "optimize"
 
 
 def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:

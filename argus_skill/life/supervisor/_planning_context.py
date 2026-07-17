@@ -547,6 +547,9 @@ class PlanningContextMixin:
             "blocker_fingerprint": blocker_fingerprint,
             "recheck_condition": recheck_condition,
             "recheck_token": recheck_token,
+            "stage_reconciliation_required": bool(
+                getattr(contract, "stage_reconciliation_required", False)
+            ),
             "allow_verification_probe": bool(
                 getattr(contract, "allow_verification_probe", False)
             ),
@@ -716,6 +719,11 @@ class PlanningContextMixin:
             "blocker_fingerprint": getattr(contract, "blocker_fingerprint", ""),
             "recheck_condition": getattr(contract, "recheck_condition", ""),
             "recheck_token": getattr(contract, "recheck_token", ""),
+            "stage_reconciliation_required": getattr(
+                contract,
+                "stage_reconciliation_required",
+                False,
+            ),
             "allow_verification_probe": getattr(
                 contract,
                 "allow_verification_probe",
@@ -733,6 +741,7 @@ class PlanningContextMixin:
                 "blocker_fingerprint",
                 "recheck_condition",
                 "recheck_token",
+                "stage_reconciliation_required",
                 "allow_verification_probe",
                 "recheck_after_seconds",
                 "first_observed_at",
@@ -750,6 +759,8 @@ class PlanningContextMixin:
             f"- blocker_fingerprint: {state['blocker_fingerprint']}\n"
             f"- recheck_token: {state['recheck_token']}\n"
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
+            "- stage_reconciliation_required: "
+            f"{bool(state.get('stage_reconciliation_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
             "If current evidence does not satisfy the declared recheck condition, "
             "reuse the exact fingerprint and token with waiting=true and do not "

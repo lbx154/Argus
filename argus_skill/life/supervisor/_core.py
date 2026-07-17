@@ -262,6 +262,10 @@ class LifeSupervisor(
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
         self._last_verification_probe_at = 0.0
+        self._last_planner_wait_reconciliation_key: (
+            tuple[str, str, str, bool] | None
+        ) = None
+        self._planner_waits_since_reconciliation = 0
         # Consecutive missions that COMPLETED with the reviewer judging
         # forward_progress=false; when it crosses the threshold the harness
         # escalates to the operator (surface, don't loop invisibly).
