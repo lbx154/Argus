@@ -820,7 +820,10 @@ def test_hook_consumes_manager_blocked_rollback_artifact_before_no_review_hold(
     state = json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert state["stages"]["run"]["status"] == "done"
+    # `run` is the earliest_broken_stage we rolled back TO — it must be REOPENED
+    # (actionable) so the engineer redoes it. Landing on a "done" current_stage
+    # is the liveness deadlock the harness now forbids.
+    assert state["stages"]["run"]["status"] == "in_progress"
     assert state["stages"]["analysis"]["status"] == "pending"
     assert state["stages"]["draft"]["status"] == "pending"
     assert state["stages"]["review"]["status"] == "pending"

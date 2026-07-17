@@ -197,9 +197,11 @@ def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
     assert payload["current_stage"] == "benchmark"
     # `run` was in_progress; rollback must demote it back to pending
     assert payload["stages"]["run"]["status"] == "pending"
-    # benchmark itself stays as the earlier `done` value — operator chooses
-    # whether the next round downgrades it via the checklist
-    assert payload["stages"]["benchmark"]["status"] == "done"
+    # LIVENESS INVARIANT: the stage we land on must be actionable. benchmark was
+    # `done`; landing on a `done` stage is the deadlock (Planner can't dispatch a
+    # done stage, only the Manager advances) — so the target is reopened to
+    # `in_progress`.
+    assert payload["stages"]["benchmark"]["status"] == "in_progress"
     assert len(payload["rollback_history"]) == 1
     entry = payload["rollback_history"][0]
     assert entry["from_stage"] == "run"
@@ -254,6 +256,37 @@ def test_rollback_stage_appends_history_across_calls(tmp_path: Path) -> None:
     payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
     assert len(payload["rollback_history"]) == 2
     assert payload["current_stage"] == "research"
+
+
+def test_rollback_onto_completed_stage_reopens_it_no_deadlock(tmp_path: Path) -> None:
+    """LIVENESS INVARIANT regression: rolling back onto an already-``done`` stage
+    must reopen it, never land the machine on a ``done`` ``current_stage``.
+
+    Reproduces the open-ended reconcile deadlock: every pipeline stage is
+    ``done`` and the Manager rolls the terminal stage back to keep working. If
+    the target stays ``done``, ``current_stage`` has no dispatchable work and
+    only the Manager can advance -> the Planner spins forever on
+    ``planner_waiting``. The harness must guarantee the landing stage is
+    actionable.
+    """
+    from argus_skill.skills.stage_checklists import rollback_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "draft",
+        "stages": {s: {"status": "done"} for s in (
+            "research", "plan", "benchmark", "run", "analysis", "draft",
+        )},
+    }), encoding="utf-8")
+
+    rollback_stage(tmp_path, target_stage="plan", reason="keep iterating")
+
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    cur = payload["current_stage"]
+    assert cur == "plan"
+    # The landing stage MUST be actionable — not the deadlocking "done".
+    assert payload["stages"][cur]["status"] == "in_progress"
 
 
 # --- stage advance (forward) ------------------------------------------------

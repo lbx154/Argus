@@ -886,6 +886,26 @@ def _set_stage(
             if status in {"done", "ready", "in_progress"}:
                 stage_record["status"] = "pending"
 
+    # LIVENESS INVARIANT: the stage we just landed on must always be actionable.
+    # A transition — most commonly a rollback ONTO an already-completed stage
+    # (e.g. an open-ended reconcile rolling report -> setup while setup.status is
+    # still "done") — that leaves ``current_stage`` with a terminal status
+    # produces a hard deadlock: the Planner cannot dispatch work for a "done"
+    # stage, and only the Manager may advance, so the mission spins forever
+    # emitting ``planner_waiting``. Force the target stage back to an actionable
+    # status so there is ALWAYS a legal next move. The Manager still owns the
+    # DECISION of where to go (policy); the harness only guarantees the landing
+    # state is workable (invariant), never overriding a still-actionable status.
+    # EXCLUDES ``complete``: completing the final stage deliberately stamps it
+    # ``done`` in place (project reads as complete) and must NOT be reopened.
+    if direction != "complete":
+        target_record = stages.get(target)
+        if (
+            isinstance(target_record, dict)
+            and str(target_record.get("status") or "").lower() == "done"
+        ):
+            target_record["status"] = "in_progress"
+
     now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
     history = payload.get("stage_history")
     if not isinstance(history, list):
