@@ -316,6 +316,115 @@ def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:
     assert "## Stage checklist" in sent_prompt
 
 
+def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "calibrate one more finite route",
+        "new_tasks": [{
+            "title": "Validate partitioned order-22 certificate route",
+            "objective": (
+                "Run bounded geng shards and, if no witness appears, classify the "
+                "result as feasibility evidence only."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "Replayable finite shard manifests.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": None,
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer. "
+            "Finite enumeration and feasibility evidence do not count."
+        ),
+    )
+
+    assert verdict.new_tasks == []
+    assert "hard objective contract violation" in verdict.error
+
+
+def test_plan_next_accepts_proof_task_for_hard_theorem_objective(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove a structural special case",
+        "new_tasks": [{
+            "title": "State and prove a structural cycle theorem",
+            "objective": (
+                "State a precisely quantified nontrivial lemma, give a complete "
+                "self-contained rigorous proof, update the lemma graph and claim "
+                "ledger, and require independent Reviewer acceptance."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "The theorem statement, proof, ledger, graph, and review.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": None,
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "State and prove a structural cycle theorem"
+    ]
+
+
+def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
+    monkeypatch, tmp_path,
+) -> None:
+    from argus_skill.skills import harness_overlay, stage_checklists
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "math")
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: "solve")
+    monkeypatch.setattr(
+        stage_checklists,
+        "format_stage_checklist",
+        lambda s, **_k: f"<<CHECKLIST:{s}>>",
+    )
+    monkeypatch.setattr(
+        harness_overlay, "resolve_project_root", lambda *_a, **_k: tmp_path
+    )
+    prompt = Planner._build_planner_prompt(
+        continuous_objective=(
+            "The hard success criterion is to produce a theorem with a complete "
+            "self-contained proof. Finite computation does not count."
+        ),
+        journal_tail="",
+        planning_cycle=0,
+    )
+
+    assert "Active hard theorem-proof contract" in prompt
+    assert "MUST NOT be written as an alternative successful fallback" in prompt
+
+
 def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
     class _BrokenRunner:
         def run_exec(self, **_):

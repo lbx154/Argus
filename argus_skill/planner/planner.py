@@ -73,6 +73,117 @@ class TaskSpec:
     deps: list[str] = field(default_factory=list)
 
 
+def _requires_theorem_proof_contract(objective: str) -> bool:
+    """Return whether the operator made theorem proof a hard deliverable.
+
+    This is deliberately narrower than generic ``math`` detection.  Ordinary
+    open-problem campaigns may legitimately schedule bounded discovery work;
+    the guard activates only when the objective explicitly combines a hard
+    success requirement with a theorem/lemma and a complete proof.
+    """
+    text = " ".join(str(objective or "").lower().split())
+    hard = any(
+        marker in text
+        for marker in (
+            "hard success criterion",
+            "hard requirement",
+            "must actually be proved",
+            "must be proved",
+            "硬性成功标准",
+            "必须证明",
+        )
+    )
+    theorem = bool(
+        re.search(r"\b(?:theorem|lemma|proposition|corollary)\b", text)
+        or any(marker in text for marker in ("定理", "引理", "命题", "推论"))
+    )
+    proof = bool(
+        re.search(r"\b(?:complete|self-contained|rigorous)\b.{0,80}\bproof\b", text)
+        or re.search(r"\bproof\b.{0,80}\b(?:complete|self-contained|rigorous)\b", text)
+        or any(marker in text for marker in ("完整证明", "严格证明", "自包含证明"))
+    )
+    return hard and theorem and proof
+
+
+def _theorem_proof_task_issue(task: TaskSpec) -> str:
+    """Explain why one task cannot satisfy a hard theorem-proof objective."""
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    has_statement = bool(
+        re.search(r"\b(?:theorem|lemma|proposition|corollary)\b", text)
+        or any(marker in text for marker in ("定理", "引理", "命题", "推论"))
+    )
+    has_proof = bool(
+        re.search(r"\b(?:proof|prove|proving)\b", text)
+        or "证明" in text
+    )
+    has_complete = any(
+        marker in text
+        for marker in (
+            "complete",
+            "self-contained",
+            "rigorous",
+            "完整",
+            "自包含",
+            "严格",
+        )
+    )
+    has_independent_review = any(
+        marker in text
+        for marker in (
+            "independent reviewer",
+            "independent review",
+            "reviewer acceptance",
+            "独立 reviewer",
+            "独立审稿",
+            "独立审核",
+        )
+    )
+    missing: list[str] = []
+    if not has_statement:
+        missing.append("a precisely stated theorem/lemma")
+    if not has_proof:
+        missing.append("a proof deliverable")
+    if not has_complete:
+        missing.append("complete/self-contained rigor")
+    if not has_independent_review:
+        missing.append("independent Reviewer acceptance")
+    if missing:
+        return "missing " + ", ".join(missing)
+
+    # A theorem-first mission may use these methods internally, but it cannot
+    # declare success on a fallback that the operator explicitly excluded.
+    excluded_success_patterns = (
+        r"feasibility evidence only",
+        r"finite (?:verification|computation|enumeration) only",
+        r"bounded [^.]{0,100} evidence only",
+        r"resource[- ]limited [^.]{0,100} only",
+        r"otherwise classify [^.]{0,120} only",
+        r"no theorem",
+        r"without (?:a )?(?:theorem|proof)",
+        r"仅(?:作为|算作|提供).{0,30}(?:有限|可行性|枚举|计算)证据",
+    )
+    for pattern in excluded_success_patterns:
+        if re.search(pattern, text):
+            return "acceptance permits an excluded non-proof-only outcome"
+    return ""
+
+
+def _hard_objective_task_issues(
+    continuous_objective: str,
+    tasks: list[TaskSpec],
+) -> list[str]:
+    if not _requires_theorem_proof_contract(continuous_objective):
+        return []
+    issues: list[str] = []
+    for task in tasks:
+        issue = _theorem_proof_task_issue(task)
+        if issue:
+            issues.append(f"{task.title}: {issue}")
+    return issues
+
+
 @dataclass(frozen=True)
 class WaitingContract:
     """Planner-authored durable identity and recheck policy for one blocker."""
@@ -271,6 +382,29 @@ class Planner:
                 premium_requests=premium_requests,
             )
         parsed = parse_planner_text(text)
+        hard_objective_issues = _hard_objective_task_issues(
+            continuous_objective,
+            parsed.new_tasks,
+        )
+        if hard_objective_issues:
+            issue_text = "; ".join(hard_objective_issues[:6])
+            return replace(
+                parsed,
+                project_done=False,
+                reason=(
+                    "planner tasks violate the operator's hard objective contract; "
+                    "re-plan with a theorem statement, complete self-contained proof, "
+                    f"and independent review: {issue_text}"
+                ),
+                new_tasks=[],
+                checklist_ops=[],
+                error=f"hard objective contract violation: {issue_text}",
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
+                premium_requests=premium_requests,
+            )
         # The Planner OWNS the per-stage checklist: apply any authored ops to the
         # per-project store AFTER the verdict is parsed (so the NEXT cycle / the
         # next reviewer round sees them; never mid-round). Fail-soft: any error
@@ -704,6 +838,33 @@ class Planner:
             "only, with no prose or Markdown fence.\n\n"
         )
 
+        objective_contract_block = (
+            "## Immutable objective acceptance contract\n"
+            "The operator's hard success criteria and explicit non-qualifying "
+            "outcomes are acceptance constraints, not an optimization hint. The "
+            "current-stage gate controls ordering but never lowers those criteria. "
+            "Do not enqueue a mission whose acceptance can be satisfied entirely "
+            "by an outcome the operator says does not count. Supporting searches, "
+            "probes, computation, and literature work may be internal steps inside "
+            "a qualifying mission; they are not a successful mission outcome by "
+            "themselves.\n\n"
+        )
+        if _requires_theorem_proof_contract(continuous_objective):
+            objective_contract_block += (
+                "### Active hard theorem-proof contract\n"
+                "Every queued solve mission MUST require all of the following as "
+                "its acceptance outcome: (1) a precisely quantified nontrivial "
+                "theorem, lemma, proposition, or corollary; (2) a complete "
+                "self-contained rigorous proof; (3) an updated lemma dependency "
+                "graph and claim ledger; and (4) independent Reviewer acceptance. "
+                "Enumeration, SAT/CP calibration, finite verification, literature "
+                "review, witness search, and resource-limited route pruning may be "
+                "used inside that mission, but MUST NOT be written as an alternative "
+                "successful fallback. If proof search fails, the mission fails or "
+                "remains unresolved and the next cycle changes proof strategy; it "
+                "does not close successfully as feasibility evidence.\n\n"
+            )
+
         return (
             ground_truth_mandate(
                 "planner",
@@ -716,6 +877,7 @@ class Planner:
                 "argus-planner-role.md",
             )
             + host_policy_block
+            + objective_contract_block
             + stage_checklist
             + "\n\n"
             + stage_gate_block

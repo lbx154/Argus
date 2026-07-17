@@ -2,7 +2,7 @@
 name: Math Research Review
 description: Independently review mathematical correctness, novelty, significance, statement fidelity, and real Lean evidence against the requested research target.
 category: math-research-review
-version: 3
+version: 4
 ---
 
 MISSION TYPE: MATHEMATICS. Independently check correctness and fidelity to the
@@ -11,6 +11,14 @@ assumptions, weakened goals, and overclaims. Finite computation is not a proof o
 a universal statement. When Lean is used, require fresh real compilation and
 the canonical `Main.lean`, `compile.log`, `lean_check.json`, and
 `statement_fidelity.md`; compilation alone does not establish semantic fidelity.
+
+When the active objective or bounded mission states a hard theorem-proof
+contract, `done` requires a precisely quantified theorem/lemma, a complete
+self-contained proof with every dependency discharged, an updated lemma graph
+and claim ledger, and this independent correctness audit. Reject a failure-only,
+finite-enumeration, feasibility, route-pruning, or resource-limit artifact even
+if it is honest and reproducible: those may be evidence inside the mission, but
+the mission explicitly made them non-qualifying outcomes.
 
 When the active output schema exposes a structured result field, populate it
 with independent correctness, novelty, statement-fidelity, evidence, and
