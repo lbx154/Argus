@@ -65,6 +65,27 @@ _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
 
+
+def _manager_backend_failure(result: Any) -> tuple[bool, str]:
+    """Return Manager failure status and its best diagnostic.
+
+    stderr is retained diagnostic output, not an independent failure signal.
+    Required Manager output is validated separately by each consumer.
+    """
+    fatal = str(getattr(result, "fatal_error", "") or "").strip()
+    failed = bool(
+        int(getattr(result, "exit_code", 0) or 0) != 0
+        or getattr(result, "turn_failed", False)
+        or fatal
+    )
+    if not failed or fatal:
+        return failed, fatal
+    stderr = "\n".join(
+        map(str, getattr(result, "stderr_lines", None) or [])
+    ).strip()
+    return True, stderr
+
+
 def _manager_reasoning_effort() -> str:
     for key in (
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
@@ -383,7 +404,8 @@ class _ManagerSession:
                     run_label=run_label,
                     resume_thread_id=tid,
                 )
-                if tid and result_has_missing_resume_target(result):
+                failed, _detail = _manager_backend_failure(result)
+                if tid and failed and result_has_missing_resume_target(result):
                     try:
                         self._session_path.unlink(missing_ok=True)
                     except OSError:
@@ -711,12 +733,8 @@ class Manager:
                 ),
                 run_label="manager-research-target",
             )
-        detail = str(getattr(result, "fatal_error", "") or "").strip()
-        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
-            if not detail:
-                detail = "\n".join(
-                    map(str, getattr(result, "stderr_lines", None) or [])
-                ).strip()
+        failed, detail = _manager_backend_failure(result)
+        if failed:
             raise VerticalDecisionError(
                 "Manager research-target backend failed"
                 + (f": {detail}" if detail else "")
@@ -789,14 +807,6 @@ class Manager:
             or ""
         ).strip().lower()
 
-        def _failure_detail(result: Any) -> str:
-            detail = str(getattr(result, "fatal_error", "") or "").strip()
-            if not detail:
-                detail = "\n".join(
-                    map(str, getattr(result, "stderr_lines", None) or [])
-                ).strip()
-            return detail
-
         with self._task_usage_scope(root_task_id):
             fast_prompt = ""
             if (
@@ -845,8 +855,8 @@ class Manager:
                     ),
                     run_label="manager-classify-fast",
                 )
-                fast_detail = _failure_detail(fast_result)
-                if int(getattr(fast_result, "exit_code", 0) or 0) != 0 or fast_detail:
+                fast_failed, fast_detail = _manager_backend_failure(fast_result)
+                if fast_failed:
                     raise VerticalDecisionError(
                         "Manager fast-route backend failed"
                         + (f": {fast_detail}" if fast_detail else "")
@@ -922,8 +932,8 @@ class Manager:
                 ),
                 run_label="manager-classify-grounded",
             )
-        detail = _failure_detail(result)
-        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+        failed, detail = _manager_backend_failure(result)
+        if failed:
             raise VerticalDecisionError(
                 "Manager grounded-route backend failed"
                 + (f": {detail}" if detail else "")
