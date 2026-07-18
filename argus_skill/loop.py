@@ -373,6 +373,12 @@ class SkillLoopConfig:
         env = os.environ.get("ARGUS_SKILL_ADAPTER_MODEL", "").strip()
         return env or self.skill_adapter_model or self.engineer_model or ""
 
+    def resolved_skill_adapter_reasoning_effort(self) -> str:
+        env = os.environ.get(
+            "ARGUS_SKILL_ADAPTER_REASONING_EFFORT", ""
+        ).strip()
+        return env or self.skill_adapter_reasoning_effort or "low"
+
     def resolved_initial_engineer_effort(self) -> str | None:
         if self.workflow_mode != "direct" or self.paper_mission:
             return self.engineer_reasoning_effort
@@ -720,6 +726,9 @@ class SkillLoop:
         learning_target_name = skill.name if strict_skill_hit and skill is not None else ""
         if skill is not None and self.config.skill_adapter_enabled:
             source_skill_text = self.skill_store.render_skill(skill, full=True)
+            adapter_reasoning_effort = (
+                self.config.resolved_skill_adapter_reasoning_effort()
+            )
             max_bullets = (
                 self.config.nearest_transfer_max_bullets
                 if nearest_transfer_fallback
@@ -740,7 +749,7 @@ class SkillLoop:
                 "type": EventType.SKILL_TRANSFER_STARTED,
                 "skill_name": skill.name,
                 "model": self.config.resolved_skill_adapter_model(),
-                "reasoning_effort": self.config.skill_adapter_reasoning_effort,
+                "reasoning_effort": adapter_reasoning_effort,
                 "text": f"adapting matched skill {skill.name} to current task",
             })
             adapter_extra_args = list(self.config.extra_args or [])
@@ -758,7 +767,7 @@ class SkillLoop:
                     prompt=adapter_prompt,
                     options=RunnerOptions(
                         model=self.config.resolved_skill_adapter_model() or None,
-                        reasoning_effort=self.config.skill_adapter_reasoning_effort,
+                        reasoning_effort=adapter_reasoning_effort,
                         extra_args=adapter_extra_args or None,
                         sandbox_mode=adapter_sandbox,
                         skip_git_repo_check=True,

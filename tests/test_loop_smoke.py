@@ -247,6 +247,44 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     assert any(event.get("type") == "skill.transfer.completed" for event in events)
 
 
+def test_skill_adapter_reasoning_effort_honors_operator_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "xhigh")
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(message="- Emit one concise greeting."),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    ).run("say hi warmly", workdir=tmp_path)
+
+    assert outcome.successful
+    adapter_options = next(
+        options
+        for label, _prompt, options in backend.history
+        if label == "skill-adapter"
+    )
+    assert adapter_options.reasoning_effort == "xhigh"
+    started = next(
+        event for event in events if event.get("type") == "skill.transfer.started"
+    )
+    assert started["reasoning_effort"] == "xhigh"
+
+
 def test_low_confidence_transfer_uses_compact_hint_without_adapter(
     tmp_path: Path,
 ) -> None:

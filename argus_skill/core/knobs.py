@@ -113,6 +113,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "low", "matched-skill adaptation reasoning effort", "reasoning"),
     Knob("ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low", "post-task skill-maintenance reasoning effort", "reasoning"),
     # --- budget ---
     Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
