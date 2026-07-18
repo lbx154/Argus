@@ -913,6 +913,8 @@ def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
     assert "Do not speculatively enqueue training" in compact
     assert "Re-plan from the reviewed outcome" in compact
     assert "waiting=true" in text and "waiting_contract" in text
+    assert "requires a Manager authorization/directive" in compact
+    assert "explicitly resolving the stale wait" in compact
 
 
 def test_planner_does_not_repeat_skill_loading_in_task_objectives() -> None:

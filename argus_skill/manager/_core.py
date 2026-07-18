@@ -515,6 +515,9 @@ class StageTransition:
     source: str = "manager_llm"
     # Non-secret parser/runtime code for log triage (never raw model output).
     diagnostic: str = ""
+    # True only when an authoritative Manager HOLD satisfies a persisted
+    # Planner waiting condition and requests immediate replanning.
+    resolves_wait: bool = False
 
 
 def _read_json_object(path: Path) -> dict[str, Any] | None:
@@ -1897,7 +1900,8 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         if decision.action == "complete":
             try:
@@ -1909,7 +1913,8 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("complete", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         if decision.action == "rollback":
             try:
@@ -1922,10 +1927,12 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, "manager_llm", decision.diagnostic)
+                               cur, "manager_llm", decision.diagnostic,
+                               decision.resolves_wait)
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:

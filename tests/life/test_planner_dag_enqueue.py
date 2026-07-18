@@ -91,9 +91,16 @@ class _NullRunner:
 
 
 class _WaitingThenManagerRunner:
-    def __init__(self, *, reconcile: bool, manager_action: str) -> None:
+    def __init__(
+        self,
+        *,
+        reconcile: bool,
+        manager_action: str,
+        manager_resolves_wait: bool = False,
+    ) -> None:
         self.reconcile = reconcile
         self.manager_action = manager_action
+        self.manager_resolves_wait = manager_resolves_wait
         self.manager_calls = 0
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
@@ -131,6 +138,7 @@ class _WaitingThenManagerRunner:
                     if self.manager_action == "rollback"
                     else "the live external job is correctly owned by measure"
                 ),
+                "resolves_wait": self.manager_resolves_wait,
             }
         return RunnerResult(
             exit_code=0,
@@ -187,6 +195,7 @@ def _make_waiting_supervisor(
     *,
     reconcile: bool,
     manager_action: str,
+    manager_resolves_wait: bool = False,
 ) -> tuple[LifeSupervisor, _WaitingThenManagerRunner, Path]:
     project = tmp_path / "project"
     project.mkdir()
@@ -207,6 +216,7 @@ def _make_waiting_supervisor(
     backend = _WaitingThenManagerRunner(
         reconcile=reconcile,
         manager_action=manager_action,
+        manager_resolves_wait=manager_resolves_wait,
     )
     memory = LifeMemory.open(tmp_path / "life")
     config = LifeSupervisorConfig(
@@ -330,6 +340,41 @@ def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
     contract_state = sup._load_planner_waiting_contract_state()
     assert contract_state is not None
     assert contract_state["active"] is True
+
+
+def test_manager_hold_can_resolve_wait_without_moving_stage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="hold",
+        manager_resolves_wait=True,
+    )
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="cluster:maintenance",
+        recheck_condition="the cluster admits the profile job",
+        recheck_token="maintenance-v1",
+        stage_reconciliation_required=True,
+    ))
+
+    assert sup._plan_next_work() == PLAN_RETRY
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "measure"
+    assert backend.manager_calls == 1
+    contract_state = sup._load_planner_waiting_contract_state()
+    assert contract_state is not None
+    assert contract_state["active"] is False
+    decisions = [
+        event
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+        if event.get("type") == "life.manager.stage_decision"
+    ]
+    assert decisions and decisions[-1]["resolves_wait"] is True
 
 
 def test_new_explicit_stage_request_bypasses_wait_cadence(

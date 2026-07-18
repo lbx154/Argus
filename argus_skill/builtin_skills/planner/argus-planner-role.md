@@ -59,9 +59,11 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   pure polling mission. Also emit `waiting_contract`: choose a stable
   `blocker_fingerprint`, state the concrete `recheck_condition`, and keep
   `recheck_token` byte-identical while current evidence is unchanged. Set
-  `stage_reconciliation_required=true` only when `current_stage` itself makes the
-  prerequisite work you need illegal to dispatch; this asks the Manager to decide
-  HOLD versus ROLLBACK. Otherwise set it false for an ordinary external wait.
+  `stage_reconciliation_required=true` when `current_stage` itself makes the
+  prerequisite work illegal to dispatch OR the declared recheck condition requires
+  a Manager authorization/directive. This asks the Manager to decide HOLD versus
+  ROLLBACK, or to HOLD while explicitly resolving the stale wait. Otherwise set it
+  false for an ordinary external wait.
   Set
   `allow_verification_probe=false` for an operator-only blocker with no evidence of
   change. If one future probe is justified, set it true and choose

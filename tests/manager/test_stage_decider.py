@@ -317,6 +317,47 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     assert _read_stage(root) == "research"  # untouched
 
 
+def test_parse_wait_reconciliation_hold_can_request_replanning() -> None:
+    decision = parse_stage_decision(
+        json.dumps({
+            "action": "hold",
+            "target_stage": "research",
+            "reason": "new mechanism work is now authorized",
+            "resolves_wait": True,
+        }),
+        current_stage="research",
+        stage_order=["research", "plan"],
+    )
+
+    assert decision.action == "hold"
+    assert decision.target_stage == "research"
+    assert decision.resolves_wait is True
+
+
+def test_wait_reconciliation_prompt_explains_resolves_wait() -> None:
+    planner_verdict = SimpleNamespace(
+        waiting=True,
+        waiting_reason="manager authorization required",
+        reason="manager authorization required",
+        waiting_contract=SimpleNamespace(
+            recheck_condition="Manager explicitly authorizes a new mechanism",
+        ),
+    )
+
+    prompt = build_stage_decision_prompt(
+        current_stage="research",
+        next_stage="plan",
+        earlier_stages=[],
+        checklist_md="- [ ] research.signal",
+        review=None,
+        planner_verdict=planner_verdict,
+    )
+
+    assert "Planner-wait reconciliation" in prompt
+    assert "resolves_wait=true" in prompt
+    assert '"resolves_wait": true|false' in prompt
+
+
 def test_decide_stage_refreshes_manager_owned_live_view(
     tmp_path: Path,
     monkeypatch,

@@ -29,6 +29,10 @@ class StageDecision:
     target_stage: str
     reason: str
     diagnostic: str = ""
+    # Planner-wait reconciliation only: an authoritative HOLD may keep the
+    # current stage while introducing a new authorization/directive/evidence
+    # that satisfies the Planner's declared recheck condition.
+    resolves_wait: bool = False
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback")
@@ -114,6 +118,16 @@ def build_stage_decision_prompt(
     verification_summary = str(
         getattr(review, "verification_summary", "") or ""
     ).strip()
+    planner_waiting = bool(getattr(planner_verdict, "waiting", False))
+    waiting_contract = getattr(planner_verdict, "waiting_contract", None)
+    waiting_reason = str(
+        getattr(planner_verdict, "waiting_reason", "")
+        or getattr(planner_verdict, "reason", "")
+        or ""
+    ).strip()
+    recheck_condition = str(
+        getattr(waiting_contract, "recheck_condition", "") or ""
+    ).strip()
 
     source_instructions = ""
     if review_source == "engineer_self_review":
@@ -141,6 +155,33 @@ def build_stage_decision_prompt(
             f"Operator objective:\n{continuous_objective.strip()}\n\n"
         )
 
+    wait_resolution_block = ""
+    if planner_waiting:
+        wait_resolution_block = (
+            "## Planner-wait reconciliation\n"
+            f"Waiting reason: {waiting_reason or '(none)'}\n"
+            f"Declared recheck condition: {recheck_condition or '(none)'}\n"
+            "If this Manager ruling supplies a NEW explicit authorization, "
+            "directive, or evidence that satisfies the declared recheck "
+            "condition, keep the stage on HOLD and set `resolves_wait=true` so "
+            "the Planner immediately replans without the stale waiting contract. "
+            "This does not advance the stage or certify its checklist. Set "
+            "`resolves_wait=false` when the blocker remains unchanged.\n\n"
+        )
+
+    response_schema = (
+        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
+        '"reason": "<clear explanation>", "resolves_wait": true|false, '
+        '"live_view": null | {"title": "<title>", "reason": "<why>", '
+        '"paths": ["<path>", ...]}}\n'
+        if planner_waiting
+        else
+        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
+        '"reason": "<clear explanation>", "live_view": null | '
+        '{"title": "<title>", "reason": "<why>", '
+        '"paths": ["<path>", ...]}}\n'
+    )
+
     return (
         "You are the MANAGER of an automated research pipeline, and the SOLE "
         "authority over pipeline STAGE transitions. The reviewer and planner only "
@@ -163,6 +204,7 @@ def build_stage_decision_prompt(
         f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
+        f"{wait_resolution_block}"
         f"{open_ended_block}"
         f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
@@ -176,9 +218,7 @@ def build_stage_decision_prompt(
         "unreliable (say which one and why).\n"
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
-        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>", "live_view": null | {"title": "<title>", '
-        '"reason": "<why>", "paths": ["<path>", ...]}}\n'
+        f"{response_schema}"
         "For HOLD, set target_stage to the current stage."
     )
 
@@ -251,11 +291,18 @@ def parse_stage_decision(
     if action not in _VALID_ACTIONS:
         return StageDecision("hold", cur, "manager held (default)", "unknown_action")
     reason = str(obj.get("reason") or "").strip()
+    resolves_wait = obj.get("resolves_wait") is True
     raw_target = obj.get("target_stage")
     target = _normalized_stage_label(raw_target)
 
     if action == "hold":
-        return StageDecision("hold", cur, reason or "manager held", "intentional_hold")
+        return StageDecision(
+            "hold",
+            cur,
+            reason or "manager held",
+            "intentional_hold",
+            resolves_wait,
+        )
 
     if cur not in order:
         return StageDecision(

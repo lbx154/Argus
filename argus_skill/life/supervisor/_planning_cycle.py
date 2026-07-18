@@ -280,6 +280,7 @@ class PlanningCycleMixin:
             "source": decision.source,
             "diagnostic": decision.diagnostic,
             "trigger": "planner_waiting_reconciliation",
+            "resolves_wait": bool(getattr(decision, "resolves_wait", False)),
         })
 
         if decision.source == "manager_llm" or decision.action == "rollback":
@@ -289,6 +290,21 @@ class PlanningCycleMixin:
             self._planner_waits_since_reconciliation = (
                 MANAGER_RECONCILE_AFTER_IDLE_CYCLES
             )
+
+        if (
+            decision.action == "hold"
+            and decision.source == "manager_llm"
+            and bool(getattr(decision, "resolves_wait", False))
+        ):
+            self._deactivate_planner_waiting_contract()
+            self._last_planner_wait_reconciliation_key = None
+            self._planner_waits_since_reconciliation = 0
+            self._reset_idle_backoff()
+            self._emit_status(
+                "manager resolved planner wait while holding "
+                f"current stage {decision.target_stage}"
+            )
+            return True
 
         if decision.action != "rollback":
             return False
