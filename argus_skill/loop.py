@@ -1724,14 +1724,15 @@ class SkillLoop:
             "End with `## Verification (verbatim)` containing command "
             "output in a fenced block, then `## Summary` (at most 8 bullets).\n\n"
             + (
-                "Set `review=skip` only for complete, bounded, low-risk work whose "
-                "decisive verifier passed. Require Reviewer for unresolved failures, "
-                "risky cross-module API/schema/migration/security/concurrency changes, "
-                "or unsettled judgment—not reassurance. Request skill maintenance "
-                "only for durable reusable learning; the harness resumes this session.\n"
+                "Use `review=skip` only for low-risk bounded work with a passing "
+                "verifier. Require review for failures, risky cross-module changes, "
+                "or unsettled judgment. Do not spawn a Reviewer subagent; for "
+                "`review=required`, yield for a fresh Reviewer session. Request skill "
+                "maintenance only for durable learning.\n"
                 if allow_self_review
                 else
-                "Independent review required; set `review=required`.\n"
+                "`review=required`; don't spawn Reviewer subagents. Yield for fresh "
+                "Reviewer session.\n"
             )
             + "Final line exactly:\n"
             'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
