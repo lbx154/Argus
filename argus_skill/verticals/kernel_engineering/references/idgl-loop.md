@@ -21,3 +21,7 @@ Efficiency rules:
 - Full suite: baseline certification and retained-candidate certification only.
 - CHECKPOINT.md carries the state; continuation prompts should not resend the
   full skill, objective, registry, and frontier catalog.
+- Long diagnostics and certification gates must stream to a durable artifact.
+  Growing logs and live child/GPU work are execution heartbeats: they prevent a
+  false watchdog timeout but do not by themselves count as scientific progress
+  or a passing gate.

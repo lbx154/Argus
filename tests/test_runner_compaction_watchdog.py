@@ -14,8 +14,10 @@ from pathlib import Path
 
 import pytest
 
+import argus_skill.engineer.runner as runner_module
 from argus_skill.engineer.runner import (
     _EffectiveProgressWatchdog,
+    _is_project_progress_ignored_dir,
     _is_codex_compaction_line,
     _is_effective_codex_session_line,
     fatal_error_looks_like_compaction_thrash,
@@ -155,6 +157,29 @@ def test_partial_trailing_line_is_not_skipped(tmp_path, monkeypatch):
         fh.write("\n" + _COMPACTED + "\n")
     second = wd._read_effective_session_events(path, offset)
     assert second.compactions == 2  # the previously-partial line is not lost
+
+
+def test_custom_named_virtualenv_does_not_hide_experiment_log_growth(
+    tmp_path, monkeypatch
+):
+    workdir = tmp_path / "proj"
+    env_dir = workdir / ".venv-b200-tilelang"
+    env_dir.mkdir(parents=True)
+    (env_dir / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    for index in range(4):
+        (env_dir / f"generated-{index}.py").write_text("x = 1\n", encoding="utf-8")
+
+    log_path = workdir / "research" / "raw" / "full-gate.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("PASSED [ 51%]\n", encoding="utf-8")
+
+    assert _is_project_progress_ignored_dir(workdir, env_dir.name)
+    monkeypatch.setattr(runner_module, "_PROJECT_PROGRESS_MAX_FILES", 2)
+    wd, _ = _watchdog(workdir)
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write("PASSED [ 52%]\n")
+
+    assert wd._project_changed() is True
 
 
 if __name__ == "__main__":  # pragma: no cover

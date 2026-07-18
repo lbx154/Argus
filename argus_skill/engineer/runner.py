@@ -798,6 +798,24 @@ class _SessionReadResult:
     consumed_bytes: int
 
 
+def _is_project_progress_ignored_dir(parent: Path, name: str) -> bool:
+    """Exclude generated trees that can hide real experiment heartbeats.
+
+    Kernel projects commonly use target-specific environments such as
+    ``.venv-b200-tilelang`` instead of the exact ``.venv`` name. Walking one of
+    those environments can consume the watchdog's bounded file-scan budget
+    before it reaches a growing verifier log under ``research/raw``. Detect a
+    Python virtual environment by its standard ``pyvenv.cfg`` marker so custom
+    names are ignored without relying on an ever-growing name allowlist.
+    """
+    if name in _PROJECT_PROGRESS_IGNORE_DIRS:
+        return True
+    try:
+        return (parent / name / "pyvenv.cfg").is_file()
+    except OSError:
+        return False
+
+
 class _EffectiveProgressWatchdog:
     """Detect live-but-stale Codex turns.
 
@@ -974,7 +992,7 @@ class _EffectiveProgressWatchdog:
         for dirpath, dirnames, filenames in walker:
             dirnames[:] = [
                 name for name in dirnames
-                if name not in _PROJECT_PROGRESS_IGNORE_DIRS
+                if not _is_project_progress_ignored_dir(Path(dirpath), name)
             ]
             for filename in filenames:
                 if scanned >= _PROJECT_PROGRESS_MAX_FILES:
