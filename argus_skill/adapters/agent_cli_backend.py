@@ -1484,7 +1484,12 @@ class AgentCliBackend:
             "cache_write_tokens": translated.cache_write_tokens,
             "output_tokens": translated.output_tokens,
             "reasoning_output_tokens": translated.reasoning_output_tokens,
-            "premium_requests": translated.premium_requests,
+            "premium_requests": (
+                translated.premium_requests
+                if translated.premium_requests_present
+                else None
+            ),
+            "premium_requests_present": translated.premium_requests_present,
             "total_nano_aiu": translated.total_nano_aiu,
             "usage_model": translated.usage_model,
             "ts": time.time(),
@@ -1779,9 +1784,20 @@ class AgentCliBackend:
         raw_premium, premium_requests_present = _extract_copilot_premium_requests(
             getattr(argus_result, "json_events", None)
         )
-        premium_requests = self._premium_delta_for_thread(
-            thread_id=argus_result.thread_id or resume_thread_id,
-            raw_total=raw_premium,
+        premium_thread_id = argus_result.thread_id or resume_thread_id
+        premium_requests = (
+            self._premium_delta_for_thread(
+                thread_id=premium_thread_id,
+                raw_total=raw_premium,
+                resume_baseline_unknown=bool(
+                    resume_thread_id and premium_thread_id == resume_thread_id
+                ),
+            )
+            if premium_requests_present
+            else None
+        )
+        premium_requests_present = (
+            premium_requests_present and premium_requests is not None
         )
         usage_model = authoritative_usage_model or (
             copilot_usage.model if copilot_usage is not None else ""
@@ -1815,7 +1831,7 @@ class AgentCliBackend:
             cache_write_tokens=raw_usage.cache_write_tokens,
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
-            premium_requests=premium_requests,
+            premium_requests=premium_requests or 0.0,
             input_tokens_present=raw_usage.input_tokens_present,
             cached_input_tokens_present=raw_usage.cached_input_tokens_present,
             cache_write_tokens_present=raw_usage.cache_write_tokens_present,
@@ -1875,26 +1891,30 @@ class AgentCliBackend:
         *,
         thread_id: str | None,
         raw_total: float,
-    ) -> float:
+        resume_baseline_unknown: bool = False,
+    ) -> float | None:
         """Convert copilot's session-cumulative premiumRequests into this call's
-        delta. Mirrors ``_usage_delta_for_thread`` for the scalar case.
+        delta. A resumed thread without an in-memory baseline is unresolved for
+        its first call after restart; charging the cumulative total would bill
+        the earlier turns again. Mirrors ``_usage_delta_for_thread`` otherwise.
         把 copilot 会话累计的 premiumRequests 转成本次调用的增量（标量版）。"""
-        if raw_total <= 0.0:
-            return 0.0
+        current = max(0.0, float(raw_total))
         if not thread_id:
-            return raw_total
+            return current
 
         with self._usage_lock:
             previous = self._thread_premium_totals.get(thread_id)
-            self._thread_premium_totals[thread_id] = raw_total
+            self._thread_premium_totals[thread_id] = current
 
         if previous is None:
-            return raw_total
-        delta = raw_total - previous
+            if resume_baseline_unknown and current > 0.0:
+                return None
+            return current
+        delta = current - previous
         if delta < 0.0:
             # Cumulative counter reset (new session on the same id) — charge the
             # current total as a fresh delta rather than a negative credit.
-            return raw_total
+            return current
         return delta
 
 def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:

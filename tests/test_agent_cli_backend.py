@@ -909,6 +909,78 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
 
 
+def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(tmp_path / "events.jsonl"))
+    backend = AgentCliBackend(backend="copilot")
+    raw_totals = iter((15.0, 22.5))
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        return _make_argus_result(
+            agent_messages=["OK"],
+            json_events=[{
+                "type": "result",
+                "usage": {"premiumRequests": next(raw_totals)},
+            }],
+            thread_id="resumed-session",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda cursor, session_id: None,
+    )
+    options = RunnerOptions(model="gpt-5.6-sol", working_dir=str(tmp_path))
+
+    first = backend.run_exec(
+        prompt="first after restart",
+        options=options,
+        run_label="manager-frontdoor-classify",
+        resume_thread_id="resumed-session",
+    )
+    second = backend.run_exec(
+        prompt="second after restart",
+        options=options,
+        run_label="planner",
+        resume_thread_id="resumed-session",
+    )
+
+    assert first.premium_requests == 0.0
+    assert first.premium_requests_present is False
+    assert first.pricing_status == "partial"
+    assert first.cost_usd is None
+    assert second.premium_requests == pytest.approx(7.5)
+    assert second.premium_requests_present is True
+    assert second.pricing_status == "priced"
+    assert second.cost_usd == pytest.approx(0.30)
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
+    ]
+    assert rows[0]["premium_requests"] is None
+    assert rows[0]["pricing_status"] == "partial"
+    assert rows[1]["premium_requests"] == pytest.approx(7.5)
+    assert rows[1]["cost_usd"] == pytest.approx(0.30)
+    complete_rows = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text().splitlines()
+        if '"type":"agent.io.complete"' in line
+    ]
+    assert complete_rows[0]["premium_requests"] is None
+    assert complete_rows[0]["premium_requests_present"] is False
+    assert complete_rows[1]["premium_requests"] == pytest.approx(7.5)
+    assert complete_rows[1]["premium_requests_present"] is True
+
+
 def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
