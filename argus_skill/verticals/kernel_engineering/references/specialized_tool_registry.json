@@ -38,7 +38,7 @@
       "categories": ["dsl_compiler", "vendor_library", "gemm", "attention"],
       "official_url": "https://github.com/NVIDIA/cutlass",
       "python_imports": ["cutlass"],
-      "distributions": ["nvidia-cutlass", "cutlass"],
+      "distributions": ["nvidia-cutlass-dsl", "nvidia-cutlass", "cutlass"],
       "executables": ["cutlass_profiler"],
       "env_vars": ["CUTLASS_PATH"],
       "source_markers": ["cutlass", "third_party/cutlass", "vendor/cutlass"],
@@ -129,6 +129,17 @@
       "python_imports": ["torch"],
       "distributions": ["torch"],
       "use_when": "Register custom kernels with autograd, fake/meta tensors, torch.compile, opcheck, and stable PyTorch APIs."
+    },
+    {
+      "id": "huggingface_kernels",
+      "name": "Hugging Face Kernels Hub client",
+      "status": "active",
+      "platforms": ["nvidia", "amd", "cpu"],
+      "categories": ["specialist_kernel", "distribution", "integration"],
+      "official_url": "https://github.com/huggingface/kernels",
+      "python_imports": ["kernels"],
+      "distributions": ["kernels"],
+      "use_when": "Load a maintained, version-pinned prebuilt kernel from the Hub instead of rebuilding an equivalent operator; validate architecture coverage and lock the exact kernel revision."
     },
     {
       "id": "torch_inductor",

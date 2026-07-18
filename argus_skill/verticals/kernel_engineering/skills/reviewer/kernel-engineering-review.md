@@ -63,6 +63,9 @@ Fail/continue the environment stage when any of these holds:
 - `ENVIRONMENT_AUDIT.json` comes from another project/Python, was not refreshed
   after an environment change, has no selected implementation capability, or
   reports a missing required capability.
+- The selected project/backend dependency closure is red, the clean install
+  cannot import the chosen path, or an advertised frontier result is used as the
+  baseline even though its declared lockfile cannot reproduce it.
 - The chosen path needs TileLang but TileLang or a usable NVCC is absent; needs
   CUDA/CUTLASS but `nvcc`/`ptxas`/build tooling is absent; needs profiler or
   sanitizer evidence but those tools are unavailable without a documented

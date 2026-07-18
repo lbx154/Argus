@@ -5,6 +5,7 @@ from pathlib import Path
 
 from argus_skill.verticals.kernel_engineering.environment_audit import (
     SCHEMA_VERSION,
+    _partition_dependency_issues,
     _normalize_requirements,
     collect_project_signals,
     derive_capabilities,
@@ -100,6 +101,25 @@ def test_project_signals_capture_native_extras_and_benchmarks(tmp_path: Path) ->
     assert "AGENTS.md" in signals["instruction_and_lock_files"]
     assert signals["benchmark_directories"] == ["benchmarks"]
     assert signals["pyproject_extras"]["tilelang"] == ["tilelang>=0.1.9"]
+    assert signals["project_name"] == "demo"
+
+
+def test_dependency_health_blocks_project_and_selected_stack_only() -> None:
+    critical, unrelated = _partition_dependency_issues(
+        [
+            "flash-linear-attention 0.5 requires transformers, which is not installed.",
+            "apache-tvm-ffi 0.1.12 has requirement packaging<26, but you have 26.2.",
+            "nvidia-dali-cuda120 1.50 has requirement packaging<=24.2, but you have 26.2.",
+        ],
+        {"flash-linear-attention", "tilelang", "apache-tvm-ffi"},
+    )
+
+    assert len(critical) == 2
+    assert critical[0].startswith("flash-linear-attention")
+    assert critical[1].startswith("apache-tvm-ffi")
+    assert unrelated == [
+        "nvidia-dali-cuda120 1.50 has requirement packaging<=24.2, but you have 26.2."
+    ]
 
 
 def test_validate_report_fails_red_audit_without_time_expiry(tmp_path: Path) -> None:

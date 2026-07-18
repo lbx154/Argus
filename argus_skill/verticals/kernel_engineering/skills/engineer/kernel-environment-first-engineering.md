@@ -127,6 +127,11 @@ request replanning; never run the unchanged full gate again.
    `tilelang`, `cuda_cpp`, or `cutlass_cute`. Add `profiling` and `sanitizer`
    when the task needs them. Replace `.venv/bin/python` with the exact Python
    used by the repository's tests/benchmarks. A red audit blocks implementation.
+   Treat a published benchmark/SOTA source as frontier evidence, not as a usable
+   baseline, until its declared lockfile or pinned dependency closure reproduces
+   from a clean environment. Record advertised and cleanly reproducible bests
+   separately. Inspect the selected code path's imports and resolve dependency
+   conflicts before attributing a crash to the kernel idea.
 6. **Repair environment without destabilizing it.** Prefer, in order:
    - the repository's documented extra/lockfile/container;
    - the repository's CI version matrix;
@@ -160,6 +165,9 @@ request replanning; never run the unchanged full gate again.
    ```
 
    Record `execution_status`, `failure_class`, and `idea_status` separately.
+   Before the run, check the ledger for an equivalent mechanism/config and write
+   the one-line claim being tested. After the run, retain a compact result and
+   reusable insight; do not paste raw logs into the next Engineer prompt.
    Change the mechanism before endlessly sweeping knobs. A compile or runtime
    error must be classified:
    - environment/toolchain mismatch;

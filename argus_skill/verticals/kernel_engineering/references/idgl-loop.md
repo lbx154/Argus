@@ -12,6 +12,17 @@ Use this loop for every kernel hypothesis:
 5. **Replan:** if the same failure signature repeats, stop the mission and create
    a narrower diagnostic/repair task. Never rerun an unchanged full gate.
 
+Experiment ledger:
+
+- Before consuming GPU time, record one mechanism-level claim and reject an
+  equivalent claim already present in the attempt ledger.
+- Publish every executed result, including no-go and crash outcomes, with its
+  source/config snapshot and environment identity.
+- Feed the next round a compact result plus reusable insight; keep raw logs out
+  of the prompt and available as evidence on disk.
+- Maintain two champions: advertised frontier and clean-environment reproducible
+  frontier. Only the reproducible champion may become the baseline ratchet.
+
 Efficiency rules:
 
 - Reuse current-stage frontier/environment evidence until stage, route, package,

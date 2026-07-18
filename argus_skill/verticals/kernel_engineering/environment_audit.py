@@ -43,11 +43,14 @@ PACKAGE_IMPORTS: dict[str, tuple[str, ...]] = {
     "torch": ("torch",),
     "triton": ("triton",),
     "tilelang": ("tilelang",),
+    "apache_tvm_ffi": ("tvm_ffi", "apache-tvm-ffi"),
     "flash_attn": ("flash_attn", "flash-attn"),
     "flashinfer": ("flashinfer", "flashinfer-python"),
     "transformer_engine": ("transformer_engine", "transformer-engine"),
     "xformers": ("xformers",),
-    "cutlass": ("cutlass", "nvidia-cutlass"),
+    "cutlass": ("cutlass", "nvidia-cutlass-dsl", "nvidia-cutlass"),
+    "kernels": ("kernels",),
+    "einops": ("einops",),
     "cuda_python": ("cuda", "cuda-python"),
     "cupy": ("cupy", "cupy-cuda12x", "cupy-cuda13x"),
     "numpy": ("numpy",),
@@ -73,6 +76,7 @@ TOOL_COMMANDS: dict[str, tuple[str, ...]] = {
     "git": ("git", "--version"),
     "rg": ("rg", "--version"),
     "jq": ("jq", "--version"),
+    "uv": ("uv", "--version"),
 }
 
 CAPABILITY_NAMES = (
@@ -195,6 +199,25 @@ print(json.dumps(out))
     }
 
 
+def collect_dependency_health(python_executable: str) -> dict[str, Any]:
+    """Run the target environment's dependency-consistency check."""
+    result = _run([python_executable, "-m", "pip", "check"], timeout=30.0)
+    output = "\n".join(
+        part for part in (result.get("stdout", ""), result.get("stderr", "")) if part
+    )
+    issues = [line.strip() for line in output.splitlines() if line.strip()]
+    probe_ok = result.get("returncode") is not None and not any(
+        marker in output.casefold()
+        for marker in ("no module named pip", "cannot find pip")
+    )
+    return {
+        "probe_ok": probe_ok,
+        "ok": probe_ok and result.get("returncode") == 0,
+        "returncode": result.get("returncode"),
+        "issues": issues,
+    }
+
+
 def collect_tools() -> dict[str, dict[str, Any]]:
     records: dict[str, dict[str, Any]] = {}
     for name, command in TOOL_COMMANDS.items():
@@ -266,6 +289,14 @@ def _read_pyproject_extras(path: Path) -> dict[str, list[str]]:
     return extras
 
 
+def _read_pyproject_name(path: Path) -> str:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return ""
+    return str(data.get("project", {}).get("name", "")).strip()
+
+
 def _count_kernel_sources(root: Path) -> dict[str, int]:
     counts = {"cuda": 0, "triton_or_python": 0, "cpp": 0}
     ignored = {".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"}
@@ -291,6 +322,7 @@ def collect_project_signals(project_root: Path) -> dict[str, Any]:
     if ci_root.is_dir():
         ci_files = [str(path.relative_to(root)) for path in sorted(ci_root.glob("*.y*ml"))]
     extras = _read_pyproject_extras(root / "pyproject.toml") if "pyproject.toml" in files else {}
+    project_name = _read_pyproject_name(root / "pyproject.toml") if "pyproject.toml" in files else ""
     framework_dirs = [
         name
         for name in ("cutlass", "cute", "cute_dsl", "third_party/cutlass", "vendor/cutlass")
@@ -302,9 +334,41 @@ def collect_project_signals(project_root: Path) -> dict[str, Any]:
         "benchmark_directories": benchmark_dirs,
         "ci_workflows": ci_files,
         "pyproject_extras": extras,
+        "project_name": project_name,
         "framework_directories": framework_dirs,
         "kernel_source_counts": kernel_sources,
     }
+
+
+def _normalize_distribution_name(value: str) -> str:
+    return str(value or "").strip().casefold().replace("_", "-").replace(".", "-")
+
+
+def _critical_dependency_distributions(
+    project_signals: dict[str, Any], requirements: Iterable[str]
+) -> set[str]:
+    names = {_normalize_distribution_name(project_signals.get("project_name", ""))}
+    capability_packages = {
+        "torch": {"torch"},
+        "triton": {"torch", "triton"},
+        "tilelang": {"torch", "tilelang", "apache-tvm-ffi", "tvm-ffi"},
+        "cutlass_cute": {"nvidia-cutlass-dsl", "nvidia-cutlass", "cutlass"},
+    }
+    for requirement in requirements:
+        names.update(capability_packages.get(str(requirement), set()))
+    return {_normalize_distribution_name(name) for name in names if name}
+
+
+def _partition_dependency_issues(
+    issues: Iterable[str], critical_distributions: set[str]
+) -> tuple[list[str], list[str]]:
+    critical: list[str] = []
+    unrelated: list[str] = []
+    for raw in issues:
+        issue = str(raw).strip()
+        owner = _normalize_distribution_name(issue.split(maxsplit=1)[0] if issue else "")
+        (critical if owner in critical_distributions else unrelated).append(issue)
+    return critical, unrelated
 
 
 def _present(records: dict[str, dict[str, Any]], key: str) -> bool:
@@ -435,6 +499,7 @@ def build_report(
     python_executable = str(Path(target_python or sys.executable).expanduser())
     python_version_probe = _run([python_executable, "--version"])
     packages = collect_packages(python_executable)
+    dependency_health = collect_dependency_health(python_executable)
     tools = collect_tools()
     gpus = collect_gpus()
     torch_runtime = collect_torch_runtime(python_executable)
@@ -494,6 +559,23 @@ def build_report(
         )
     if registry_errors:
         blockers.extend(f"Specialized tool registry error: {error}" for error in registry_errors)
+    critical_dependency_issues, unrelated_dependency_issues = _partition_dependency_issues(
+        dependency_health.get("issues", []),
+        _critical_dependency_distributions(signals, requirements),
+    )
+    if not dependency_health.get("probe_ok"):
+        warnings.append(
+            "Dependency consistency could not be checked in the target Python; "
+            "use the repository's package manager/lockfile to prove closure."
+        )
+    blockers.extend(
+        f"Target dependency closure is inconsistent: {issue}"
+        for issue in critical_dependency_issues
+    )
+    warnings.extend(
+        f"Unrelated installed distribution is inconsistent: {issue}"
+        for issue in unrelated_dependency_issues
+    )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -511,6 +593,7 @@ def build_report(
         "gpus": gpus,
         "torch_runtime": torch_runtime,
         "packages": packages,
+        "dependency_health": dependency_health,
         "tools": tools,
         "project_signals": signals,
         "specialized_tool_registry": {
@@ -534,6 +617,7 @@ def build_report(
             "project_native_first": True,
             "benchmark_environment_must_match_validation_environment": True,
             "missing_tooling_is_environment_failure_not_algorithm_failure": True,
+            "declared_dependency_closure_must_be_healthy": True,
         },
     }
 
@@ -579,6 +663,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(f"- {item}" for item in report["warnings"])
     else:
         lines.append("- None.")
+    dependency = report.get("dependency_health") or {}
+    lines.extend(["", "## Dependency closure", ""])
+    if dependency.get("probe_ok"):
+        lines.append(f"- `pip check`: **{'clean' if dependency.get('ok') else 'red'}**")
+        for issue in dependency.get("issues") or []:
+            lines.append(f"- {issue}")
+    else:
+        lines.append("- Dependency consistency probe unavailable in target Python.")
     registry = report.get("specialized_tool_registry") or {}
     lines.extend(
         [
