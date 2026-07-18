@@ -163,6 +163,8 @@ _MAX_SCANNED_FILES = 10_000
 _NON_ARTIFACT_TREE_PARTS = {
     ("code", "references"),
     ("models", "huggingface"),
+    ("third_party", "reference_sources"),
+    ("third_party", "runtime_deps"),
 }
 _TEXT_ARTIFACT_SUFFIXES = {
     "",

@@ -267,6 +267,52 @@ def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
+def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    runtime_payload = (
+        tmp_path
+        / "third_party"
+        / "runtime_deps"
+        / "huggingface_hub-0.34.4.dist-info"
+        / "METADATA"
+    )
+    reference_payload = (
+        tmp_path
+        / "third_party"
+        / "reference_sources"
+        / "transformers"
+        / "tokenizer_config.json"
+    )
+    runtime_payload.parent.mkdir(parents=True)
+    reference_payload.parent.mkdir(parents=True)
+    runtime_payload.write_text(
+        "client_secret: synthetic-wheel-fixture\n",
+        encoding="utf-8",
+    )
+    reference_payload.write_text(
+        '{"access_token":"synthetic-upstream-fixture"}\n',
+        encoding="utf-8",
+    )
+    now = time.time()
+    runtime_payload.touch()
+    reference_payload.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert runtime_payload.read_text(encoding="utf-8") == (
+        "client_secret: synthetic-wheel-fixture\n"
+    )
+    assert reference_payload.read_text(encoding="utf-8") == (
+        '{"access_token":"synthetic-upstream-fixture"}\n'
+    )
+    assert report.scanned_files == 1
+
+
 def test_artifact_scrub_preserves_synthetic_task_tokens(
     tmp_path: Path,
 ) -> None:
