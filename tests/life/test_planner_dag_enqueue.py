@@ -369,12 +369,32 @@ def test_manager_hold_can_resolve_wait_without_moving_stage(
     contract_state = sup._load_planner_waiting_contract_state()
     assert contract_state is not None
     assert contract_state["active"] is False
+    resolution = contract_state.get("manager_resolution")
+    assert isinstance(resolution, dict)
+    assert resolution["reason"] == "the live external job is correctly owned by measure"
+    note = sup._planner_wait_resolution_runtime_note()
+    assert "AUTHORITATIVE MANAGER WAIT RESOLUTION" in note
+    assert "do not claim this Manager authorization/directive is absent" in note
     decisions = [
         event
         for event in sup._test_sink.events  # type: ignore[attr-defined]
         if event.get("type") == "life.manager.stage_decision"
     ]
     assert decisions and decisions[-1]["resolves_wait"] is True
+
+    # Re-persisting the same blocker must retain the resolution note until the
+    # Planner actually moves on to a non-waiting verdict.
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="cluster:maintenance",
+        recheck_condition="the cluster admits the profile job",
+        recheck_token="maintenance-v1",
+        stage_reconciliation_required=True,
+    ))
+    assert "AUTHORITATIVE MANAGER WAIT RESOLUTION" in (
+        sup._planner_wait_resolution_runtime_note()
+    )
+    sup._clear_planner_wait_resolution()
+    assert sup._planner_wait_resolution_runtime_note() == ""
 
 
 def test_new_explicit_stage_request_bypasses_wait_cadence(

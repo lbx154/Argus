@@ -597,6 +597,12 @@ class PlanningContextMixin:
                 if isinstance(previous.get("pending_probe"), dict)
                 else None
             ),
+            "manager_resolution": (
+                previous.get("manager_resolution")
+                if same_condition
+                and isinstance(previous.get("manager_resolution"), dict)
+                else None
+            ),
             "active": True,
         }
         if not self._write_planner_waiting_contract_state(payload):
@@ -721,6 +727,68 @@ class PlanningContextMixin:
         if state is None or not bool(state.get("active")):
             return
         state["active"] = False
+        state["updated_at"] = time.time()
+        self._write_planner_waiting_contract_state(state)
+
+    def _resolve_planner_waiting_contract(
+        self,
+        *,
+        manager_reason: str,
+        target_stage: str,
+    ) -> None:
+        """Persist an authoritative Manager resolution for the next Planner.
+
+        Deactivating the stale contract alone is insufficient: Manager stage
+        decisions are event-sourced but are not part of the Planner journal
+        rendered in the immediate retry. Persist the exact ruling beside the
+        objective-scoped waiting contract so the next fresh Planner session sees
+        the new authority without mutating the operator objective or project
+        evidence.
+        """
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return
+        now = time.time()
+        state["active"] = False
+        state["manager_resolution"] = {
+            "reason": str(manager_reason or "").strip(),
+            "target_stage": str(target_stage or "").strip(),
+            "resolved_at": now,
+            "blocker_fingerprint": str(
+                state.get("blocker_fingerprint") or ""
+            ),
+            "recheck_condition": str(state.get("recheck_condition") or ""),
+        }
+        state["updated_at"] = now
+        self._write_planner_waiting_contract_state(state)
+
+    def _planner_wait_resolution_runtime_note(self) -> str:
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return ""
+        resolution = state.get("manager_resolution")
+        if not isinstance(resolution, dict):
+            return ""
+        reason = str(resolution.get("reason") or "").strip()
+        if not reason:
+            return ""
+        return (
+            "AUTHORITATIVE MANAGER WAIT RESOLUTION (current objective):\n"
+            f"- stage remains: {resolution.get('target_stage') or '(unchanged)'}\n"
+            f"- prior blocker: {resolution.get('blocker_fingerprint') or ''}\n"
+            "- prior recheck condition: "
+            f"{resolution.get('recheck_condition') or ''}\n"
+            f"- Manager directive: {reason}\n"
+            "The Manager set `resolves_wait=true`; do not claim this Manager "
+            "authorization/directive is absent. Plan the smallest lawful work "
+            "within it, or identify a materially different blocker."
+        )
+
+    def _clear_planner_wait_resolution(self) -> None:
+        state = self._load_planner_waiting_contract_state()
+        if state is None or not isinstance(state.get("manager_resolution"), dict):
+            return
+        state["manager_resolution"] = None
         state["updated_at"] = time.time()
         self._write_planner_waiting_contract_state(state)
 

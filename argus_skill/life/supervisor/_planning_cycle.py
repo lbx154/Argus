@@ -296,7 +296,10 @@ class PlanningCycleMixin:
             and decision.source == "manager_llm"
             and bool(getattr(decision, "resolves_wait", False))
         ):
-            self._deactivate_planner_waiting_contract()
+            self._resolve_planner_waiting_contract(
+                manager_reason=decision.reason,
+                target_stage=decision.target_stage,
+            )
             self._last_planner_wait_reconciliation_key = None
             self._planner_waits_since_reconciliation = 0
             self._reset_idle_backoff()
@@ -310,6 +313,7 @@ class PlanningCycleMixin:
             return False
 
         self._deactivate_planner_waiting_contract()
+        self._clear_planner_wait_resolution()
         self._last_planner_wait_reconciliation_key = None
         self._planner_waits_since_reconciliation = 0
         self._last_open_ended_project_done_signature = ""
