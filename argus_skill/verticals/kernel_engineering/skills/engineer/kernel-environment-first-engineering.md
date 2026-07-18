@@ -55,6 +55,16 @@ Read the full protocol at
 `argus_skill/verticals/kernel_engineering/references/frontier-search-protocol.md`.
 If the network is unavailable, record the blocker and continue only local work
 that does not claim current-frontier completeness; the stage cannot pass.
+Within one unchanged stage, reuse the recorded frontier snapshot. Refresh only
+when entering another stage, changing mechanism/toolchain, observing relevant
+new upstream information, or preparing the final report/PR boundary.
+
+## IDGL: Idea–Diagnosis–Gate Loop
+
+Follow `references/idgl-loop.md`. An expensive full gate is not a debugging
+tool. After a red gate, isolate the first failing node/shape/config and run the
+cheapest decisive diagnostic. If the same failure signature repeats, stop and
+request replanning; never run the unchanged full gate again.
 
 ## Required order of work
 
@@ -125,7 +135,8 @@ that does not claim current-frontier completeness; the stage cannot pass.
      target architecture.
 
    Never blindly upgrade torch, Triton, CUDA, or the whole environment to make
-   one import pass. Re-run the audit after every environment change. Record the
+   one import pass. Re-run the audit after an environment change, not after an
+   unchanged failed attempt. Record the
    commands and versions; do not record secrets.
 7. **Reproduce the unmodified baseline.** Correctness first, timing second.
    Record `research/BASELINE_PROTOCOL.md` and
@@ -161,7 +172,9 @@ that does not claim current-frontier completeness; the stage cannot pass.
    profiler-permission, benchmark-infrastructure, and measurement-infrastructure
    failures mean the idea was not validly tested. Keep `idea_status` as
    `untested` or `inconclusive`; never reject the mechanism from those failures.
-   Validate the ledger with `attempt_outcome check --project-root .`.
+   Validate the ledger with `attempt_outcome check --project-root .`. The full
+   correctness suite is reserved for baseline/candidate certification; iterate
+   with the focused failing case.
 10. **Validate the retained candidate.** Cover forward/backward as applicable,
    fp16/bf16/fp32 policy, aligned and irregular dimensions, varlen/options,
    non-contiguous inputs when supported, determinism/races, memory, missing

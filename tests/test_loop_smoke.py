@@ -150,11 +150,14 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert outcome.rounds[1].review.status == "done"
     assert [label for label, _prompt, _options in backend.history].count("matcher") == 1
 
-    # Cross-round guidance lives in CHECKPOINT.md, not duplicated in the prompt.
+    # Continuation rounds omit the large static contract but retain the short
+    # concrete Reviewer instruction alongside CHECKPOINT.md.
     r2_prompt = next(
         prompt for label, prompt, _ in backend.history if label == "engineer-r2"
     )
-    assert "Print the actual greeting" not in r2_prompt
+    assert "Print the actual greeting" in r2_prompt
+    assert "## Continuation turn" in r2_prompt
+    assert "## Current mission task" not in r2_prompt
 
     # Skill is still present and was reused, not re-created.
     store = SkillStore(skills_dir)

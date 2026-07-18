@@ -107,7 +107,7 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
     ] == [None, None]
 
 
-def test_every_engineer_round_receives_full_static_prompt(tmp_path: Path) -> None:
+def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
@@ -123,7 +123,11 @@ def test_every_engineer_round_receives_full_static_prompt(tmp_path: Path) -> Non
         prompt for label, prompt, _ in backend.history if label.startswith("engineer-")
     ]
     assert len(prompts) == 2
-    assert all("## This turn" in prompt for prompt in prompts)
+    assert "## This turn" in prompts[0]
+    assert "## Current mission task" in prompts[0]
+    assert "## Continuation turn" in prompts[1]
+    assert "## Current mission task" not in prompts[1]
+    assert len(prompts[1]) < len(prompts[0])
     assert all("## Required output" in prompt for prompt in prompts)
 
 

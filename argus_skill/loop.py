@@ -1754,7 +1754,19 @@ class SkillLoop:
         delta_text = "\n\n".join(delta_sections)
         if include_static:
             return static_text + ("\n\n" + delta_text if delta_text else "")
-        # Kept for source compatibility; autonomous calls always request full text.
-        return delta_text
+        compact = (
+            "## Continuation turn\n"
+            "Read the shared CHECKPOINT.md first. Execute its current Next Action "
+            "and the Reviewer guidance below. Do not repeat an unchanged failing "
+            "command; reduce it to the cheapest decisive diagnostic. The original "
+            "task, active vertical, and repository instructions remain binding.\n\n"
+            "## Required output\n"
+            "End with a concise Verification and Summary, then the exact final line:\n"
+            'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
+            '"reason":"<brief>","verification":"<result>",'
+            '"skill_action":"none","skill_name":"",'
+            '"skill_reason":""}'
+        )
+        return compact + ("\n\n" + delta_text if delta_text else "")
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

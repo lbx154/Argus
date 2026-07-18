@@ -25,6 +25,9 @@ change, and before an upstream PR/final performance claim.
 queries and primary sources demonstrate that the current plan remains the best
 supported choice.
 
+Do not request another frontier refresh when the stage, route, environment, and
+relevant public facts are unchanged.
+
 ## Hard execution-versus-idea gate
 
 Require every attempt to carry `OUTCOME.json` with separate `execution_status`,
@@ -36,6 +39,22 @@ or invalid measurement. Those outcomes are `untested` or `inconclusive`.
 Only a completed experiment in the intended audited environment may support or
 refute an idea. A numerical or performance result can still be inconclusive if
 the implementation may be wrong; use judgment and raw artifacts.
+
+## IDGL / repeated-failure gate
+
+The full suite is a certification gate, not a localization tool. After a red
+gate, require the next round to run the first failing node/shape/configuration
+with synchronous error reporting or sanitizer evidence. If the same failure
+signature returns again without a new code/config diagnostic, set
+`planner_report.plan_signal="reconsider"` and ask L4 for a scoped repair task.
+Do not certify repeated prose, refreshed timestamps, or another unchanged full
+suite as forward progress.
+
+If unmodified main is reproducibly red on the target hardware, do not demand an
+impossible green baseline inside a no-edit mission. Preserve the red baseline,
+end the mission via replan, and authorize a correctness-repair task limited to
+the scoped kernel/backend/autotune surface. Return to baseline certification
+after the repair.
 
 ## Hard environment gate
 

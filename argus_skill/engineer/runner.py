@@ -63,6 +63,11 @@ from .background_subagents import (
     wait_for_subagent_cadence,
 )
 from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
+from .failure_signature import (
+    FailureSignature,
+    review_failure_signature,
+    signature_similarity,
+)
 from .self_review import (
     EngineerCompletionDecision,
     EngineerSkillMaintenanceOutcome,
@@ -142,6 +147,9 @@ _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
 _DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
+_REPEATED_FAILURE_THRESHOLD_ENV = "ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD"
+_REPEATED_FAILURE_SIMILARITY_ENV = "ARGUS_SKILL_REPEATED_FAILURE_SIMILARITY"
+_COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 # Compatibility defaults for the retired resumed-thread policy. Autonomous
@@ -660,6 +668,19 @@ class SupervisedConfig:
     )
     dynamic_plan_confirm_rounds: int = field(
         default_factory=lambda: _env_int(_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV, 2)
+    )
+    # A repeated Reviewer blocker means the mission contract is not producing
+    # a new diagnostic action. End cleanly so L4 can replace the plan.
+    repeated_failure_threshold: int = field(
+        default_factory=lambda: _env_int(_REPEATED_FAILURE_THRESHOLD_ENV, 2)
+    )
+    repeated_failure_similarity: float = field(
+        default_factory=lambda: _env_float(_REPEATED_FAILURE_SIMILARITY_ENV, 0.62)
+    )
+    # Round 1 receives the full task/skill contract. Continuation rounds use
+    # Reviewer guidance plus the shared CHECKPOINT.md baton.
+    compact_continuation_prompts: bool = field(
+        default_factory=lambda: _env_bool(_COMPACT_CONTINUATION_PROMPTS_ENV, True)
     )
     # Safe round-boundary budget since the last Reviewer-classified decision or
     # evidence increment. This never interrupts a live provider call.
@@ -1185,9 +1206,9 @@ class SupervisedEngineer:
         """Run the supervised loop.
 
         ``engineer_prompt_builder(next_action, include_static)`` is called once
-        per round with ``include_static=True``. Engineer and Reviewer both start
-        fresh provider sessions every round. Their continuity is the ordinary
-        shared Markdown checkpoint that they edit in sequence on disk; raw model
+        per round. Round 1 receives the static task/skill contract; continuation
+        rounds default to a compact Reviewer delta plus CHECKPOINT.md. Engineer
+        and Reviewer both start fresh provider sessions every round; raw model
         threads are never carried across a round or mission boundary.
 
         Returns ``(status, rounds, final_message, reason, last_thread_id)``.
@@ -1209,6 +1230,9 @@ class SupervisedEngineer:
         no_progress_streak = 0
         semantic_stall_streak = 0
         plan_reconsider_streak = 0
+        repeated_failure_streak = 0
+        last_failure_signature: FailureSignature | None = None
+        reviewer_next_action: str | None = None
         last_decision_progress_at = time.monotonic()
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
@@ -1258,7 +1282,14 @@ class SupervisedEngineer:
                     log.debug("subagent cost scan ignored an error", exc_info=True)
             # Cross-round role context comes from CHECKPOINT.md, not duplicated
             # free-form reviewer prose in the next Engineer prompt.
-            engineer_prompt = engineer_prompt_builder(None, True)
+            include_static = (
+                round_index == 1
+                or not supervised_config.compact_continuation_prompts
+            )
+            engineer_prompt = engineer_prompt_builder(
+                reviewer_next_action,
+                include_static,
+            )
             delta_tail: list[str] = []
             checkpoint_block = shared_checkpoint_instructions(
                 checkpoint_path,
@@ -1279,10 +1310,13 @@ class SupervisedEngineer:
                 on_event({
                     "type": EventType.ROUND_START,
                     "round_index": round_index,
-                    # Kept for readers of the historical event schema.
-                    "round": round_index,
-                    "round_max": supervised_config.max_rounds,
-                    "text": f"engineer round {round_index} (fresh session)",
+                        # Kept for readers of the historical event schema.
+                        "round": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "prompt_mode": "full" if include_static else "compact",
+                        "prompt_chars": len(engineer_prompt),
+                        "prompt_estimated_tokens": (len(engineer_prompt) + 3) // 4,
+                        "text": f"engineer round {round_index} (fresh session)",
                 })
             round_started_at = time.time()
             engineer_result, _round_compactions = self._run_engineer(
@@ -2043,6 +2077,48 @@ class SupervisedEngineer:
                 semantic_stall_streak,
             )
             planner_report = getattr(review, "planner_report", None)
+            failure_signature = review_failure_signature(review)
+            failure_similarity = 0.0
+            if failure_signature is None:
+                repeated_failure_streak = 0
+                last_failure_signature = None
+            elif last_failure_signature is None:
+                repeated_failure_streak = 1
+                last_failure_signature = failure_signature
+            else:
+                failure_similarity = signature_similarity(
+                    last_failure_signature,
+                    failure_signature,
+                )
+                if failure_similarity >= float(
+                    supervised_config.repeated_failure_similarity
+                ):
+                    repeated_failure_streak += 1
+                else:
+                    repeated_failure_streak = 1
+                last_failure_signature = failure_signature
+            repeated_failure_replan = bool(
+                failure_signature is not None
+                and supervised_config.repeated_failure_threshold > 0
+                and repeated_failure_streak
+                >= supervised_config.repeated_failure_threshold
+            )
+            repeated_failure_reason = ""
+            if repeated_failure_replan:
+                repeated_failure_reason = (
+                    "The same reviewed failure signature repeated "
+                    f"{repeated_failure_streak} times (similarity "
+                    f"{failure_similarity:.2f}). Stop rerunning the unchanged "
+                    "mission; replan into the cheapest targeted diagnostic or "
+                    "scoped repair, then return to the decisive gate."
+                )
+                report = dict(planner_report or {})
+                report["plan_signal"] = "reconsider"
+                report["plan_signal_reason"] = repeated_failure_reason
+                report["forward_progress"] = False
+                report["recommended_next"] = repeated_failure_reason
+                review.planner_report = report
+                planner_report = report
             reconsidered = (
                 review.status == "continue"
                 and isinstance(planner_report, dict)
@@ -2092,11 +2168,38 @@ class SupervisedEngineer:
                 fatal_error=engineer_result.fatal_error,
             )
             rounds.append(record)
+            reviewer_next_action = (
+                review.next_action if review.status == "continue" else None
+            )
             if review_completed_hook is not None:
                 try:
                     review_completed_hook(record)
                 except Exception:  # noqa: BLE001 - memory capture never owns verdict
                     log.warning("review completion hook failed", exc_info=True)
+
+            if repeated_failure_replan:
+                if on_event:
+                    on_event({
+                        "type": "round.failure_signature.repeated",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "signature": failure_signature.digest,
+                        "streak": repeated_failure_streak,
+                        "similarity": round(failure_similarity, 3),
+                        "failure_cause": failure_signature.failure_cause,
+                        "unsatisfied_items": list(
+                            failure_signature.unsatisfied_items
+                        ),
+                        "operator_alert": True,
+                        "text": repeated_failure_reason,
+                    })
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    repeated_failure_reason,
+                    None,
+                )
 
             if plan_reconsider_confirmed:
                 return (

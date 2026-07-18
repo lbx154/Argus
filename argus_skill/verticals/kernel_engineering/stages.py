@@ -329,7 +329,10 @@ def role_banner(role: str) -> str:
             "Plan environment and baseline work before implementation. Require a reuse "
             "decision, capability audit, and stage-fresh frontier search; schedule custom "
             "infrastructure only after the canonical project/vendor path and current "
-            "public frontier are shown insufficient.\n"
+            "public frontier are shown insufficient. If unmodified baseline correctness "
+            "is reproducibly red, close the impossible no-edit mission with replan and "
+            "create a scoped correctness-repair task that may edit only the selected "
+            "kernel/backend/autotune surface. Never queue another unchanged full gate.\n"
         )
     if role == "reviewer":
         return common + (
@@ -338,7 +341,8 @@ def role_banner(role: str) -> str:
             "unexplained fallbacks, mixed benchmark environments, or compile failures "
             "misreported as algorithm failures. Also fail wrong-stage, superseded, "
             "offline, or template frontier snapshots and claims that ignore current "
-            "upstream/paper evidence.\n"
+            "upstream/paper evidence. Repeated identical gate failures must trigger "
+            "reconsider/replan, not another full rerun.\n"
         )
     if role == "engineer":
         return common + (
