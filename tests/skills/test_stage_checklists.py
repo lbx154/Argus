@@ -215,6 +215,8 @@ def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
     assert payload["stages"]["benchmark"]["status"] == "in_progress"
     assert len(payload["rollback_history"]) == 1
     entry = payload["rollback_history"][0]
+    assert entry["at"].endswith("Z")
+    assert "+00:00" not in entry["at"]
     assert entry["from_stage"] == "run"
     assert entry["to_stage"] == "benchmark"
     assert "constant 1.0" in entry["reason"]
@@ -322,6 +324,8 @@ def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> 
     # unified transition log records the advance
     assert len(payload["stage_history"]) == 1
     entry = payload["stage_history"][0]
+    assert entry["at"].endswith("Z")
+    assert "+00:00" not in entry["at"]
     assert entry["direction"] == "advance"
     assert entry["from_stage"] == "benchmark"
     assert entry["to_stage"] == "run"

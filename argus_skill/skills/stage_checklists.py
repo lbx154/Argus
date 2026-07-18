@@ -849,7 +849,15 @@ def _set_stage(
         ):
             target_record["status"] = "in_progress"
 
-    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    # Canonical RFC3339 UTC.  ``datetime.isoformat()`` emits ``+00:00``;
+    # execution packets and cross-language verifiers commonly require the
+    # equivalent but canonical trailing ``Z`` representation.  Existing
+    # history remains valid and untouched; every new Manager transition uses Z.
+    now_iso = (
+        _dt.datetime.now(_dt.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     history = payload.get("stage_history")
     if not isinstance(history, list):
         history = []
