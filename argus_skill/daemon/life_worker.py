@@ -400,6 +400,36 @@ def _preflight_route_on_codex(route: str) -> bool:
         return True
 
 
+def _rearm_operator_drain_for_resume(
+    *,
+    cfg: LifeWorkerConfig,
+    runtime_root: Path,
+    state: ContinuousConfigState,
+) -> ContinuousConfigState:
+    """Re-arm only the temporary state created by ``--daemon-stop --drain``.
+
+    Drain intentionally disables continuous mode so the current mission can
+    finish without a new one starting.  A supervisor then restarts with
+    ``--resume-continuous``; treating the disabled file literally creates an
+    alive-but-idle daemon.  Other disabled reasons remain authoritative and are
+    never auto-resumed (operator holds, normal completion, manual stop, etc.).
+    """
+    if (
+        not getattr(cfg, "continuous", False)
+        and getattr(cfg, "resume_continuous", False)
+        and not state.enabled
+        and state.done_reason == "operator drain-stop"
+        and state.objective.strip()
+    ):
+        write_continuous_config(
+            runtime_root,
+            enabled=True,
+            objective=state.objective,
+        )
+        return read_continuous_state(runtime_root)
+    return state
+
+
 def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     """The subset of preflight routes that will hit the codex/Azure model_api.
 
@@ -1014,6 +1044,11 @@ class LifeWorker:
         # (--continuous / --resume-continuous) or the operator re-arms it live.
         resume_intent = bool(cfg.continuous or getattr(cfg, "resume_continuous", False))
         _boot = read_continuous_state(runtime_root)
+        _boot = _rearm_operator_drain_for_resume(
+            cfg=cfg,
+            runtime_root=runtime_root,
+            state=_boot,
+        )
         _suppress = {
             "active": bool(_boot.enabled) and not resume_intent,
             "objective": (_boot.objective or "").strip(),
