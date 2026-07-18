@@ -22,9 +22,9 @@
     "self_review_mean_active_seconds": 328.8488990755119
   },
   "definitions": {
-    "external_reviewer": "At least one model call labeled Reviewer in the final valid Argus trajectory.",
+    "external_reviewer": "At least one model call labeled Reviewer in the accepted Argus trajectory.",
     "engineer_self_review": "No model call labeled Reviewer; the Engineer used the configured self-review path.",
-    "revision_requested": "An external-Reviewer trajectory contains a round.review.completed event with status continue.",
+    "revision_requested": "An independent-review trajectory contains a Reviewer revision verdict.",
     "reviewer_accepted_after_revision": "A revision-requested trajectory later ends with a Reviewer status done.",
     "official_verifier_resolved_after_revision": "A revision-requested task has final official resolved=1, independent of the final Reviewer status."
   },

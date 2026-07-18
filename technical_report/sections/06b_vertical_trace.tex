@@ -2,7 +2,7 @@
 \label{sec:vertical-trace}
 
 Figure~\ref{fig:erdos-vertical-trace} shows how the four roles cooperate inside
-one real mathematical campaign. The case begins with an open-ended operator goal.
+one real mathematical campaign. The case begins with an open-ended research objective.
 The Manager preserves that goal through budget and process
 failures; the Planner turns the current reviewed state into bounded work; the
 Engineer retrieves sources, runs tools, and writes research artifacts; and the
@@ -29,7 +29,7 @@ executable checks, proof writing, and result packaging. The Reviewer rejects an
 overstated route, requests the missing checks, and certifies the bounded theorem
 recorded by the artifacts.
 
-At the frozen point, the campaign retains one falsified route and six proof-backed
+In the reported trace, the campaign retains one falsified route and six proof-backed
 deltas, including one stricter bound and two bridge results. Accepted work changes
 the next Planner input, rejected work remains available as a dead branch, and open
 blockers become explicit future tasks. The trace therefore captures a continuous
@@ -38,10 +38,9 @@ research path rather than a sequence of isolated answers.
 \subsection{Efficiency Attribution in the Mathematical Case}
 
 We apply Equation~\ref{eq:operational-efficiency} to the theorem-production
-window covering Rounds 12--17, with telemetry cut off at July 18, 2026, 08:41 UTC.
-The audit contains 18 bounded missions: six changed
+window covering Rounds 12--17. The analysis contains 18 bounded missions: six changed
 the theorem frontier, four directly checked or re-certified mathematical results,
-seven synchronized review/venue state, and one overlap-audit mission was interrupted
+seven consolidated review state and documentation, and one overlap-analysis mission was interrupted
 without an admitted result. Table~\ref{tab:erdos-efficiency} uses mission purpose as
 a coarse attribution rule for process allocation.
 
@@ -59,8 +58,8 @@ Action & 55.6\% & 38.9\% & 5.6\% & Mission count; direct comprises six frontier 
 \bottomrule
 \end{tabularx}
 \caption{Efficiency attribution for the representative mathematical case.
-Auxiliary work includes result packaging, canonical state, and venue/profile
-synchronization.}
+Auxiliary work includes result packaging, checkpoint updates, and documentation
+consolidation.}
 \label{tab:erdos-efficiency}
 \end{table}
 
@@ -69,7 +68,7 @@ reasoning-output Tokens, approximately 56 occurred in frontier-changing proof
 missions, 39 in verification or state-maintenance work, and 5 in the interrupted
 branch. Of every 100 Reviewer reasoning-output Tokens, approximately 55 directly
 checked a proof package, 35 maintained formal review state, and 10 were
-spent in the interrupted audit. The strict action score is $10/18=55.6\%$; if the
+spent in the interrupted analysis. The strict action score is $10/18=55.6\%$; if the
 seven successful auxiliary missions are also credited, the inclusive score is
 $17/18=94.4\%$. Cost weighting makes the interruption more visible: the strict and
 inclusive action scores become 56.1\% and 89.7\%, respectively.
@@ -78,7 +77,7 @@ The trace also clarifies what the numerator should reward. The early witness che
 that killed a proposed reduction counts as an efficient action because it pruned a
 false route before a long proof attempt. In Round 15, selecting one internal triple,
 deriving the degree bounds, and closing the counting inequality are direct reasoning;
-rewriting the result into the claim ledger is auxiliary work. Reviewer inspection of those
-steps is direct verification, whereas canonicalizing the checkpoint is verification
-overhead. This separation prevents activity volume from being mistaken for research
+rewriting the result into the structured claim record is auxiliary work. Reviewer
+inspection of those steps is direct verification, whereas updating the working
+checkpoint is coordination overhead. This separation prevents activity volume from being mistaken for research
 progress while preserving necessary coordination as a visible cost.

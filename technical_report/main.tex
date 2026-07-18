@@ -1,9 +1,5 @@
 \documentclass[10pt,letterpaper]{article}
 
-% Argus Technical Report 0.3
-% Academic-paper edition. Author names are intentionally omitted until the
-% final author list is confirmed; the two affiliations are shown below.
-
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
@@ -47,7 +43,7 @@
 \hypersetup{
   pdftitle={\systemname: A General-Purpose Agentic Runtime for Long-Horizon Reasoning},
   pdfauthor={Shanghai Jiao Tong University; Microsoft},
-  pdfsubject={\systemname Technical Report 0.3},
+  pdfsubject={\systemname Technical Report},
   pdfkeywords={general-purpose agentic runtime, long-horizon reasoning, compounding intelligence, persistent state, experimentation, review}
 }
 
@@ -131,7 +127,7 @@
 \vspace{0.18in}
 
 {\sffamily\small\bfseries\color{muted}
-  \MakeUppercase{\systemname} TECHNICAL REPORT 0.3 \enspace\textperiodcentered\enspace JULY 2026}\par
+  \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace JULY 2026}\par
 \vspace{0.12in}
 
 {\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
@@ -142,8 +138,6 @@
   Compounding Intelligence through Persistent State, Experimentation, and Review}\par
 \vspace{0.12in}
 
-% Author names will be inserted here after confirmation. For this draft, the
-% official affiliation marks are intentionally shown without names.
 \noindent
 \begin{minipage}[c]{0.48\linewidth}
   \includegraphics[height=0.43in]{assets/sjtu-logo.png}\hspace{0.10in}%
@@ -173,11 +167,10 @@ arenas. On SWE-Bench Pro, Direct Copilot with GPT-5.5/xhigh reaches approximatel
 \SWEProDirectAccuracy\% accuracy; \systemname reaches approximately
 \SWEProArgusAccuracy\% while using \SWEProTokenRatio$\times$ the aggregate Tokens.
 The same run enables deeper analyses of self-evolution and Reviewer intervention.
-Copilot per-wave resource traces are unavailable, so the longitudinal analysis
-concerns \systemname alone. Relative to the W1--6 startup window,
+Relative to the W1--6 startup window,
 the mature W19--22 window uses \SWEProTokenReduction\% fewer solve input tokens and
 \SWEProTimeReduction\% less active workflow time per task. The trajectory is not
-monotone: task-mix shifts and the final hard-tail waves produce visible reversals.
+monotone: task-composition shifts and late difficult-task Waves produce visible reversals.
 Reviewer feedback requests revision on \ReviewerRevisionRequested{} tasks;
 \ReviewerVerifierRecovered{} later pass the official verifier and
 \ReviewerStrictRescues{} complete the strict review-loop rescue.
@@ -197,13 +190,8 @@ training data for future supervised and reinforcement learning.
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
   \raggedleft\footnotesize\color{muted}
-  \textbf{Code:} \href{https://github.com/lbx154/argus-skill}{github.com/lbx154/argus-skill}
+  \textbf{Project:} \href{https://argusbot.cn/}{argusbot.cn}
 \end{minipage}
-
-\vspace{0.04in}
-{\footnotesize\itshape\color{muted}
-This is a living technical report. Public result cards were retrieved on July 14,
-2026; the SWE-Bench Pro experiment record was frozen on July 18, 2026.}\par
 
 \begin{figure}[H]
   \centering

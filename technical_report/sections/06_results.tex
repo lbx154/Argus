@@ -44,7 +44,7 @@ trajectory. Mature operation W19--22 uses \SWEProTokenReduction\% fewer solve
 input tokens and \SWEProTimeReduction\% less active workflow time per task than
 startup W1--6. The lowest-Token window, W13--18, reaches a
 \SWEProBestTokenReduction\% reduction from startup but requires more active time
-because its task mix contains slower executions. The final hard-tail window rebounds
+because its task composition contains slower executions. The final difficult-task window rebounds
 in both metrics.
 
 \begin{figure}[H]
@@ -52,13 +52,14 @@ in both metrics.
   \includegraphics[width=\linewidth]{figures/swebench_evolution.pdf}
   \caption{Analysis of the SWE-Bench Pro result. The left panel repeats the
   full-suite comparison; the right panels aggregate \systemname Token and active
-  time over approximately six-Wave windows. The task-mix spike and hard tail are
-  retained. Copilot per-Wave resource traces are unavailable.}
+  time over approximately six-Wave windows. The composition-shift and late
+  difficult-task windows are retained; the longitudinal panels report
+  \systemname only.}
   \label{fig:swebench-evolution}
 \end{figure}
 
-The curve shows a lower-cost mature operating window together with a visible
-task-mix spike and hard tail.
+The curve shows a lower-cost mature operating window together with visible
+task-composition and late-wave difficulty effects.
 
 \subsection{SWE-Bench Pro Analysis: Reviewer Ablation and Recovery}
 
@@ -88,7 +89,7 @@ funnel is therefore more interpretable than a raw group-accuracy comparison.
 
 The process theory is instantiated from two complementary traces. In the
 mathematical campaign, direct reasoning, verification, and action each account for
-approximately 56\% of their respective audited units. In SWE-Bench Pro, Reviewer
+approximately 56\% of their respective attributed units. In SWE-Bench Pro, Reviewer
 revision requests lead to 79.1\% official-verifier recovery and 51.2\% strict
 review-loop rescue, while the mature window uses 21\% fewer solve input Tokens and
 15\% less active time than startup. Appendix~\ref{app:formula-instantiation} gives

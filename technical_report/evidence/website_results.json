@@ -8,7 +8,7 @@
     "http_status": 200,
     "raw_html_sha256": "5143a58774c513ec7917a508837d2992fb950f34923d34f2a5c85449900f38bf"
   },
-  "comparison_rule": "Human SOTA, human-authored records, and paper-reported bests are primary where the website provides them. SOL-ExecBench and Arbor preserve the site's published system/agent comparisons as secondary or source-verbatim context.",
+  "comparison_rule": "Human SOTA, human-authored records, and paper-reported bests are primary where the website provides them. SOL-ExecBench and Arbor preserve the site's published system/agent comparisons as secondary context.",
   "results_count": 6,
   "results": [
     {

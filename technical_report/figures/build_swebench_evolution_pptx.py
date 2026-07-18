@@ -148,9 +148,9 @@ def build_windows(rows: list[dict[str, float]]) -> list[dict[str, Any]]:
     specs = [
         ("W1–6", "Start-up", 1, 6, "normal"),
         ("W7–12", "Early reuse", 7, 12, "normal"),
-        ("W13–18", "Task-mix shift", 13, 18, "normal"),
+        ("W13–18", "Composition shift", 13, 18, "normal"),
         ("W19–22", "Mature", 19, 22, "mature"),
-        ("W23–24", "Hard tail", 23, 24, "tail"),
+        ("W23–24", "Late difficult tasks", 23, 24, "tail"),
     ]
     windows: list[dict[str, Any]] = []
     for label, stage, lower, upper, kind in specs:
@@ -295,7 +295,7 @@ def draw_series_panel(
         add_text(slide, f"Best six-wave regime: −{best_reduction:.0f}%", x + 0.55, y + 0.37, 2.1, 0.22, size=7.8, color=MUTED)
     if value_key == "active_seconds_mean":
         spike = points[2]
-        add_text(slide, "task-mix spike", spike[0] - 0.48, spike[1] + 0.12, 0.96, 0.20, size=7.5, color=GOLD, bold=True, align=PP_ALIGN.CENTER)
+        add_text(slide, "composition shift", spike[0] - 0.57, spike[1] + 0.12, 1.14, 0.20, size=7.2, color=GOLD, bold=True, align=PP_ALIGN.CENTER)
 
 
 def write_macros(summary: dict[str, Any], windows: list[dict[str, Any]]) -> None:
@@ -387,7 +387,7 @@ def main() -> int:
     )
     add_text(
         slide,
-        "Task-weighted window means. W13 and W15 were deferred; W23–24 are retained as hard-tail stress. Queue, workspace/container, verifier, infrastructure-retry, and post-task maintenance time are excluded.",
+        "Task-weighted window means. Two incomplete Waves are omitted; W23–24 are shown separately as late difficult-task stress. Active time excludes orchestration wait, environment preparation, external verification, infrastructure recovery, and post-task knowledge maintenance.",
         0.38,
         6.40,
         11.2,
@@ -436,7 +436,7 @@ def main() -> int:
         "figure_id": "swebench-unified-evolution",
         "reader_question": "Does persistent Skill/Wiki evolution improve full-suite accuracy and reduce mature-run Argus resource use?",
         "claim": f"Argus reaches approximately 78% versus 59% for Direct Copilot at 1.41x aggregate tokens; W19-22 uses {token_reduction:.0f}% fewer solve tokens and {time_reduction:.0f}% less active time than W1-6.",
-        "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational and W23-24 are shown as hard-tail stress.",
+        "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational and W23-24 are shown separately as late difficult-task stress.",
         "inputs": {SUMMARY_PATH.name: sha256(SUMMARY_PATH), WAVES_PATH.name: sha256(WAVES_PATH)},
         "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, WINDOWS_PATH, MACROS_PATH)},
         "editable_source": PPTX_PATH.name,

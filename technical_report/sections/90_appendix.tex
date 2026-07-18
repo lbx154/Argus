@@ -2,7 +2,7 @@
 \label{app:detailed-results}
 
 The main text reports the startup-to-mature comparison. Table~\ref{tab:swebench-windows}
-shows every analysis window, including the task-mix spike and hard tail.
+shows every analysis window, including the composition shift and late difficult-task period.
 
 \begin{table}[H]
 \centering
@@ -14,9 +14,9 @@ shows every analysis window, including the task-mix spike and hard tail.
 \midrule
 W1--6 & Startup & 120 & 2.95M & 8.52 & 100 \\
 W7--12 & Early reuse & 140 & 2.07M & 7.28 & 70 \\
-W13--18 & Task-mix shift & 151 & 1.47M & 10.42 & 50 \\
+W13--18 & Composition shift & 151 & 1.47M & 10.42 & 50 \\
 W19--22 & Mature & 158 & 2.33M & 7.25 & 79 \\
-W23--24 & Hard tail & 49 & 3.72M & 9.01 & 126 \\
+W23--24 & Late difficult tasks & 49 & 3.72M & 9.01 & 126 \\
 \bottomrule
 \end{tabular}
 \caption{Task-weighted \systemname window statistics. Token index normalizes
@@ -59,7 +59,7 @@ W1--6 to 100.}
 \end{tabular}%
 }
 \caption{All completed \systemname Wave summaries used in the longitudinal
-analysis. Waves 13 and 15 were deferred.}
+analysis. Two incomplete Waves are omitted from grouped means.}
 \label{tab:swebench-waves}
 \end{table}
 
@@ -106,22 +106,22 @@ authority and durable outputs rather than the mathematical statements.
 \toprule
 \textbf{Phase} & \textbf{Manager / Planner} & \textbf{Engineer} & \textbf{Reviewer} & \textbf{Durable output} \\
 \midrule
-Recover and scope & Manager restores the campaign; Planner screens candidate problems. & Grounds sources and creates deterministic checks. & Verifies problem fidelity and accepts the scoped objective. & Persistent objective, selected problem, initial claim ledger. \\
+Recover and scope & Manager restores the campaign; Planner screens candidate problems. & Grounds sources and creates deterministic checks. & Verifies problem fidelity and accepts the scoped objective. & Persistent objective, selected problem, initial claim record. \\
 Test a route & Planner chooses the cheapest decisive falsification mission. & Runs the witness verifier and records the failed reduction. & Accepts the negative result and fixes its scope. & Certified dead branch and revised next action. \\
-Produce proof package & Planner requires theorem, proof, and verification artifacts. & Writes proof, audits, claim ledger, lemma graph, and checkpoint. & Returns \code{continue} when checks are incomplete, then rechecks. & Reviewer-accepted bounded result package. \\
+Produce proof package & Planner requires theorem, proof, and verification artifacts. & Writes proof, validation record, lemma graph, and checkpoint. & Returns \code{continue} when checks are incomplete, then rechecks. & Reviewer-accepted bounded result package. \\
 Strengthen & Planner requires later work to consume and advance retained state. & Improves one result and proves bridge/obstruction lemmas. & Checks correctness, strict progress, and claim boundaries. & Updated accepted state plus named remaining blockers. \\
-Continue & Manager advances or rolls back from the verdict; Planner selects the next blocker. & Starts the next mission from retained artifacts. & Updates the frontier status and next blockers. & Inspectable event trace and reusable cross-session state. \\
+Continue & Manager advances or rolls back from the verdict; Planner selects the next blocker. & Starts the next mission from retained artifacts. & Updates the frontier status and next blockers. & Inspectable research trace and reusable cross-session state. \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Role-resolved phases in the frozen Erd\H{o}s--Gy\'arf\'as campaign.
+\caption{Role-resolved phases in the reported Erd\H{o}s--Gy\'arf\'as campaign.
 The table follows how each role changes the shared research state.}
 \label{tab:erdos-trace-detail}
 \end{table}
 
-The supplementary trace bundle contains the frozen role/claim table,
-calculation map, HTML figure source, figure brief, and provenance. The source
-campaign retains the complete artifacts and event stream.
+The supplementary trace bundle contains the role/claim table, calculation map,
+editable figure source, and provenance. The source campaign retains the complete
+artifacts and event history.
 
 \begin{paperbox}{Representative proof artifact (abridged)}
 \small
@@ -158,7 +158,7 @@ process quantities summarized in the main text. The mathematical window contains
 332,274 reasoning-output Tokens over 9,620.5 active seconds. The strict and
 inclusive density values use the two attribution policies defined in
 Equation~\ref{eq:operational-efficiency}. The process-compression row is a separate
-operational snapshot taken at 2026-07-18 10:18:56 UTC.
+campaign snapshot.
 
 \begin{table}[H]
 \centering
@@ -173,7 +173,7 @@ Inclusive $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.9512\times0.9444\time
 Reviewer correction & $34/43$ verifier recoveries; $22/43$ strict rescues & 79.1\%; 51.2\% & Post-revision outcomes on SWE-Bench Pro. \\
 Reuse quantity $G_K$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & Startup--mature difference in the longitudinal run. \\
 Immediate $\widehat{\mathcal{Y}}_{\mathrm{PRI}}$ & $\lambda_g=0$; $6/332{,}274\times10^6$ & 18.1 accepted deltas/M reasoning Tokens & Six accepted theorem-frontier updates in Rounds 12--17. \\
-Process compression & $384{,}370{,}463/3{,}240$ bytes & 118,633$\times$ raw-tape/checkpoint ratio & Event history relative to the active working checkpoint. \\
+Process compression & $384{,}370{,}463/3{,}240$ bytes & 118,633$\times$ event-history/checkpoint ratio & Event history relative to the active working checkpoint. \\
 \bottomrule
 \end{tabularx}
 \caption{Detailed calculation of the process-theory quantities. Values retain

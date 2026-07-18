@@ -3,7 +3,7 @@
 
 \subsection{System Overview}
 
-\systemname is an open-source general-purpose agentic runtime~\citep{argus_repo} built around four model-driven roles
+\systemname is a general-purpose agentic runtime built around four model-driven roles
 and three system planes. The \emph{control plane} anchors the campaign and schedules
 work; the \emph{execution plane} performs one bounded mission against real tools
 and artifacts; and the \emph{record plane} stores what happened without deciding
@@ -62,11 +62,10 @@ $c \leftarrow \operatorname{ManagerCommit}(o)$; persist campaign identity \\
 
 The long-lived object in \systemname is the campaign, not a provider transcript. A
 campaign has a persisted identity and objective; its work is divided into missions
-that have explicit outcomes. The outer supervisor claims one backlog item at a
-time, executes it, records the result, and advances only at a clean mission
-boundary. Atomic claims prevent two workers from taking the same item, while
-identity-checked resume prevents a restarted process from attaching to the wrong
-campaign.
+that have explicit outcomes. The scheduler assigns one mission at a time, records
+its result, and advances only at a clean mission boundary. Mission assignment is
+transactional, preventing duplicate work under concurrency, and resumed execution
+is tied to the persistent campaign identity.
 
 Model sessions are treated as bounded caches. Engineer and Reviewer sessions can be
 resumed briefly to preserve useful local context, but they are rolled at explicit
@@ -79,20 +78,19 @@ checkpoint. Hard size limits keep this object focused on current state, while th
 full history remains in artifacts and the event record. Concrete storage layouts
 and roll thresholds are implementation choices around the core method.
 
-This design makes restart and upgrade behavior part of the method. A daemon drains
-at a mission boundary, transfers campaign identity to a replacement process, and
-resumes only after checking that identity. After a crash, replay or re-claiming a
-mission begins from the persisted campaign rather than reconstructing it from a
-model transcript.
+This design makes restart and upgrade behavior part of the method. A running process
+hands off only at a mission boundary, and the replacement resumes from the same
+persistent campaign identity. After an interruption, replay or reassignment begins
+from committed campaign state rather than reconstructing the task from a model
+transcript.
 
 \subsection{Review and Completion}
 
-Every provider call passes through one application-level gateway that assigns a
-call identifier, records timing and usage presence, and binds the call to the
-mission event stream. The Engineer and Reviewer share the mission worktree, so the
-Reviewer can inspect the actual artifacts and execution log rather than relying on
-the Engineer's summary. A typed, append-only event tape is the canonical timeline;
-mutable status files and cockpit views are projections over that record.
+All role invocations pass through a common instrumentation layer that records usage
+and associates each call with the mission trace. The Engineer and Reviewer share
+the same artifact state, allowing review of the actual outputs and execution record
+rather than only the Engineer's summary. A typed, append-only trace is the canonical
+timeline; user interfaces are projections over that record.
 
 The Reviewer is the sole source of a mission completion verdict. Completion comes
 from the structured verdict rather than filenames, Token volume, or keywords. The
@@ -105,10 +103,10 @@ Equation~\ref{eq:runtime-update} separates the model from the state around it.
 Table~\ref{tab:runtime-ownership} identifies how each component can change and who
 owns the committed update. The ownership model is intentionally not uniform. Memory
 and skills use a work-versus-certification split: the Engineer or Scientist produces
-a candidate, and the Reviewer commits the retained form. Tools remain
-operator-owned. Stage checklists are Planner-owned, with Reviewer feedback rather
-than a second commit gate. Routing is operator-sourced and Manager-committed, while
-task definitions are Planner-authored and scheduler-committed.
+a candidate, and the Reviewer commits the retained form. Tools and procedures are
+system-configured. Stage checklists are Planner-owned, with Reviewer feedback rather
+than a second commit gate. Routing policy is Manager-committed, while task
+definitions are Planner-authored and scheduler-committed.
 
 \begin{table}[H]
 \centering
@@ -119,9 +117,9 @@ task definitions are Planner-authored and scheduler-committed.
 \midrule
 $M$: memory & Engineer trajectory & Reviewer & Curated checkpoint and event-derived journal \\
 $S$: skills & Engineer / Scientist & Reviewer & Versioned skill library \\
-$A$: tools and procedures & Operator / vertical implementation & Operator & Installed tools and stage procedures \\
+$A$: tools and procedures & System configuration & System configuration & Versioned tool and procedure registry \\
 $V$: verification & Planner & Planner & Stage checklist; Reviewer supplies feedback \\
-$R$: routing and roles & Operator & Manager & Campaign configuration and knob store \\
+$R$: routing and roles & Runtime policy & Manager & Campaign routing policy \\
 $Q$: tasks and evaluations & Planner & Scheduler & Backlog task specifications and scopes \\
 \bottomrule
 \end{tabularx}
@@ -131,27 +129,22 @@ updates only a subset of these components.}
 \end{table}
 
 Two knowledge surfaces carry reusable experience. Versioned skills store procedures
-that can be matched to later tasks. A project wiki stores immutable source cards
-derived from real Reviewer verdicts and may later synthesize source-cited pages.
-Neither surface is treated as automatically correct: entries can be revised,
-archived, or retired when later results contradict them.
+that can be matched to later tasks. A project knowledge base stores source-linked
+records and synthesized pages derived from reviewed outcomes. Neither surface is
+treated as automatically correct: entries can be revised, archived, or retired when
+later results contradict them.
 
 \subsection{Reliability and Resource Governance}
 
 Long-running systems fail through operational drift even when individual model
-calls are strong. \systemname therefore wraps the mission loop with task-agnostic
-guards. The Reviewer labels whether a round produced a decision, measurement, setup
-only, artifact synchronization only, or no progress. Round-boundary guards stop or
-re-plan a mission after sustained non-decision behavior; in-round watchdogs are
-reserved for subprocesses that are idle or emitting activity without effective
-progress. These mechanisms bound execution; scientific correctness remains with the
-task evaluator and Reviewer.
+calls are strong. \systemname therefore combines round-level progress
+classification with mission-boundary replanning. Work that repeatedly produces no
+decision or artifact change is stopped or reformulated, while long-running external
+jobs are tracked separately from model reasoning. These mechanisms bound execution;
+scientific correctness remains with the task evaluator and Reviewer.
 
-The same gateway that records calls also enforces reservation-backed budgets.
-Spend is reserved before a call, reconciled afterward, and released on abort.
-Provider-side spend fences are derived from the reservation rather than role
-configuration, so a role cannot raise its own limit. Long-running external jobs are
-registered and monitored separately; the Engineer can explicitly wait for a healthy
-supervised job instead of repeatedly polling it. GPU leasing, sandboxing, daemon
-handoff, cockpit authentication, and numerical guard thresholds are
-implementation-level operational choices.
+Resource accounting is centralized at model-call and external-job boundaries.
+Budgets are checked before work begins and reconciled after completion, preventing
+individual roles from expanding their own allocation. Concrete scheduling,
+sandboxing, and deployment mechanisms are implementation choices rather than part
+of the scientific claim.

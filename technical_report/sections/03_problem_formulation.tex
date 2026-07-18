@@ -121,7 +121,7 @@ or accepts unchecked claims can consume many tokens while contributing little to
 $\rho_I$.
 
 \paragraph{Operational efficiency factors.}
-The three factors describe how work is distributed within an audit window. For
+The three factors describe how work is distributed within an analysis window. For
 $W$, let $\mathcal{U}_k(W)$ be the attributable units for
 $k\in\{r,a,v\}$: observable reasoning segments, executed actions, or verification
 segments. We define
@@ -244,8 +244,8 @@ The process record contains states, actions, measurements, review feedback, and
 runtime-state changes, including failed branches omitted from $y^\star$. This
 additional information can reduce repeated search, guide later analysis, and provide
 grounded material for later skill construction or evaluation. \systemname retains
-typed, credential-redacted observations and verdicts, not private chain-of-thought
-transcripts.
+typed, privacy-preserving observations and verdicts rather than private
+chain-of-thought transcripts.
 
 The set inclusion in Equation~\ref{eq:process-data} can be strengthened into a
 decision-theoretic statement. Let $P$ denote a typed process record and let

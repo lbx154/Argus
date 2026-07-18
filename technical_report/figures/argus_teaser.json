@@ -4,14 +4,14 @@
   "claim": "Argus couples role-separated research with a review gate, retains heterogeneous task-native outcomes, and improves SWE-Bench Pro accuracy from approximately 59% to 78% at 1.41x aggregate tokens.",
   "sources": {
     "results": "evidence/website_results.json",
-    "results_sha256": "d3b578ffa07c8ea35c9624b628967869452eeaef58924fd320eec1336a097c0a",
+    "results_sha256": "279c6a74bc7a38d908fb8ced0f714a0a0524fe1a9fdb8e9faf489f0c31f81316",
     "paper_inventory": "evidence/paper_inventory.json",
     "paper_inventory_sha256": "441679d40d9c073299d812c17e38abbe7948ec93ba23deae71e56f5fd60b8835",
     "swebench_summary": "evidence/swebench_pro/unified_experiment_summary.json",
-    "swebench_summary_sha256": "56dc7577627bfc312c1ab518b6259b9af626555aef471a92379e57a4c982c6df"
+    "swebench_summary_sha256": "465ee0e72271272a3d9916e2a0dda16c05daa3089e3a59d4e4b825a0fa8a3d63"
   },
   "editable_source": "argus_teaser.html",
   "vector_export": "argus_teaser.pdf",
   "renderer": "google-chrome",
-  "html_sha256": "ac7936648d9655d25fad5874cb52343b8cdf0696525655d95ec347656345a8c2"
+  "html_sha256": "c349d78acf275f0a7f40145d4599304366e9a8aef07e337d2f7bea0c2b00f792"
 }

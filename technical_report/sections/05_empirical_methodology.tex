@@ -84,15 +84,17 @@ For a completed \systemname Wave $w$ with task set $\mathcal{T}_w$, we measure
      \sum_{i\in\mathcal{T}_w} T_i^{\mathrm{agent}}.
   \label{eq:solve-time-wave}
 \end{align}
-$I_i^{\mathrm{solve}}$ contains the final valid Manager, Matcher, Adapter,
-Engineer, and invoked Reviewer calls. $T_i^{\mathrm{agent}}$ measures active
-workflow time. Queueing, environment preparation, verifier execution,
-infrastructure retries, and post-task maintenance are excluded.
+$I_i^{\mathrm{solve}}$ contains all model calls in the accepted task trajectory,
+including routing, Skill adaptation, execution, and any independent review.
+$T_i^{\mathrm{agent}}$ measures active
+workflow time. Orchestration wait, environment preparation, external verification,
+infrastructure recovery, and post-task knowledge maintenance are excluded.
 
 Completed Waves are summarized by task-weighted windows: W1--6 (startup), W7--12
-(early reuse), W13--18 (task-mix shift), W19--22 (mature operation), and W23--24
-(hard tail). Waves 13 and 15 were deferred. The primary comparison is startup
-versus mature operation; the spike and hard tail remain visible.
+(early reuse), W13--18 (composition shift), W19--22 (mature operation), and
+W23--24 (late difficult tasks). Two incomplete Waves are omitted from the grouped
+means. The primary comparison is startup versus mature operation; composition and
+difficulty variation remain visible.
 
 \subsection{SWE-Bench Pro Reviewer Analysis}
 
@@ -110,22 +112,22 @@ program breadth.
 
 \subsection{Representative Vertical-Trace Protocol}
 
-To complement endpoint and software-trajectory measurements, we freeze one
+To complement endpoint and software-trajectory measurements, we report one
 Erd\H{o}s--Gy\'arf\'as mathematical campaign as a representative vertical trace.
 The trace is role-led rather than theorem-led: it records what the Manager,
 Planner, Engineer, and Reviewer did during recovery, problem selection, route
-testing, proof production, revision, acceptance, and state retention. The frozen
+testing, proof production, revision, acceptance, and state retention. The reported
 record contains one accepted route falsification and six proof-backed research
 deltas; detailed mathematical statements remain in the supplementary claim table.
 
 The protocol tracks whether the runtime retains a falsified branch, carries named
 blockers across missions, and admits later work after artifact-based review. The
-frozen role trace, claim table, and figure provenance are released with the
+role trace, claim table, and figure provenance are released with the
 supplementary materials.
 
 \subsection{Theory-to-Measurement Mapping}
 
-We map the theory to four auditable quantities. Immediate information gain
+We map the theory to four reported quantities. Immediate information gain
 $\Delta I_t$ is represented only in task-native units: benchmark improvement,
 accepted theorem delta, or certified branch elimination. Review correction is
 represented by Reviewer \code{continue}--revise trajectories and later

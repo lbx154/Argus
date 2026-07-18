@@ -167,7 +167,7 @@ footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; just
         <div class="note">Direct Copilot → Argus<br><b>{token_ratio:.2f}×</b> aggregate tokens</div>
       </div>
       <div class="metrics">{cards}</div>
-      <div class="portfolio"><strong>{totals['papers']}</strong><span>de-duplicated research artifacts across {totals['programs']} programs</span><small>{totals['manuscript']} manuscripts · {totals['draft']} drafts</small></div>
+      <div class="portfolio"><strong>{totals['papers']}</strong><span>de-duplicated research papers across {totals['programs']} programs</span><small>{totals['manuscript']} manuscripts · {totals['draft']} working papers</small></div>
     </article>
   </section>
   <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>Public arenas: GPT-5.5 · Codex &nbsp;|&nbsp; SWE-Bench Pro: GPT-5.5/xhigh</span></footer>

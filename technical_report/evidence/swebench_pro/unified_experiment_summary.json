@@ -6,7 +6,7 @@
   "model": "GPT-5.5",
   "reasoning_effort": "xhigh",
   "aggregate_comparison": {
-    "source": "author-confirmed experiment aggregate",
+    "source": "reported experiment aggregate",
     "direct_copilot_accuracy_approx": 0.59,
     "argus_accuracy_approx": 0.78,
     "accuracy_delta_percentage_points_approx": 19.0,
@@ -15,20 +15,18 @@
     "direct_copilot_per_wave_time_available": false
   },
   "argus_longitudinal_analysis": {
-    "source": "final valid Argus wave ledger",
+    "source": "accepted Argus Wave summaries",
     "completed_wave_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24],
-    "deferred_wave_ids": [13, 15],
-    "window_policy": "approximately six numeric waves per window; Waves 23-24 are displayed separately as hard-tail stress",
-    "token_metric": "mean final-valid-run solve input tokens per task",
+    "excluded_incomplete_wave_ids": [13, 15],
+    "window_policy": "approximately six numeric waves per window; Waves 23-24 are displayed separately as late difficult-task stress",
+    "token_metric": "mean accepted-run solve input tokens per task",
     "time_metric": "mean active Argus workflow seconds per task",
     "exclusions": [
-      "worker queue waiting",
-      "image pull",
-      "workspace copy",
-      "container setup",
-      "verifier execution",
-      "infrastructure retries",
-      "post-task Skill maintenance"
+      "orchestration wait",
+      "environment preparation",
+      "external verification",
+      "infrastructure recovery",
+      "post-task knowledge maintenance"
     ]
   }
 }

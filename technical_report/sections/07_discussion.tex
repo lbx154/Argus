@@ -13,7 +13,7 @@ with a 19-point accuracy difference.
 The longitudinal run shows how this cost changes with accumulated state. Mature
 W19--22 uses 21\% fewer solve input Tokens and 15\% less active time per task than
 startup W1--6. The curve remains non-monotone: W13--18 combines low Token use with
-longer execution, while W23--24 forms a hard tail. The operating profile changes
+longer execution, while W23--24 contains a late concentration of difficult tasks. The operating profile changes
 over time as shared state expands, while task-dependent variation remains visible.
 
 \subsection{Reviewer as Selective Error Correction}
@@ -32,7 +32,7 @@ the more resource-intensive part of the workload.
 
 The long-lived object in \systemname is the campaign state rather than a provider
 transcript. Accepted results, failed routes, tools, skills, and current blockers
-remain available after session rolls and daemon restarts. Equation~\ref{eq:process-data}
+remain available after session and process restarts. Equation~\ref{eq:process-data}
 formalizes the information advantage of this record, while
 Equation~\ref{eq:process-compression} explains why the runtime keeps both a complete
 event history and a bounded working checkpoint.
@@ -80,7 +80,7 @@ measurements reported in Sections~\ref{sec:results} and~\ref{sec:vertical-trace}
 \toprule
 \textbf{Theory component} & \textbf{Measurement} & \textbf{Observed result} & \textbf{Interpretation} \\
 \midrule
-Process-data dominance & Frozen mathematical trajectory & One dead route and six dependent theorem updates & The retained process changes the starting state of later missions. \\
+Process-data dominance & Mathematical trajectory & One dead route and six dependent theorem updates & The retained process changes the starting state of later missions. \\
 Review gate & 43 Reviewer revision requests & 34 verifier recoveries; 22 strict rescues & Independent review redirects initially unacceptable work into another implementation round. \\
 Reuse value $G_K$ & Startup W1--6 versus mature W19--22 & 21\% fewer solve input Tokens; 15\% less active time & Later operation reaches a lower resource regime while shared state expands. \\
 Token conversion & Rounds 12--17 role attribution & 56.0\% reasoning, 55.4\% verification, and 55.6\% action direct shares & The research trace separates frontier work, coordination, and interrupted work. \\

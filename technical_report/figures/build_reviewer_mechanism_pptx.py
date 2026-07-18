@@ -143,7 +143,7 @@ def main() -> int:
     slide.background.fill.fore_color.rgb = WHITE
     add_rect(slide, 0, 0, 12, 0.05, BLUE, BLUE)
     add_text(slide, "Reviewer routing and recovery across 731 tasks", 0.35, 0.14, 11.2, 0.34, size=18, bold=True)
-    add_text(slide, "Mechanism analysis from final-valid trajectories · adaptive routing, not randomized ablation", 0.37, 0.48, 11.1, 0.22, size=8.8, color=MUTED)
+    add_text(slide, "Mechanism analysis from accepted trajectories · adaptive routing, not randomized ablation", 0.37, 0.48, 11.1, 0.22, size=8.8, color=MUTED)
 
     # Routing split.
     x, y, w, h = 0.35, 0.82, 3.35, 2.14

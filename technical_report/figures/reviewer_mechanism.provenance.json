@@ -4,13 +4,13 @@
   "figure_id": "reviewer-mechanism",
   "inputs": {
     "reviewer_interventions.csv": "8c7ba482178845f3282f5faac1bdb241841de5127ec8f3c8e671252114ec461d",
-    "reviewer_mechanism_stats.json": "cc8ddb09494bef9a64743b1df7c7e262864866416993779cef7a80d4d7c78f77"
+    "reviewer_mechanism_stats.json": "da7f4206345b1092b6750426b09995396aaadedf91235299eb40295b55910919"
   },
   "outputs": {
-    "reviewer_mechanism.pdf": "a534f3a587c7e41aa65cbbafcdc2994134e780c9b0fd215c3b0fbd42221c64c0",
-    "reviewer_mechanism.png": "5fa7389598fcb3ac6c43c51dfed1f77fb684daf79bce2a1db20390fdccc39ac5",
-    "reviewer_mechanism.pptx": "6bcfe48206ed215c46385068d97066daddf70c4c900f7336442d0a90ee44eb2e",
-    "reviewer_mechanism.svg": "271ba53022143f495688bc43b475227581593b0fb93acebf85ab3a0af732e0df",
+    "reviewer_mechanism.pdf": "9098fa59cf5aa8eb0cbaf64d56d752551bfddf73e19b12157041e72001719de9",
+    "reviewer_mechanism.png": "6e6c2d506f0f26fa73e2743914c44e04cba6c8c6c59bb9854fb06c5b84112f31",
+    "reviewer_mechanism.pptx": "a617645530f237c4aff588106c0fd2df93384dbc46a6e53cd3acd56c41eacd38",
+    "reviewer_mechanism.svg": "b3ec22d8c2e22155735896eabebe1f8295ea08547db73668b9f31b6678e69927",
     "reviewer_metrics.tex": "21c39bbe66483362360893ec56ee53c37e22edae3baf40884e9a75deeeebf5ab"
   },
   "reader_question": "How often is an independent Reviewer invoked, and how many revision-requested tasks are recovered?",
