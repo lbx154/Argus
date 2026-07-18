@@ -30,8 +30,9 @@ class StageDecision:
     reason: str
     diagnostic: str = ""
     # Planner-wait reconciliation only: an authoritative HOLD may keep the
-    # current stage while introducing a new authorization/directive/evidence
-    # that satisfies the Planner's declared recheck condition.
+    # current stage while surfacing pre-existing operator authority or changed
+    # evidence that satisfies the Planner's declared recheck condition. Manager
+    # cannot create or expand operator authorization.
     resolves_wait: bool = False
 
 
@@ -128,6 +129,9 @@ def build_stage_decision_prompt(
     recheck_condition = str(
         getattr(waiting_contract, "recheck_condition", "") or ""
     ).strip()
+    operator_action_required = bool(
+        getattr(waiting_contract, "operator_action_required", False)
+    )
 
     source_instructions = ""
     if review_source == "engineer_self_review":
@@ -157,13 +161,22 @@ def build_stage_decision_prompt(
 
     wait_resolution_block = ""
     if planner_waiting:
+        operator_boundary = (
+            "This blocker requires fresh OPERATOR action. You cannot create or "
+            "expand operator authorization; set `resolves_wait=false`. "
+            if operator_action_required
+            else
+            "You may set `resolves_wait=true` only when PRE-EXISTING operator "
+            "authority already shown below or concrete changed evidence satisfies "
+            "the recheck condition. Never invent a new mission/thesis authorization. "
+        )
         wait_resolution_block = (
             "## Planner-wait reconciliation\n"
             f"Waiting reason: {waiting_reason or '(none)'}\n"
             f"Declared recheck condition: {recheck_condition or '(none)'}\n"
-            "If this Manager ruling supplies a NEW explicit authorization, "
-            "directive, or evidence that satisfies the declared recheck "
-            "condition, keep the stage on HOLD and set `resolves_wait=true` so "
+            f"{operator_boundary}"
+            "If this Manager ruling identifies such existing authority or changed "
+            "evidence, keep the stage on HOLD and set `resolves_wait=true` so "
             "the Planner immediately replans without the stale waiting contract. "
             "This does not advance the stage or certify its checklist. Set "
             "`resolves_wait=false` when the blocker remains unchanged.\n\n"

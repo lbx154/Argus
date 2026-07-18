@@ -69,6 +69,10 @@
           "type": "boolean",
           "description": "Set true only when current_stage itself prevents the prerequisite work that must happen next. This asks the Manager, the sole stage authority, to decide HOLD versus ROLLBACK; it does not authorize Planner to edit stage state."
         },
+        "operator_action_required": {
+          "type": "boolean",
+          "description": "Set true when only fresh operator input can change the blocker, including credentials, scope choices, or authorization for an additional mission/thesis. Manager cannot create or expand operator authorization."
+        },
         "allow_verification_probe": {
           "type": "boolean",
           "description": "Whether one verification probe is justified for this exact fingerprint/token pair."

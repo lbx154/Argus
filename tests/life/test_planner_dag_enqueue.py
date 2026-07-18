@@ -97,10 +97,12 @@ class _WaitingThenManagerRunner:
         reconcile: bool,
         manager_action: str,
         manager_resolves_wait: bool = False,
+        operator_action_required: bool = False,
     ) -> None:
         self.reconcile = reconcile
         self.manager_action = manager_action
         self.manager_resolves_wait = manager_resolves_wait
+        self.operator_action_required = operator_action_required
         self.manager_calls = 0
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
@@ -120,6 +122,7 @@ class _WaitingThenManagerRunner:
                     "recheck_condition": "the cluster admits the profile job",
                     "recheck_token": "maintenance-v1",
                     "stage_reconciliation_required": self.reconcile,
+                    "operator_action_required": self.operator_action_required,
                     "allow_verification_probe": False,
                     "recheck_after_seconds": 0,
                 },
@@ -196,6 +199,7 @@ def _make_waiting_supervisor(
     reconcile: bool,
     manager_action: str,
     manager_resolves_wait: bool = False,
+    operator_action_required: bool = False,
 ) -> tuple[LifeSupervisor, _WaitingThenManagerRunner, Path]:
     project = tmp_path / "project"
     project.mkdir()
@@ -217,6 +221,7 @@ def _make_waiting_supervisor(
         reconcile=reconcile,
         manager_action=manager_action,
         manager_resolves_wait=manager_resolves_wait,
+        operator_action_required=operator_action_required,
     )
     memory = LifeMemory.open(tmp_path / "life")
     config = LifeSupervisorConfig(
@@ -395,6 +400,27 @@ def test_manager_hold_can_resolve_wait_without_moving_stage(
     )
     sup._clear_planner_wait_resolution()
     assert sup._planner_wait_resolution_runtime_note() == ""
+
+
+def test_operator_only_wait_cannot_be_resolved_by_manager(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="hold",
+        manager_resolves_wait=True,
+        operator_action_required=True,
+    )
+
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.manager_calls == 0
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    assert state["active"] is True
+    assert state["operator_action_required"] is True
 
 
 def test_new_explicit_stage_request_bypasses_wait_cadence(

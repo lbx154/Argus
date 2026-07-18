@@ -566,6 +566,9 @@ class PlanningContextMixin:
             "stage_reconciliation_required": bool(
                 getattr(contract, "stage_reconciliation_required", False)
             ),
+            "operator_action_required": bool(
+                getattr(contract, "operator_action_required", False)
+            ),
             "allow_verification_probe": bool(
                 getattr(contract, "allow_verification_probe", False)
             ),
@@ -808,6 +811,11 @@ class PlanningContextMixin:
                 "stage_reconciliation_required",
                 False,
             ),
+            "operator_action_required": getattr(
+                contract,
+                "operator_action_required",
+                False,
+            ),
             "allow_verification_probe": getattr(
                 contract,
                 "allow_verification_probe",
@@ -826,6 +834,7 @@ class PlanningContextMixin:
                 "recheck_condition",
                 "recheck_token",
                 "stage_reconciliation_required",
+                "operator_action_required",
                 "allow_verification_probe",
                 "recheck_after_seconds",
                 "first_observed_at",
@@ -845,6 +854,8 @@ class PlanningContextMixin:
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
             "- stage_reconciliation_required: "
             f"{bool(state.get('stage_reconciliation_required'))}\n"
+            "- operator_action_required: "
+            f"{bool(state.get('operator_action_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
             "If current evidence does not satisfy the declared recheck condition, "
             "reuse the exact fingerprint and token with waiting=true and do not "

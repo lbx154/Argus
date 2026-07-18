@@ -201,6 +201,7 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
         stage_reconciliation_required=False,
         allow_verification_probe=False,
         recheck_after_seconds=0,
+        operator_action_required=True,
     )
 
 
@@ -210,6 +211,32 @@ def test_waiting_contract_positional_api_remains_backward_compatible() -> None:
     assert contract.allow_verification_probe is True
     assert contract.recheck_after_seconds == 600
     assert contract.stage_reconciliation_required is False
+    assert contract.operator_action_required is False
+
+
+def test_waiting_contract_infers_operator_only_scope_expansion() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "all authorized theses are exhausted",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "await explicit authorization for more research",
+        "waiting_contract": {
+            "blocker_fingerprint": "research-stage-no-viable-thesis-after-six-no-gos",
+            "recheck_condition": (
+                "Manager explicitly authorizes a materially distinct thesis"
+            ),
+            "recheck_token": "six-no-gos-v1",
+            "stage_reconciliation_required": True,
+            "operator_action_required": False,
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+    }))
+
+    assert verdict.waiting
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is True
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -913,8 +940,10 @@ def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
     assert "Do not speculatively enqueue training" in compact
     assert "Re-plan from the reviewed outcome" in compact
     assert "waiting=true" in text and "waiting_contract" in text
-    assert "requires a Manager authorization/directive" in compact
-    assert "explicitly resolving the stale wait" in compact
+    assert "Manager owns stage transitions" in compact
+    assert "can never create credentials" in compact
+    assert "operator_action_required=true" in compact
+    assert "resolve a stale wait" in compact
 
 
 def test_planner_does_not_repeat_skill_loading_in_task_objectives() -> None:

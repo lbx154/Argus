@@ -341,6 +341,7 @@ def test_wait_reconciliation_prompt_explains_resolves_wait() -> None:
         reason="manager authorization required",
         waiting_contract=SimpleNamespace(
             recheck_condition="Manager explicitly authorizes a new mechanism",
+            operator_action_required=True,
         ),
     )
 
@@ -356,6 +357,8 @@ def test_wait_reconciliation_prompt_explains_resolves_wait() -> None:
     assert "Planner-wait reconciliation" in prompt
     assert "resolves_wait=true" in prompt
     assert '"resolves_wait": true|false' in prompt
+    assert "cannot create or expand operator authorization" in prompt
+    assert "set `resolves_wait=false`" in prompt
 
 
 def test_decide_stage_refreshes_manager_owned_live_view(

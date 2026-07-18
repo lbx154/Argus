@@ -220,6 +220,13 @@ class PlanningCycleMixin:
         if not blocker_fingerprint or not recheck_token:
             return False
 
+        # Manager is the sole stage authority, but it is not the operator and
+        # cannot expand the operator's scope.  Never invoke wait reconciliation
+        # when fresh operator input is the declared (or parser-inferred) gate.
+        if bool(getattr(contract, "operator_action_required", False)):
+            self._planner_waits_since_reconciliation = 0
+            return False
+
         explicitly_requested = bool(
             getattr(contract, "stage_reconciliation_required", False)
         )

@@ -311,6 +311,10 @@ class WaitingContract:
     allow_verification_probe: bool = False
     recheck_after_seconds: int = 0
     stage_reconciliation_required: bool = False
+    # True when only fresh operator input can change the blocker (for example,
+    # new credentials, a scope choice, or authorization for an additional
+    # mission/thesis).  Manager owns stage transitions, not operator scope.
+    operator_action_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -1181,7 +1185,79 @@ def _parse_task_scope(value: object) -> str:
     return scope
 
 
-def _parse_waiting_contract(data: dict) -> WaitingContract | None:
+def _operator_action_required_for_wait(
+    *,
+    blocker_fingerprint: str,
+    recheck_condition: str,
+    waiting_reason: str,
+) -> bool:
+    """Fail closed when a waiting contract asks to expand operator scope.
+
+    Planner output is model-authored, so the explicit boolean is not enough by
+    itself.  Infer operator ownership for common scope-expansion language to
+    prevent a later Manager reconciliation call from inventing authorization.
+    """
+    text = " ".join(
+        (blocker_fingerprint, recheck_condition, waiting_reason)
+    ).casefold()
+    normalized = re.sub(r"[^a-z0-9]+", " ", text)
+    operator_terms = ("operator", "human", "user")
+    operator_actions = (
+        "authoriz",
+        "approval",
+        "credential",
+        "licensed",
+        "permission",
+        "provide",
+        "choose",
+        "decision",
+    )
+    scope_terms = (
+        "mission",
+        "thesis",
+        "mechanism",
+        "scope",
+        "research",
+        "work",
+    )
+    expansion_terms = (
+        "new",
+        "additional",
+        "another",
+        "distinct",
+        "expand",
+        "exhausted",
+        "consumed",
+    )
+    if any(term in normalized for term in operator_terms) and any(
+        term in normalized for term in operator_actions
+    ):
+        return True
+    if (
+        any(term in normalized for term in ("authoriz", "authority", "approval"))
+        and any(term in normalized for term in scope_terms)
+        and any(term in normalized for term in expansion_terms)
+    ):
+        return True
+    compact = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return any(
+        marker in compact
+        for marker in (
+            "no-viable-thesis",
+            "no-lawful-mission",
+            "authorization-exhausted",
+            "authority-exhausted",
+            "authorization-consumed",
+            "authority-consumed",
+        )
+    )
+
+
+def _parse_waiting_contract(
+    data: dict,
+    *,
+    waiting_reason: str = "",
+) -> WaitingContract | None:
     raw = data.get("waiting_contract")
     if not isinstance(raw, dict):
         return None
@@ -1195,6 +1271,10 @@ def _parse_waiting_contract(data: dict) -> WaitingContract | None:
     except (TypeError, ValueError):
         return None
     recheck_after_seconds = max(0, min(604800, recheck_after_seconds))
+    explicit_operator_action = _parse_json_bool(
+        raw.get("operator_action_required", False),
+        False,
+    )
     return WaitingContract(
         blocker_fingerprint=blocker_fingerprint[:200],
         recheck_condition=recheck_condition[:1600],
@@ -1208,6 +1288,14 @@ def _parse_waiting_contract(data: dict) -> WaitingContract | None:
             False,
         ),
         recheck_after_seconds=recheck_after_seconds,
+        operator_action_required=(
+            explicit_operator_action
+            or _operator_action_required_for_wait(
+                blocker_fingerprint=blocker_fingerprint,
+                recheck_condition=recheck_condition,
+                waiting_reason=waiting_reason,
+            )
+        ),
     )
 
 
@@ -1273,7 +1361,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         restart_reason = reason or "planner requested daemon restart"
     waiting = _parse_json_bool(data.get("waiting", False), False)
     waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
-    waiting_contract = _parse_waiting_contract(data)
+    waiting_contract = _parse_waiting_contract(
+        data,
+        waiting_reason=waiting_reason,
+    )
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
