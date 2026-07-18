@@ -123,6 +123,24 @@ def test_adapter_preserves_turn_failed_for_manager_consumers() -> None:
     ]
 
 
+def test_adapter_preserves_turn_failed_when_fatal_normalizes_away() -> None:
+    backend = AgentCliBackend()
+    translated = backend._translate_result(
+        AgentRunResult(
+            command=["codex"],
+            exit_code=0,
+            thread_id="thread-1",
+            agent_messages=[_FAST_DECISION],
+            turn_completed=False,
+            turn_failed=True,
+            fatal_error="Reconnecting... 1/3",
+        )
+    )
+
+    assert translated.exit_code == 0
+    assert translated.fatal_error == "backend reported a failed turn"
+
+
 def test_nonzero_exit_fails_and_reports_stderr_diagnostic(tmp_path) -> None:
     runner = _Runner(
         _Result(

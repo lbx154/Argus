@@ -1815,7 +1815,7 @@ class AgentCliBackend:
         fatal_error = _normalize_fatal_error(argus_result.fatal_error)
         if (
             getattr(argus_result, "turn_failed", False)
-            and not argus_result.fatal_error
+            and not fatal_error
         ):
             fatal_error = "\n".join(
                 map(str, getattr(argus_result, "stderr_lines", None) or [])
