@@ -51,15 +51,16 @@ log = logging.getLogger(__name__)
 #: ``"quant"`` is the finance factor-research vertical — a REPORT peer of
 #: ``research`` (it produces a reviewer-certified factor report, not a numeric
 #: metric), so it is NOT an optimize vertical and is never routed under speedrun.
-#: ``"speedrun"`` is the generic numeric-optimization vertical; the three
-#: per-task verticals below are the distinct Recursive "First Steps" tasks,
+#: ``"speedrun"`` is the generic numeric-optimization vertical;
+#: ``"kernel_engineering"`` is the production/repository GPU-kernel vertical;
+#: the three per-task verticals below are the distinct Recursive "First Steps" tasks,
 #: each optimizing its OWN metric (so they are never conflated under speedrun):
 #:   nanochat         — Task 1: minimize val_bpb (300s, 1 GPU)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
     "software", "digital_circuit", "research", "math", "physics", "quant", "speedrun",
-    "nanochat", "nanogpt_speedrun", "kernelbench",
+    "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
 )
@@ -88,6 +89,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
     "wall-clock budget (setup → optimize → measure → report); no paper",
+    "kernel_engineering": "production GPU-kernel engineering in a real repository "
+    "(environment/toolchain audit → correct baseline → profile/optimize → full "
+    "validation → upstream-ready report); use for CUDA/Triton/TileLang/CUTLASS/PyTorch "
+    "library work and PRs, not fixed SOL-ExecBench competition tasks",
     "nanochat": "minimize val_bpb on the nanochat train.py (bits-per-byte, ~300s, 1 GPU)",
     "nanogpt_speedrun": "minimize wall-clock time to reach val_loss<=3.28 on modded-nanogpt (8xH100)",
     "kernelbench": "maximize SOL score / speedup for GPU kernels (CUDA/Triton/CUTLASS, "

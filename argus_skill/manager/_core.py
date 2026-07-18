@@ -49,7 +49,7 @@ from .domain_author import VerticalDecision, VerticalDecisionError
 
 # Verticals that run a lean optimize/speedrun loop rather than the paper pipeline.
 _OPTIMIZE_VERTICALS = frozenset(
-    {"speedrun", "nanochat", "nanogpt_speedrun", "kernelbench"}
+    {"speedrun", "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench"}
 )
 
 log = logging.getLogger(__name__)

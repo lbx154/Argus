@@ -13,6 +13,9 @@ Current verticals:
   → submission stages, paper/main.tex + paper/refs.bib +
   benchmarks/evidence/ + paper/claims_to_evidence.tsv artifacts,
   paper-structural / evidence-chain / draft-outline gates).
+* ``argus_skill.verticals.kernel_engineering`` — environment-first production
+  GPU kernel work (scope → environment → baseline → optimize → validate →
+  report), distinct from the fixed SOL-ExecBench ``kernelbench`` vertical.
 
 Planned verticals:
 

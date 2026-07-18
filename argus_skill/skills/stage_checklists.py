@@ -1546,6 +1546,32 @@ def _full_pipeline_title(project_root) -> str:
     return "## Full pipeline checklist (final submission gate)\n"
 
 
+def _full_pipeline_requires_venue(project_root) -> bool:
+    """Return whether the active vertical is a paper/venue pipeline.
+
+    Metric and software verticals must never be replaced by the unresolved-venue
+    checklist merely because they have no ``target_venue``.  Venue resolution is
+    meaningful only for ``completion_gate == "full_paper"``.
+    """
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import load_vertical, vertical_completion_gate
+        from .vertical_select import resolve_checklist_vertical
+
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return True
+        return (
+            vertical_completion_gate(load_vertical(vertical, project_root=project_root))
+            == "full_paper"
+        )
+    except Exception:  # noqa: BLE001 — preserve historical paper-safe fallback
+        return True
+
+
 def format_full_pipeline_checklist(
     *,
     role: str = "reviewer",
@@ -1582,14 +1608,16 @@ def format_full_pipeline_checklist(
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
-    try:
-        body = _apply_venue_to_checklist_body(
-            "\n\n".join(blocks), _resolve_checklist_venue(project_root)
-        )
-    except KeyError as exc:
-        body = _unresolved_venue_checklist(
-            header,
-            role=role_norm,
-            error=exc,
-        )
+    body = "\n\n".join(blocks)
+    if _full_pipeline_requires_venue(project_root):
+        try:
+            body = _apply_venue_to_checklist_body(
+                body, _resolve_checklist_venue(project_root)
+            )
+        except KeyError as exc:
+            body = _unresolved_venue_checklist(
+                header,
+                role=role_norm,
+                error=exc,
+            )
     return _augment(body, role_norm, project_root, overlay_present=overlay_present)
