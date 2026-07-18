@@ -16,8 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .event_catalog import EventType, canonical_event_type
 from ..life.mission_outcome import mission_outcome_class
+from .event_catalog import EventType, canonical_event_type
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -396,10 +396,12 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
     mission = view.setdefault("mission", {})
 
     if event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        item_id = _text(event, "item_id") or _text(event, "intent_id")
+        objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
         mission.update({
-            "id": _text(event, "item_id"),
-            "title": _text(event, "objective", 180),
-            "objective": _text(event, "objective", 2000),
+            "id": item_id,
+            "title": objective[:180],
+            "objective": objective,
             "status": "framed",
         })
         stages = event.get("stages")

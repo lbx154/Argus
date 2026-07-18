@@ -468,6 +468,11 @@ def normalize_event_envelope(
     out = dict(event) if isinstance(event, Mapping) else {"raw": str(event)}
     out.pop("event_validation", None)
     out.pop("canonical_type", None)
+    if canonical_event_type(out.get("type")) == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        # Daemon-boot handoffs historically predated the shared Manager intent
+        # payload and recorded the same values under intent/execution names.
+        out.setdefault("item_id", out.get("intent_id"))
+        out.setdefault("objective", out.get("execution_task"))
     out.setdefault("ts", time.time() if timestamp is None else float(timestamp))
     out.setdefault("event_schema_version", EVENT_ENVELOPE_VERSION)
     payload_schema = event_payload_schema(out.get("type"))
