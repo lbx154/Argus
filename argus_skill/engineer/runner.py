@@ -381,6 +381,11 @@ _EARLIEST_BROKEN_STAGE_PATTERNS = (
     re.compile(
         r"(?i)\bearliest\s+broken\s+stage\s+is\s+`?([a-z0-9_-]+)"
     ),
+    re.compile(
+        r"(?i)\b(?:rollback|return|reopen)\b"
+        r"(?:\s+[a-z0-9_-]+){0,6}\s+(?:to\s+)?`?"
+        r"(research|plan|benchmark|run|analysis|draft|review|submission)\b"
+    ),
 )
 
 
