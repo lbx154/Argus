@@ -168,6 +168,9 @@ request replanning; never run the unchanged full gate again.
    Before the run, check the ledger for an equivalent mechanism/config and write
    the one-line claim being tested. After the run, retain a compact result and
    reusable insight; do not paste raw logs into the next Engineer prompt.
+   Before assigning `supported` or `refuted`, record baseline identity,
+   candidate commit plus dirty-diff hash, and dispatch/trace evidence that the
+   benchmark shapes actually entered the changed code path.
    Change the mechanism before endlessly sweeping knobs. A compile or runtime
    error must be classified:
    - environment/toolchain mismatch;

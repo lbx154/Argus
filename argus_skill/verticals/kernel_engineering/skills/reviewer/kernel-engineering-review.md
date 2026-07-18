@@ -109,6 +109,9 @@ claim, not a universal GPU claim. Regressing shapes must fall back or be stated.
 Do not reward a large speedup until the baseline agrees with the canonical
 runner/reference and contention is excluded. Compile time must be excluded from
 steady-state latency unless compile latency is the declared metric.
+Reject a performance conclusion when the benchmark matrix does not exercise the
+changed dispatch/code path, or when a dirty candidate is labeled only by the
+unchanged base commit without a diff hash/snapshot identity.
 
 ## Upstream readiness
 

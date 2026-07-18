@@ -16,6 +16,9 @@ def _outcome(**updates) -> dict:
         "execution_status": "completed",
         "failure_class": "none",
         "idea_status": "supported",
+        "baseline_identity": "main@abc123 in env sha256:base",
+        "candidate_identity": "feature@abc123+dirty sha256:diff",
+        "path_coverage": "dispatch log shows the candidate backend handled shape S1",
         "summary": "Candidate passed and improved the measured path.",
         "evidence": "attempts/a001/result.json",
     }
@@ -53,6 +56,16 @@ def test_valid_performance_result_can_refute_idea() -> None:
         summary="Correct isolated benchmark regressed beyond noise.",
     )
     assert validate_outcome(record) == []
+
+
+def test_performance_claim_requires_changed_path_and_diff_identity() -> None:
+    record = _outcome(
+        candidate_identity="",
+        path_coverage="",
+    )
+    errors = validate_outcome(record)
+    assert any("candidate_identity" in error for error in errors)
+    assert any("path_coverage" in error for error in errors)
 
 
 def test_project_check_validates_outcome_files(tmp_path: Path) -> None:

@@ -22,6 +22,10 @@ Experiment ledger:
   of the prompt and available as evidence on disk.
 - Maintain two champions: advertised frontier and clean-environment reproducible
   frontier. Only the reproducible champion may become the baseline ratchet.
+- A benchmark is valid for the idea only when its shapes demonstrably exercise
+  the changed dispatch/code path. Record baseline revision, candidate revision
+  plus dirty-diff hash, and dispatch/trace evidence; matching commit labels on a
+  dirty worktree are not sufficient provenance.
 
 Efficiency rules:
 

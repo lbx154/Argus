@@ -75,6 +75,14 @@ def validate_outcome(record: dict[str, Any]) -> list[str]:
         errors.append(
             "idea_status=refuted requires a completed valid numerical or performance result"
         )
+    if idea in {"supported", "refuted"}:
+        for key in ("baseline_identity", "candidate_identity", "path_coverage"):
+            if not _text(record.get(key)):
+                errors.append(
+                    f"{key} is required before an idea can be {idea}; include commit/"
+                    "diff identity and evidence that the measured case exercised the "
+                    "changed path"
+                )
     if failure == "none" and execution != "completed":
         errors.append("failure_class=none requires execution_status=completed")
     return list(dict.fromkeys(errors))
@@ -87,6 +95,9 @@ def template(attempt_id: str) -> dict[str, Any]:
         "execution_status": "blocked",
         "failure_class": "environment",
         "idea_status": "untested",
+        "baseline_identity": "REPLACE with baseline revision/environment identity",
+        "candidate_identity": "REPLACE with candidate commit plus dirty diff hash",
+        "path_coverage": "REPLACE with dispatch/trace evidence for the changed path",
         "summary": "REPLACE with the concise observed outcome",
         "evidence": "REPLACE with artifact paths or exact command result",
     }
