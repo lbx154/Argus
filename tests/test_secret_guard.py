@@ -97,6 +97,55 @@ def test_redacts_values_under_structured_sensitive_keys() -> None:
     assert redacted["nested"]["status"] == "ok"
 
 
+def test_preserves_structured_tokenizer_metadata() -> None:
+    tokenizer_config = {
+        "bos_token": "<|im_start|>",
+        "eos_token": "<|im_end|>",
+        "pad_token": "<|endoftext|>",
+        "unk_token": "<unk>",
+        "mask_token": "<mask>",
+        "additional_special_tokens": ["<image>", "<video>"],
+    }
+
+    assert redact_secrets_record(tokenizer_config) == tokenizer_config
+
+
+def test_scrub_does_not_mutate_tokenizer_config_file(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoint" / "tokenizer_config.json"
+    path.parent.mkdir(parents=True)
+    payload = {
+        "eos_token": "<|im_end|>",
+        "pad_token": "<|endoftext|>",
+        "tokenizer_class": "Qwen2Tokenizer",
+    }
+    original = json.dumps(payload, indent=2) + "\n"
+    path.write_text(original, encoding="utf-8")
+    now = time.time()
+    path.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ()
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_still_redacts_explicit_provider_token_keys() -> None:
+    redacted = redact_secrets_record({
+        "github_token": "github-secret-value",
+        "hf_token": "huggingface-secret-value",
+        "session_token": "session-secret-value",
+    })
+
+    assert redacted == {
+        "github_token": "<REDACTED:secret>",
+        "hf_token": "<REDACTED:secret>",
+        "session_token": "<REDACTED:secret>",
+    }
+
+
 def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> None:
     redacted, count = redact_secrets_text_with_count(
         "Cookie: response-secret-value\r\nstatus: 200\r\n"
