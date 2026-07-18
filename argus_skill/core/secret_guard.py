@@ -92,6 +92,36 @@ _SENSITIVE_RECORD_KEYS = {
     "access_token",
     "x_api_key",
 }
+# Artifact scrubbing runs after an Engineer turn and therefore sees benchmark
+# rows, replay fixtures, and scientific result packets.  Those schemas often
+# use generic task-state names such as ``access_token`` or ``password`` for
+# synthetic values.  Treating the field name alone as proof of a credential
+# corrupts immutable evidence and invalidates its hashes.  Live event payloads
+# keep the stricter policy above; on-disk artifact scrubbing only trusts keys
+# that identify provider credentials or protocol headers with high confidence.
+_HIGH_CONFIDENCE_ARTIFACT_RECORD_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer_token",
+    "bearertoken",
+    "client_secret",
+    "clientsecret",
+    "cookie",
+    "github_token",
+    "gitlab_token",
+    "hf_token",
+    "huggingface_token",
+    "private_key",
+    "private_token",
+    "privatekey",
+    "privatetoken",
+    "proxy_authorization",
+    "set_cookie",
+    "slack_token",
+    "telegram_token",
+    "x_api_key",
+}
 _IGNORE_DIRS = {
     ".git",
     ".hg",
@@ -189,6 +219,7 @@ def redact_secrets_text_with_count(
     *,
     known_values: Iterable[str] = (),
     include_patterns: bool = True,
+    redact_ambiguous_record_keys: bool = True,
 ) -> tuple[str, int]:
     if not isinstance(text, str) or not text:
         return text, 0
@@ -202,6 +233,7 @@ def redact_secrets_text_with_count(
             redacted_record = redact_secrets_record(
                 parsed,
                 known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
             )
             if redacted_record != parsed:
                 rendered = json.dumps(
@@ -230,6 +262,7 @@ def redact_secrets_text_with_count(
                 redacted_record = redact_secrets_record(
                     record,
                     known_values=known_values,
+                    redact_ambiguous_record_keys=redact_ambiguous_record_keys,
                 )
                 if redacted_record != record:
                     changed_records += 1
@@ -265,10 +298,12 @@ def redact_secrets_text(
     text: str,
     *,
     known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
 ) -> str:
     return redact_secrets_text_with_count(
         text,
         known_values=known_values,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
     )[0]
 
 
@@ -276,37 +311,61 @@ def redact_secrets_record(
     obj: Any,
     *,
     known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
 ) -> Any:
     if isinstance(obj, str):
-        return redact_secrets_text(obj, known_values=known_values)
+        return redact_secrets_text(
+            obj,
+            known_values=known_values,
+            redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+        )
     if isinstance(obj, list):
         return [
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         ]
     if isinstance(obj, tuple):
         return tuple(
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         )
     if isinstance(obj, set):
         return [
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         ]
     if isinstance(obj, dict):
         redacted: dict[Any, Any] = {}
         for key, value in obj.items():
             normalized_key = re.sub(r"[^a-z0-9]+", "_", str(key).casefold()).strip("_")
-            sensitive_key = (
+            strict_sensitive_key = (
                 normalized_key in _SENSITIVE_RECORD_KEYS
-                or normalized_key.endswith((
-                    "apikey",
-                    "api_key",
-                    "password",
-                    "passwd",
-                    "secret",
-                ))
+                or normalized_key.endswith(
+                    ("apikey", "api_key", "password", "passwd", "secret")
+                )
+            )
+            artifact_sensitive_key = (
+                normalized_key in _HIGH_CONFIDENCE_ARTIFACT_RECORD_KEYS
+                or normalized_key.endswith(
+                    ("apikey", "api_key", "client_secret", "private_key")
+                )
+            )
+            sensitive_key = (
+                strict_sensitive_key
+                if redact_ambiguous_record_keys
+                else artifact_sensitive_key
             )
             if sensitive_key and isinstance(value, str):
                 redacted[key] = (
@@ -316,6 +375,7 @@ def redact_secrets_record(
                 redacted[key] = redact_secrets_record(
                     value,
                     known_values=known_values,
+                    redact_ambiguous_record_keys=redact_ambiguous_record_keys,
                 )
         return redacted
     return obj
@@ -417,6 +477,7 @@ def scrub_recent_text_artifacts(
                 text,
                 known_values=known_values,
                 include_patterns=include_patterns,
+                redact_ambiguous_record_keys=False,
             )
             if not count or redacted == text:
                 continue

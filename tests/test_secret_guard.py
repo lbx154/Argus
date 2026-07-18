@@ -267,6 +267,47 @@ def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
+def test_artifact_scrub_preserves_synthetic_task_tokens(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "research" / "runs" / "RAW_TRAJECTORIES.jsonl"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(
+        json.dumps({
+            "task_id": "synthetic-auth-task",
+            "arguments": {"access_token": "access_token_abc123"},
+        })
+        + "\n"
+        + json.dumps({
+            "task_id": "provider-credential-leak",
+            "github_token": "github-secret-value",
+        })
+        + "\n"
+        + json.dumps({
+            "task_id": "known-secret-leak",
+            "arguments": {"access_token": "live-environment-secret-123"},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+        known_values=("live-environment-secret-123",),
+    )
+
+    rows = [json.loads(line) for line in artifact.read_text().splitlines()]
+    assert rows[0]["arguments"]["access_token"] == "access_token_abc123"
+    assert rows[1]["github_token"] == "<REDACTED:secret>"
+    assert rows[2]["arguments"]["access_token"] == (
+        "<REDACTED:known-secret>"
+    )
+    assert report.redacted_paths == (
+        "research/runs/RAW_TRAJECTORIES.jsonl",
+    )
+
+
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
     artifact = tmp_path / "response.txt"
     artifact.write_text("Authorization: Bearer live-token-value-123\n", encoding="utf-8")
