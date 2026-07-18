@@ -136,6 +136,94 @@ def test_priced_settlement_replaces_reservation_with_actual_ledger_cost(
     }
 
 
+def test_copilot_premium_settlement_unblocks_next_call_but_unknown_still_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setattr(
+        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        lambda _project_root: False,
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+
+    known_reservation, reason = reserve_call_budget(
+        call_id="manager-known",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert known_reservation is not None and reason == ""
+    known = build_usage_record(
+        call_id="manager-known",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        started_at=time.time() - 1,
+        completed_at=time.time(),
+        status="completed",
+        premium_requests=1.0,
+    )
+    UsageLedger(project, migrate_legacy=False).append(known)
+    assert known_reservation.settle(known) is True
+    assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 0
+
+    unknown_reservation, reason = reserve_call_budget(
+        call_id="planner-unknown",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert unknown_reservation is not None and reason == ""
+    unknown = build_usage_record(
+        call_id="planner-unknown",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        started_at=time.time() - 1,
+        completed_at=time.time(),
+        status="completed",
+    )
+    UsageLedger(project, migrate_legacy=False).append(unknown)
+    assert unknown_reservation.settle(unknown) is True
+
+    blocked, reason = reserve_call_budget(
+        call_id="planner-next",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        global_root=tmp_path,
+        per_mission_cap_usd=10.0,
+        project_daily_cap_usd=100.0,
+        global_daily_cap_usd=10.0,
+        per_call_cap_usd=5.0,
+    )
+    assert blocked is None
+    assert "unresolved provider cost" in reason
+
+
 def test_unpriced_settlement_blocks_until_usage_is_reconciled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

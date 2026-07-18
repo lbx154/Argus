@@ -33,7 +33,7 @@ USAGE_MIGRATION_FILE = "usage.migration-v1.json"
 USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
 EVENT_MIGRATION_FILE = "events.migration-v2.json"
 EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
-_COPILOT_RECONCILE_VERSION = 2
+_COPILOT_RECONCILE_VERSION = 3
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
 
@@ -203,6 +203,7 @@ def build_usage_record(
     usage = token_usage or TokenUsage()
     normalized_model_usage = _normalize_model_usage(model_usage)
     normalized_provider = str(provider or "").strip().lower()
+    premium_quote = quote_copilot_usage(premium_requests)
     missing_resume_target = (
         is_pre_provider_refusal_error(error)
         and total_nano_aiu is None
@@ -221,10 +222,12 @@ def build_usage_record(
         cost_usd = max(0, int(total_nano_aiu)) / NANO_AIU_PER_USD
         cost_basis = "token"
     elif normalized_provider == "copilot":
-        pricing_status = "partial"
-        pricing_tier = "premium_request_only"
-        cost_usd = None
-        cost_basis = "none"
+        pricing_status = premium_quote.status
+        pricing_tier = premium_quote.tier
+        cost_usd = premium_quote.cost_usd
+        cost_basis = (
+            "premium_request" if premium_quote.cost_usd is not None else "none"
+        )
     else:
         quote = quote_token_usage(
             model,
@@ -282,7 +285,7 @@ def build_usage_record(
         duration_ms=_duration_ms(started_at, completed_at),
         model_usage=normalized_model_usage,
         total_nano_aiu=total_nano_aiu,
-        premium_request_cost_usd=quote_copilot_usage(premium_requests).cost_usd,
+        premium_request_cost_usd=premium_quote.cost_usd,
         error=str(error or "")[:2000],
         source=source,
         schema_version=2,
@@ -546,50 +549,80 @@ class UsageLedger:
                     started_at=started_at,
                     session_id=session_id,
                 )
-                if found is None:
-                    continue
-                _db_path, usage = found
-                available = tuple(
-                    item
-                    for item in usage.rows
-                    if (item.session_id, item.row_id) not in used_usage_events
+                usage = found[1] if found is not None else None
+                available = (
+                    tuple(
+                        item
+                        for item in usage.rows
+                        if (item.session_id, item.row_id) not in used_usage_events
+                    )
+                    if usage is not None
+                    else ()
                 )
-                if not available or (session_id is None and len(available) != 1):
-                    continue
-                usage = type(usage)(available)
-                for item in available:
-                    used_usage_events.add((item.session_id, item.row_id))
-                previous_cost = _optional_float(row.get("cost_usd"))
-                if row.get("premium_request_cost_usd") is None:
-                    row["premium_request_cost_usd"] = previous_cost
-                row.update(
-                    {
-                        "model": usage.model,
-                        "thread_id": session_id,
-                        "input_tokens": usage.input_tokens,
-                        "cached_input_tokens": usage.cache_read_tokens,
-                        "cache_write_tokens": usage.cache_write_tokens,
-                        "output_tokens": usage.output_tokens,
-                        "reasoning_output_tokens": usage.reasoning_tokens,
-                        "total_nano_aiu": usage.total_nano_aiu,
-                        "model_usage": list(usage.model_usage),
-                        "duration_ms": _duration_ms(
-                            started_at,
-                            completed_at,
-                            recorded=row.get("duration_ms"),
-                        ),
-                        "cost_usd": usage.cost_usd,
-                        "cost_basis": "token",
-                        "pricing_status": (
-                            "priced" if usage.cost_usd is not None else "partial"
-                        ),
-                        "pricing_tier": "copilot_token",
-                        "schema_version": max(
-                            2, _optional_int(row.get("schema_version")) or 1
-                        ),
-                    }
+                if (
+                    usage is not None
+                    and available
+                    and (session_id is not None or len(available) == 1)
+                ):
+                    usage = type(usage)(available)
+                    for item in available:
+                        used_usage_events.add((item.session_id, item.row_id))
+                    previous_cost = _optional_float(row.get("cost_usd"))
+                    if row.get("premium_request_cost_usd") is None:
+                        row["premium_request_cost_usd"] = previous_cost
+                    row.update(
+                        {
+                            "model": usage.model,
+                            "thread_id": session_id,
+                            "input_tokens": usage.input_tokens,
+                            "cached_input_tokens": usage.cache_read_tokens,
+                            "cache_write_tokens": usage.cache_write_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "reasoning_output_tokens": usage.reasoning_tokens,
+                            "total_nano_aiu": usage.total_nano_aiu,
+                            "model_usage": list(usage.model_usage),
+                            "duration_ms": _duration_ms(
+                                started_at,
+                                completed_at,
+                                recorded=row.get("duration_ms"),
+                            ),
+                            "cost_usd": usage.cost_usd,
+                            "cost_basis": "token",
+                            "pricing_status": (
+                                "priced" if usage.cost_usd is not None else "partial"
+                            ),
+                            "pricing_tier": "copilot_token",
+                            "schema_version": max(
+                                2, _optional_int(row.get("schema_version")) or 1
+                            ),
+                        }
+                    )
+                    updated += 1
+                    if usage.cost_usd is not None:
+                        continue
+
+                # Copilot CLI versions that expose the complete billable
+                # premium-request count but no local token/AIU row still give us
+                # a definitive charge.  Settle that billing unit rather than
+                # leaving the call permanently partial.  Missing premium usage
+                # remains fail-closed.
+                premium_quote = quote_copilot_usage(
+                    _optional_float(row.get("premium_requests"))
                 )
-                updated += 1
+                if premium_quote.cost_usd is not None:
+                    row.update(
+                        {
+                            "premium_request_cost_usd": premium_quote.cost_usd,
+                            "cost_usd": premium_quote.cost_usd,
+                            "cost_basis": "premium_request",
+                            "pricing_status": premium_quote.status,
+                            "pricing_tier": premium_quote.tier,
+                            "schema_version": max(
+                                2, _optional_int(row.get("schema_version")) or 1
+                            ),
+                        }
+                    )
+                    updated += 1
             if updated:
                 _rewrite_usage_rows(self.path, rows)
                 self._cache_call_ids(

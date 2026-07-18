@@ -205,6 +205,94 @@ def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
     assert stored.model_usage[0]["session_id"] == "thread-1"
 
 
+def test_copilot_premium_request_quote_settles_without_token_price(
+    tmp_path: Path,
+) -> None:
+    record = build_usage_record(
+        call_id="premium-only",
+        project_root=tmp_path / "p1",
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        premium_requests=1.0,
+    )
+
+    assert record.pricing_status == "priced"
+    assert record.pricing_tier == "premium_request"
+    assert record.cost_basis == "premium_request"
+    assert record.cost_usd == pytest.approx(0.04)
+    assert record.premium_request_cost_usd == pytest.approx(0.04)
+
+
+def test_copilot_missing_premium_and_token_prices_remains_partial(
+    tmp_path: Path,
+) -> None:
+    record = build_usage_record(
+        call_id="unknown-copilot",
+        project_root=tmp_path / "p1",
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+    )
+
+    assert record.pricing_status == "partial"
+    assert record.cost_basis == "none"
+    assert record.cost_usd is None
+
+
+def test_non_copilot_still_requires_token_pricing(tmp_path: Path) -> None:
+    record = build_usage_record(
+        call_id="unknown-codex",
+        project_root=tmp_path / "p1",
+        mission_id="mission-1",
+        provider="codex",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        premium_requests=1.0,
+    )
+
+    assert record.pricing_status == "partial"
+    assert record.cost_basis == "token"
+    assert record.cost_usd is None
+
+
+def test_copilot_token_cost_takes_precedence_without_double_charging(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    record = build_usage_record(
+        call_id="token-and-premium",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        premium_requests=1.0,
+        total_nano_aiu=2_000_000_000,
+    )
+    ledger.append(record)
+
+    assert record.cost_basis == "token"
+    assert record.cost_usd == pytest.approx(0.02)
+    assert record.premium_request_cost_usd == pytest.approx(0.04)
+    assert ledger.summary().known_cost_usd == pytest.approx(0.02)
+
+
 def test_summary_deduplicates_copilot_usage_event_across_calls(
     tmp_path: Path,
 ) -> None:
@@ -501,13 +589,15 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
     assert denied.input_tokens is None
     assert denied.model_usage == ()
     marker = json.loads(ledger.copilot_reconcile_path.read_text(encoding="utf-8"))
-    assert marker["version"] == 2
+    assert marker["version"] == 3
 
     third = replace(first, call_id="second-completed")
     ledger.append(third)
     records = UsageLedger(project).records()
     assert records[-1].total_nano_aiu is None
-    assert records[-1].pricing_status == "partial"
+    assert records[-1].pricing_status == "priced"
+    assert records[-1].cost_basis == "premium_request"
+    assert records[-1].cost_usd == pytest.approx(0.04)
 
 
 def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
