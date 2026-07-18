@@ -49,6 +49,19 @@ class _ReplanRunner:
         )
 
 
+class _StageReplanRunner(_ReplanRunner):
+    def execute(self, **_kwargs):
+        outcome = super().execute(**_kwargs)
+        outcome.stage_transition = {
+            "action": "rollback",
+            "target_stage": "benchmark",
+            "reason": "Reviewer found an upstream benchmark defect",
+        }
+        outcome.planner_report["stage_reconciliation_required"] = True
+        outcome.planner_report["earliest_broken_stage"] = "benchmark"
+        return outcome
+
+
 class _PlannerRunner:
     def __init__(self, response: str) -> None:
         self.response = response
@@ -228,6 +241,19 @@ def test_replan_outcome_requeues_current_item_instead_of_failing(tmp_path) -> No
     assert outcome["planner_report"]["plan_signal"] == "reconsider"
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows[current.id].status == "pending"
+
+
+def test_stage_reconciled_replan_retires_invalid_current_item(tmp_path) -> None:
+    supervisor, _sink = _supervisor(tmp_path, runner=_StageReplanRunner())
+    current, _stale = _seed_plan(supervisor)
+
+    outcome = supervisor.tick()
+
+    assert outcome is not None
+    assert outcome["status"] == "replan_requested"
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows[current.id].status == "failed"
+    assert "manager rollback to benchmark" in rows[current.id].last_error
 
 
 def test_replan_planner_atomically_replaces_active_revision(

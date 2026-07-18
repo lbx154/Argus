@@ -490,12 +490,24 @@ class MissionExecutionMixin:
             "infra_blocked",
         }
         replan_requested = status == "replan_requested"
+        stage_reconciled_replan = (
+            replan_requested and stage_action in {"advance", "rollback"}
+        )
         err = exc_str or stop_reason or "unspecified failure"
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success:
             self.memory.backlog.mark_done(item.id)
+        elif stage_reconciled_replan:
+            self.memory.backlog.mark_failed(
+                item.id,
+                error=(
+                    f"manager {stage_action} to "
+                    f"{stage_transition.get('target_stage') or 'another stage'} "
+                    "after Reviewer identified an upstream stage defect"
+                ),
+            )
         elif replan_requested:
             self.memory.backlog.update(
                 item.id,

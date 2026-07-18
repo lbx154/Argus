@@ -374,6 +374,79 @@ def _plan_signal_event(
     }
 
 
+_EARLIEST_BROKEN_STAGE_PATTERNS = (
+    re.compile(
+        r"(?i)\bearliest[_\s-]*broken[_\s-]*stage\b\s*(?:is|[:=])\s*`?([a-z0-9_-]+)"
+    ),
+    re.compile(
+        r"(?i)\bearliest\s+broken\s+stage\s+is\s+`?([a-z0-9_-]+)"
+    ),
+)
+
+
+def _upstream_stage_reconciliation_target(
+    review: ReviewDecision,
+    *,
+    workdir: Path,
+) -> str:
+    """Return an earlier broken stage that must be adjudicated by Manager.
+
+    A Reviewer can discover that a run-stage mission is invalid because a
+    benchmark/plan artifact is broken. Continuing another Engineer round under
+    the later stage lets that Engineer bypass Manager stage ownership and may
+    execute work that the latest review explicitly forbids.  Detect both a
+    future structured field and the currently deployed prose form.
+    """
+    report = getattr(review, "planner_report", None)
+    report = report if isinstance(report, dict) else {}
+    candidate = str(report.get("earliest_broken_stage") or "").strip().lower()
+    text_parts = [
+        str(getattr(review, "reason", "") or ""),
+        str(getattr(review, "next_action", "") or ""),
+        str(report.get("blocker") or ""),
+        str(report.get("recommended_next") or ""),
+    ]
+    if not candidate:
+        joined = "\n".join(text_parts)
+        for pattern in _EARLIEST_BROKEN_STAGE_PATTERNS:
+            match = pattern.search(joined)
+            if match:
+                candidate = match.group(1).strip().lower().replace("-", "_")
+                break
+    if not candidate:
+        return ""
+    try:
+        from ..skills.stage_checklists import (
+            _active_vertical_checklist_defs,
+            current_stage,
+        )
+
+        active_stage = current_stage(workdir).strip().lower().replace("-", "_")
+        stage_order, _items = _active_vertical_checklist_defs(workdir)
+        order = [str(stage).strip().lower().replace("-", "_") for stage in stage_order]
+    except Exception:  # noqa: BLE001 - uncertain stage identity must not reroute
+        return ""
+    if (
+        candidate not in order
+        or active_stage not in order
+        or order.index(candidate) >= order.index(active_stage)
+    ):
+        return ""
+
+    if not isinstance(getattr(review, "planner_report", None), dict):
+        review.planner_report = report
+    report["stage_reconciliation_required"] = True
+    report["earliest_broken_stage"] = candidate
+    report["plan_signal"] = "reconsider"
+    if not str(report.get("plan_signal_reason") or "").strip():
+        report["plan_signal_reason"] = (
+            f"Reviewer identified upstream stage defect: current={active_stage}, "
+            f"earliest_broken_stage={candidate}. Manager rollback adjudication "
+            "is required before more Engineer work."
+        )
+    return candidate
+
+
 def _apply_round_secret_guard(
     *,
     workdir: Path,
@@ -2095,6 +2168,11 @@ class SupervisedEngineer:
                 semantic_stall_streak,
             )
             planner_report = getattr(review, "planner_report", None)
+            upstream_stage_target = _upstream_stage_reconciliation_target(
+                review,
+                workdir=workdir,
+            )
+            planner_report = getattr(review, "planner_report", None)
             failure_signature = review_failure_signature(review)
             failure_similarity = 0.0
             if failure_signature is None:
@@ -2122,7 +2200,7 @@ class SupervisedEngineer:
                 >= supervised_config.repeated_failure_threshold
             )
             repeated_failure_reason = ""
-            if repeated_failure_replan:
+            if repeated_failure_replan and not upstream_stage_target:
                 repeated_failure_reason = (
                     "The same reviewed failure signature repeated "
                     f"{repeated_failure_streak} times (similarity "
@@ -2194,6 +2272,30 @@ class SupervisedEngineer:
                     review_completed_hook(record)
                 except Exception:  # noqa: BLE001 - memory capture never owns verdict
                     log.warning("review completion hook failed", exc_info=True)
+
+            if upstream_stage_target:
+                reconciliation_reason = str(
+                    planner_report.get("plan_signal_reason")
+                    if isinstance(planner_report, dict)
+                    else ""
+                ).strip()
+                if on_event:
+                    on_event({
+                        "type": EventType.LIFE_PLAN_SIGNAL,
+                        "mode": "active",
+                        "signal": "stage_reconciliation",
+                        "confirmed": True,
+                        "target_stage": upstream_stage_target,
+                        "reason": reconciliation_reason,
+                        "round_index": round_index,
+                    })
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    reconciliation_reason,
+                    None,
+                )
 
             if repeated_failure_replan:
                 if on_event:
