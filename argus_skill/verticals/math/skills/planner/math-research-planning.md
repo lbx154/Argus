@@ -32,6 +32,12 @@ weaker than or incomparable with the current ledger frontier is background, not
 successful progress. Literature or mechanism-audit nodes may depend on a strict
 theorem improvement but cannot replace it.
 
+A dependent `stage_closing` mechanism/novelty audit inherits the proof contract
+from a qualifying theorem node through its DAG dependency. Do not make that
+audit restate or re-prove the theorem merely to pass task admission; it still
+cannot execute unless the theorem dependency completed successfully, and its
+Reviewer must audit the combined package.
+
 When formalization will reduce uncertainty, assign the generic Engineer a
 bounded step that invokes `python -m argus_skill.tools.lean_check`; do not create
 a Math-owned supervisor or child-task orchestrator.

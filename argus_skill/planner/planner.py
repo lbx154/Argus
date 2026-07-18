@@ -213,8 +213,19 @@ def _is_guarded_theorem_followup(
     *,
     qualifying_keys: set[str],
 ) -> bool:
-    """Allow a dependent overlap/closure audit after a qualifying theorem node."""
-    if not task.deps or not any(dep in qualifying_keys for dep in task.deps):
+    """Allow a stage-closing audit after a qualifying theorem dependency.
+
+    Dependency completion is the proof guard: the backlog cannot run this node
+    unless the theorem node reached ``done``. Requiring the audit objective to
+    repeat ``complete self-contained proof`` wording made semantically correct
+    DAGs fail admission even though the audit consumes, rather than reproves,
+    that theorem.
+    """
+    if (
+        not task.stage_closing
+        or not task.deps
+        or not any(dep in qualifying_keys for dep in task.deps)
+    ):
         return False
     text = " ".join(
         f"{task.title} {task.objective} {task.evidence}".lower().split()
@@ -230,25 +241,7 @@ def _is_guarded_theorem_followup(
             "审计",
         )
     )
-    preserves_proof = bool(
-        re.search(r"(?:complete|self-contained|rigorous).{0,80}\bproof\b", text)
-        or re.search(r"\bproof\b.{0,80}(?:complete|self-contained|rigorous)", text)
-        or any(marker in text for marker in ("完整证明", "严格证明", "自包含证明"))
-    )
-    failure_guard = any(
-        marker in text
-        for marker in (
-            "repair it or fail",
-            "repair or fail",
-            "must not succeed if",
-            "cannot succeed if",
-            "if the proof artifact is absent",
-            "if the theorem/proof package is absent",
-            "不得通过",
-            "否则失败",
-        )
-    )
-    return audit_like and preserves_proof and failure_guard
+    return audit_like
 
 
 def _hard_objective_task_issues(
@@ -292,13 +285,16 @@ def _hard_objective_task_issues(
         basic_issues,
         progression_issues,
     ):
+        guarded_followup = _is_guarded_theorem_followup(
+            task,
+            qualifying_keys=qualifying_keys,
+        )
         issue = basic_issue
+        if issue and guarded_followup:
+            issue = ""
         if not issue and progression_required:
             issue = progression_issue
-            if issue and _is_guarded_theorem_followup(
-                task,
-                qualifying_keys=qualifying_keys,
-            ):
+            if issue and guarded_followup:
                 issue = ""
         if issue:
             issues.append(f"{task.title}: {issue}")
@@ -1018,7 +1014,12 @@ class Planner:
                     "may be used as premises but do not count as success unless "
                     "the proved package strictly advances the recorded project "
                     "boundary. A dependent overlap-audit node may follow a "
-                    "qualifying theorem node, but cannot substitute for it.\n\n"
+                    "qualifying theorem node, but cannot substitute for it. "
+                    "A dependent `stage_closing` mechanism/novelty audit "
+                    "inherits the proof contract through that DAG dependency. "
+                    "It need not repeat the theorem's complete-proof wording in "
+                    "its own objective, but it cannot run unless the qualifying "
+                    "theorem dependency completed.\n\n"
                 )
 
         return (

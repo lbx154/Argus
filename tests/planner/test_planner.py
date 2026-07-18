@@ -703,6 +703,78 @@ def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
     ]
 
 
+def test_theorem_contract_allows_round16_audit_to_inherit_proof_dependency(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C23 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "strict theorem advancement followed by overlap audit",
+        "new_tasks": [
+            {
+                "title": "Prove a graph-specific blocker advance",
+                "objective": (
+                    "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Prove a precisely quantified theorem with a complete "
+                    "self-contained proof that strictly advances C23 by an "
+                    "improved bound K < 25."
+                ),
+                "impact_score": 5,
+                "impact_area": "correctness",
+                "evidence": "C23/P22/T15 record blocker-or-25.",
+                "scope": "bounded",
+                "stage_closing": False,
+                "key": "round16-proof",
+                "deps": [],
+            },
+            {
+                "title": "Audit overlap for new blocker mechanism",
+                "objective": (
+                    "After the successful predecessor theorem, read its artifact "
+                    "plus research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Run a mechanism-level overlap audit with exact queries, "
+                    "primary sources, citation checks, overlap mapping, and "
+                    "novelty limitations."
+                ),
+                "impact_score": 4,
+                "impact_area": "correctness",
+                "evidence": "A refined theorem triggers a separate overlap audit.",
+                "scope": "bounded",
+                "stage_closing": True,
+                "key": "round16-overlap",
+                "deps": ["round16-proof"],
+            },
+        ],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a graph-specific blocker advance",
+        "Audit overlap for new blocker mechanism",
+    ]
+
+
 def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
     monkeypatch, tmp_path,
 ) -> None:
