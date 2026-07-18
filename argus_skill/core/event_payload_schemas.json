@@ -40,7 +40,8 @@
         "cache_write_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
         "reasoning_output_tokens": {"type": "integer", "minimum": 0},
-        "premium_requests": {"type": "number", "minimum": 0},
+        "premium_requests": {"type": ["number", "null"], "minimum": 0},
+        "premium_requests_present": {"type": "boolean"},
         "total_nano_aiu": {"type": ["integer", "null"], "minimum": 0}
       }
     },

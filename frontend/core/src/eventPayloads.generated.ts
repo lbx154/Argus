@@ -38,7 +38,8 @@ export interface AgentIoCompleteEvent extends EventMsg {
   "cache_write_tokens"?: number;
   "output_tokens"?: number;
   "reasoning_output_tokens"?: number;
-  "premium_requests"?: number;
+  "premium_requests"?: number | null;
+  "premium_requests_present"?: boolean;
   "total_nano_aiu"?: number | null;
 }
 

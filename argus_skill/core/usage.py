@@ -609,7 +609,17 @@ class UsageLedger:
                 premium_quote = quote_copilot_usage(
                     _optional_float(row.get("premium_requests"))
                 )
-                if premium_quote.cost_usd is not None:
+                existing_pricing_status = str(
+                    row.get("pricing_status") or ""
+                ).lower()
+                existing_cost = _optional_float(row.get("cost_usd"))
+                if (
+                    premium_quote.cost_usd is not None
+                    and (
+                        existing_cost is None
+                        or existing_pricing_status in {"partial", "unpriced"}
+                    )
+                ):
                     row.update(
                         {
                             "premium_request_cost_usd": premium_quote.cost_usd,
@@ -1184,6 +1194,8 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
 
 
 def _legacy_premium_usage(row: dict[str, Any]) -> float | None:
+    if row.get("premium_requests_present") is False:
+        return None
     events = row.get("json_events")
     if isinstance(events, list):
         seen = False

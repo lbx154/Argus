@@ -80,6 +80,15 @@ def test_payload_schema_validates_types_and_payload_versions() -> None:
     assert usage["payload_schema_version"] == 2
     assert "event_validation" not in usage
 
+    unknown_resumed_premium = normalize_event_envelope({
+        "type": EventType.AGENT_IO_COMPLETE,
+        "call_id": "call-3",
+        "run_label": "manager-frontdoor-classify",
+        "premium_requests": None,
+        "premium_requests_present": False,
+    })
+    assert "event_validation" not in unknown_resumed_premium
+
 
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
     unknown = validate_event_envelope({"type": "research.custom_evidence.ready"})

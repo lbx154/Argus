@@ -600,6 +600,97 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
     assert records[-1].cost_usd == pytest.approx(0.04)
 
 
+def test_copilot_reconcile_does_not_reprice_settled_premium_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        lambda _project_root: True,
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.usage.find_copilot_usage_near",
+        lambda **_kwargs: None,
+    )
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "0.04")
+    ledger.append(build_usage_record(
+        call_id="old-rate",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        premium_requests=1.0,
+    ))
+    assert ledger.ensure_copilot_usage_reconciled() == 0
+
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "0.10")
+    ledger.append(build_usage_record(
+        call_id="new-rate",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        started_at=3.0,
+        completed_at=4.0,
+        status="completed",
+        premium_requests=1.0,
+    ))
+
+    assert ledger.ensure_copilot_usage_reconciled() == 0
+    costs = {
+        record.call_id: record.cost_usd
+        for record in ledger.records()
+    }
+    assert costs == {
+        "old-rate": pytest.approx(0.04),
+        "new-rate": pytest.approx(0.10),
+    }
+
+
+def test_legacy_migration_preserves_unknown_resumed_premium_delta(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "legacy"
+    project.mkdir()
+    rows = [
+        {"type": "life.mission.started", "item_id": "mission-1", "ts": 1.0},
+        {
+            "type": "agent.io.complete",
+            "call_id": "resumed-call",
+            "backend": "copilot",
+            "model": "gpt-5.6-sol",
+            "run_label": "manager-frontdoor-classify",
+            "thread_id": "resumed-session",
+            "premium_requests": None,
+            "premium_requests_present": False,
+            "json_events": [{
+                "type": "result",
+                "usage": {"premiumRequests": 15.0},
+            }],
+            "ts": 2.0,
+        },
+    ]
+    (project / "events.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    records = UsageLedger(project).records()
+
+    assert len(records) == 1
+    assert records[0].premium_requests is None
+    assert records[0].pricing_status == "partial"
+    assert records[0].cost_usd is None
+
+
 def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
     tmp_path: Path,
 ) -> None:
