@@ -4,6 +4,21 @@ Last refreshed: 2026-07-18. Re-check current releases and the target repository
 before pinning versions; URLs are discovery anchors, not a universal install
 recipe.
 
+The full curated catalog is machine-readable at
+`specialized_tool_registry.json`. Query it through:
+
+```bash
+python -m argus_skill.verticals.kernel_engineering.environment_audit catalog \
+  --platform nvidia --category attention
+```
+
+The registry covers the hard-to-discover professional layers: vendor toolchains
+and libraries, kernel DSLs/compilers, attention/GEMM/quantization/operator
+libraries, GPU-driven communication, profilers/sanitizers, benchmark/autotune
+frameworks, native-extension build tooling, serving stacks, and training/RL
+infrastructure. Archived or moved projects are retained as migration knowledge
+but excluded from default queries.
+
 ## Start with the target repository
 
 - Read its `AGENTS.md`, `CONTRIBUTING.md`, install/environment docs, package

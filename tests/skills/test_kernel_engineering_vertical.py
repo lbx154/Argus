@@ -48,6 +48,7 @@ def test_kernel_engineering_checklist_is_not_paper_pipeline(tmp_path: Path) -> N
 
     assert "### environment" in text
     assert "environment.capability_audit" in text
+    assert "environment.specialized_catalog" in text
     assert "environment.infrastructure_reuse" in text
     assert "### submission" not in text
     assert "at least 10 recent high-quality papers" not in text

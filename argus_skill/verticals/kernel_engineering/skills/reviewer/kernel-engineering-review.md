@@ -27,6 +27,9 @@ Fail/continue the environment stage when any of these holds:
 - The Engineer ignored repository extras, lockfiles, CI, an existing backend,
   official harness, or maintained specialist/vendor implementation and instead
   wrote replacement infrastructure.
+- `TOOLCHAIN_CANDIDATES.md` is absent, contains no category/platform registry
+  queries, ignores a credible maintained package, or selects an archived/moved
+  project without a pinned project-native justification.
 - A compile/import/runtime failure was used to reject a kernel mechanism before
   distinguishing environment mismatch from implementation failure.
 

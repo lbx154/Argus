@@ -8,8 +8,15 @@ from argus_skill.verticals.kernel_engineering.environment_audit import (
     _normalize_requirements,
     collect_project_signals,
     derive_capabilities,
+    main,
     render_markdown,
     validate_report,
+)
+from argus_skill.verticals.kernel_engineering.tool_registry import (
+    filter_entries,
+    load_registry,
+    probe_entries,
+    validate_registry,
 )
 
 
@@ -135,3 +142,117 @@ def test_render_markdown_surfaces_environment_failure() -> None:
     assert "Ready: **NO**" in text
     assert "tilelang, nvcc" in text
     assert "environment failure" in text.lower()
+
+
+def test_specialized_registry_is_broad_valid_and_tracks_legacy() -> None:
+    registry = load_registry()
+    assert validate_registry(registry) == []
+    assert len(registry["entries"]) >= 85
+    ids = {entry["id"] for entry in registry["entries"]}
+    assert {
+        "cutlass_cute",
+        "tilelang",
+        "helion",
+        "thunderkittens",
+        "flashinfer",
+        "liger_kernel",
+        "deepgemm",
+        "nvshmem",
+        "mscclpp",
+        "deepep",
+        "tritonbench",
+        "kernel_tuner",
+        "nvidia_mathdx",
+        "cusparselt",
+        "jax_pallas",
+        "quack",
+        "flashqla",
+        "mirage",
+        "verl",
+    } <= ids
+    assert any(entry["status"] in {"archived", "moved"} for entry in registry["entries"])
+
+
+def test_catalog_filters_platform_category_and_legacy() -> None:
+    registry = load_registry()
+    entries = filter_entries(
+        registry,
+        categories=["attention"],
+        platforms=["nvidia"],
+    )
+    ids = {entry["id"] for entry in entries}
+    assert {"flash_attention", "flashinfer", "cutlass_cute"} <= ids
+    assert "bitblas" not in ids
+
+    with_legacy = filter_entries(
+        registry,
+        categories=["quantization"],
+        platforms=["nvidia"],
+        include_legacy=True,
+    )
+    assert "bitblas" in {entry["id"] for entry in with_legacy}
+
+
+def test_registry_probe_detects_import_tool_and_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    registry = {
+        "entries": [
+            {
+                "id": "demo",
+                "name": "Demo",
+                "status": "active",
+                "categories": ["attention"],
+                "platforms": ["nvidia"],
+                "official_url": "https://example.com",
+                "use_when": "demo",
+                "python_imports": ["demo"],
+                "executables": ["demo-tool"],
+                "source_markers": ["third_party/demo"],
+            }
+        ]
+    }
+    (tmp_path / "third_party" / "demo").mkdir(parents=True)
+    monkeypatch.setattr(
+        "argus_skill.verticals.kernel_engineering.tool_registry._probe_python_entries",
+        lambda entries, target_python: {
+            "demo": {
+                "found_imports": ["demo"],
+                "distribution": "demo-dist",
+                "version": "1.2.3",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals.kernel_engineering.tool_registry.shutil.which",
+        lambda name: "/usr/bin/demo-tool" if name == "demo-tool" else None,
+    )
+
+    records = probe_entries(
+        registry,
+        target_python="python",
+        project_root=tmp_path,
+    )
+
+    assert records[0]["available"] is True
+    assert records[0]["version"] == "1.2.3"
+    assert records[0]["source_markers"] == ["third_party/demo"]
+
+
+def test_catalog_cli_prints_specialized_attention_tools(capsys) -> None:
+    assert main(["catalog", "--platform", "nvidia", "--category", "attention"]) == 0
+    output = capsys.readouterr().out
+    assert "flash_attention" in output
+    assert "flashinfer" in output
+    assert "bitblas" not in output
+
+    assert main(["catalog", "--list-categories"]) == 0
+    categories = capsys.readouterr().out
+    assert "attention" in categories
+    assert "communication" in categories
+    assert "rl_stack" in categories
+
+    assert main(["catalog", "--search", "expert-parallel"]) == 0
+    search = capsys.readouterr().out
+    assert "deepep" in search

@@ -27,6 +27,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+from .tool_registry import (
+    filter_entries,
+    load_registry,
+    probe_entries,
+    render_catalog,
+    validate_registry,
+)
+
 SCHEMA_VERSION = 1
 DEFAULT_REPORT = Path("research/ENVIRONMENT_AUDIT.json")
 DEFAULT_MARKDOWN = Path("research/ENVIRONMENT_AUDIT.md")
@@ -432,6 +440,14 @@ def build_report(
     gpus = collect_gpus()
     torch_runtime = collect_torch_runtime(python_executable)
     signals = collect_project_signals(project_root)
+    registry = load_registry()
+    registry_errors = validate_registry(registry)
+    registry_probe = probe_entries(
+        registry,
+        target_python=python_executable,
+        project_root=project_root,
+    )
+    available_specialized = [item for item in registry_probe if item["available"]]
     capabilities = derive_capabilities(
         packages=packages,
         tools=tools,
@@ -477,6 +493,8 @@ def build_report(
         warnings.append(
             "Compute Sanitizer is unavailable; race/memory diagnostics need another justified path."
         )
+    if registry_errors:
+        blockers.extend(f"Specialized tool registry error: {error}" for error in registry_errors)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -496,6 +514,17 @@ def build_report(
         "packages": packages,
         "tools": tools,
         "project_signals": signals,
+        "specialized_tool_registry": {
+            "refreshed_at": registry.get("refreshed_at"),
+            "entry_count": len(registry.get("entries", [])),
+            "available_count": len(available_specialized),
+            "available": available_specialized,
+            "legacy_statuses_excluded_from_default_catalog": [
+                "archived",
+                "deprecated",
+                "moved",
+            ],
+        },
         "requested_capabilities": requirements,
         "capabilities": {name: value.as_dict() for name, value in capabilities.items()},
         "blocking_findings": blockers,
@@ -551,6 +580,36 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(f"- {item}" for item in report["warnings"])
     else:
         lines.append("- None.")
+    registry = report.get("specialized_tool_registry") or {}
+    lines.extend(
+        [
+            "",
+            "## Specialized ecosystem detected",
+            "",
+            f"Catalog entries: `{registry.get('entry_count', 0)}`; "
+            f"detected in this environment/project: `{registry.get('available_count', 0)}`.",
+            "",
+        ]
+    )
+    available = registry.get("available") or []
+    if available:
+        lines.append("| id | version | detected by |")
+        lines.append("|---|---|---|")
+        for item in available:
+            detected_by = []
+            if item.get("found_imports"):
+                detected_by.append("imports=" + ",".join(item["found_imports"]))
+            if item.get("executables"):
+                detected_by.append("executables=" + ",".join(item["executables"]))
+            if item.get("source_markers"):
+                detected_by.append("source=" + ",".join(item["source_markers"]))
+            if item.get("env_vars"):
+                detected_by.append("env=" + ",".join(item["env_vars"]))
+            lines.append(
+                f"| `{item.get('id', '')}` | {item.get('version', '')} | {'; '.join(detected_by)} |"
+            )
+    else:
+        lines.append("No catalogued specialist package/tool was detected.")
     lines.extend(
         [
             "",
@@ -639,11 +698,58 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--project-root", type=Path, default=Path.cwd())
     check.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     check.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS)
+    catalog = sub.add_parser("catalog", help="query the curated professional kernel-tool registry")
+    catalog.add_argument("--category", action="append", default=[])
+    catalog.add_argument("--platform", action="append", default=[])
+    catalog.add_argument("--search", default="")
+    catalog.add_argument("--list-categories", action="store_true")
+    catalog.add_argument("--list-platforms", action="store_true")
+    catalog.add_argument("--include-legacy", action="store_true")
+    catalog.add_argument("--json", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "catalog":
+        registry = load_registry()
+        errors = validate_registry(registry)
+        if errors:
+            for error in errors:
+                print(f"ERROR: {error}", file=sys.stderr)
+            return 2
+        if args.list_categories:
+            categories = sorted(
+                {
+                    str(category)
+                    for entry in registry["entries"]
+                    for category in entry.get("categories", [])
+                }
+            )
+            print("\n".join(categories))
+            return 0
+        if args.list_platforms:
+            platforms = sorted(
+                {
+                    str(platform)
+                    for entry in registry["entries"]
+                    for platform in entry.get("platforms", [])
+                }
+            )
+            print("\n".join(platforms))
+            return 0
+        entries = filter_entries(
+            registry,
+            categories=args.category,
+            platforms=args.platform,
+            query=args.search,
+            include_legacy=args.include_legacy,
+        )
+        if args.json:
+            print(json.dumps(entries, indent=2, sort_keys=True))
+        else:
+            print(render_catalog(entries))
+        return 0
     project_root = args.project_root.resolve()
     if args.command == "collect":
         requirements = _normalize_requirements(args.require)
