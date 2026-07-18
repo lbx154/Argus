@@ -28,6 +28,9 @@ completion_gate = "metric"
 _AUDIT = (
     "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.environment_audit"
 )
+_FRONTIER = (
+    "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.frontier_watch"
+)
 
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "scope": [
@@ -69,6 +72,15 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Environment provenance retained", "test -s research/ENVIRONMENT_AUDIT.json"),
     ],
 }
+
+for _stage in STAGE_ORDER:
+    STAGE_CHECKS[_stage].insert(
+        1,
+        (
+            "Online frontier snapshot is fresh",
+            f"{_FRONTIER} check --project-root . --stage {_stage} --max-age-hours 6",
+        ),
+    )
 
 _ENGINEER_SKILL = "engineer/kernel-environment-first-engineering.md"
 _REVIEWER_SKILL = "reviewer/kernel-engineering-review.md"
@@ -140,6 +152,22 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["RESULTS.md", "research/ENVIRONMENT_AUDIT.json", "research/VALIDATION_RESULT.json"],
     ),
 }
+
+for _stage, (_skill, _instructions, _artifacts) in tuple(REVIEWER_CHECKLISTS.items()):
+    _frontier_artifact = f"research/frontier/{_stage}.json"
+    REVIEWER_CHECKLISTS[_stage] = (
+        _skill,
+        (
+            "FRONTIER FRESHNESS GATE: independently inspect the current stage's "
+            f"`{_frontier_artifact}`. It must prove a real online search within six "
+            "hours across the target repository, official toolchains, and recent "
+            "papers/author implementations. Re-check cited sources when material. "
+            "`no_material_update=true` is acceptable only with real queries/sources "
+            "and a decision-impact explanation. Offline/stale/template evidence fails "
+            "the stage.\n\n" + _instructions
+        ),
+        [_frontier_artifact, *_artifacts],
+    )
 
 CHECKLIST_STAGE_ORDER: tuple[str, ...] = tuple(STAGE_ORDER)
 
@@ -243,6 +271,25 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
 }
 
+for _stage in STAGE_ORDER:
+    CHECKLIST_ITEMS[_stage] = (
+        ChecklistItem(
+            id=f"{_stage}.frontier_current",
+            statement=(
+                "A fresh online frontier search covers current target-repository work, "
+                "official toolchain/package changes, and recent papers or author "
+                "implementations. Findings changed the plan, or the artifact explicitly "
+                "records that no material update was found."
+            ),
+            evidence_hint=(
+                f"research/frontier/{_stage}.json and research/FRONTIER_WATCH.jsonl; "
+                f"validate with `python -m argus_skill.verticals.kernel_engineering."
+                f"frontier_watch check --stage {_stage} --max-age-hours 6`"
+            ),
+        ),
+        *CHECKLIST_ITEMS[_stage],
+    )
+
 
 def role_banner(role: str) -> str:
     common = (
@@ -254,24 +301,31 @@ def role_banner(role: str) -> str:
         "or training/RL infrastructure that the project already depends on. A missing "
         "package/compiler/configuration is an environment blocker, not a failed kernel "
         "idea. Correctness precedes timing; only isolated real-hardware measurements "
-        "support a speed claim. This is not a paper pipeline and not SOL-ExecBench.\n"
+        "support a speed claim. CONTINUOUS FRONTIER WATCH: every stage must perform "
+        "fresh online research across upstream work, official toolchains, and recent "
+        "papers/author implementations; refresh after six hours, repeated failures, "
+        "mechanism pivots, and before a PR. This is not a paper pipeline and not "
+        "SOL-ExecBench.\n"
     )
     if role == "planner":
         return common + (
             "Plan environment and baseline work before implementation. Require a reuse "
-            "decision and capability audit; schedule custom infrastructure only after "
-            "the canonical project/vendor path is shown insufficient.\n"
+            "decision, capability audit, and stage-fresh frontier search; schedule custom "
+            "infrastructure only after the canonical project/vendor path and current "
+            "public frontier are shown insufficient.\n"
         )
     if role == "reviewer":
         return common + (
             "Fail closed on stale/red environment audits, missing project extras, "
             "unexplained fallbacks, mixed benchmark environments, or compile failures "
-            "misreported as algorithm failures.\n"
+            "misreported as algorithm failures. Also fail stale/offline/template frontier "
+            "snapshots or claims that ignore current upstream/paper evidence.\n"
         )
     if role == "engineer":
         return common + (
             "Run the environment audit first, repair the audited environment in an "
-            "isolated/pinned way, reproduce baseline, then profile and optimize.\n"
+            "isolated/pinned way, run the current-stage frontier search, reproduce "
+            "baseline, then profile and optimize.\n"
         )
     return common
 

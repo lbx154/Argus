@@ -23,6 +23,40 @@ TileLang/CUDA kernel while ignoring the project's TileLang extra, backend
 registry, reference kernels, benchmark runner, CUTLASS/CuTe path, or vendor
 library.
 
+## Continuous online frontier loop
+
+Online research is mandatory in **every stage**, not only initial research.
+Search at stage entry, refresh after six hours, refresh after repeated mechanism
+failures, refresh before changing direction, and refresh immediately before a
+PR or final report:
+
+1. Search the target repository's latest main, releases, open/merged PRs,
+   issues, benchmark changes, and maintainer discussion.
+2. Search current official release notes/docs for the selected GPU, compiler,
+   DSL, profiler, and specialist packages.
+3. Search recent papers/preprints and author repositories for the exact op,
+   adjacent mechanisms, hardware, and benchmark.
+4. Search current adjacent implementations and stronger public baselines.
+5. Record focused queries, primary sources, findings, and decision impact. A
+   real search that finds no material update is acceptable; skipping it is not.
+
+Use:
+
+```bash
+"${ARGUS_SKILL_PYTHON:-python}" -m \
+  argus_skill.verticals.kernel_engineering.frontier_watch template \
+  --stage <stage> > /tmp/frontier.json
+# Replace every placeholder using real online sources.
+"${ARGUS_SKILL_PYTHON:-python}" -m \
+  argus_skill.verticals.kernel_engineering.frontier_watch record \
+  --project-root . --stage <stage> --input /tmp/frontier.json
+```
+
+Read the full protocol at
+`argus_skill/verticals/kernel_engineering/references/frontier-search-protocol.md`.
+If the network is unavailable, record the blocker and continue only local work
+that does not claim current-frontier completeness; the stage cannot pass.
+
 ## Required order of work
 
 1. **Read the repository contract.** Inspect `AGENTS.md`, `CONTRIBUTING.md`,

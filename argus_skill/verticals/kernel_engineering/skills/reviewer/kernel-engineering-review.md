@@ -11,6 +11,20 @@ created_at: 2026-07-18T00:00:00+00:00
 
 Review artifacts and raw command output; do not trust the Engineer summary.
 
+## Hard frontier-freshness gate
+
+For the active stage, require `research/frontier/<stage>.json` to pass
+`frontier_watch check --max-age-hours 6`. Independently inspect material cited
+sources. Fail/continue when the snapshot is stale, offline, templated, lacks the
+target-repository/toolchain/research-frontier surfaces, relies mainly on
+secondary commentary, or does not state how findings affect the current plan.
+
+Require an immediate refresh even inside the six-hour window after repeated
+mechanism failures, before a substantial route change, and before an upstream
+PR/final performance claim. `no_material_update=true` is valid only when real
+queries and primary sources demonstrate that the current plan remains the best
+supported choice.
+
 ## Hard environment gate
 
 Fail/continue the environment stage when any of these holds:
