@@ -109,6 +109,13 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert status == "done"
     assert len(rounds) == 1
     assert rounds[0].review.status == "done"
+    assert rounds[0].review.review_source == "engineer_self_review"
+    assert "Manager stage adjudication" in (
+        rounds[0].review.planner_report["headline"]
+    )
+    assert "ADVANCE or HOLD" in (
+        rounds[0].review.planner_report["recommended_next"]
+    )
     assert "self-verification" in reason
     assert thread_id == "engineer-1"
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
@@ -148,6 +155,7 @@ def test_required_independent_review_ignores_engineer_skip_request(
 
     assert status == "done"
     assert reviewer.calls == 1
+    assert rounds[0].review.review_source == "reviewer"
     assert rounds[0].review.reason == "independently reviewed"
 
 

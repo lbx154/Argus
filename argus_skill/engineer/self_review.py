@@ -122,11 +122,20 @@ def engineer_self_approved_review(
         ),
         progress_class="decision",
         verification_summary=decision.verification,
+        review_source="engineer_self_review",
         planner_report={
             "forward_progress": True,
-            "headline": "Engineer self-verification passed",
+            "headline": (
+                "Engineer self-verification passed; Manager stage adjudication "
+                "is pending"
+            ),
             "blocker": "",
-            "recommended_next": "",
+            "recommended_next": (
+                "Manager should independently compare the Engineer verification "
+                "with the current-stage checklist and ADVANCE or HOLD. If the "
+                "evidence is insufficient, Planner may enqueue a stage_closing "
+                "task with review:required."
+            ),
             "plan_signal": "continue",
             "plan_signal_reason": "",
             "evidence_files": [],

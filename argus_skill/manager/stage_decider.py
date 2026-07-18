@@ -59,7 +59,15 @@ def _checklist_lines(review: Any) -> str:
         if evidence:
             line += f" — evidence: {evidence}"
         lines.append(line)
-    return "\n".join(lines) or "(reviewer provided no per-item checklist)"
+    if lines:
+        return "\n".join(lines)
+    if str(getattr(review, "review_source", "") or "") == "engineer_self_review":
+        return (
+            "(independent Reviewer waived for this bounded mission; no Reviewer "
+            "checklist is expected. Manager must judge the Engineer verification "
+            "against the current-stage checklist above.)"
+        )
+    return "(reviewer provided no per-item checklist)"
 
 
 def _planner_report_lines(review: Any) -> str:
@@ -100,6 +108,24 @@ def build_stage_decision_prompt(
     advance_target = f"`{next_stage}`" if next_stage else "(none — already the final stage)"
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+    review_source = str(
+        getattr(review, "review_source", "reviewer") or "reviewer"
+    ).strip()
+    verification_summary = str(
+        getattr(review, "verification_summary", "") or ""
+    ).strip()
+
+    source_instructions = ""
+    if review_source == "engineer_self_review":
+        source_instructions = (
+            "The Engineer used an allowed bounded-task review waiver. The empty "
+            "Reviewer checklist is therefore expected, not a failure. The waiver "
+            "itself is not evidence: independently compare the Engineer's concrete "
+            "verification with every applicable current-stage checklist item. You "
+            "MAY ADVANCE when that evidence genuinely satisfies the stage; HOLD "
+            "otherwise. A final-submission or explicitly independent-review gate "
+            "still requires a real Reviewer checklist.\n"
+        )
 
     open_ended_block = ""
     if open_ended:
@@ -126,10 +152,13 @@ def build_stage_decision_prompt(
         f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
         "## Current-stage checklist (what \"done\" requires)\n"
         f"{checklist_md}\n\n"
-        "## Reviewer verdict on the latest round\n"
+        "## Latest completion evidence\n"
+        f"source: {review_source}\n"
         f"status: {status}\n"
         f"reason: {reason}\n"
+        f"verification_summary: {verification_summary or '(none)'}\n"
         f"{_planner_report_lines(review)}\n\n"
+        f"{source_instructions}\n"
         "### Reviewer per-item checklist\n"
         f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
@@ -138,7 +167,10 @@ def build_stage_decision_prompt(
         f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "
-        "with concrete evidence the reviewer confirmed.\n"
+        "with concrete evidence. For Reviewer evidence, use its checklist. For an "
+        "accepted Engineer self-review, make your own judgment from the verification "
+        "summary and project artifacts; do not HOLD merely because its Reviewer "
+        "checklist is empty.\n"
         "- HOLD when any checklist work remains, or the evidence is weak/unclear.\n"
         "- ROLL BACK only when an EARLIER stage's evidence is missing, stale, or "
         "unreliable (say which one and why).\n"

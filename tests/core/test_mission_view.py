@@ -196,6 +196,42 @@ def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path
     assert view["active_role"] == "engineer"
 
 
+def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.mission.started",
+        1,
+        item_id="mission-1",
+        title="First mission",
+        objective="Complete the first mission",
+    )
+    emit(
+        tmp_path,
+        "round.review.completed",
+        2,
+        round_index=1,
+        status="done",
+        reason="First mission accepted.",
+    )
+
+    view = emit(
+        tmp_path,
+        "life.mission.started",
+        3,
+        item_id="mission-2",
+        title="Second mission",
+        objective="Complete the second mission",
+    )
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["mission"]["id"] == "mission-2"
+    assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert roles["reviewer"]["status"] == "waiting"
+    assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
+    assert roles["engineer"]["status"] == "active"
+    assert view["active_role"] == "engineer"
+
+
 def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
     view = emit(
         tmp_path,

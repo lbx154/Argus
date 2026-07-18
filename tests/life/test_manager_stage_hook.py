@@ -312,6 +312,10 @@ def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("done") is True
 
 
+def test_engineer_self_review_done_still_runs_manager_stage_transition() -> None:
+    assert _runtime._should_run_stage_transition("done") is True
+
+
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(
     tmp_path: Path,
 ) -> None:
@@ -382,6 +386,29 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
+
+
+def test_hook_manager_can_advance_from_engineer_self_review(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    backend = _StubRunner(
+        {
+            "action": "advance",
+            "target_stage": "plan",
+            "reason": "Engineer verification satisfies the research checklist",
+        }
+    )
+    runner = _runner_with(backend)
+    sink = _Sink()
+    review = _review(checklist=[])
+    review.review_source = "engineer_self_review"
+    review.verification_summary = "pytest: 12 passed; artifact hashes verified"
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(review)], workdir=root, sink=sink
+    )
+
+    assert decision["action"] == "advance"
+    assert _stage(root) == "plan"
 
 
 def test_replayed_scope_completion_cannot_advance_math_stage_twice(

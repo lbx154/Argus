@@ -491,6 +491,14 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             "started_at": ts,
             "completed_at": None,
         })
+        # Review state is mission-scoped.  Without an explicit reset, a newly
+        # started mission inherits the previous mission's accepted/rejected
+        # verdict in mission-view.json until its first review finishes.  The
+        # execution loop does not use that stale projection for adjudication,
+        # but operators and supervision tooling must not mistake it for current
+        # evidence.
+        view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
+        _set_role(view, "reviewer", "waiting", "Awaiting engineer handoff", ts)
         _set_role(view, "engineer", "active", "Starting mission", ts)
         _timeline(view, event, role="engineer", title="Mission started", detail=_text(event, "title"), tone="info")
 

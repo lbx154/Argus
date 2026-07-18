@@ -196,6 +196,11 @@ class ReviewDecision:
     control_action: str = ""
     control_task_id: str = ""
     verification_summary: str = ""
+    # Internal provenance for the verdict.  ``reviewer`` is an independent L2
+    # decision; ``engineer_self_review`` is a bounded waiver that the Manager
+    # may still evaluate against the current stage checklist.  This field is
+    # not authored by the Reviewer model.
+    review_source: str = "reviewer"
     # Optional project-level research achievement independently certified by
     # this reviewer. The loop emits the sole authoritative
     # ``research.achievement.certified`` event only for a ``done`` verdict with
@@ -354,6 +359,7 @@ class ReviewDecision:
             "control_action": self.control_action or "",
             "control_task_id": self.control_task_id or "",
             "verification_summary": self.verification_summary or "",
+            "review_source": self.review_source or "reviewer",
             "achievement": (
                 dict(self.achievement) if isinstance(self.achievement, dict) else None
             ),

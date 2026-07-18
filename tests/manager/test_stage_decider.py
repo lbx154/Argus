@@ -120,6 +120,25 @@ def _read_stage(root: Path) -> str:
     )["current_stage"]
 
 
+def test_prompt_treats_engineer_waiver_as_manager_judgment_input() -> None:
+    review = _review(checklist=[])
+    review.review_source = "engineer_self_review"
+    review.verification_summary = "pytest: 12 passed; artifact hashes verified"
+
+    prompt = build_stage_decision_prompt(
+        current_stage="research",
+        next_stage="plan",
+        earlier_stages=[],
+        checklist_md="- [ ] research evidence is complete",
+        review=review,
+    )
+
+    assert "source: engineer_self_review" in prompt
+    assert "pytest: 12 passed; artifact hashes verified" in prompt
+    assert "empty Reviewer checklist is therefore expected" in prompt
+    assert "MAY ADVANCE" in prompt
+
+
 def _read_stage_status(root: Path, stage: str) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
