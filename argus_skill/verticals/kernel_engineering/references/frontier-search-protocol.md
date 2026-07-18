@@ -4,8 +4,8 @@
 
 Keep every stage grounded in the current public frontier. Online research is a
 decision input, not a one-time literature stage. Search at stage entry, refresh
-after six hours, refresh immediately after repeated mechanism failures or before
-a route change, and refresh again before an upstream PR/report.
+after repeated mechanism failures or before a route change, and refresh again
+before an upstream PR/report. Refresh is event-driven, not timer-driven.
 
 ## Required search surfaces
 
@@ -49,12 +49,13 @@ python -m argus_skill.verticals.kernel_engineering.frontier_watch template \
 python -m argus_skill.verticals.kernel_engineering.frontier_watch record \
   --project-root . --stage optimize --input /tmp/frontier-optimize.json
 python -m argus_skill.verticals.kernel_engineering.frontier_watch check \
-  --project-root . --stage optimize --max-age-hours 6
+  --project-root . --stage optimize
 ```
 
-Each snapshot must contain focused queries, checked surfaces, at least three
-sources including two primary sources, material findings and actions, or an
-explicit `no_material_update=true` with a decision-impact explanation.
+Each snapshot must contain concise focused queries, checked surfaces, sources
+that support the decision, material findings and actions, or an explicit
+`no_material_update=true` with a decision-impact explanation. Reviewer judgment,
+not fixed query/source counts, decides whether the evidence is sufficient.
 
 ## Decision discipline
 

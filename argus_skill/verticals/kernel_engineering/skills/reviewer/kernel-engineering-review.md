@@ -14,24 +14,36 @@ Review artifacts and raw command output; do not trust the Engineer summary.
 ## Hard frontier-freshness gate
 
 For the active stage, require `research/frontier/<stage>.json` to pass
-`frontier_watch check --max-age-hours 6`. Independently inspect material cited
-sources. Fail/continue when the snapshot is stale, offline, templated, lacks the
+`frontier_watch check`. Independently inspect material cited sources.
+Fail/continue when the snapshot is from another stage, offline, templated, lacks the
 target-repository/toolchain/research-frontier surfaces, relies mainly on
 secondary commentary, or does not state how findings affect the current plan.
 
-Require an immediate refresh even inside the six-hour window after repeated
-mechanism failures, before a substantial route change, and before an upstream
-PR/final performance claim. `no_material_update=true` is valid only when real
+Require a refresh after repeated mechanism failures, before a substantial route
+change, and before an upstream PR/final performance claim.
+`no_material_update=true` is valid only when real
 queries and primary sources demonstrate that the current plan remains the best
 supported choice.
+
+## Hard execution-versus-idea gate
+
+Require every attempt to carry `OUTCOME.json` with separate `execution_status`,
+`failure_class`, and `idea_status`. Reject any record that marks an idea
+`refuted` because of a missing package, dependency conflict, compiler/toolchain
+configuration, hardware access, profiler permission, benchmark infrastructure,
+or invalid measurement. Those outcomes are `untested` or `inconclusive`.
+
+Only a completed experiment in the intended audited environment may support or
+refute an idea. A numerical or performance result can still be inconclusive if
+the implementation may be wrong; use judgment and raw artifacts.
 
 ## Hard environment gate
 
 Fail/continue the environment stage when any of these holds:
 
-- `ENVIRONMENT_AUDIT.json` is stale, generated from another project/Python, has
-  no selected implementation capability, or reports a missing required
-  capability.
+- `ENVIRONMENT_AUDIT.json` comes from another project/Python, was not refreshed
+  after an environment change, has no selected implementation capability, or
+  reports a missing required capability.
 - The chosen path needs TileLang but TileLang or a usable NVCC is absent; needs
   CUDA/CUTLASS but `nvcc`/`ptxas`/build tooling is absent; needs profiler or
   sanitizer evidence but those tools are unavailable without a documented

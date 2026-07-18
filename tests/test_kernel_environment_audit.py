@@ -102,7 +102,7 @@ def test_project_signals_capture_native_extras_and_benchmarks(tmp_path: Path) ->
     assert signals["pyproject_extras"]["tilelang"] == ["tilelang>=0.1.9"]
 
 
-def test_validate_report_fails_red_or_stale_audit(tmp_path: Path) -> None:
+def test_validate_report_fails_red_audit_without_time_expiry(tmp_path: Path) -> None:
     report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": (datetime.now(UTC) - timedelta(hours=30)).isoformat(),
@@ -112,9 +112,9 @@ def test_validate_report_fails_red_or_stale_audit(tmp_path: Path) -> None:
         "ready": False,
     }
 
-    errors = validate_report(report, project_root=tmp_path, max_age_hours=24)
+    errors = validate_report(report, project_root=tmp_path)
 
-    assert any("stale" in item for item in errors)
+    assert not any("stale" in item for item in errors)
     assert any("tilelang" in item for item in errors)
     assert "report is not ready" in errors
 

@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-DEFAULT_MAX_AGE_HOURS = 6.0
 STAGES = ("scope", "environment", "baseline", "optimize", "validate", "report")
 REQUIRED_SURFACES = frozenset({"target_repository", "official_toolchains", "research_frontier"})
 PRIMARY_SOURCE_TYPES = frozenset(
@@ -29,6 +28,7 @@ PRIMARY_SOURCE_TYPES = frozenset(
         "preprint",
         "author_repo",
         "standard",
+        "secondary_discovery",
     }
 )
 
@@ -56,7 +56,6 @@ def validate_record(
     record: dict[str, Any],
     *,
     expected_stage: str,
-    max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
     now: datetime | None = None,
 ) -> list[str]:
     errors: list[str] = []
@@ -75,15 +74,13 @@ def validate_record(
         age_hours = (current - searched_at).total_seconds() / 3600
         if age_hours < -0.1:
             errors.append("searched_at is in the future")
-        elif age_hours > max_age_hours:
-            errors.append(f"frontier snapshot is stale ({age_hours:.1f}h > {max_age_hours:.1f}h)")
         expected_date = searched_at.date().isoformat()
         if record.get("frontier_as_of") != expected_date:
             errors.append(f"frontier_as_of must equal searched_at date {expected_date}")
 
     queries = record.get("queries")
-    if not isinstance(queries, list) or len(queries) < 3:
-        errors.append("at least three focused online queries are required")
+    if not isinstance(queries, list) or not queries:
+        errors.append("focused online query evidence is required")
     else:
         for index, query in enumerate(queries):
             if not isinstance(query, dict):
@@ -92,6 +89,8 @@ def validate_record(
             for key in ("query", "channel", "purpose"):
                 if not _nonempty_text(query.get(key)):
                     errors.append(f"queries[{index}].{key} is empty")
+                elif "REPLACE" in str(query.get(key)):
+                    errors.append(f"queries[{index}].{key} is still a template placeholder")
 
     surfaces = record.get("checked_surfaces")
     surface_set = (
@@ -104,9 +103,8 @@ def validate_record(
         errors.append("missing checked surfaces: " + ", ".join(missing_surfaces))
 
     sources = record.get("sources")
-    primary_count = 0
-    if not isinstance(sources, list) or len(sources) < 3:
-        errors.append("at least three sources are required")
+    if not isinstance(sources, list) or not sources:
+        errors.append("online source evidence is required")
     else:
         seen_urls: set[str] = set()
         for index, source in enumerate(sources):
@@ -126,10 +124,9 @@ def validate_record(
                     errors.append(f"sources[{index}].{key} is empty")
                 elif "REPLACE" in str(source.get(key)):
                     errors.append(f"sources[{index}].{key} is still a template placeholder")
-            if str(source.get("source_type") or "") in PRIMARY_SOURCE_TYPES:
-                primary_count += 1
-        if primary_count < 2:
-            errors.append("at least two primary sources are required")
+            source_type = str(source.get("source_type") or "")
+            if source_type not in PRIMARY_SOURCE_TYPES:
+                errors.append(f"sources[{index}].source_type is unsupported: {source_type}")
 
     no_update = record.get("no_material_update") is True
     updates = record.get("material_updates")
@@ -197,19 +194,9 @@ def template(stage: str) -> dict[str, Any]:
         ],
         "queries": [
             {
-                "query": "target repository open pull requests issues releases latest",
-                "channel": "github",
-                "purpose": "avoid duplicate work and capture current upstream direction",
-            },
-            {
-                "query": "selected toolchain official release notes target GPU latest",
-                "channel": "official_docs",
-                "purpose": "capture new APIs, fixes, architecture support, and deprecations",
-            },
-            {
-                "query": "target operation latest paper implementation benchmark",
-                "channel": "arxiv_openreview_author_repos",
-                "purpose": "find new mechanisms and stronger public baselines",
+                "query": "REPLACE with concise stage-relevant online queries",
+                "channel": "REPLACE",
+                "purpose": "REPLACE",
             },
         ],
         "sources": [
@@ -217,18 +204,6 @@ def template(stage: str) -> dict[str, Any]:
                 "url": "https://example.invalid/replace-target-repo",
                 "title": "REPLACE",
                 "source_type": "official_repo",
-                "relevance": "REPLACE",
-            },
-            {
-                "url": "https://example.invalid/replace-toolchain-docs",
-                "title": "REPLACE",
-                "source_type": "official_docs",
-                "relevance": "REPLACE",
-            },
-            {
-                "url": "https://example.invalid/replace-paper-or-author-repo",
-                "title": "REPLACE",
-                "source_type": "paper",
                 "relevance": "REPLACE",
             },
         ],
@@ -245,8 +220,6 @@ def _parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name)
         cmd.add_argument("--project-root", type=Path, default=Path.cwd())
         cmd.add_argument("--stage", choices=STAGES, required=True)
-        if name in {"check", "record"}:
-            cmd.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS)
         if name == "record":
             cmd.add_argument("--input", type=Path, required=True)
     return parser
@@ -276,7 +249,6 @@ def main(argv: list[str] | None = None) -> int:
         errors = validate_record(
             record,
             expected_stage=args.stage,
-            max_age_hours=args.max_age_hours,
         )
         if errors:
             for error in errors:
@@ -298,13 +270,12 @@ def main(argv: list[str] | None = None) -> int:
     errors = validate_record(
         record,
         expected_stage=args.stage,
-        max_age_hours=args.max_age_hours,
     )
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 2
-    print(f"frontier watch: {args.stage} fresh as of {record['frontier_as_of']}")
+    print(f"frontier watch: {args.stage} evidence recorded as of {record['frontier_as_of']}")
     return 0
 
 

@@ -79,10 +79,9 @@ def test_valid_no_update_frontier_record_passes() -> None:
     assert validate_record(_record(), expected_stage="optimize") == []
 
 
-def test_stale_or_offline_frontier_record_fails() -> None:
-    stale = _record(searched_at=datetime.now(UTC) - timedelta(hours=7))
-    errors = validate_record(stale, expected_stage="optimize", max_age_hours=6)
-    assert any("stale" in error for error in errors)
+def test_old_frontier_record_does_not_expire_but_offline_fails() -> None:
+    old = _record(searched_at=datetime.now(UTC) - timedelta(days=30))
+    assert validate_record(old, expected_stage="optimize") == []
 
     offline = _record()
     offline["network_status"] = "offline"
@@ -122,7 +121,7 @@ def test_record_and_check_cli_write_snapshot_and_append_ledger(
     assert len(ledger_path(tmp_path).read_text(encoding="utf-8").splitlines()) == 1
 
     assert main(["check", "--project-root", str(tmp_path), "--stage", "baseline"]) == 0
-    assert "fresh as of" in capsys.readouterr().out
+    assert "evidence recorded as of" in capsys.readouterr().out
 
 
 def test_record_cli_accepts_stdin(tmp_path: Path, monkeypatch) -> None:

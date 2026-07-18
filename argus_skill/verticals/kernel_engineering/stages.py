@@ -31,6 +31,9 @@ _AUDIT = (
 _FRONTIER = (
     "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.frontier_watch"
 )
+_OUTCOME = (
+    "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.attempt_outcome"
+)
 
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "scope": [
@@ -56,13 +59,15 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "optimize": [
         _PIPELINE_CHECK,
         (
-            "At least one hypothesis-driven attempt exists",
+            "Hypothesis-driven attempt evidence exists",
             "find attempts experiments -mindepth 2 -maxdepth 3 -type f "
             "2>/dev/null | head -1 | grep -q .",
         ),
+        ("Attempt outcome taxonomy is valid", f"{_OUTCOME} check --project-root ."),
     ],
     "validate": [
         _PIPELINE_CHECK,
+        ("Attempt outcome taxonomy is valid", f"{_OUTCOME} check --project-root ."),
         ("Validation matrix present", "test -s research/VALIDATION_MATRIX.md"),
         ("Candidate validation evidence present", "test -s research/VALIDATION_RESULT.json"),
     ],
@@ -77,8 +82,8 @@ for _stage in STAGE_ORDER:
     STAGE_CHECKS[_stage].insert(
         1,
         (
-            "Online frontier snapshot is fresh",
-            f"{_FRONTIER} check --project-root . --stage {_stage} --max-age-hours 6",
+            "Online frontier snapshot validates for this stage",
+            f"{_FRONTIER} check --project-root . --stage {_stage}",
         ),
     )
 
@@ -106,7 +111,8 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "same environment that will run tests and benchmarks. Project extras/lockfiles "
         "and mature upstream libraries must be preferred over hand-rolled substitutes. "
         "A missing compiler/package/profiler is an environment failure, not evidence "
-        "that the kernel idea is bad. Do not advance while the audit is stale or red.",
+        "that the kernel idea is bad. Do not advance while the audit is mismatched, "
+        "not refreshed after environment changes, or red.",
         [
             "research/ENVIRONMENT_AUDIT.json",
             "research/ENVIRONMENT_AUDIT.md",
@@ -129,7 +135,9 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "mechanistic hypothesis, minimal implementation, correctness result, timing, "
         "and verdict. Reject blind parameter sweeps and reinvention of an available "
         "project/vendor primitive. Compile/runtime failures must be attributed to code "
-        "versus environment before abandoning the mechanism.",
+        "versus environment before abandoning the mechanism. Every attempt must have "
+        "OUTCOME.json with separate execution_status, failure_class, and idea_status; "
+        "environment/toolchain/infrastructure failures cannot refute an idea.",
         ["attempts/", "research/ENVIRONMENT_AUDIT.json", "research/BASELINE_RESULT.json"],
     ),
     "validate": (
@@ -159,11 +167,12 @@ for _stage, (_skill, _instructions, _artifacts) in tuple(REVIEWER_CHECKLISTS.ite
         _skill,
         (
             "FRONTIER FRESHNESS GATE: independently inspect the current stage's "
-            f"`{_frontier_artifact}`. It must prove a real online search within six "
-            "hours across the target repository, official toolchains, and recent "
+            f"`{_frontier_artifact}`. It must prove a real online search for the current "
+            "stage across the target repository, official toolchains, and recent "
             "papers/author implementations. Re-check cited sources when material. "
             "`no_material_update=true` is acceptable only with real queries/sources "
-            "and a decision-impact explanation. Offline/stale/template evidence fails "
+            "and a decision-impact explanation. Offline, wrong-stage, superseded, or "
+            "template evidence fails "
             "the stage.\n\n" + _instructions
         ),
         [_frontier_artifact, *_artifacts],
@@ -242,9 +251,16 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Each attempt starts from a measured bottleneck, states a physical or "
                 "compiler-level hypothesis, changes the smallest relevant surface, and "
-                "records correctness, timing, environment attribution, and keep/reject."
+                "records correctness, timing, and a two-axis OUTCOME.json. Environment, "
+                "dependency, toolchain, permission, or benchmark-infrastructure failures "
+                "leave the idea untested or inconclusive; only a valid executed result "
+                "may support or refute it."
             ),
-            evidence_hint="attempts/<id>/CHANGES.md plus raw test/benchmark artifacts",
+            evidence_hint=(
+                "attempts/<id>/OUTCOME.json, CHANGES.md, and raw test/benchmark artifacts; "
+                "validate with `python -m argus_skill.verticals.kernel_engineering."
+                "attempt_outcome check --project-root .`"
+            ),
         ),
     ),
     "validate": (
@@ -276,7 +292,7 @@ for _stage in STAGE_ORDER:
         ChecklistItem(
             id=f"{_stage}.frontier_current",
             statement=(
-                "A fresh online frontier search covers current target-repository work, "
+                "A current-stage online frontier search covers target-repository work, "
                 "official toolchain/package changes, and recent papers or author "
                 "implementations. Findings changed the plan, or the artifact explicitly "
                 "records that no material update was found."
@@ -284,7 +300,7 @@ for _stage in STAGE_ORDER:
             evidence_hint=(
                 f"research/frontier/{_stage}.json and research/FRONTIER_WATCH.jsonl; "
                 f"validate with `python -m argus_skill.verticals.kernel_engineering."
-                f"frontier_watch check --stage {_stage} --max-age-hours 6`"
+                f"frontier_watch check --stage {_stage}`"
             ),
         ),
         *CHECKLIST_ITEMS[_stage],
@@ -299,11 +315,12 @@ def role_banner(role: str) -> str:
         "chosen professional toolchain is installed and compatible. Do not recreate "
         "Triton/TileLang/CUTLASS/CuTe/vendor libraries, benchmark harnesses, profilers, "
         "or training/RL infrastructure that the project already depends on. A missing "
-        "package/compiler/configuration is an environment blocker, not a failed kernel "
-        "idea. Correctness precedes timing; only isolated real-hardware measurements "
+        "package/compiler/configuration is an execution blocker, never a failed kernel "
+        "idea: keep execution_status/failure_class separate from idea_status. Correctness "
+        "precedes timing; only isolated real-hardware measurements "
         "support a speed claim. CONTINUOUS FRONTIER WATCH: every stage must perform "
         "fresh online research across upstream work, official toolchains, and recent "
-        "papers/author implementations; refresh after six hours, repeated failures, "
+        "papers/author implementations; refresh at stage entry, after repeated failures, "
         "mechanism pivots, and before a PR. This is not a paper pipeline and not "
         "SOL-ExecBench.\n"
     )
@@ -316,10 +333,12 @@ def role_banner(role: str) -> str:
         )
     if role == "reviewer":
         return common + (
-            "Fail closed on stale/red environment audits, missing project extras, "
+            "Fail closed on mismatched/red environment audits, audits not refreshed after "
+            "environment changes, missing project extras, "
             "unexplained fallbacks, mixed benchmark environments, or compile failures "
-            "misreported as algorithm failures. Also fail stale/offline/template frontier "
-            "snapshots or claims that ignore current upstream/paper evidence.\n"
+            "misreported as algorithm failures. Also fail wrong-stage, superseded, "
+            "offline, or template frontier snapshots and claims that ignore current "
+            "upstream/paper evidence.\n"
         )
     if role == "engineer":
         return common + (

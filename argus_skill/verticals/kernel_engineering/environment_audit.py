@@ -38,7 +38,6 @@ from .tool_registry import (
 SCHEMA_VERSION = 1
 DEFAULT_REPORT = Path("research/ENVIRONMENT_AUDIT.json")
 DEFAULT_MARKDOWN = Path("research/ENVIRONMENT_AUDIT.md")
-DEFAULT_MAX_AGE_HOURS = 24.0
 
 PACKAGE_IMPORTS: dict[str, tuple[str, ...]] = {
     "torch": ("torch",),
@@ -467,7 +466,7 @@ def build_report(
         )
     elif not implementation_selected:
         blockers.append(
-            "Select at least one implementation capability: torch, triton, tilelang, "
+            "Select the implementation capability: torch, triton, tilelang, "
             "cuda_cpp, or cutlass_cute."
         )
     for name in unknown:
@@ -646,9 +645,7 @@ def _parse_timestamp(value: object) -> datetime | None:
         return None
 
 
-def validate_report(
-    report: dict[str, Any], *, project_root: Path, max_age_hours: float
-) -> list[str]:
+def validate_report(report: dict[str, Any], *, project_root: Path) -> list[str]:
     errors: list[str] = []
     if report.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"unsupported schema_version: {report.get('schema_version')!r}")
@@ -657,10 +654,6 @@ def validate_report(
     generated = _parse_timestamp(report.get("generated_at"))
     if generated is None:
         errors.append("generated_at is missing or invalid")
-    else:
-        age_hours = (datetime.now(UTC) - generated).total_seconds() / 3600
-        if age_hours > max_age_hours:
-            errors.append(f"environment audit is stale ({age_hours:.1f}h > {max_age_hours:.1f}h)")
     requirements = report.get("requested_capabilities")
     if not isinstance(requirements, list) or not requirements:
         errors.append("requested_capabilities is empty")
@@ -697,7 +690,6 @@ def _parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check", help="validate a previously collected report")
     check.add_argument("--project-root", type=Path, default=Path.cwd())
     check.add_argument("--report", type=Path, default=DEFAULT_REPORT)
-    check.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS)
     catalog = sub.add_parser("catalog", help="query the curated professional kernel-tool registry")
     catalog.add_argument("--category", action="append", default=[])
     catalog.add_argument("--platform", action="append", default=[])
@@ -778,11 +770,7 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(report, dict):
         print("environment audit root must be a JSON object", file=sys.stderr)
         return 2
-    errors = validate_report(
-        report,
-        project_root=project_root,
-        max_age_hours=args.max_age_hours,
-    )
+    errors = validate_report(report, project_root=project_root)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)

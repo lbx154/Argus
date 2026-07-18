@@ -39,7 +39,7 @@ def test_kernel_engineering_banner_makes_environment_a_hard_gate() -> None:
     assert "ENVIRONMENT IS PART OF THE ALGORITHM" in engineer
     assert "audit" in engineer.lower()
     assert "missing" in reviewer.lower()
-    assert "not a failed kernel" in engineer.lower()
+    assert "never a failed kernel" in engineer.lower()
 
 
 def test_kernel_engineering_checklist_is_not_paper_pipeline(tmp_path: Path) -> None:

@@ -26,9 +26,8 @@ library.
 ## Continuous online frontier loop
 
 Online research is mandatory in **every stage**, not only initial research.
-Search at stage entry, refresh after six hours, refresh after repeated mechanism
-failures, refresh before changing direction, and refresh immediately before a
-PR or final report:
+Search at stage entry, refresh after repeated mechanism failures, refresh before
+changing direction, and refresh immediately before a PR or final report:
 
 1. Search the target repository's latest main, releases, open/merged PRs,
    issues, benchmark changes, and maintainer discussion.
@@ -114,7 +113,7 @@ that does not claim current-frontier completeness; the stage cannot pass.
      --project-root .
    ```
 
-   Select at least one implementation capability: `torch`, `triton`,
+   Select the implementation capability: `torch`, `triton`,
    `tilelang`, `cuda_cpp`, or `cutlass_cute`. Add `profiling` and `sanitizer`
    when the task needs them. Replace `.venv/bin/python` with the exact Python
    used by the repository's tests/benchmarks. A red audit blocks implementation.
@@ -141,15 +140,28 @@ that does not claim current-frontier completeness; the stage cannot pass.
    pretending.
 9. **Run hypothesis-driven attempts.** Each `attempts/<id>/` must preserve source
    diff/snapshot, short `CHANGES.md`, correctness output, benchmark output, and a
-   verdict. Change the mechanism before endlessly sweeping knobs. A compile or
-   runtime error must be classified:
+   compact `OUTCOME.json`. Generate the shape with:
+
+   ```bash
+   "${ARGUS_SKILL_PYTHON:-python}" -m \
+     argus_skill.verticals.kernel_engineering.attempt_outcome template \
+     --attempt-id <id> > attempts/<id>/OUTCOME.json
+   ```
+
+   Record `execution_status`, `failure_class`, and `idea_status` separately.
+   Change the mechanism before endlessly sweeping knobs. A compile or runtime
+   error must be classified:
    - environment/toolchain mismatch;
    - unsupported architecture/API;
    - implementation bug;
    - numerical-contract failure;
    - benchmark/infrastructure failure.
 
-   Fix environment-class failures before rejecting the mechanism.
+   Environment, dependency, toolchain, build-configuration, hardware-access,
+   profiler-permission, benchmark-infrastructure, and measurement-infrastructure
+   failures mean the idea was not validly tested. Keep `idea_status` as
+   `untested` or `inconclusive`; never reject the mechanism from those failures.
+   Validate the ledger with `attempt_outcome check --project-root .`.
 10. **Validate the retained candidate.** Cover forward/backward as applicable,
    fp16/bf16/fp32 policy, aligned and irregular dimensions, varlen/options,
    non-contiguous inputs when supported, determinism/races, memory, missing
@@ -195,12 +207,14 @@ documented requirement.
 
 ## Failure semantics
 
-- Missing package/compiler/profile permission: environment blocker.
-- Baseline cannot reproduce: setup or protocol blocker.
-- Candidate fails only under a different environment: invalid comparison.
-- Candidate compiles but violates the oracle: implementation/numerical failure.
-- Candidate is correct but not faster: valid negative result; update diagnosis.
-- Candidate is faster only under contention/warm cache: measurement failure.
+- `execution_status`: did the experiment complete, fail, or become blocked?
+- `failure_class`: environment/toolchain/infrastructure, implementation,
+  numerical, measurement, or performance?
+- `idea_status`: untested, inconclusive, supported, or refuted?
+
+Environment/toolchain/infrastructure and invalid-measurement failures cannot
+support or refute the idea. Only a completed, correctly configured experiment
+with valid numerical or performance evidence can refute it.
 
 Never compensate for a missing dependency with a fake fallback and call the
 fallback the candidate.
