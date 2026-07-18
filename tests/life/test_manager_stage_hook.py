@@ -105,6 +105,29 @@ class _StageMissionRunner:
         return outcome
 
 
+class _MutatingAdvanceRunner:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root
+
+    def execute(self, **_kwargs) -> _MissionOutcome:
+        from argus_skill.skills.stage_checklists import advance_stage
+
+        advance_stage(
+            self.project_root,
+            target_stage="review",
+            reason="first solve DAG node passed its local checklist",
+            advanced_by="manager",
+        )
+        outcome = _MissionOutcome()
+        outcome.stage_transition = {
+            "action": "advance",
+            "current_stage": "solve",
+            "target_stage": "review",
+            "reason": "first solve DAG node passed its local checklist",
+        }
+        return outcome
+
+
 class _ScopeThenFinalRunner:
     def __init__(self) -> None:
         self.calls = 0
@@ -460,6 +483,72 @@ def test_research_incomplete_does_not_override_intermediate_stage_advance(
     assert persisted.finished_ts is None
     assert not any(
         event.get("type") == "life.mission.completed" for event in sink.events
+    )
+
+
+def test_dynamic_plan_blocks_stage_advance_until_successors_finish(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "solve",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "pending"},
+                "review": {"status": "pending"},
+            },
+        },
+    )
+    memory = LifeMemory.open(tmp_path / "life")
+    plan_id = "plan-proof-then-overlap"
+    theorem = BacklogItem.new(
+        title="prove improved theorem",
+        objective="prove K < 27",
+        tags=["planner", "scope:bounded"],
+        plan_id=plan_id,
+        plan_version=1,
+        node_key="proof",
+    )
+    overlap = BacklogItem.new(
+        title="audit theorem overlap",
+        objective="audit only after proof",
+        tags=["planner", "scope:bounded", "stage_closing", "review:required"],
+        deps=[theorem.id],
+        plan_id=plan_id,
+        plan_version=1,
+        node_key="overlap",
+    )
+    memory.backlog.add_many([theorem, overlap])
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_MutatingAdvanceRunner(tmp_path),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["success"] is True
+    assert _stage(tmp_path) == "solve"
+    items = {item.id: item for item in memory.backlog.all()}
+    assert items[theorem.id].status == "done"
+    assert items[overlap.id].status == "pending"
+    assert memory.backlog.ready()[0].id == overlap.id
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "rollback"
+        and event.get("source") == "supervisor_dynamic_plan_guard"
+        and overlap.id in event.get("unfinished_item_ids", [])
+        for event in sink.events
     )
 
 

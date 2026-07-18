@@ -63,6 +63,7 @@ class MissionExecutionMixin:
                     log.exception("life supervisor: claim rollback failed")
             return {"status": "claim_lost", "item_id": item.id}
         item = claimed
+        pipeline_stage_at_start = self._current_pipeline_stage() or ""
         usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
 
@@ -345,6 +346,80 @@ class MissionExecutionMixin:
             "planner" in normalized_tags
             and self._planner_scope_from_item(item) == PLANNER_SCOPE_BOUNDED
         )
+        unfinished_plan_nodes: list[BacklogItem] = []
+        if planner_bounded_node and item.plan_id:
+            try:
+                unfinished_plan_nodes = [
+                    sibling
+                    for sibling in self.memory.backlog.all()
+                    if sibling.id != item.id
+                    and sibling.plan_id == item.plan_id
+                    and sibling.plan_version == item.plan_version
+                    and sibling.status
+                    not in {"done", "failed", "skipped", "superseded"}
+                ]
+            except Exception:  # noqa: BLE001 - stage safety falls back to Manager
+                log.exception(
+                    "life supervisor: failed to inspect dynamic plan before stage guard"
+                )
+        # A Planner DAG is authored entirely inside the current-stage frontier;
+        # the Planner is forbidden to enqueue speculative downstream-stage work.
+        # Therefore an intermediate node must not let the Manager advance the
+        # project while sibling/dependent nodes from the same plan are unfinished.
+        # The Manager decision has already mutated PIPELINE_STATE by this point,
+        # so undo that premature advance and expose a HOLD transition locally.
+        if (
+            stage_action == "advance"
+            and pipeline_stage_at_start
+            and unfinished_plan_nodes
+        ):
+            live_stage = self._current_pipeline_stage() or pipeline_stage_at_start
+            guard_reason = (
+                f"dynamic plan {item.plan_id} still has unfinished current-stage "
+                "node(s): "
+                + ", ".join(node.title for node in unfinished_plan_nodes[:6])
+            )
+            guard_applied = live_stage == pipeline_stage_at_start
+            if not guard_applied:
+                try:
+                    from ...skills.stage_checklists import rollback_stage
+
+                    rollback_stage(
+                        self._artifact_root(),
+                        target_stage=pipeline_stage_at_start,
+                        reason=guard_reason,
+                        rolled_back_by="supervisor_dynamic_plan_guard",
+                    )
+                    guard_applied = True
+                except Exception:  # noqa: BLE001
+                    log.exception(
+                        "life supervisor: failed to undo premature dynamic-plan "
+                        "stage advance"
+                    )
+            if guard_applied:
+                self._emit({
+                    "type": EventType.LIFE_MANAGER_STAGE_DECISION,
+                    "action": "rollback",
+                    "target_stage": pipeline_stage_at_start,
+                    "reason": guard_reason,
+                    "current_stage": live_stage,
+                    "source": "supervisor_dynamic_plan_guard",
+                    "diagnostic": "unfinished_same_plan_nodes",
+                    "item_id": item.id,
+                    "plan_id": item.plan_id,
+                    "unfinished_item_ids": [
+                        node.id for node in unfinished_plan_nodes
+                    ],
+                })
+                stage_transition = {
+                    "action": "hold",
+                    "current_stage": pipeline_stage_at_start,
+                    "target_stage": pipeline_stage_at_start,
+                    "reason": guard_reason,
+                    "source": "supervisor_dynamic_plan_guard",
+                    "diagnostic": "unfinished_same_plan_nodes",
+                }
+                stage_action = "hold"
         # ``research_incomplete`` is project-level: it says the persisted final
         # research target is not finished. It must NOT cancel a Manager-certified
         # intermediate stage transition. A scope mission can legitimately end
