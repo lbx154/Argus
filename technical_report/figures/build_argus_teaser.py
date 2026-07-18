@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 REPORT = HERE.parent
 RESULTS = REPORT / "evidence" / "website_results.json"
 PAPERS = REPORT / "evidence" / "paper_inventory.json"
+SWE_SUMMARY = REPORT / "evidence" / "swebench_pro" / "unified_experiment_summary.json"
 HTML_OUT = HERE / "argus_teaser.html"
 PDF_OUT = HERE / "argus_teaser.pdf"
 MANIFEST_OUT = HERE / "argus_teaser.json"
@@ -51,9 +52,13 @@ def result_cards(payload: dict) -> str:
     return "\n".join(cards)
 
 
-def build_html(results: dict, papers: dict) -> str:
+def build_html(results: dict, papers: dict, swe_summary: dict) -> str:
     totals = papers["totals"]
     cards = result_cards(results)
+    aggregate = swe_summary["aggregate_comparison"]
+    direct_accuracy = 100 * aggregate["direct_copilot_accuracy_approx"]
+    argus_accuracy = 100 * aggregate["argus_accuracy_approx"]
+    token_ratio = aggregate["argus_to_direct_total_token_ratio_approx"]
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -106,19 +111,27 @@ body {{ background: #fff; color: #1f2933; font-family: Arial, Helvetica, sans-se
 .formula .math {{ display: block; color: #173b70; font: 700 11pt 'Times New Roman', serif; white-space: nowrap; }}
 .formula .math sub, .formula .math sup {{ font-size: 70%; line-height: 0; }}
 .formula small {{ color: #687380; font-size: 8.2pt; }}
-.results {{ display: grid; grid-template-rows: auto 1fr auto; }}
-.metrics {{ display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: .07in; min-height: 0; }}
-.metric-card {{ border: 1px solid #d8e0e8; border-left: .045in solid #315bce; background: white; border-radius: .06in; padding: .08in .10in; display: grid; grid-template-rows: auto auto auto 1fr; }}
+.results {{ display: grid; grid-template-rows: auto auto 1fr auto; }}
+.swe-highlight {{ margin-bottom: .05in; border: 1px solid #c9d4df; border-left: .05in solid #c38a20; background: #fff; border-radius: .07in; padding: .04in .075in; display: grid; grid-template-columns: .95fr 1.45fr 1fr; align-items: center; gap: .06in; }}
+.swe-highlight .label strong {{ display: block; color: #173b70; font-size: 8.8pt; }}
+.swe-highlight .label small {{ color: #687380; font-size: 7.2pt; }}
+.swe-score {{ white-space: nowrap; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 16.5pt; font-weight: 800; line-height: 1; }}
+.swe-score .direct {{ color: #6d7783; }}
+.swe-score .arrow {{ color: #c38a20; padding: 0 .035in; }}
+.swe-score .argus {{ color: #315bce; }}
+.swe-highlight .note {{ color: #4f5a66; font-size: 7.5pt; line-height: 1.15; text-align: right; }}
+.metrics {{ display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: .05in; min-height: 0; }}
+.metric-card {{ border: 1px solid #d8e0e8; border-left: .04in solid #315bce; background: white; border-radius: .055in; padding: .052in .075in; display: grid; grid-template-rows: auto auto auto 1fr; min-height: 0; }}
 .metric-head {{ display: flex; justify-content: space-between; gap: .05in; align-items: start; }}
-.metric-head span {{ font-size: 9pt; font-weight: 700; }}
-.metric-head i {{ color: #6d7783; font-size: 8pt; font-style: normal; text-align: right; }}
-.metric-card strong {{ color: #173b70; font-size: 17pt; line-height: 1.05; margin-top: .025in; }}
-.metric-card small {{ color: #697480; font-size: 8.5pt; }}
-.metric-card p {{ margin: .025in 0 0; color: #4f5a66; font-size: 8.2pt; line-height: 1.15; }}
-.portfolio {{ margin-top: .08in; border: 1px solid #d8e0e8; background: #fff; border-radius: .07in; padding: .08in .11in; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .10in; }}
-.portfolio strong {{ color: #c38a20; font-size: 18pt; }}
-.portfolio span {{ font-size: 8.7pt; font-weight: 700; }}
-.portfolio small {{ color: #687380; font-size: 7.3pt; text-align: right; }}
+.metric-head span {{ font-size: 8.2pt; font-weight: 700; }}
+.metric-head i {{ color: #6d7783; font-size: 7.1pt; font-style: normal; text-align: right; }}
+.metric-card strong {{ color: #173b70; font-size: 12.8pt; line-height: 1.0; margin-top: .008in; }}
+.metric-card small {{ color: #697480; font-size: 7.0pt; }}
+.metric-card p {{ margin: .008in 0 0; color: #4f5a66; font-size: 6.6pt; line-height: 1.03; }}
+.portfolio {{ margin-top: .035in; border: 1px solid #d8e0e8; background: #fff; border-radius: .07in; padding: .04in .08in; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .07in; }}
+.portfolio strong {{ color: #c38a20; font-size: 16pt; }}
+.portfolio span {{ font-size: 8.1pt; font-weight: 700; }}
+.portfolio small {{ color: #687380; font-size: 7.0pt; text-align: right; }}
 footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; justify-content: space-between; color: #66717d; font-size: 7.6pt; }}
 </style>
 </head>
@@ -147,12 +160,17 @@ footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; just
       </div>
     </article>
     <article class="panel results">
-      <div class="panel-title"><b>B</b><strong>Benchmark results in task-native units</strong></div>
+      <div class="panel-title"><b>B</b><strong>Benchmark results and full-suite software evaluation</strong></div>
+      <div class="swe-highlight">
+        <div class="label"><strong>SWE-Bench Pro · 731 tasks</strong><small>GPT-5.5/xhigh</small></div>
+        <div class="swe-score"><span class="direct">{direct_accuracy:.0f}%</span><span class="arrow">→</span><span class="argus">{argus_accuracy:.0f}%</span></div>
+        <div class="note">Direct Copilot → Argus<br><b>{token_ratio:.2f}×</b> aggregate tokens</div>
+      </div>
       <div class="metrics">{cards}</div>
       <div class="portfolio"><strong>{totals['papers']}</strong><span>de-duplicated research artifacts across {totals['programs']} programs</span><small>{totals['manuscript']} manuscripts · {totals['draft']} drafts</small></div>
     </article>
   </section>
-  <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>All six runs: GPT-5.5 · Codex</span></footer>
+  <footer><span>Architecture is schematic; result cards retain task-native units and are not cross-normalized.</span><span>Public arenas: GPT-5.5 · Codex &nbsp;|&nbsp; SWE-Bench Pro: GPT-5.5/xhigh</span></footer>
 </main>
 </body>
 </html>
@@ -162,7 +180,8 @@ footer {{ border-top: 1px solid #d8e0e8; padding-top: .08in; display: flex; just
 def main() -> int:
     results = json.loads(RESULTS.read_text(encoding="utf-8"))
     papers = json.loads(PAPERS.read_text(encoding="utf-8"))
-    rendered = build_html(results, papers)
+    swe_summary = json.loads(SWE_SUMMARY.read_text(encoding="utf-8"))
+    rendered = build_html(results, papers, swe_summary)
     HTML_OUT.write_text(rendered, encoding="utf-8")
 
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
@@ -185,13 +204,15 @@ def main() -> int:
 
     manifest = {
         "figure": "argus_teaser",
-        "reader_question": "How does Argus turn a dense-intelligence objective into retained capability, and what public benchmark results characterize the system?",
-        "claim": "Argus couples role-separated research with a review gate and reports heterogeneous public outcomes without cross-normalizing their metrics.",
+        "reader_question": "How does Argus turn a dense-intelligence objective into retained capability, and what public and full-suite results characterize the system?",
+        "claim": "Argus couples role-separated research with a review gate, retains heterogeneous task-native outcomes, and improves SWE-Bench Pro accuracy from approximately 59% to 78% at 1.41x aggregate tokens.",
         "sources": {
             "results": str(RESULTS.relative_to(REPORT)),
             "results_sha256": sha256(RESULTS),
             "paper_inventory": str(PAPERS.relative_to(REPORT)),
             "paper_inventory_sha256": sha256(PAPERS),
+            "swebench_summary": str(SWE_SUMMARY.relative_to(REPORT)),
+            "swebench_summary_sha256": sha256(SWE_SUMMARY),
         },
         "editable_source": HTML_OUT.name,
         "vector_export": PDF_OUT.name,

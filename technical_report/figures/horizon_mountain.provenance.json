@@ -1,0 +1,23 @@
+{
+  "character_prompt": "One full-body expedition researcher in restrained semi-anime editorial style, standing firmly with one boot on a low rock while holding binoculars and looking toward the upper-right summit; crisp silhouette on a flat magenta chroma-key background, with no scenery, text, logo, shadow, or extra character.",
+  "claim": "The illustrated mountain visualizes a four-role state machine repeated across eight non-monotonic research stages, including rollback, rejected branches, persistent runtime state, and a hypothesized reviewed-trajectory-to-training flywheel.",
+  "editable_sources": [
+    "horizon_mountain.html"
+  ],
+  "figure_id": "dense-intelligence-horizon",
+  "generation_prompt": "Two-image gpt-image-2 edit: Image 1 fixes a complete in-frame mountain silhouette with both slopes visible and the summit near 70% canvas width; Image 2 supplies only the restrained 2D hand-drawn editorial language. The original output uses unified navy linework, broad gouache-like teal/ochre/green/cream color blocks, simple cel shading, foreground vegetation, and clouds, while excluding copied reference objects, photorealism, concept-art lighting, 3D texture, low-poly facets, people, flags, paths, and text.",
+  "outputs": {
+    "argus_explorer_binoculars.png": "d874e0f40e2c51f282f54d632c79ceac18ca4a113a7327c0cea1f0d9fdafb674",
+    "horizon_base_composition_guide_v2.svg": "35c2cf410e47657e65778320243a8c6a5775aae55ee66897a26192a458bf3751",
+    "horizon_mountain.html": "ead2e89fad545cbeeeeeadba2ab686d1158a126525250226ae79b37fb8a68242",
+    "horizon_mountain.pdf": "a100e788e14670e7f2e71c0259dfe6cedb4d7c99edee3729111ba4cb3f275abb",
+    "horizon_mountain.png": "2cc089d289362ad04b7cad890444b6e10f4cd4d4469f080ddab1ea5ce96f1cae",
+    "horizon_mountain.svg": "47de1de432af8d0de98b42ba6fbac66d5d9b79754fac1c74598a49c3c1696072",
+    "horizon_mountain_illustrated_base.png": "7cb3a019607ab137ecb89b34d7638f8e4d608f8d7391ef8671c9fd186989c1df",
+    "horizon_mountain_illustrated_source.png": "f4edf504f674af7393f7f88fe65e871425cc446cb6eae6d38046ef898fccdd09"
+  },
+  "reader_question": "How do recurrent roles, Manager-controlled stages, persistent state, and a future training flywheel interact over a long horizon?",
+  "scope": "Conceptual illustration; geometry and stage height are not empirical scales, and the parameter-training flywheel is a future hypothesis rather than a reported result.",
+  "stack": "gpt-image-2 editorial illustration base with HTML/CSS/SVG semantic overlays.",
+  "style_reference": "https://github.com/RUC-NLPIR/Awesome-Long-Horizon-Agents/blob/main/assets/horizon.png (style only; composition and objects not copied)"
+}

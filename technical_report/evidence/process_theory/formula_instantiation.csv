@@ -1,0 +1,10 @@
+quantity,source_window,numerator,denominator,estimate,unit,evidence_tier,caveat
+dense_token_rate,"Erdos rounds 12-17; 18 missions","332274 reasoning-output tokens","9620.503422 active seconds",34.5381,"reasoning-output tokens per second",measured_telemetry,"Role-aggregate reasoning-output tokens; excludes input and cached-input tokens"
+dense_intelligence_strict,"same mathematical window","34.5381 * 0.559849 * 0.555556 * 0.553835",1,5.9495,"effective token-equivalents per second",audit_index,"Strict mission-purpose labels; not an absolute intelligence score"
+dense_intelligence_inclusive,"same mathematical window","34.5381 * 0.951183 * 0.944444 * 0.904301",1,28.0577,"effective token-equivalents per second",audit_index,"Credits successful support; upper attribution-policy estimate"
+reviewer_verifier_recovery,"SWE-Bench Pro revision-requested tasks",34,43,0.7907,fraction,measured_process_outcome,"Does not identify Reviewer sensitivity or false-acceptance rate"
+reviewer_strict_rescue,"SWE-Bench Pro revision-requested tasks",22,43,0.5116,fraction,measured_process_outcome,"Requires later Reviewer done; routing is adaptive"
+reuse_token_proxy,"SWE-Bench Pro W1-6 versus W19-22","2.95M - 2.33M",1,0.62,"million solve input tokens saved per task",observational_proxy,"Task mix changes across windows"
+reuse_time_proxy,"SWE-Bench Pro W1-6 versus W19-22","8.52 - 7.25",1,1.27,"active minutes saved per task",observational_proxy,"Equivalent to 76.2 seconds; task mix changes"
+immediate_verified_reusable_yield,"Erdos rounds 12-17; lambda_g=0","6 accepted theorem deltas * 1000000","332274 reasoning-output tokens",18.0574,"campaign-accepted deltas per million reasoning-output tokens",protocol_proxy,"Equal-weight deltas; campaign review only; excludes future reuse and external novelty"
+process_compression_ratio,"operational snapshot 2026-07-18T10:18:56Z",384370463,3240,118632.8589,"raw event bytes per checkpoint byte",operational_snapshot,"Snapshot later than theorem freeze; raw tape and checkpoint serve different functions"

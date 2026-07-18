@@ -1,133 +1,136 @@
 \section{Empirical Methodology}
 \label{sec:methodology}
 
-The current evaluation is designed as a transparent empirical record rather than
-a controlled ablation study. Recent research-agent benchmarks instead hold tasks,
-evaluators, and time or resource budgets fixed to support direct comparisons
-~\citep{chan2024mlebench,wijk2024rebench,wang2026aarri,lupidi2026airsbench}. The
-The analysis asks whether the deployed runtime has produced competitive
-artifacts across heterogeneous settings and how broadly it has been used.
+We evaluate \systemname across seven benchmark arenas spanning software repair,
+GPU-kernel optimization, language-model training, training-speed optimization,
+research-assistant tasks, and data synthesis. Each benchmark is reported in its
+native unit. SWE-Bench Pro is one benchmark in this suite; its sequential task log
+also enables deeper analyses of runtime evolution and Reviewer intervention.
 
 \subsection{Research Questions}
 
-We organize the evaluation around two questions.
+\paragraph{RQ1: Benchmark performance.}
+What task-native outcomes does \systemname achieve across the seven benchmark
+arenas, and how do they compare with the reference reported for each arena?
 
-\paragraph{RQ1: Cross-domain performance.}
-What task-native results has \system{} produced across distinct benchmark arenas,
-and how do those results compare with the human or paper-reported references
-published for each arena?
+\paragraph{RQ2: Self-evolution efficiency.}
+Within the SWE-Bench Pro run, does the Token and active-time demand of mature
+\systemname windows decrease as the shared Skill and Wiki state accumulates?
 
-\paragraph{RQ2: Research breadth.}
-How many de-duplicated manuscripts and drafts has the research pipeline produced,
-and how are they distributed across research programs?
+\paragraph{RQ3: Reviewer routing and recovery.}
+Within the same SWE-Bench Pro run, how often is an independent Reviewer invoked,
+and how many initially rejected solutions are recovered after Reviewer feedback?
 
-The questions deliberately avoid causal language. Although all six runs use
-GPT-5.5 through the Codex backend, the records do not share one task interface,
-random-seed policy, evaluator, or hardware protocol. Consequently, they can
-establish operational breadth and task-level outcomes, but not the isolated
-contribution of role separation, checkpointing, review, or any other individual
-mechanism.
+\paragraph{RQ4: Process-to-capability mechanisms.}
+How do the retained traces quantify process-data advantage, review-gated
+correction, Token conversion, and cross-task reuse?
 
-\subsection{Benchmark Definitions}
+\subsection{Benchmark Suite}
 
-Following the task-definition style used by Arbor~\citep{jin2026arbor}, we define
-each arena by its research artifact, evaluator, native metric, and metric direction.
-The common research-agent configuration is GPT-5.5 through Codex; the target
-artifact and evaluator differ by arena.
+SWE-Bench Pro evaluates repository-level software-engineering tasks with executable
+acceptance tests~\citep{deng2025swebenchpro}. The remaining arenas evaluate B200
+kernel optimization, nanochat training on B200 and H100, the nanoGPT speedrun,
+AARRI-Bench, and Math-Reasoning Data Synthesis from the Arbor suite
+~\citep{lin2026solexecbench,karpathy_nanochat,karpathy_autoresearch,
+jordan_nanogptbench,wang2026aarri,jin2026arbor}. Because rank, bits per byte,
+elapsed time, solve rate, and pass-gap are incompatible metrics, we do not average
+them into one score.
 
-\paragraph{NVIDIA SOL-ExecBench.}
-SOL-ExecBench evaluates correctness-preserving optimization of real GPU kernels
-against workload-specific hardware speed-of-light models~\citep{lin2026solexecbench}.
-Candidate implementations must first match the reference output; performance is
-then assessed relative to the hardware limit. The reported Argus result covers 101
-B200 kernels and uses global rank, first-place finishes, and top-three placements as
-the public summary; better rank and more high placements are better.
+\begin{table}[H]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.16}
+\begin{tabularx}{\linewidth}{@{}p{2.15cm} X p{3.25cm} p{1.05cm}@{}}
+\toprule
+\textbf{Benchmark} & \textbf{What the agent must do} & \textbf{Evaluation metric} & \textbf{Better} \\
+\midrule
+SWE-Bench Pro & Repair a real repository issue by editing production code; the submitted patch must satisfy task-specific executable acceptance tests. & Fraction of tasks resolved by the official verifier & Higher \\
+SOL-ExecBench & Optimize real GPU kernels without changing their outputs, targeting execution close to an analytically derived hardware speed-of-light bound. & SOL score, global rank, and high placements after correctness checks & Higher \\
+nanochat B200 & Improve the nanochat training program under a fixed five-minute run on one B200 GPU. & Validation bits per byte (BPB), a compression-oriented language-model metric & Lower \\
+nanochat H100 & Solve the same five-minute nanochat training objective on one H100; it is a separate hardware-specific optimization problem. & Validation BPB under the H100 protocol & Lower \\
+nanoGPT speedrun & Modify the training system so an eight-H100 run reaches validation loss $3.28$ as quickly as possible. & Mean time to the target over ten verifier runs & Lower \\
+AARRI-Bench & Complete 82 granular tasks representing the judgment, diligence, and professional practice expected from a research intern. & Number and percentage of tasks solved & Higher \\
+Math-Reasoning Data & Build a pipeline that generates AIME-style reasoning problems that are difficult on the first attempt but solvable with additional attempts. & Mean $\mathrm{pass@4}-\mathrm{pass@1}$ gap & Higher \\
+\bottomrule
+\end{tabularx}
+\caption{Definitions of the seven benchmark arenas. B200 and H100 nanochat runs
+are kept separate because hardware changes the optimization problem.}
+\label{tab:benchmark-definitions}
+\end{table}
 
-\paragraph{nanochat on B200.}
-This arena instantiates the nanochat autoresearch task on one B200 GPU
-~\citep{karpathy_nanochat,karpathy_autoresearch}. The editable artifact is the
-training program, and each candidate receives a fixed five-minute training window.
-The evaluator reports validation bits per byte (BPB), a tokenizer-independent
-compression metric; lower BPB indicates a better trained model. The public record
-summarizes 426 autonomous attempts.
+The six non-SWE arenas use GPT-5.5 through Codex. The SWE-Bench Pro evaluation uses
+GPT-5.5/xhigh through Copilot for both Direct Copilot and \systemname. The full
+731-task comparison reports approximate accuracy and the aggregate Token ratio
+\begin{equation}
+  R_{\mathrm{tok}}
+  = \frac{N_{\mathrm{\systemname}}^{\mathrm{total}}}
+         {N_{\mathrm{Copilot}}^{\mathrm{total}}}
+  \approx 1.41.
+  \label{eq:aggregate-token-ratio}
+\end{equation}
+Raw Copilot Token totals and per-Wave resource traces were not retained; therefore
+the longitudinal analysis is \systemname-only.
 
-\paragraph{nanochat on H100.}
-The H100 arena uses the same five-minute training objective and lower-is-better BPB
-metric, but executes on one H100 and therefore constitutes a separate
-hardware-specific optimization problem. The public result summarizes a search over
-37 implemented mechanisms. B200 and H100 values are compared only with references
-measured under their corresponding hardware protocol, not directly with each other.
+\subsection{SWE-Bench Pro Self-Evolution Analysis}
 
-\paragraph{nanoGPT speedrun.}
-NanoGPT-Bench measures the wall-clock time required for an eight-H100 training run
-to reach the fixed validation-loss threshold of $3.28$~\citep{jordan_nanogptbench}.
-A candidate is valid only when it reaches that target; among valid candidates,
-lower training time is better. The reported value is the mean of $N{=}10$ verifier
-runs for the selected artifact.
+For a completed \systemname Wave $w$ with task set $\mathcal{T}_w$, we measure
+\begin{align}
+  \bar I_w^{\mathrm{solve}}
+  &= \frac{1}{|\mathcal{T}_w|}
+     \sum_{i\in\mathcal{T}_w} I_i^{\mathrm{solve}},
+  \label{eq:solve-token-wave}\\
+  \bar T_w^{\mathrm{agent}}
+  &= \frac{1}{|\mathcal{T}_w|}
+     \sum_{i\in\mathcal{T}_w} T_i^{\mathrm{agent}}.
+  \label{eq:solve-time-wave}
+\end{align}
+$I_i^{\mathrm{solve}}$ contains the final valid Manager, Matcher, Adapter,
+Engineer, and invoked Reviewer calls. $T_i^{\mathrm{agent}}$ measures active
+workflow time. Queueing, environment preparation, verifier execution,
+infrastructure retries, and post-task maintenance are excluded.
 
-\paragraph{AARRI-Bench.}
-AARRI-Bench evaluates models and agentic harnesses on granular tasks from the
-research lifecycle, including research judgment and professional research
-practice~\citep{wang2026aarri}. The Argus evaluation uses 82 research-intern tasks
-and reports the number and percentage solved. Higher solve rate is better; the
-paper-reported best is used as the external comparison.
+Completed Waves are summarized by task-weighted windows: W1--6 (startup), W7--12
+(early reuse), W13--18 (task-mix shift), W19--22 (mature operation), and W23--24
+(hard tail). Waves 13 and 15 were deferred. The primary comparison is startup
+versus mature operation; the spike and hard tail remain visible.
 
-\paragraph{Math-Reasoning Data Synthesis (Arbor AO suite).}
-This row is the Math-Reasoning Data Synthesis task from Arbor's Autonomous
-Optimization suite, not a generic benchmark named ``Arbor''~\citep{jin2026arbor}.
-The editable artifact is a pipeline that generates AIME-style reasoning problems.
-Arbor evaluates generated problems with a GPT-5.5 ReAct solver and reports the mean
-$\mathrm{pass@4}-\mathrm{pass@1}$ gap: a larger gap rewards problems that are not
-solved immediately but become solvable with additional attempts. The published
-comparison uses Argus 28.0, Arbor 20.83, Claude Code 8.33, and Codex 6.25.
+\subsection{SWE-Bench Pro Reviewer Analysis}
 
-\subsection{Evaluation Sources}
+A task is \emph{Reviewer-invoked} when its final trajectory contains an independent
+Reviewer model call; otherwise it follows Engineer self-review. A Reviewer verdict
+of \code{continue} is a revision request. We report both subsequent official
+verifier success and the stricter case in which a later Reviewer verdict is
+\code{done}. The latter is called a \emph{strict Reviewer rescue}.
 
-The benchmark record is a snapshot of the six public result cards on the Argus
-results page~\citep{argus_results}. It was retrieved on July 14, 2026 with the final
-URL, HTTP status, and raw-page SHA-256 stored in
-\srcpath{evidence/website\_results.json}. Each card preserves the arena, protocol,
-reported result, comparison text, source URL, and corroboration status.
+Reviewer routing is adaptive rather than randomized. The analysis reports routing,
+revision, and recovery behavior over the observed task sequence.
 
-The research-output record is a de-duplicated inventory of the public Argus paper
-collection~\citep{argus_research}, stored in
-\srcpath{evidence/paper\_inventory.json}. It distinguishes manuscripts from drafts,
-removes duplicate versions, and groups artifacts into six programs. The inventory
-is not a publication-acceptance record and is not compared with the paper output of
-other agents.
+The 41-artifact research portfolio is reported separately as a measure of research
+program breadth.
 
-The two quantitative figures in Section~\ref{sec:results} are generated
-deterministically from these JSON files. Structural diagrams are explanatory
-illustrations; they are not empirical plots. Figure provenance is summarized in
-Appendix~\ref{app:evidence-map}.
+\subsection{Representative Vertical-Trace Protocol}
 
-\paragraph{Provenance scope.}
-Two rows---nanochat B200 and the nanoGPT speedrun---add artifact identifiers,
-verifier excerpts, and content digests to the public result snapshot. The other four
-rows preserve the public source and page hash but do not yet provide a complete
-artifact bundle. This distinction limits reproducibility and is documented in
-Appendix~\ref{app:evidence-map}; it is not an additional performance dimension.
+To complement endpoint and software-trajectory measurements, we freeze one
+Erd\H{o}s--Gy\'arf\'as mathematical campaign as a representative vertical trace.
+The trace is role-led rather than theorem-led: it records what the Manager,
+Planner, Engineer, and Reviewer did during recovery, problem selection, route
+testing, proof production, revision, acceptance, and state retention. The frozen
+record contains one accepted route falsification and six proof-backed research
+deltas; detailed mathematical statements remain in the supplementary claim table.
 
-\subsection{Metrics and Comparison Policy}
+The protocol tracks whether the runtime retains a falsified branch, carries named
+blockers across missions, and admits later work after artifact-based review. The
+frozen role trace, claim table, and figure provenance are released with the
+supplementary materials.
 
-The six arenas use incompatible metrics: global rank, bits per byte, wall-clock
-time, solve rate, and a source-reported gap value. We do not normalize these values
-or average them into a single score. Each result is shown in its native unit with
-its own protocol and comparison. Lower is better for bits per byte and wall-clock
-time. For the Math-Reasoning Data Synthesis comparison, the Arbor task definition
-identifies the mean $\mathrm{pass@4}-\mathrm{pass@1}$ gap as higher-is-better
-~\citep{jin2026arbor}.
+\subsection{Theory-to-Measurement Mapping}
 
-Human records and paper-reported bests are used when the public card provides them.
-The SOL-ExecBench row instead uses global rank as its headline and retains the
-source's system comparison as secondary context. No significance test is introduced
-where the source record does not provide the underlying repeated measurements.
-
-\subsection{Portfolio Counting Policy}
-
-The paper inventory counts a research artifact once after duplicate versions are
-removed. ``Manuscript'' and ``draft'' are artifact states, not peer-review outcomes.
-The headline total therefore answers RQ2---how much research material the pipeline
-produced across programs---but does not measure novelty, correctness, acceptance,
-or scientific impact. Those questions require external review beyond the scope of
-the current records.
+We map the theory to four auditable quantities. Immediate information gain
+$\Delta I_t$ is represented only in task-native units: benchmark improvement,
+accepted theorem delta, or certified branch elimination. Review correction is
+represented by Reviewer \code{continue}--revise trajectories and later
+external-verifier outcomes. Reuse value $G_K$ is approximated observationally by
+later Token/time demand as Skill and Wiki state accumulates. Token conversion is
+represented by the role- and mission-level attribution in the mathematical case.
+Appendix~\ref{app:formula-instantiation} records the corresponding substitutions in
+their native units.

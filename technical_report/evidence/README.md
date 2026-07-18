@@ -1,7 +1,7 @@
-# Website Results Evidence Bundle
+# Technical Report Data Bundle
 
-Machine-readable, public-safe snapshots of the results and paper collection
-published on `argusbot.cn`, for use by the README and the technical report.
+Machine-readable snapshots used to generate the technical report's empirical
+tables and figures.
 
 ## Files
 
@@ -13,6 +13,15 @@ published on `argusbot.cn`, for use by the README and the technical report.
 - `paper_inventory.json` — the 41 de-duplicated research cards from
   `https://argusbot.cn/research.html` (35 manuscripts + 6 drafts across six
   research programs), each with title, program, status, page count, and page link.
+- `swebench_pro/` — the unified 731-task Direct-Copilot/Argus summary and the
+  Argus-only 22-Wave Token/time record used for longitudinal convergence analysis.
+  See `swebench_pro/README.md` for metric boundaries and the PowerPoint regeneration
+  command.
+- `erdos_trace/` — one frozen vertical mathematical trace, including its
+  claim-level source table, claim--evidence map, figure brief, and provenance.
+- `process_theory/` — claim--evidence map for process-data dominance, review-gated
+  correction, reuse value, and verified reusable Token yield. It records the
+  official website concept snapshot and the current empirical support boundary.
 
 ## Retrieval
 

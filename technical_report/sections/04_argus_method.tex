@@ -1,9 +1,9 @@
-\section{Argus Runtime}
+\section{\systemname Runtime}
 \label{sec:method}
 
 \subsection{System Overview}
 
-\system{} is an open-source persistent research runtime~\citep{argus_repo} built around four model-driven roles
+\systemname is an open-source general-purpose agentic runtime~\citep{argus_repo} built around four model-driven roles
 and three system planes. The \emph{control plane} anchors the campaign and schedules
 work; the \emph{execution plane} performs one bounded mission against real tools
 and artifacts; and the \emph{record plane} stores what happened without deciding
@@ -31,8 +31,8 @@ Engineer & Modify artifacts, invoke tools, and run experiments for one round & E
 Reviewer & Inspect artifacts and execution records; decide whether work is complete & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
 \bottomrule
 \end{tabularx}
-\caption{Role separation in \system. The role that performs the work does not own
-the completion verdict.}
+\caption{Role separation in \systemname. Execution belongs to the Engineer;
+completion belongs to the Reviewer.}
 \label{tab:roles}
 \end{table}
 
@@ -60,7 +60,7 @@ $c \leftarrow \operatorname{ManagerCommit}(o)$; persist campaign identity \\
 
 \subsection{Bounded Missions over Durable State}
 
-The long-lived object in \system{} is the campaign, not a provider transcript. A
+The long-lived object in \systemname is the campaign, not a provider transcript. A
 campaign has a persisted identity and objective; its work is divided into missions
 that have explicit outcomes. The outer supervisor claims one backlog item at a
 time, executes it, records the result, and advances only at a clean mission
@@ -76,14 +76,14 @@ This follows the broader move from monolithic context toward managed memory tier
 and reusable workflows~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}.
 The Engineer proposes the handoff; the Reviewer validates and writes the canonical
 checkpoint. Hard size limits keep this object focused on current state, while the
-full history remains in artifacts and the event record. Default roll thresholds and
-the complete state layout are reported in Appendix~\ref{app:persistence}.
+full history remains in artifacts and the event record. Concrete storage layouts
+and roll thresholds are implementation choices around the core method.
 
 This design makes restart and upgrade behavior part of the method. A daemon drains
 at a mission boundary, transfers campaign identity to a replacement process, and
-resumes only after checking that identity. A crash may require replay or re-claiming
-a mission, but it does not require reconstructing the campaign from a model
-transcript.
+resumes only after checking that identity. After a crash, replay or re-claiming a
+mission begins from the persisted campaign rather than reconstructing it from a
+model transcript.
 
 \subsection{Review and Completion}
 
@@ -94,13 +94,10 @@ Reviewer can inspect the actual artifacts and execution log rather than relying 
 the Engineer's summary. A typed, append-only event tape is the canonical timeline;
 mutable status files and cockpit views are projections over that record.
 
-The Reviewer is the sole source of a mission completion verdict. The infrastructure
-does not infer completion from filenames, token volume, or keywords, and it does not
-silently rewrite the Reviewer's decision. A successful verdict may still be wrong
-because the Reviewer is a model, but the authority is unambiguous and the records
-used by the decision are inspectable. This makes the completion path explicit without
-claiming that the model-based verdict is infallible. Credential redaction and result
-provenance are implementation details documented in Appendix~\ref{app:evidence-map}.
+The Reviewer is the sole source of a mission completion verdict. Completion comes
+from the structured verdict rather than filenames, Token volume, or keywords. The
+corresponding artifacts and execution records remain inspectable, while credential
+redaction and result provenance preserve the same completion rule.
 
 \subsection{Runtime-State Updates}
 
@@ -142,13 +139,13 @@ archived, or retired when later results contradict them.
 \subsection{Reliability and Resource Governance}
 
 Long-running systems fail through operational drift even when individual model
-calls are strong. \system{} therefore wraps the mission loop with task-agnostic
+calls are strong. \systemname therefore wraps the mission loop with task-agnostic
 guards. The Reviewer labels whether a round produced a decision, measurement, setup
 only, artifact synchronization only, or no progress. Round-boundary guards stop or
 re-plan a mission after sustained non-decision behavior; in-round watchdogs are
 reserved for subprocesses that are idle or emitting activity without effective
-progress. These mechanisms bound execution but never decide whether a scientific
-claim is correct.
+progress. These mechanisms bound execution; scientific correctness remains with the
+task evaluator and Reviewer.
 
 The same gateway that records calls also enforces reservation-backed budgets.
 Spend is reserved before a call, reconciled afterward, and released on abort.
@@ -156,5 +153,5 @@ Provider-side spend fences are derived from the reservation rather than role
 configuration, so a role cannot raise its own limit. Long-running external jobs are
 registered and monitored separately; the Engineer can explicitly wait for a healthy
 supervised job instead of repeatedly polling it. GPU leasing, sandboxing, daemon
-handoff, cockpit authentication, and the numerical defaults for all guards are
-operational details listed in Appendix~\ref{app:reliability}.
+handoff, cockpit authentication, and numerical guard thresholds are
+implementation-level operational choices.

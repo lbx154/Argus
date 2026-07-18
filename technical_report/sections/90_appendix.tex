@@ -1,300 +1,219 @@
-\section{Implementation Interfaces and Lifecycle}
-\label{app:interfaces}
+\section{Detailed SWE-Bench Pro Results}
+\label{app:detailed-results}
 
-This appendix records source-level contracts and operational defaults that are
-useful for reproduction but too detailed for the main argument. The lifecycle is
-specified directly through role contracts, outcome states, persistence surfaces,
-and guard conditions; no additional conceptual diagram is required.
-
-\subsection{Role Contracts}
-
-The Manager front door uses one grounded model decision to emit six structured
-axes: \code{CONFIG}, \code{CONTROL}, \code{ROUTE}, \code{LIFETIME},
-\code{FAST\_REPLY}, and \code{NAME}. A \code{CONTROL: NO\_DISPATCH} result is
-authoritative and fails closed: the bridge may provide a read-only response but may
-not enqueue work. The Manager is also the sole writer of the current campaign
-stage.
-
-The Planner produces \code{TaskSpec} objects with explicit scope, optional DAG
-dependencies, and impact score. It authors and applies stage \code{checklist\_ops};
-the Reviewer can send \code{checklist\_feedback} but does not edit the checklist.
-The Engineer receives reservation-derived provider fences through
-\code{RunnerOptions} and returns a \code{RunnerResult} with a call identifier,
-usage-presence flags, cost, and pricing status. The Reviewer returns a
-\code{ReviewDecision} whose central fields are listed in
-Table~\ref{tab:review-interface}.
+The main text reports the startup-to-mature comparison. Table~\ref{tab:swebench-windows}
+shows every analysis window, including the task-mix spike and hard tail.
 
 \begin{table}[H]
 \centering
 \footnotesize
-\begin{tabularx}{\linewidth}{@{}p{3.3cm} X@{}}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabular}{@{}llrrrr@{}}
 \toprule
-\textbf{Reviewer field} & \textbf{Meaning} \\
+\textbf{Window} & \textbf{Interpretation} & \textbf{Tasks} & \textbf{Input/task} & \textbf{Active min/task} & \textbf{Token index} \\
 \midrule
-\code{status} & \code{done}, \code{continue}, or \code{blocked}; the mission-level completion verdict \\
-\code{progress\_class} & \code{decision}, \code{evidence}, \code{setup\_only}, \code{artifact\_sync\_only}, or \code{none} \\
-\code{next\_action} & Concrete action for the next Engineer round \\
-\code{operator\_question} & At most one human-facing blocking question \\
-\code{scope, checklist} & Structured final-submission gate, evaluated fail-closed \\
-\code{skill\_ops, wiki\_ops} & Reviewer-authored retained-state edits \\
-\code{backend\_unavailable} & Infrastructure failure, never interpreted as a scientific \code{continue} \\
+W1--6 & Startup & 120 & 2.95M & 8.52 & 100 \\
+W7--12 & Early reuse & 140 & 2.07M & 7.28 & 70 \\
+W13--18 & Task-mix shift & 151 & 1.47M & 10.42 & 50 \\
+W19--22 & Mature & 158 & 2.33M & 7.25 & 79 \\
+W23--24 & Hard tail & 49 & 3.72M & 9.01 & 126 \\
 \bottomrule
-\end{tabularx}
-\caption{Abridged Reviewer interface from \srcpath{core/models.py} and
-\srcpath{reviewer/reviewer\_schema.json}.}
-\label{tab:review-interface}
+\end{tabular}
+\caption{Task-weighted \systemname window statistics. Token index normalizes
+W1--6 to 100.}
+\label{tab:swebench-windows}
 \end{table}
 
-\subsection{Outcome Taxonomy}
-
-Every mission produces an explicit outcome:
-
-\begin{itemize}
-  \item \textbf{Terminal:} \code{done}, \code{max\_rounds}, \code{blocked},
-    \code{no\_progress}, \code{error}, and \code{budget\_exhausted}.
-  \item \textbf{Paused:} \code{paused\_budget},
-    \code{paused\_provider\_cooldown}, \code{paused\_provider\_fence},
-    \code{infra\_blocked}, \code{research\_incomplete},
-    \code{paused\_no\_breakthrough}, and
-    \code{exhausted\_current\_methods}.
-  \item \textbf{Control transfer:} \code{replan\_requested}; the item returns to
-    pending and passes through the normal Planner gate rather than being counted as
-    completed or failed.
-\end{itemize}
-
-\section{Persistence and Context Management}
-\label{app:persistence}
-
-The global state root defaults to \code{\textasciitilde/.argus-skill/} and can be
-overridden by \code{ARGUS\_SKILL\_HOME}. Each project is stored under a fingerprinted
-subdirectory. Table~\ref{tab:persisted-state} lists the principal files.
-
 \begin{table}[H]
 \centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{3.0cm} p{2.0cm} X p{1.75cm}@{}}
+\scriptsize
+\renewcommand{\arraystretch}{1.02}
+\resizebox{0.88\linewidth}{!}{%
+\begin{tabular}{@{}rrrrrr@{}}
 \toprule
-\textbf{Path} & \textbf{Owner} & \textbf{Content} & \textbf{Mutation} \\
+\textbf{Wave} & \textbf{Tasks} & \textbf{Solve input/task} & \textbf{Agent s/task} & \textbf{Skills} & \textbf{Wiki} \\
 \midrule
-\code{events.jsonl} & record plane & Canonical typed-event timeline & append-only \\
-\code{backlog.jsonl} & scheduler & Pending, running, completed, and superseded tasks & atomic claim / CAS \\
-\code{continuous.json} & Manager / scheduler & Standing objective, route, lifetime, and identity & atomic rewrite \\
-\code{inbox.jsonl} & operator & Operator messages and answers & append + drain \\
-\code{checkpoint.json} & Reviewer & Hard-capped cross-session working state & atomic rewrite \\
-\code{daemon.pid} & daemon & Per-project concurrency lock & exclusive \\
-\code{daemon.status.json} & daemon & Liveness and handoff status & rewrite \\
-\code{skills/} & Reviewer / operator & Versioned reusable skills & versioned \\
+1  & 20 & 2.839M & 545.6 & 34  & 27  \\
+2  & 20 & 3.263M & 642.6 & 54  & 41  \\
+3  & 20 & 3.609M & 569.6 & 68  & 52  \\
+4  & 20 & 2.908M & 490.7 & 89  & 64  \\
+5  & 20 & 2.832M & 452.0 & 106 & 81  \\
+6  & 20 & 2.246M & 366.8 & 127 & 94  \\
+7  & 20 & 2.564M & 519.8 & 148 & 101 \\
+8  & 20 & 2.882M & 465.8 & 168 & 115 \\
+9  & 20 & 2.615M & 394.2 & 190 & 129 \\
+10 & 20 & 2.204M & 377.1 & 208 & 143 \\
+11 & 20 & 2.041M & 396.9 & 225 & 155 \\
+12 & 40 & 1.099M & 451.5 & 260 & 171 \\
+14 & 32 & 1.327M & 527.0 & 290 & 191 \\
+16 & 39 & 1.564M & 623.1 & 305 & 206 \\
+17 & 40 & 1.537M & 668.5 & 306 & 219 \\
+18 & 40 & 1.432M & 662.8 & 333 & 237 \\
+19 & 40 & 2.424M & 431.0 & 365 & 258 \\
+20 & 40 & 2.129M & 400.5 & 404 & 284 \\
+21 & 39 & 2.165M & 427.9 & 413 & 305 \\
+22 & 39 & 2.593M & 481.3 & 434 & 323 \\
+23 & 38 & 3.873M & 565.6 & 471 & 345 \\
+24 & 11 & 3.186M & 455.4 & 478 & 352 \\
 \bottomrule
-\end{tabularx}
-\caption{Principal persisted state. The event tape is the canonical timeline;
-other files are working state or materialized views.}
-\label{tab:persisted-state}
+\end{tabular}%
+}
+\caption{All completed \systemname Wave summaries used in the longitudinal
+analysis. Waves 13 and 15 were deferred.}
+\label{tab:swebench-waves}
 \end{table}
 
-The checkpoint contains the goal, verified work, tried-and-failed approaches, one
-open blocker, the next step, and bounded environment facts. The Engineer proposes a
-handoff, and the Reviewer validates and writes the canonical \code{checkpoint.json}.
-Python-level item and character caps prevent it from becoming an append-only
-transcript. A missing or malformed candidate checkpoint preserves the last valid
-state rather than clearing memory.
+\section{Reviewer Intervention Details}
 
-By default, each role thread is rolled after three rounds on that thread or when the
-preceding call reports at least 1.5 million input tokens. The next session is
-re-seeded from the checkpoint. These limits are configurable and disable at zero.
-The design keeps provider prefix caching useful over short windows while preventing
-unbounded compaction loops.
-
-Unattended execution is wrapped by
-\srcpath{daemon/life\_worker.py} (roughly 1,800 lines). The worker drains on
-\code{SIGTERM} or \code{SIGINT} at a mission boundary. Source upgrades use a
-blue/green self-handoff with a bounded generation count and persisted identity
-consisting of the objective hash, vertical, and lineage generation. A resume adopts
-only a matching identity; otherwise the Manager must perform a fresh division.
-
-\section{Run Records and Provenance}
-\label{app:evidence-map}
-
-\subsection{Event Catalog and Call Correlation}
-
-The canonical catalog contains \textbf{112 typed event types} across
-\textbf{11 categories}; \textbf{75} event types carry validated payload schemas in
-\srcpath{core/event\_catalog.py}. Table~\ref{tab:event-taxonomy} gives the category
-counts. The event \code{research.achievement.certified} is the sole authoritative
-record of a verified achievement.
+Table~\ref{tab:reviewer-mechanism} separates routing decisions from recovery
+outcomes. The first three rows partition the independent-Reviewer trajectories;
+the final two rows measure recovery after a revision request.
 
 \begin{table}[H]
 \centering
 \footnotesize
-\begin{tabularx}{0.86\linewidth}{@{}p{2.3cm} r X@{}}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lrr@{}}
 \toprule
-\textbf{Category} & \textbf{Count} & \textbf{Representative content} \\
+\textbf{Reviewer mechanism event} & \textbf{Tasks} & \textbf{Interpretation} \\
 \midrule
-Lifecycle & 40 & Loop, round, mission, and budget-reservation events \\
-Skill & 20 & Match, distillation, use, and outcome events \\
-Wiki & 17 & Source ingest, page synthesis, promotion, and validation \\
-Planner & 9 & Planning start, tasks, waiting contracts, and verdicts \\
-Research & 7 & Achievement certification and research status \\
-Agent I/O & 5 & Provider-call start, stream, and completion \\
-Daemon & 5 & Start, stop, handoff, and status \\
-Idea & 3 & Idea lifecycle \\
-Provider & 3 & Provider request start, completion, and denial \\
-Usage & 2 & Presence-aware usage and cost \\
-Operator & 1 & Operator inbox event \\
+Independent Reviewer invoked & 466 & 63.7\% of 731 \\
+Engineer self-review & 265 & 36.3\% of 731 \\
+Accepted on first external review & 388 & terminal \code{done} \\
+Blocked on first external review & 35 & terminal \code{blocked} \\
+External Reviewer requested revision & 43 & at least one \code{continue} \\
+Official verifier success after revision & 34 & 79.1\% of revision requests \\
+Strict review-loop rescue & 22 & 51.2\% of revision requests \\
 \bottomrule
-\end{tabularx}
-\caption{Event taxonomy in the current implementation.}
-\label{tab:event-taxonomy}
+\end{tabular}
+\caption{Reviewer routing and recovery. Strict rescue requires an external
+Reviewer \code{continue} followed by a later Reviewer \code{done}.}
+\label{tab:reviewer-mechanism}
 \end{table}
 
-Every provider call receives a \code{call\_id} at
-\srcpath{core/run\_gateway.py}. The identifier is written to the event tape and
-returned in the runner result, allowing Reviewer prompts and later audits to locate
-the exact execution record. Usage-presence booleans distinguish a genuine zero from
-provider-omitted accounting.
+\section{Representative Vertical Trace Details}
 
-\subsection{Credential Handling and Optional Signing}
-
-\srcpath{core/secret\_guard.py} redacts authorization headers, API-key patterns,
-provider tokens, and generic key/value secrets before event or artifact copies are
-persisted for downstream use. A redaction emits \code{round.secret\_redacted}; a
-scan error or uncovered oversized artifact blocks unconditional certification.
-
-An optional Ed25519 signing path in \srcpath{team/result\_provenance.py} supports
-isolated-scorer teammate results. It is off by default and is not used for the
-results reported here.
-
-\subsection{Artifact-Digest Records}
-
-The nanoGPT speedrun row points to logical project
-\nolinkurl{nanogpt-speedrun-h100} and artifact
-\nolinkurl{candidate_mlp_post_only_hybrid_n10_20260617T152904Z}. Its verifier
-records \code{valid=true}, $N{=}10$, validation loss $3.2776$, one-sided
-$p(\mathrm{mean}<3.28)=0.004007$, training time $79.77\pm0.06$ seconds, and
-\code{seal=ok}. The nanochat B200 row points to logical project
-\nolinkurl{nanochat-mission-b200} and artifact
-\nolinkurl{a374_tailweighted_boundary_mixed_readout_data_bundle}; its frozen scorer
-exits 0 with \code{MEAN\_VAL\_BPB=0.963634} and a valid SM100 flash-attention kernel.
-The result JSON stores source/result hashes and verifier excerpts, but not the
-external bytes.
-
-Both public pages were retrieved at \code{2026-07-14T12:29:51Z}. Their complete
-raw-HTML SHA-256 values are recorded in \srcpath{evidence/website\_results.json}
-and \srcpath{evidence/paper\_inventory.json} rather than typeset inline.
-
-\subsection{Source Map}
+Table~\ref{tab:erdos-trace-detail} expands the role handoffs summarized in
+Figure~\ref{fig:erdos-vertical-trace}. The table deliberately foregrounds Agent
+authority and durable outputs rather than the mathematical statements.
 
 \begin{table}[H]
 \centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{4.1cm} X@{}}
+\scriptsize
+\renewcommand{\arraystretch}{1.10}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lp{2.55cm}p{2.55cm}p{2.75cm}p{3.7cm}@{}}
 \toprule
-\textbf{Subsystem} & \textbf{Primary source path(s)} \\
+\textbf{Phase} & \textbf{Manager / Planner} & \textbf{Engineer} & \textbf{Reviewer} & \textbf{Durable output} \\
 \midrule
-Runtime composition and roles & \code{manager/}, \code{planner/}, \code{engineer/}, \code{reviewer/}, \code{loop.py} \\
-Mission lifecycle and daemon & \code{life/supervisor/\_core.py}, \code{daemon/life\_worker.py}, \code{daemon/handoff.py} \\
-State and memory & \code{core/paths.py}, \code{apps/\_runtime.py}, \code{engineer/checkpoint.py}, \code{life/memory.py} \\
-Execution and budgets & \code{core/run\_gateway.py}, \code{core/pricing.py}, \code{core/usage.py}, \code{core/provider\_quota.py} \\
-Reliability guards & \code{engineer/runner.py}, \code{regime\_jump/} \\
-Records and integrity & \code{core/event\_catalog.py}, \code{core/secret\_guard.py}, \code{skills/provenance.py} \\
-Cockpit and API & \code{webapi/server.py}, \code{frontend/tui/}, \code{frontend/web/} \\
-Public results & \code{technical\_report/evidence/website\_results.json}, \code{paper\_inventory.json} \\
+Recover and scope & Manager restores the campaign; Planner screens candidate problems. & Grounds sources and creates deterministic checks. & Verifies problem fidelity and accepts the scoped objective. & Persistent objective, selected problem, initial claim ledger. \\
+Test a route & Planner chooses the cheapest decisive falsification mission. & Runs the witness verifier and records the failed reduction. & Accepts the negative result and fixes its scope. & Certified dead branch and revised next action. \\
+Produce proof package & Planner requires theorem, proof, and verification artifacts. & Writes proof, audits, claim ledger, lemma graph, and checkpoint. & Returns \code{continue} when checks are incomplete, then rechecks. & Reviewer-accepted bounded result package. \\
+Strengthen & Planner requires later work to consume and advance retained state. & Improves one result and proves bridge/obstruction lemmas. & Checks correctness, strict progress, and claim boundaries. & Updated accepted state plus named remaining blockers. \\
+Continue & Manager advances or rolls back from the verdict; Planner selects the next blocker. & Starts the next mission from retained artifacts. & Updates the frontier status and next blockers. & Inspectable event trace and reusable cross-session state. \\
 \bottomrule
-\end{tabularx}
-\caption{Repository map for implementation and reported results.}
-\label{tab:source-map}
+\end{tabular}%
+}
+\caption{Role-resolved phases in the frozen Erd\H{o}s--Gy\'arf\'as campaign.
+The table follows how each role changes the shared research state.}
+\label{tab:erdos-trace-detail}
 \end{table}
 
-\section{Reliability, Budgets, and Deployment}
-\label{app:reliability}
+The supplementary trace bundle contains the frozen role/claim table,
+calculation map, HTML figure source, figure brief, and provenance. The source
+campaign retains the complete artifacts and event stream.
 
-The guards in Table~\ref{tab:guards} define the long-running execution envelope.
-They are task-agnostic: they constrain activity and resource use, while the Reviewer
-remains responsible for scientific judgment.
+\begin{paperbox}{Representative proof artifact (abridged)}
+\small
+For fixed roots $x,y$, let $\mathcal{P}_4(x,y)$ be the length-$4$ paths from
+$x$ to $y$, and let $\mathcal{F}$ be their internal three-vertex sets. In a
+graph with no $C_8$, any two members of $\mathcal{F}$ intersect: two paths with
+disjoint internal vertices would join to form an $8$-cycle. A separate
+no-$C_4$ case analysis shows that any fixed pair of internal vertices occurs in
+at most three path sets.
+
+Assume that the path family has no common internal blocker. Choose
+$E=\{a,b,c\}\in\mathcal{F}$. For each $t\in E$, some member $E_t$ omits $t$.
+Every set containing $t$ must meet the three vertices of $E_t$; the pair-occurrence
+bound therefore gives $d(t)\leq 9$. Hence
+\[
+  d(a)+d(b)+d(c)\leq 27.
+\]
+Every member of $\mathcal{F}$ meets $E$, while $E$ itself contributes three
+incidences rather than one, so
+\[
+  |\mathcal{F}|+2\leq d(a)+d(b)+d(c)\leq 27.
+\]
+Thus $|\mathcal{P}_4(x,y)|=|\mathcal{F}|\leq25$: the paths share a common
+internal blocker or there are at most $25$ of them. This excerpt illustrates the
+kind of proof artifact produced and reviewed by the workflow; the complete case
+analysis and computational checks remain in the source bundle.
+\end{paperbox}
+
+\section{Process-Theory Calculations}
+\label{app:formula-instantiation}
+
+Table~\ref{tab:formula-instantiation} records the complete substitutions behind the
+process quantities summarized in the main text. The mathematical window contains
+332,274 reasoning-output Tokens over 9,620.5 active seconds. The strict and
+inclusive density values use the two attribution policies defined in
+Equation~\ref{eq:operational-efficiency}. The process-compression row is a separate
+operational snapshot taken at 2026-07-18 10:18:56 UTC.
 
 \begin{table}[H]
 \centering
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}p{2.75cm} X p{1.3cm} p{1.55cm}@{}}
+\scriptsize
+\renewcommand{\arraystretch}{1.13}
+\begin{tabularx}{\linewidth}{@{}p{2.25cm}p{4.3cm}p{2.15cm}X@{}}
 \toprule
-\textbf{Guard} & \textbf{Trigger and action} & \textbf{Default} & \textbf{Live-call interrupt} \\
+\textbf{Theory quantity} & \textbf{Data substitution} & \textbf{Observed value} & \textbf{Interpretation} \\
 \midrule
-Backend failure & Consecutive failures $\rightarrow$ backoff, then error & 2 / 15 s & no \\
-No-progress bail & Consecutive rounds with no Engineer message & 2 & no \\
-Decision stall & Consecutive nondecision review classes $\rightarrow$ end & 4 & no \\
-Decision-progress budget & Time since last decision/evidence $\rightarrow$ end & 1,800 s & no \\
-Soft round escalation & Ask Reviewer to return \code{blocked} & 12 & no \\
-Hard round escalation & Force terminal \code{blocked} & 24 & no \\
-Effective-progress watchdog & No file change or non-token event & 3,600 s & yes \\
-Runner hard-idle & No runner activity & 3,600 s & yes \\
-In-round compaction limit & Repeated automatic compactions & 3 & yes \\
+Strict $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.5598\times0.5556\times0.5538$ & 5.95 effective Token-eq./s & Direct reasoning, action, and verification only. \\
+Inclusive $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.9512\times0.9444\times0.9043$ & 28.06 effective Token-eq./s & Includes successful coordination and state-maintenance work. \\
+Reviewer correction & $34/43$ verifier recoveries; $22/43$ strict rescues & 79.1\%; 51.2\% & Post-revision outcomes on SWE-Bench Pro. \\
+Reuse quantity $G_K$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & Startup--mature difference in the longitudinal run. \\
+Immediate $\widehat{\mathcal{Y}}_{\mathrm{PRI}}$ & $\lambda_g=0$; $6/332{,}274\times10^6$ & 18.1 accepted deltas/M reasoning Tokens & Six accepted theorem-frontier updates in Rounds 12--17. \\
+Process compression & $384{,}370{,}463/3{,}240$ bytes & 118,633$\times$ raw-tape/checkpoint ratio & Event history relative to the active working checkpoint. \\
 \bottomrule
 \end{tabularx}
-\caption{Default reliability guards in \srcpath{engineer/runner.py}. Thresholds are
-environment-overridable and disable at zero where applicable.}
-\label{tab:guards}
+\caption{Detailed calculation of the process-theory quantities. Values retain
+their task-specific units; the main text reports the corresponding system-level
+patterns.}
+\label{tab:formula-instantiation}
 \end{table}
 
-The canonical \code{resolve\_budget\_caps} path in \srcpath{core/knobs.py} resolves
-a per-mission preflight cap of \$30, a per-project daily cap of \$180, a global
-daily cap of \$30, and at most two active daemons across projects. A positive global
-cap is enforced; setting it to zero disables it. Calls reserve budget before
-execution and settle or release the reservation afterward. Unpriced calls and
-provider-fence breaches produce explicit blocked events rather than fabricated
-costs.
-
-Supervised background jobs maintain their own health cadence and report terminal
-outcomes through the operator inbox. An Engineer may explicitly emit
-\code{WAIT\_FOR\_SUBAGENT} for a healthy self-watched job; otherwise the request
-falls back to a normal reviewed round. The GPU lease tool is explicit rather than
-automatic: \code{gpu\_lease run -- <cmd>} releases parked devices, records a lease
-for the command lifetime, and restores the keep-alive only when no competing lease
-remains.
-
-The intended deployment is a per-project \code{systemd --user} service. It runs the
-daemon in the foreground, uses \code{SIGTERM}, allows up to 1,800 seconds for a clean
-mission-boundary drain, and restarts under a bounded service policy. Sandboxed
-builder roles are confined to the project working directory and may not write the
-global state root or provider configuration. The terminal and web cockpits read the
-same event tape; mutating commands and sensitive global views require an
-authorization token when configured.
-
-\section{Notation and Figure Provenance}
-\label{app:notation}
+\section{Notation}
 
 \begin{table}[H]
 \centering
 \footnotesize
-\begin{tabularx}{0.88\linewidth}{@{}p{2.5cm} X@{}}
+\begin{tabularx}{0.88\linewidth}{@{}p{2.6cm} X@{}}
 \toprule
 \textbf{Symbol} & \textbf{Meaning} \\
 \midrule
-$o,y_0,f,B$ & Campaign objective, initial artifact, evaluator, and resource budget \\
+$o,y_0,f,B$ & Objective, initial artifact, evaluator, and resource budget \\
 $\tau_t$ & Mission trajectory $(s_t,a_t,y_t,e_t,r_t)$ \\
-$\rho_I(T)$ & Dense-intelligence density over wall-clock horizon $T$ \\
-$\dot N_{\mathrm{tok}}$ & Rate of token-mediated reasoning and action \\
-$\eta_r,\eta_a,\eta_v$ & Reasoning, action, and verification conversion factors \\
-$H_t$ & Runtime state $\{M_t,S_t,A_t,V_t,R_t,Q_t\}$ \\
-$E_t$ & Results admitted from mission $t$ \\
+$H_t$ & Persistent runtime state \\
+$E_t$ & Results admitted after mission $t$ \\
 $\theta_t$ & Underlying model parameters, fixed in this report \\
 $C_t$ & Effective retained capability set \\
-$W_t,D_t(d)$ & Capability breadth and depth in domain $d$ \\
-$\epsilon$ & Acceptance threshold in the idealized capability-admission rule \\
-$V_R(T)$ & Conceptual accumulated research value over horizon $T$ \\
-$\Delta I,p_{\mathrm{valid}},\eta_{\mathrm{reuse}}$ & Information gain, validity probability, and reuse efficiency \\
-$D_{\mathrm{process}}$ & Retained states, actions, measurements, feedback, and runtime-state deltas \\
+$\phi(\tau_t)$ & Role-resolved mission trace $(m_t,p_t,x_t,r_t,\Delta H_t)$ \\
+$\rho_I(T)$ & Dense-intelligence density over horizon $T$ \\
+$\eta_r,\eta_a,\eta_v$ & Measured reasoning, action, and verification efficiency factors \\
+$\mathcal{R}_q(X)$ & Minimum downstream decision risk when observing $X$ \\
+$\psi_b^\star$ & Decision-useful process compression under context budget $b$ \\
+$G_K(\Delta H_t)$ & Discounted counterfactual reuse value over $K$ future tasks \\
+$\mathcal{Y}_{\mathrm{PRI}}(W)$ & Verified reusable process-intelligence yield per Token \\
+$\alpha,\beta$ & Reviewer sensitivity and false-acceptance rate \\
+$V_R(T)$ & Conceptual accumulated research value \\
+$R_{\mathrm{tok}}$ & Aggregate \systemname-to-Direct-Copilot Token ratio \\
+$\bar I_w^{\mathrm{solve}}$ & Mean solve input tokens in Wave $w$ \\
+$\bar T_w^{\mathrm{agent}}$ & Mean active workflow time in Wave $w$ \\
 \bottomrule
 \end{tabularx}
-\caption{Notation used in the main text.}
+\caption{Notation used in the report.}
 \end{table}
 
-The paper uses three figures, each with a distinct evidentiary purpose. The first-page
-teaser, \code{argus\_teaser}, combines the exact objective--runtime--review--state
-flow with protocol-scoped public result cards. It is an HTML/CSS vector composition
-generated from the committed result JSON by
-\srcpath{figures/build\_argus\_teaser.py}; its figure brief, source hashes, editable
-HTML, and renderer are recorded in \srcpath{figures/argus\_teaser.json}. The two
-empirical figures, \code{public\_results} and \code{paper\_portfolio}, are generated
-by \srcpath{figures/build\_report\_figures.py} and digested in
-\srcpath{figures/REPORT\_FIGURES.json}. The remaining structural assets in the
-repository are intentionally not included: their content is represented more
-precisely by equations, tables, and interface definitions in this version.
+Machine-readable aggregates and editable figure sources are released with the
+report. They are kept outside the narrative so that implementation metadata does
+not obscure the scientific results.

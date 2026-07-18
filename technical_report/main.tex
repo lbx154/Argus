@@ -14,6 +14,7 @@
 \usepackage[letterpaper,top=0.55in,bottom=0.62in,left=0.72in,right=0.72in,
   headheight=14pt]{geometry}
 \usepackage[protrusion=true,expansion=true]{microtype}
+\usepackage{xspace}
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -39,11 +40,15 @@
 \definecolor{rulegray}{HTML}{D7DEE5}
 \definecolor{softgray}{HTML}{F7F8FA}
 
+% Canonical product name; use \MakeUppercase{\systemname} only where the
+% surrounding typography requires all caps.
+\newcommand{\systemname}{Argus\xspace}
+
 \hypersetup{
-  pdftitle={Argus: Long-Horizon Autonomous Research through Persistent, Review-Guided Runtime Evolution},
+  pdftitle={\systemname: A General-Purpose Agentic Runtime for Long-Horizon Reasoning},
   pdfauthor={Shanghai Jiao Tong University; Microsoft},
-  pdfsubject={Argus Technical Report 0.3},
-  pdfkeywords={autonomous research agents, long-horizon agents, runtime evolution, persistent state}
+  pdfsubject={\systemname Technical Report 0.3},
+  pdfkeywords={general-purpose agentic runtime, long-horizon reasoning, compounding intelligence, persistent state, experimentation, review}
 }
 
 \color{ink}
@@ -81,8 +86,8 @@
 \pagestyle{fancy}
 \fancyhf{}
 \renewcommand{\headrulewidth}{0.35pt}
-\fancyhead[L]{\footnotesize\sffamily\color{muted}Argus}
-\fancyhead[R]{\footnotesize\sffamily\color{muted}Long-Horizon Autonomous Research}
+\fancyhead[L]{\footnotesize\sffamily\color{muted}\systemname}
+\fancyhead[R]{\footnotesize\sffamily\color{muted}General-Purpose Agentic Runtime}
 \fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage}
 \fancypagestyle{firstpage}{
   \fancyhf{}
@@ -113,10 +118,10 @@
   title={#1}
 }
 
-\newcommand{\system}{\textsc{Argus}}
 \newcommand{\code}[1]{\texttt{\small #1}}
-\newcommand{\srcpath}[1]{{\small\color{muted}\texttt{#1}}}
 \newcommand{\strong}[1]{\textbf{#1}}
+\input{figures/swebench_metrics}
+\input{figures/reviewer_metrics}
 
 \begin{document}
 \thispagestyle{firstpage}
@@ -126,14 +131,16 @@
 \vspace{0.18in}
 
 {\sffamily\small\bfseries\color{muted}
-  ARGUS TECHNICAL REPORT 0.3 \enspace\textperiodcentered\enspace JULY 2026}\par
+  \MakeUppercase{\systemname} TECHNICAL REPORT 0.3 \enspace\textperiodcentered\enspace JULY 2026}\par
 \vspace{0.12in}
 
 {\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
-  Argus: Long-Horizon Autonomous Research\par
-  through Persistent, Review-Guided\par
-  Runtime Evolution}\par
-\vspace{0.10in}
+  \systemname: A General-Purpose Agentic Runtime\par
+  for Long-Horizon Reasoning}\par
+\vspace{0.07in}
+{\raggedright\sffamily\fontsize{13}{16}\selectfont\bfseries\color{argusdeep}
+  Compounding Intelligence through Persistent State, Experimentation, and Review}\par
+\vspace{0.12in}
 
 % Author names will be inserted here after confirmation. For this draft, the
 % official affiliation marks are intentionally shown without names.
@@ -151,28 +158,41 @@
 \begin{abstractbox}
 \small
 \textbf{Abstract.}
-Long-horizon autonomous research requires more than extending a single model
+Long-horizon reasoning requires more than extending a single model
 session. A research system must preserve objectives across restarts, turn decisions
 into real experiments, separate execution from acceptance, and retain useful
-lessons for later work. We present \system, a persistent runtime organized around
+lessons for later work. We present \systemname, a persistent runtime organized around
 four model-driven roles---Manager, Planner, Engineer, and Reviewer---that operate
 over bounded missions and durable project state. The runtime records an append-only
 experiment trace, maintains curated cross-session memory, and updates reusable skills,
 procedures, verifiers, and routing while holding the underlying model parameters
 fixed. We formalize this process as dense intelligence and review-gated runtime
-evolution. Using GPT-5.5 through Codex, we report task-native outcomes across six
-heterogeneous arenas and a de-duplicated portfolio of 41 research artifacts across
-six programs. The results demonstrate operational breadth and competitive outcomes
-under their stated protocols, but the evaluation is observational: it does not
-isolate the causal effect of individual runtime components or establish universal
-state-of-the-art performance.
+evolution, and give a decision-theoretic account of how typed process data can
+become reviewed, reusable capability. Using GPT-5.5, we report task-native outcomes across seven benchmark
+arenas. On SWE-Bench Pro, Direct Copilot with GPT-5.5/xhigh reaches approximately
+\SWEProDirectAccuracy\% accuracy; \systemname reaches approximately
+\SWEProArgusAccuracy\% while using \SWEProTokenRatio$\times$ the aggregate Tokens.
+The same run enables deeper analyses of self-evolution and Reviewer intervention.
+Copilot per-wave resource traces are unavailable, so the longitudinal analysis
+concerns \systemname alone. Relative to the W1--6 startup window,
+the mature W19--22 window uses \SWEProTokenReduction\% fewer solve input tokens and
+\SWEProTimeReduction\% less active workflow time per task. The trajectory is not
+monotone: task-mix shifts and the final hard-tail waves produce visible reversals.
+Reviewer feedback requests revision on \ReviewerRevisionRequested{} tasks;
+\ReviewerVerifierRecovered{} later pass the official verifier and
+\ReviewerStrictRescues{} complete the strict review-loop rescue.
+A complementary mathematical trace follows one objective across recovery, route
+rejection, proof production, revision, acceptance, and the next mission. Together,
+the benchmark trajectory and vertical case connect runtime organization to
+measured long-horizon behavior. The retained trajectories also form structured
+training data for future supervised and reinforcement learning.
 \end{abstractbox}
 
 \noindent
 \begin{minipage}[t]{0.66\linewidth}
   \footnotesize\color{muted}
-  \textbf{Keywords:} autonomous research agents; long-horizon agents; persistent
-  state; reproducible evaluation; agent reliability.
+  \textbf{Keywords:} general-purpose agentic runtime; long-horizon reasoning;
+  compounding intelligence; persistent state; experimentation; review.
 \end{minipage}%
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
@@ -182,18 +202,19 @@ state-of-the-art performance.
 
 \vspace{0.04in}
 {\footnotesize\itshape\color{muted}
-This is a living technical report. Reported results correspond to the public
-snapshot retrieved on July 14, 2026.}\par
+This is a living technical report. Public result cards were retrieved on July 14,
+2026; the SWE-Bench Pro experiment record was frozen on July 18, 2026.}\par
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
-  \caption{\system{} at a glance. (A) A dense-intelligence objective enters a
+  \caption{\systemname at a glance. (A) A dense-intelligence objective enters a
   role-separated runtime; artifacts and run results pass through a review gate
-  before updating reusable state around a fixed model. (B) The current public
-  record spans six heterogeneous arenas and 41 research artifacts. Result cards
-  preserve task-native units and identify GPT-5.5 as the agent backbone and Codex
-  as the backend; they are not cross-normalized.}
+  before updating reusable state around a fixed model. (B) The result panel retains
+  six heterogeneous public arenas and 41 research artifacts, and adds the unified
+  SWE-Bench Pro result: approximately 59\% for Direct Copilot versus 78\% for
+  \systemname at 1.41$\times$ aggregate tokens. Task-native public values are not
+  cross-normalized.}
   \label{fig:overview}
 \end{figure}
 
@@ -203,6 +224,7 @@ snapshot retrieved on July 14, 2026.}\par
 \input{sections/04_argus_method}
 \input{sections/05_empirical_methodology}
 \input{sections/06_results}
+\input{sections/06b_vertical_trace}
 \input{sections/07_discussion}
 \input{sections/08_limitations}
 \input{sections/09_conclusion}

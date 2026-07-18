@@ -1,0 +1,9 @@
+# Claim--Evidence Map: Process-to-Capability Theory
+
+| Claim | Type | Evidence | Protocol | Uncertainty | Allowed wording |
+|---|---|---|---|---|---|
+| A typed process record is weakly more informative than its final-artifact projection for downstream decisions. | Theoretical result | Proposition 1; Blackwell ordering | Final artifact is a deterministic projection of the process record | Practical benefit may disappear under compression or reader cost | “Process data weakly dominates final-only observation in information, not necessarily in operational utility.” |
+| A discriminative Reviewer raises the precision of admitted state. | Theoretical result | Bayes-rule derivation | Reviewer sensitivity exceeds false-acceptance rate | Current data do not identify either rate | “Review improves admitted precision under an explicit discrimination condition.” |
+| Accepted state compounds only when it improves matched future work. | Definition / falsifiable hypothesis | Counterfactual reuse value $G_K$ | Same future tasks with and without the update | Existing Wave trend is confounded by task mix | “Compounding is positive counterfactual reuse, not state growth alone.” |
+| The current traces instantiate the proposed process-to-capability chain. | Measured process finding | SWE-Bench Pro Waves and Reviewer events; Erdős trace and efficiency audit | One software trajectory and one mathematical vertical case | Observational; no matched state ablation | “Existing evidence supports mechanism existence but not causal compounding.” |
+| The public formulas can be populated with protocol-scoped observed values. | Measured process finding / proxy | `formula_instantiation.csv` | Frozen mathematical telemetry, SWE-Bench Pro aggregates, and one operational compression snapshot | Mixed units; attribution-policy sensitivity; no common causal score | “The report provides concrete audit indices and proxies while preserving their evidence boundaries.” |

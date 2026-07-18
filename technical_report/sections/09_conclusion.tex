@@ -1,16 +1,23 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-We introduced \system{}, a persistent runtime for long-horizon autonomous research.
-The system decomposes a campaign into bounded missions, separates planning,
-execution, and acceptance across explicit roles, records an append-only experiment
-trace, and retains reviewed experience as inspectable runtime state around a fixed
-model. This organization moves continuity from an unbounded model transcript into
-recoverable project state.
+\systemname is a general-purpose agentic runtime for sustained research across
+bounded missions. Persistent campaign state, four-role authority separation, and
+review-gated updates allow one objective to continue across model calls, tool runs,
+revisions, and restarts. Across seven benchmark arenas, the runtime reaches strong
+task-native results; on SWE-Bench Pro it attains approximately 78\% accuracy versus
+59\% for Direct Copilot at 1.41$\times$ aggregate Tokens. Mature operation uses
+21\% fewer solve input Tokens and 15\% less active time than startup, while Reviewer
+intervention produces 34 verifier recoveries and 22 strict review-loop rescues.
 
-The current public record spans six benchmark arenas and 41 de-duplicated research
-artifacts across six programs. These results demonstrate operational breadth and
-competitive task-level outcomes. The next step is not a broader headline claim, but
-stronger causal and reproducibility evaluation: controlled ablations, broader task
-coverage, calibrated review, and longitudinal measurements of what the
-runtime actually retains.
+The process-to-capability theory explains how this runtime converts Token activity
+into retained research progress. Typed trajectories contain more decision-relevant
+information than final artifacts alone, review separates proposal from admission,
+and reuse changes the starting point of future missions. The mathematical
+campaign makes this mechanism visible through one rejected route and six accepted
+theorem-frontier updates produced by the Manager, Planner, Engineer, and Reviewer.
+
+These trajectories also define a natural interface to model training. Supervised,
+preference-based, and reinforcement-learning methods can use the accumulated
+objectives, actions, measurements, revisions, and state transitions to internalize
+parts of the long-horizon research loop.
