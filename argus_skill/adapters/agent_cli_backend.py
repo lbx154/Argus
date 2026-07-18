@@ -1812,13 +1812,21 @@ class AgentCliBackend:
                 {**row, "model": authoritative_usage_model}
                 for row in model_usage
             ]
+        fatal_error = _normalize_fatal_error(argus_result.fatal_error)
+        if (
+            getattr(argus_result, "turn_failed", False)
+            and not argus_result.fatal_error
+        ):
+            fatal_error = "\n".join(
+                map(str, getattr(argus_result, "stderr_lines", None) or [])
+            ).strip() or "backend reported a failed turn"
         return RunnerResult(
             exit_code=argus_result.exit_code,
             agent_messages=list(argus_result.agent_messages or []),
             stdout_lines=list(argus_result.stdout_lines or []),
             stderr_lines=list(argus_result.stderr_lines or []),
             thread_id=argus_result.thread_id or resume_thread_id,
-            fatal_error=_normalize_fatal_error(argus_result.fatal_error),
+            fatal_error=fatal_error,
             stop_kind=(
                 normalize_stop_kind(getattr(argus_result, "stop_kind", None))
                 or _raw_backend_stop_kind(
