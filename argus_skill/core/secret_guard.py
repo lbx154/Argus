@@ -108,15 +108,14 @@ _SOURCE_SUFFIXES = {
 }
 _MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 _MAX_SCANNED_FILES = 10_000
-# `code/references/<repo>/` is the documented convention (see
-# `argus_skill/builtin_skills/agent-md-new-project-template.md`) for shallow
-# `git clone --depth=1` copies of third-party reference repositories. These
-# trees are unmodified upstream OSS, not artifacts written during this round,
-# so scanning them can never catch a locally introduced secret. Walking into
-# them anyway burns the `_MAX_SCANNED_FILES` / `_MAX_ARTIFACT_BYTES` budget on
-# vendored files and can starve or truncate the scan of the round's real
-# artifacts (observed with large clones such as vllm/axolotl/LLaMA-Factory).
-_VENDORED_REFERENCE_DIR_PARTS = ("code", "references")
+# These trees contain immutable upstream bytes rather than artifacts authored
+# during an engineer round. Scanning them both wastes the bounded scan budget
+# and can corrupt structured upstream data whose schema legitimately uses
+# credential-like keys such as ``token``.
+_NON_ARTIFACT_TREE_PARTS = {
+    ("code", "references"),
+    ("models", "huggingface"),
+}
 _TEXT_ARTIFACT_SUFFIXES = {
     "",
     ".csv",
@@ -354,10 +353,7 @@ def scrub_recent_text_artifacts(
             rel_dir_parts = Path(dirpath).relative_to(root).parts
         except ValueError:
             rel_dir_parts = ()
-        if rel_dir_parts == _VENDORED_REFERENCE_DIR_PARTS:
-            # Don't descend into vendored clones at all; see the constant's
-            # docstring above for why scanning them is both wasted work and a
-            # false source of "truncated" scan coverage.
+        if rel_dir_parts in _NON_ARTIFACT_TREE_PARTS:
             dirnames[:] = []
             continue
         for filename in filenames:

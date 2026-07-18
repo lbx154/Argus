@@ -185,6 +185,39 @@ def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
+def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+
+    cache_file = (
+        tmp_path
+        / "models"
+        / "huggingface"
+        / "hub"
+        / "models--example--model"
+        / "blobs"
+        / "upstream.json"
+    )
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(
+        '{"token": "public-tokenizer-schema-value"}\n',
+        encoding="utf-8",
+    )
+    now = time.time()
+    cache_file.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert cache_file.read_text(encoding="utf-8") == (
+        '{"token": "public-tokenizer-schema-value"}\n'
+    )
+    assert report.scanned_files == 1
+
+
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
     artifact = tmp_path / "response.txt"
     artifact.write_text("Authorization: Bearer live-token-value-123\n", encoding="utf-8")
