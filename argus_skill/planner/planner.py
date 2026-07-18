@@ -129,17 +129,6 @@ def _theorem_proof_task_issue(task: TaskSpec) -> str:
             "严格",
         )
     )
-    has_independent_review = any(
-        marker in text
-        for marker in (
-            "independent reviewer",
-            "independent review",
-            "reviewer acceptance",
-            "独立 reviewer",
-            "独立审稿",
-            "独立审核",
-        )
-    )
     missing: list[str] = []
     if not has_statement:
         missing.append("a precisely stated theorem/lemma")
@@ -147,8 +136,6 @@ def _theorem_proof_task_issue(task: TaskSpec) -> str:
         missing.append("a proof deliverable")
     if not has_complete:
         missing.append("complete/self-contained rigor")
-    if not has_independent_review:
-        missing.append("independent Reviewer acceptance")
     if missing:
         return "missing " + ", ".join(missing)
 
@@ -169,11 +156,107 @@ def _theorem_proof_task_issue(task: TaskSpec) -> str:
     return ""
 
 
+def _project_has_theorem_baseline(project_root: Path) -> bool:
+    """Whether the project already records a proved theorem to improve upon."""
+    ledger = project_root / "research" / "CLAIM_LEDGER.md"
+    try:
+        text = " ".join(ledger.read_text(encoding="utf-8").lower().split())
+    except OSError:
+        return False
+    return bool(
+        re.search(
+            r"(?:complete|proved|self-contained)[^|]{0,120}\btheorem\b",
+            text,
+        )
+        or re.search(
+            r"\btheorem\b[^|]{0,120}(?:complete|self-contained proof|proved)",
+            text,
+        )
+    )
+
+
+def _theorem_progression_task_issue(task: TaskSpec) -> str:
+    """Require an explicit dominance comparison once a theorem baseline exists."""
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    references_claim_ledger = "claim_ledger" in text or "claim ledger" in text
+    references_lemma_graph = "lemma_graph" in text or "lemma graph" in text
+    if not (references_claim_ledger and references_lemma_graph):
+        return "missing CLAIM_LEDGER/LEMMA_GRAPH baseline comparison"
+
+    strict_progress_patterns = (
+        r"strictly strengthen",
+        r"strictly improve",
+        r"strict strengthening",
+        r"sharper .{0,80}(?:theorem|bound|constant)",
+        r"(?:improve|lower|reduce|replace).{0,80}(?:bound|constant)",
+        r"\bk\s*<\s*\d+",
+        r"weaken.{0,60}hypoth",
+        r"remove.{0,60}hypoth",
+        r"new .{0,40}bridge (?:lemma|theorem)",
+        r"(?:close|resolve).{0,60}(?:gap|open node|missing bridge)",
+        r"materially refine",
+        r"严格(?:加强|改进|推进|优于)",
+        r"更强(?:定理|结论|界)",
+    )
+    if not any(re.search(pattern, text) for pattern in strict_progress_patterns):
+        return (
+            "missing an explicit strict improvement over the strongest proved "
+            "ledger theorem"
+        )
+    return ""
+
+
+def _is_guarded_theorem_followup(
+    task: TaskSpec,
+    *,
+    qualifying_keys: set[str],
+) -> bool:
+    """Allow a dependent overlap/closure audit after a qualifying theorem node."""
+    if not task.deps or not any(dep in qualifying_keys for dep in task.deps):
+        return False
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    audit_like = any(
+        marker in text
+        for marker in (
+            "mechanism-overlap audit",
+            "mechanism overlap audit",
+            "overlap audit",
+            "novelty audit",
+            "audit and close",
+            "审计",
+        )
+    )
+    preserves_proof = bool(
+        re.search(r"(?:complete|self-contained|rigorous).{0,80}\bproof\b", text)
+        or re.search(r"\bproof\b.{0,80}(?:complete|self-contained|rigorous)", text)
+        or any(marker in text for marker in ("完整证明", "严格证明", "自包含证明"))
+    )
+    failure_guard = any(
+        marker in text
+        for marker in (
+            "repair it or fail",
+            "repair or fail",
+            "must not succeed if",
+            "cannot succeed if",
+            "if the proof artifact is absent",
+            "if the theorem/proof package is absent",
+            "不得通过",
+            "否则失败",
+        )
+    )
+    return audit_like and preserves_proof and failure_guard
+
+
 def _hard_objective_task_issues(
     continuous_objective: str,
     tasks: list[TaskSpec],
     *,
     current_stage: str = "solve",
+    progression_required: bool = False,
 ) -> list[str]:
     if not _requires_theorem_proof_contract(continuous_objective):
         return []
@@ -183,9 +266,40 @@ def _hard_objective_task_issues(
     # prove a second theorem inside bookkeeping.
     if str(current_stage or "").strip().lower() != "solve":
         return []
+    basic_issues = [_theorem_proof_task_issue(task) for task in tasks]
+    progression_issues = [
+        (
+            _theorem_progression_task_issue(task)
+            if progression_required and not basic_issue
+            else ""
+        )
+        for task, basic_issue in zip(tasks, basic_issues)
+    ]
+    qualifying_keys = {
+        task.key
+        for task, basic_issue, progression_issue in zip(
+            tasks,
+            basic_issues,
+            progression_issues,
+        )
+        if task.key
+        and not basic_issue
+        and not progression_issue
+    }
     issues: list[str] = []
-    for task in tasks:
-        issue = _theorem_proof_task_issue(task)
+    for task, basic_issue, progression_issue in zip(
+        tasks,
+        basic_issues,
+        progression_issues,
+    ):
+        issue = basic_issue
+        if not issue and progression_required:
+            issue = progression_issue
+            if issue and _is_guarded_theorem_followup(
+                task,
+                qualifying_keys=qualifying_keys,
+            ):
+                issue = ""
         if issue:
             issues.append(f"{task.title}: {issue}")
     return issues
@@ -390,17 +504,23 @@ class Planner:
             )
         parsed = parse_planner_text(text)
         active_stage = "solve"
+        project_root: Path | None = None
         try:
             from ..skills.harness_overlay import resolve_project_root
             from ..skills.stage_checklists import current_stage
 
-            active_stage = current_stage(resolve_project_root())
+            project_root = resolve_project_root()
+            active_stage = current_stage(project_root)
         except Exception:  # noqa: BLE001 - fail closed on the proof contract
             pass
         hard_objective_issues = _hard_objective_task_issues(
             continuous_objective,
             parsed.new_tasks,
             current_stage=active_stage,
+            progression_required=(
+                project_root is not None
+                and _project_has_theorem_baseline(project_root)
+            ),
         )
         if hard_objective_issues:
             issue_text = "; ".join(hard_objective_issues[:6])
@@ -410,7 +530,8 @@ class Planner:
                 reason=(
                     "planner tasks violate the operator's hard objective contract; "
                     "re-plan with a theorem statement, complete self-contained proof, "
-                    f"and independent review: {issue_text}"
+                    "and an explicit strict comparison to the strongest proved "
+                    f"ledger result when one exists: {issue_text}"
                 ),
                 new_tasks=[],
                 checklist_ops=[],
@@ -880,6 +1001,25 @@ class Planner:
                 "remains unresolved and the next cycle changes proof strategy; it "
                 "does not close successfully as feasibility evidence.\n\n"
             )
+            if _project_has_theorem_baseline(_proot):
+                objective_contract_block += (
+                    "### Monotone theorem progression is active\n"
+                    "This project already has at least one proved theorem in "
+                    "`research/CLAIM_LEDGER.md`. A further solve mission cannot "
+                    "succeed by independently re-deriving another weaker or "
+                    "incomparable known lemma. It MUST read both "
+                    "`research/CLAIM_LEDGER.md` and `research/LEMMA_GRAPH.md`, "
+                    "name the strongest baseline claim/node it consumes, and "
+                    "state the strict mathematical delta. Qualifying progress is "
+                    "one of: a stronger conclusion under the same hypotheses, "
+                    "the same conclusion under weaker hypotheses, a strictly "
+                    "improved explicit bound/constant, or a missing bridge lemma "
+                    "that enables a previously blocked proof chain. Known results "
+                    "may be used as premises but do not count as success unless "
+                    "the proved package strictly advances the recorded project "
+                    "boundary. A dependent overlap-audit node may follow a "
+                    "qualifying theorem node, but cannot substitute for it.\n\n"
+                )
 
         return (
             ground_truth_mandate(

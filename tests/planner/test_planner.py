@@ -487,6 +487,222 @@ def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
     ]
 
 
+def test_theorem_contract_relies_on_runtime_reviewer_not_task_wording(
+    monkeypatch, tmp_path,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove the next structural lemma",
+        "new_tasks": [{
+            "title": "Prove a rooted path lemma",
+            "objective": (
+                "State a precisely quantified theorem and give a complete "
+                "self-contained rigorous proof. Update the claim ledger and "
+                "lemma graph; finite checks alone cannot complete the task."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "Current solve boundary and exact proof artifacts.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "rooted-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a rooted path lemma"
+    ]
+
+
+def test_theorem_contract_rejects_nonadvancing_theorem_after_baseline(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove another easy fact",
+        "new_tasks": [{
+            "title": "Re-derive a standard degree lemma",
+            "objective": (
+                "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                "State a theorem and give a complete self-contained proof."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "The existing theorem ledger and dependency graph.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "easy-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert verdict.new_tasks == []
+    assert "strict improvement" in verdict.error
+
+
+def test_theorem_contract_accepts_strict_bound_improvement_after_baseline(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "strictly improve the current blocker bound",
+        "new_tasks": [{
+            "title": "Prove a sharper rooted blocker bound",
+            "objective": (
+                "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                "Prove a precisely quantified theorem with a complete "
+                "self-contained proof that strictly strengthens Theorem 14.1 "
+                "by replacing constant 27 with an explicit K < 27."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "C22/P21 record blocker-or-27 as the current boundary.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "sharper-bound",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a sharper rooted blocker bound"
+    ]
+
+
+def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "improve the theorem, then audit its mechanism",
+        "new_tasks": [
+            {
+                "title": "Prove a sharper rooted blocker bound",
+                "objective": (
+                    "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Prove a theorem with a complete self-contained proof that "
+                    "strictly strengthens Theorem 14.1 by obtaining K < 27."
+                ),
+                "impact_score": 5,
+                "impact_area": "correctness",
+                "evidence": "C22/P21 record the current blocker-or-27 bound.",
+                "scope": "bounded",
+                "stage_closing": False,
+                "key": "r15-proof",
+                "deps": [],
+            },
+            {
+                "title": "Audit and close the round-15 solve package",
+                "objective": (
+                    "Read the new theorem plus research/CLAIM_LEDGER.md and "
+                    "research/LEMMA_GRAPH.md. Complete a mechanism-overlap audit. "
+                    "This node may close only if the package retains a theorem with "
+                    "a complete self-contained proof; if the proof artifact is "
+                    "absent or flawed, repair it or fail."
+                ),
+                "impact_score": 4,
+                "impact_area": "requirement_gap",
+                "evidence": "The strict theorem node creates novelty-audit debt.",
+                "scope": "bounded",
+                "stage_closing": True,
+                "key": "r15-overlap",
+                "deps": ["r15-proof"],
+            },
+        ],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a sharper rooted blocker bound",
+        "Audit and close the round-15 solve package",
+    ]
+
+
 def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
     monkeypatch, tmp_path,
 ) -> None:

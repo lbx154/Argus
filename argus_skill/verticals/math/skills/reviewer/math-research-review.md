@@ -2,7 +2,7 @@
 name: Math Research Review
 description: Independently review mathematical correctness, novelty, significance, statement fidelity, and real Lean evidence against the requested research target.
 category: math-research-review
-version: 4
+version: 5
 ---
 
 MISSION TYPE: MATHEMATICS. Independently check correctness and fidelity to the
@@ -19,6 +19,14 @@ and claim ledger, and this independent correctness audit. Reject a failure-only,
 finite-enumeration, feasibility, route-pruning, or resource-limit artifact even
 if it is honest and reproducible: those may be evidence inside the mission, but
 the mission explicitly made them non-qualifying outcomes.
+
+When a prior proved theorem exists, independently audit monotone advancement.
+Require the submission to name the strongest consumed claim-ledger and
+lemma-graph nodes and prove a strict comparison: stronger conclusion, weaker
+hypotheses, improved quantitative bound, or a bridge that resolves a recorded
+proof dependency. Reject `done` when the new theorem is merely correct, known,
+weaker, or incomparable to the current frontier. Correctness alone is not
+progress under a continued-strengthening objective.
 
 When the active output schema exposes a structured result field, populate it
 with independent correctness, novelty, statement-fidelity, evidence, and

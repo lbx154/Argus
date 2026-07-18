@@ -2,7 +2,7 @@
 name: Math Research Planning
 description: Plan dynamic mathematical research inside scope, solve, and review without creating Math-specific role or lifecycle machinery.
 category: math-research-planning
-version: 4
+version: 5
 ---
 
 MISSION TYPE: MATHEMATICS. Choose work from the actual mathematical structure
@@ -21,6 +21,16 @@ discovery or checking steps, but the mission must not be accepted with
 "feasibility evidence only", another bounded prefix, or any other fallback that
 the operator explicitly said does not count. A failed proof attempt remains
 failed/unresolved and triggers a genuinely different proof strategy next cycle.
+
+Once `research/CLAIM_LEDGER.md` records a proved theorem, enforce monotone
+mathematical progress. Every later theorem-first solve mission must read the
+claim ledger and lemma graph, identify the strongest consumed theorem/node, and
+state a strict dominance relation: stronger conclusion, weaker hypotheses,
+smaller/larger explicit bound in the improving direction, or a missing bridge
+that unlocks a previously blocked proof chain. A correct known theorem that is
+weaker than or incomparable with the current ledger frontier is background, not
+successful progress. Literature or mechanism-audit nodes may depend on a strict
+theorem improvement but cannot replace it.
 
 When formalization will reduce uncertainty, assign the generic Engineer a
 bounded step that invokes `python -m argus_skill.tools.lean_check`; do not create
