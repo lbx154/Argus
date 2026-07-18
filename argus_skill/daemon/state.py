@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from ..core.usage import format_usage_cost
 from ..life.supervisor import LifeBudget, global_daily_spend, global_daily_usage_summary
@@ -589,6 +589,77 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def _descendant_pids(root_pid: int) -> tuple[int, ...]:
+    """Return current descendants, deepest first, using Linux ``/proc``.
+
+    Provider CLIs commonly create their own process groups/sessions, so killing
+    only the daemon PID does not contain a forced stop.  A snapshot of the
+    parent relation is sufficient here because force-stop immediately signals
+    every captured PID before killing the daemon itself.
+    """
+    children: dict[int, list[int]] = {}
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return ()
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            status = (entry / "status").read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            continue
+        parent = 0
+        for line in status.splitlines():
+            if line.startswith("PPid:"):
+                try:
+                    parent = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    parent = 0
+                break
+        if parent > 0:
+            children.setdefault(parent, []).append(int(entry.name))
+
+    found: list[tuple[int, int]] = []
+    stack = [(int(root_pid), 0)]
+    seen = {int(root_pid)}
+    while stack:
+        parent, depth = stack.pop()
+        for child in children.get(parent, ()):
+            if child in seen:
+                continue
+            seen.add(child)
+            found.append((depth + 1, child))
+            stack.append((child, depth + 1))
+    found.sort(reverse=True)
+    return tuple(pid for _depth, pid in found)
+
+
+def _terminate_captured_descendants(pids: Iterable[int]) -> None:
+    """Terminate descendants captured while they still belonged to a daemon."""
+    ordered = tuple(dict.fromkeys(int(pid) for pid in pids if int(pid) > 1))
+    for child in ordered:
+        try:
+            os.kill(child, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        if not any(_process_alive(child) for child in ordered):
+            return
+        time.sleep(0.05)
+    for child in ordered:
+        if not _process_alive(child):
+            continue
+        try:
+            os.kill(child, getattr(signal, "SIGKILL", signal.SIGTERM))
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+
+
 def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
     """Return whether another open file description holds the daemon lock.
 
@@ -655,6 +726,9 @@ def stop_daemon(
         return 1
     pid = status.pid
     resolved_dir = status.life_dir
+    forced_descendants: set[int] = (
+        set(_descendant_pids(pid)) if force else set()
+    )
 
     if drain:
         # Stop NEW missions from starting after the current one finishes,
@@ -697,6 +771,8 @@ def stop_daemon(
     next_heartbeat = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if not _same_daemon_alive(resolved_dir, pid):
+            if force:
+                _terminate_captured_descendants(forced_descendants)
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
@@ -713,10 +789,15 @@ def stop_daemon(
 
     if force:
         if not _same_daemon_alive(resolved_dir, pid):
+            _terminate_captured_descendants(forced_descendants)
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
             return 0
+        # Capture again at the escalation boundary so children started after
+        # the initial SIGTERM cannot escape by being reparented to PID 1.
+        forced_descendants.update(_descendant_pids(pid))
+        _terminate_captured_descendants(forced_descendants)
         try:
             os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
         except ProcessLookupError:

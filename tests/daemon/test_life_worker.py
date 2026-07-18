@@ -672,6 +672,47 @@ def test_stop_daemon_force_sigkills_a_stuck_daemon(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_stop_daemon_force_kills_detached_descendants(tmp_path: Path) -> None:
+    child_pid_path = tmp_path / "fake_daemon.child.pid"
+    pid = _spawn_fake_daemon(
+        tmp_path,
+        pre_ready="signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+        post_ready=(
+            "child = os.fork()\n"
+            "if child == 0:\n"
+            "    os.setsid()\n"
+            "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            f"    pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()))\n"
+            "    time.sleep(60)\n"
+            "    os._exit(0)\n"
+            "time.sleep(60)\n"
+        ),
+    )
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and not child_pid_path.exists():
+        time.sleep(0.02)
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    try:
+        assert life_worker_mod._process_alive(child_pid)
+        assert life_worker_mod.stop_daemon(
+            tmp_path,
+            timeout=0.1,
+            force=True,
+        ) == 0
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and (
+            life_worker_mod._process_alive(pid)
+            or life_worker_mod._process_alive(child_pid)
+        ):
+            time.sleep(0.05)
+        assert not life_worker_mod._process_alive(pid)
+        assert not life_worker_mod._process_alive(child_pid)
+    finally:
+        _reap_fake_daemon(pid)
+        _reap_fake_daemon(child_pid)
+
+
+@pytest.mark.integration
 def test_force_drain_clears_pid_bound_request(tmp_path: Path) -> None:
     pid = _spawn_fake_daemon(
         tmp_path,
