@@ -59,6 +59,7 @@ from ..core.metrics import (
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import (
     SessionMeta,
+    migrate_legacy_session_workdir,
     normalize_session_name,
     read_session_meta,
     resolve_session_workdir,
@@ -375,7 +376,16 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         global_root=global_root,
     )
     meta = read_session_meta(global_root, life_dir.name)
-    project_workdir = resolve_session_workdir(meta, state_dir=life_dir)
+    if meta is None:
+        prior = read_daemon_status(life_dir).project_workdir
+        project_workdir = migrate_legacy_session_workdir(
+            global_root,
+            life_dir.name,
+            state_dir=life_dir,
+            candidates=(prior,),
+        )
+    else:
+        project_workdir = resolve_session_workdir(meta, state_dir=life_dir)
 
     return LifeWorkerConfig(
         life_dir=life_dir,
@@ -518,7 +528,15 @@ def start_project_daemon(
     if st.alive:
         _clear_daemon_admission(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
-    config = _worker_config_from_env(life_dir, root)
+    try:
+        config = _worker_config_from_env(life_dir, root)
+    except (OSError, RuntimeError) as exc:
+        return {
+            "rc": 3,
+            "already_alive": False,
+            "error": f"daemon workdir is unavailable: {exc}",
+            "daemon": _daemon_dict(read_daemon_status(life_dir)),
+        }
     if resume_continuous:
         continuous = read_continuous_state(life_dir)
         if (

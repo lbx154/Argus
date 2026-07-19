@@ -23,7 +23,11 @@ from argus_skill.core.project_budget import (
     read_global_budget,
     write_global_budget,
 )
-from argus_skill.core.session import SessionMeta, write_session_meta
+from argus_skill.core.session import (
+    SessionMeta,
+    read_session_meta,
+    write_session_meta,
+)
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.manager.domain_author import VerticalDecision
@@ -1371,8 +1375,13 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "1234")
     life_dir = tmp_path / "life"
+    life_dir.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
+    )
     cfg = server._worker_config_from_env(life_dir, tmp_path)
-    assert cfg.project_workdir == life_dir
+    assert cfg.project_workdir == life_dir.resolve()
     assert cfg.engineer_model == "engineer-model"
     assert cfg.reviewer_model == "reviewer-model"
     assert cfg.engineer_reasoning_effort == "high"
@@ -1421,6 +1430,57 @@ def test_web_daemon_config_does_not_migrate_legacy_launch_cwd(
     assert cfg.project_workdir == life_dir.resolve()
 
 
+def test_web_daemon_config_migrates_legacy_daemon_workdir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "legacy-workdir"
+    life_dir = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life_dir.mkdir(parents=True)
+    workspace.mkdir()
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(project_workdir=str(workspace)),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    meta = read_session_meta(tmp_path, sid)
+
+    assert cfg.project_workdir == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())
+
+
+def test_web_daemon_config_refuses_legacy_session_without_workdir(
+    tmp_path: Path,
+) -> None:
+    sid = "legacy-without-workdir"
+    life_dir = tmp_path / "projects" / sid
+    life_dir.mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="no trustworthy workdir"):
+        server._worker_config_from_env(life_dir, tmp_path)
+
+    assert read_session_meta(tmp_path, sid) is None
+
+
+def test_web_daemon_start_reports_legacy_session_without_workdir(
+    tmp_path: Path,
+) -> None:
+    sid = "legacy-without-workdir"
+    life_dir = tmp_path / "projects" / sid
+    life_dir.mkdir(parents=True)
+
+    result = server.start_project_daemon(sid, global_root=tmp_path)
+
+    assert result is not None
+    assert result["rc"] == 3
+    assert "no trustworthy workdir" in result["error"]
+    assert read_session_meta(tmp_path, sid) is None
+
+
 def test_web_daemon_config_honors_persisted_runner_backend(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -1432,6 +1492,12 @@ def test_web_daemon_config_honors_persisted_runner_backend(
         lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
     )
 
-    cfg = server._worker_config_from_env(tmp_path / "life", tmp_path)
+    life_dir = tmp_path / "life"
+    life_dir.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
+    )
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.backend == "copilot"

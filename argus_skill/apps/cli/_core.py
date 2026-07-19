@@ -148,27 +148,36 @@ def _resolve_project_bundle(args: argparse.Namespace):
     if sid is None:
         return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
     from ...core.session import (
-        SessionMeta,
+        migrate_legacy_session_workdir,
         read_session_meta,
         resolve_session_workdir,
-        write_session_meta,
     )
 
     state_dir = Path(global_root) / "projects" / sid
     meta = read_session_meta(global_root, sid)
-    if meta is None:
-        # Legacy cwd-fingerprint projects had no session.json. The explicit
-        # resume cwd is their only trustworthy worktree signal; persist it once
-        # so every later CLI/Web role uses the same root.
-        workdir = Path.cwd().resolve()
-        meta = SessionMeta(
-            id=sid,
-            cwd=str(workdir),
-            workdir=str(workdir),
-        )
-        write_session_meta(global_root, meta)
     try:
-        workdir = resolve_session_workdir(meta, state_dir=state_dir)
+        if meta is None:
+            # Prefer the last daemon workspace over the shell cwd. A Web/CLI
+            # restart may be initiated from the state directory, which must
+            # never become the execution root for a legacy external-worktree
+            # session.
+            from ...daemon.state import read_daemon_status
+
+            prior = read_daemon_status(state_dir).project_workdir
+            workdir = migrate_legacy_session_workdir(
+                global_root,
+                sid,
+                state_dir=state_dir,
+                candidates=(prior, Path.cwd()),
+            )
+        else:
+            workdir = resolve_session_workdir(meta, state_dir=state_dir)
+    except (OSError, RuntimeError) as exc:
+        raise core_paths.PathResolutionError(
+            f"session {sid} workdir is unavailable: {exc}"
+        ) from exc
+    try:
+        workdir = workdir.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise core_paths.PathResolutionError(
             f"session {sid} workdir is unavailable: {exc}"

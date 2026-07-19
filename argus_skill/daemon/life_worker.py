@@ -2129,6 +2129,22 @@ def _workspace_start_error(config: LifeWorkerConfig) -> str:
                 "session workdir changed during daemon startup; retry with "
                 f"{authoritative}"
             )
+    else:
+        prior_status = read_daemon_status(config.life_dir)
+        prior_raw = str(prior_status.project_workdir or "").strip()
+        if prior_raw:
+            try:
+                prior = Path(prior_raw).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError):
+                return (
+                    "legacy session's previous workdir is unavailable; "
+                    f"restore or explicitly migrate {prior_raw}"
+                )
+            if prior != configured:
+                return (
+                    "legacy session workdir changed during daemon startup; "
+                    f"persist or retry with {prior}"
+                )
     owner = _active_workspace_owner(config, target_workdir=configured)
     if owner is not None:
         return (

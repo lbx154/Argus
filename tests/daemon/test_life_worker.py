@@ -1003,6 +1003,65 @@ def test_workspace_start_rejects_stale_config_after_workdir_change(
     assert "workdir changed during daemon startup" in error
 
 
+def test_workspace_start_rejects_legacy_daemon_workdir_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "state"
+    life_dir = root / "projects" / "legacy"
+    old = tmp_path / "old"
+    life_dir.mkdir(parents=True)
+    old.mkdir()
+    monkeypatch.setattr(
+        life_worker_mod,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(
+            alive=False,
+            pid=None,
+            project_workdir=str(old),
+        ),
+    )
+
+    error = _workspace_start_error(LifeWorkerConfig(
+        life_dir=life_dir,
+        global_root=root,
+        project_workdir=life_dir,
+        project_fingerprint="legacy",
+    ))
+
+    assert "legacy session workdir changed" in error
+    assert str(old) in error
+
+
+def test_workspace_start_rejects_unavailable_legacy_daemon_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "state"
+    life_dir = root / "projects" / "legacy"
+    life_dir.mkdir(parents=True)
+    missing = tmp_path / "missing"
+    monkeypatch.setattr(
+        life_worker_mod,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(
+            alive=False,
+            pid=None,
+            project_workdir=str(missing),
+        ),
+    )
+
+    error = _workspace_start_error(LifeWorkerConfig(
+        life_dir=life_dir,
+        global_root=root,
+        project_workdir=life_dir,
+        project_fingerprint="legacy",
+    ))
+
+    assert "previous workdir is unavailable" in error
+    assert str(missing) in error
+
+
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
     cfg = LifeWorkerConfig(
         life_dir=tmp_path / "project",
