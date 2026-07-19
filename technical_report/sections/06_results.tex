@@ -11,9 +11,9 @@ the task and metric for each row.
 \centering
 \scriptsize
 \renewcommand{\arraystretch}{1.14}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{@{}lccp{3.2cm}p{2.1cm}p{3.8cm}@{}}
+\begin{tabularx}{\linewidth}{@{}p{1.55cm}p{1.55cm}p{1.10cm}X p{1.75cm}X@{}}
 \toprule
+\rowcolor{papersand}
 \textbf{Benchmark} & \textbf{Backbone} & \textbf{Backend} & \textbf{Protocol} & \textbf{\systemname result} & \textbf{Comparison} \\
 \midrule
 SWE-Bench Pro & GPT-5.5/xhigh & Copilot & 731 software-repair tasks & $\approx$78\% accuracy & Direct Copilot $\approx$59\%; 1.41$\times$ aggregate Tokens \\
@@ -24,8 +24,7 @@ nanoGPT speedrun & GPT-5.5 & Codex & 8$\times$H100; $N{=}10$ & 79.77 s & Same-de
 AARRI-Bench & GPT-5.5 & Codex & 82 research-intern tasks & 63/82 (76.8\%) & Paper best 68.3\% \\
 Math-Reasoning Data & GPT-5.5 & Codex & AIME-style synthesis & 28.0 gap & Arbor 20.83; Claude 8.33; Codex 6.25 \\
 \bottomrule
-\end{tabular}%
-}
+\end{tabularx}
 \caption{Results across seven benchmark arenas. Values remain in task-native units
 and are not cross-normalized. Backbone denotes the model driving the research
 agent; Backend denotes the execution surface.}
@@ -50,18 +49,25 @@ in both metrics.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/swebench_evolution.pdf}
-  \caption{Analysis of the SWE-Bench Pro result. The left panel repeats the
-  full-suite comparison; the right panels aggregate \systemname Token and active
-  time over approximately six-Wave windows. The composition-shift and late
-  difficult-task windows are retained; the longitudinal panels report
-  \systemname only.}
+  \caption{Unified analysis of the SWE-Bench Pro result. Panel (a) combines the
+  full-suite accuracy and aggregate-Token comparison with Reviewer routing and the
+  observed recovery chain: 388 first-pass acceptances, 43 revision requests, 34
+  later official-verifier passes, and 22 strict review-loop rescues. Reviewer routing
+  is adaptive rather than randomized, so its cost ratios describe a harder routed
+  workload rather than a causal ablation. Panels (b) and (c) aggregate \systemname
+  Token and active time over approximately six-Wave windows. Values are task-weighted means. Two
+  incomplete Waves are omitted, while W23--24 remain visible as late difficult-task
+  stress. Active time excludes orchestration wait, environment preparation,
+  external verification, infrastructure recovery, and post-task knowledge
+  maintenance; Copilot per-Wave resource traces were not logged.}
   \label{fig:swebench-evolution}
+  \label{fig:reviewer-mechanism}
 \end{figure}
 
 The curve shows a lower-cost mature operating window together with visible
 task-composition and late-wave difficulty effects.
 
-\subsection{SWE-Bench Pro Analysis: Reviewer Ablation and Recovery}
+\subsection{SWE-Bench Pro Analysis: Reviewer Routing and Recovery}
 
 Of \ReviewerTasks{} tasks, \ReviewerInvoked{} (\ReviewerInvokedPercent\%) invoke
 an independent Reviewer, while \ReviewerSkipped{} (\ReviewerSkippedPercent\%) use
@@ -69,16 +75,6 @@ Engineer self-review. The Reviewer requests another implementation round on
 \ReviewerRevisionRequested{} tasks. After revision, \ReviewerVerifierRecovered{}
 pass the official verifier and \ReviewerStrictRescues{} complete the strict
 \code{continue}$\rightarrow$revision$\rightarrow$\code{done} loop.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
-  \caption{Reviewer routing and recovery on SWE-Bench Pro. The strict rescue
-  count records tasks rejected after the initial Engineer attempt and later
-  accepted after Reviewer feedback and another implementation round. Routing is
-  adaptive rather than randomized.}
-  \label{fig:reviewer-mechanism}
-\end{figure}
 
 Reviewer-routed tasks consume \ReviewerTokenRatio$\times$ as many solve input
 tokens and \ReviewerTimeRatio$\times$ as much active time as self-reviewed tasks on

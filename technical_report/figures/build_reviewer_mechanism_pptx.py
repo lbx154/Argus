@@ -28,11 +28,16 @@ SVG_PATH = FIGURES / "reviewer_mechanism.svg"
 PNG_PATH = FIGURES / "reviewer_mechanism.png"
 MACROS_PATH = FIGURES / "reviewer_metrics.tex"
 PROVENANCE_PATH = FIGURES / "reviewer_mechanism.provenance.json"
+ANIME = FIGURES / "assets" / "anime"
+ENGINEER_AVATAR = ANIME / "engineer.png"
+REVIEWER_AVATAR = ANIME / "reviewer.png"
+MOUNTAIN_STRIP = ANIME / "mountain_strip.png"
 
 
-WHITE = RGBColor(255, 255, 255)
-INK = RGBColor(30, 39, 50)
-MUTED = RGBColor(94, 104, 117)
+WHITE = RGBColor(255, 253, 248)
+PAPER = RGBColor(251, 247, 238)
+INK = RGBColor(36, 70, 93)
+MUTED = RGBColor(102, 113, 125)
 BLUE = RGBColor(49, 91, 206)
 DEEP = RGBColor(23, 59, 112)
 PALE_BLUE = RGBColor(236, 241, 253)
@@ -40,7 +45,7 @@ GOLD = RGBColor(195, 138, 32)
 PALE_GOLD = RGBColor(252, 246, 229)
 GRAY = RGBColor(122, 131, 142)
 LIGHT_GRAY = RGBColor(217, 224, 231)
-PANEL = RGBColor(248, 250, 252)
+PANEL = RGBColor(255, 253, 248)
 
 
 def sha256(path: Path) -> str:
@@ -74,7 +79,7 @@ def add_text(
     p.alignment = align
     run = p.add_run()
     run.text = text
-    run.font.name = "Aptos"
+    run.font.name = "Arial"
     run.font.size = Pt(size)
     run.font.bold = bold
     run.font.color.rgb = color
@@ -101,7 +106,7 @@ def add_line(slide, x1: float, y1: float, x2: float, y2: float, color: RGBColor,
 def add_metric_box(slide, x: float, y: float, w: float, h: float, value: str, label: str, *, fill: RGBColor, color: RGBColor = DEEP) -> None:
     add_rect(slide, x, y, w, h, fill)
     add_text(slide, value, x + 0.10, y + 0.08, w - 0.20, h * 0.47, size=18, bold=True, color=color, align=PP_ALIGN.CENTER)
-    add_text(slide, label, x + 0.10, y + h * 0.52, w - 0.20, h * 0.35, size=8.3, color=MUTED, align=PP_ALIGN.CENTER)
+    add_text(slide, label, x + 0.10, y + h * 0.52, w - 0.20, h * 0.35, size=9.3, color=MUTED, align=PP_ALIGN.CENTER)
 
 
 def write_macros(stats: dict[str, Any]) -> None:
@@ -137,18 +142,17 @@ def main() -> int:
 
     prs = Presentation()
     prs.slide_width = Inches(12)
-    prs.slide_height = Inches(3.35)
+    prs.slide_height = Inches(2.65)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = WHITE
-    add_rect(slide, 0, 0, 12, 0.05, BLUE, BLUE)
-    add_text(slide, "Reviewer routing and recovery across 731 tasks", 0.35, 0.14, 11.2, 0.34, size=18, bold=True)
-    add_text(slide, "Mechanism analysis from accepted trajectories · adaptive routing, not randomized ablation", 0.37, 0.48, 11.1, 0.22, size=8.8, color=MUTED)
-
+    slide.background.fill.fore_color.rgb = PAPER
+    slide.shapes.add_picture(str(MOUNTAIN_STRIP), Inches(0), Inches(2.44), width=Inches(12), height=Inches(0.21))
+    add_rect(slide, 0, 0, 12, 0.045, INK, INK)
     # Routing split.
-    x, y, w, h = 0.35, 0.82, 3.35, 2.14
+    x, y, w, h = 0.35, 0.16, 3.35, 2.15
     add_rect(slide, x, y, w, h, PANEL)
-    add_text(slide, "(a) Reviewer routing", x + 0.16, y + 0.08, 2.8, 0.28, size=11.5, bold=True, color=DEEP)
+    slide.shapes.add_picture(str(ENGINEER_AVATAR), Inches(x + 2.60), Inches(y + 0.02), width=Inches(0.58), height=Inches(0.58))
+    add_text(slide, "(a) Routing", x + 0.16, y + 0.08, 2.3, 0.28, size=11.5, bold=True, color=DEEP)
     bar_x, bar_y, bar_w = x + 0.18, y + 0.58, w - 0.36
     reviewer_share = float(routing["external_reviewer_share"])
     add_rect(slide, bar_x, bar_y, bar_w, 0.30, WHITE)
@@ -156,30 +160,26 @@ def main() -> int:
     add_rect(slide, bar_x + bar_w * reviewer_share, bar_y, bar_w * (1 - reviewer_share), 0.30, GRAY, GRAY)
     add_text(slide, f"{routing['external_reviewer_tasks']} · {100 * reviewer_share:.1f}%", bar_x + 0.06, bar_y, bar_w * reviewer_share - 0.10, 0.30, size=9.2, color=WHITE, bold=True)
     add_text(slide, f"{routing['engineer_self_review_tasks']} · {100 * (1-reviewer_share):.1f}%", bar_x + bar_w * reviewer_share, bar_y, bar_w * (1-reviewer_share) - 0.04, 0.30, size=8.6, color=WHITE, bold=True, align=PP_ALIGN.CENTER)
-    add_text(slide, "Independent Reviewer", bar_x, bar_y + 0.38, 1.45, 0.24, size=8.5, bold=True, color=BLUE)
-    add_text(slide, "Engineer self-review", bar_x + 1.62, bar_y + 0.38, 1.30, 0.24, size=8.5, bold=True, color=GRAY, align=PP_ALIGN.RIGHT)
+    add_text(slide, "Reviewer", bar_x, bar_y + 0.38, 1.45, 0.24, size=9.5, bold=True, color=BLUE)
+    add_text(slide, "Self-review", bar_x + 1.62, bar_y + 0.38, 1.30, 0.24, size=9.5, bold=True, color=GRAY, align=PP_ALIGN.RIGHT)
     token_ratio = workload["external_reviewer_mean_solve_input_tokens"] / workload["self_review_mean_solve_input_tokens"]
     time_ratio = workload["external_reviewer_mean_active_seconds"] / workload["self_review_mean_active_seconds"]
-    add_text(slide, "Reviewer routing selects the harder workload", x + 0.18, y + 1.34, w - 0.36, 0.22, size=7.8, color=MUTED, align=PP_ALIGN.CENTER)
-    add_text(slide, f"{token_ratio:.2f}× Token · {time_ratio:.2f}× active time", x + 0.18, y + 1.58, w - 0.36, 0.24, size=9.2, color=DEEP, bold=True, align=PP_ALIGN.CENTER)
+    add_text(slide, f"{token_ratio:.2f}× tokens · {time_ratio:.2f}× time", x + 0.18, y + 1.56, w - 0.36, 0.28, size=11, color=DEEP, bold=True, align=PP_ALIGN.CENTER)
 
     # Intervention funnel.
-    x, y, w, h = 3.92, 0.82, 7.73, 2.14
+    x, y, w, h = 3.92, 0.16, 7.73, 2.15
     add_rect(slide, x, y, w, h, WHITE)
-    add_text(slide, "(b) Reviewer intervention and recovery", x + 0.16, y + 0.08, 5.2, 0.28, size=11.5, bold=True, color=DEEP)
-    add_metric_box(slide, x + 0.18, y + 0.60, 1.30, 1.02, str(routing["external_reviewer_tasks"]), "Reviewer-invoked tasks", fill=PALE_BLUE)
+    slide.shapes.add_picture(str(REVIEWER_AVATAR), Inches(x + 6.93), Inches(y + 0.02), width=Inches(0.58), height=Inches(0.58))
+    add_text(slide, "(b) Revision recovery", x + 0.16, y + 0.08, 5.2, 0.28, size=11.5, bold=True, color=DEEP)
+    add_metric_box(slide, x + 0.18, y + 0.60, 1.30, 1.02, str(routing["external_reviewer_tasks"]), "Invoked", fill=PALE_BLUE)
     add_line(slide, x + 1.52, y + 1.10, x + 2.02, y + 0.76, LIGHT_GRAY, 1.5)
     add_line(slide, x + 1.52, y + 1.10, x + 2.02, y + 1.56, GOLD, 1.8)
-    add_metric_box(slide, x + 2.06, y + 0.40, 1.32, 0.66, str(outcomes["first_review_accepted"]), "accepted first review", fill=PALE_BLUE)
-    add_metric_box(slide, x + 2.06, y + 1.24, 1.32, 0.66, str(outcomes["revision_requested"]), "revision requested", fill=PALE_GOLD, color=GOLD)
-    add_text(slide, f"{outcomes['first_review_blocked']} blocked without a revision loop", x + 0.16, y + 1.76, 1.46, 0.18, size=6.9, color=GRAY, align=PP_ALIGN.CENTER)
+    add_metric_box(slide, x + 2.06, y + 0.40, 1.32, 0.66, str(outcomes["first_review_accepted"]), "Accepted", fill=PALE_BLUE)
+    add_metric_box(slide, x + 2.06, y + 1.24, 1.32, 0.66, str(outcomes["revision_requested"]), "Revise", fill=PALE_GOLD, color=GOLD)
     add_line(slide, x + 3.42, y + 1.57, x + 3.92, y + 1.57, GOLD, 1.8)
-    add_metric_box(slide, x + 3.96, y + 1.24, 1.42, 0.66, str(outcomes["official_verifier_resolved_after_revision"]), "passed official verifier", fill=PALE_BLUE)
+    add_metric_box(slide, x + 3.96, y + 1.24, 1.42, 0.66, str(outcomes["official_verifier_resolved_after_revision"]), "Verifier pass", fill=PALE_BLUE)
     add_line(slide, x + 5.42, y + 1.57, x + 5.88, y + 1.57, GOLD, 1.8)
-    add_metric_box(slide, x + 5.92, y + 1.24, 1.46, 0.66, str(outcomes["reviewer_accepted_after_revision"]), "strict Reviewer rescues", fill=PALE_GOLD, color=GOLD)
-    add_text(slide, "Strict rescue: Reviewer continue → Engineer revision → later Reviewer done", x + 3.72, y + 1.94, 3.70, 0.18, size=7.1, color=MUTED, align=PP_ALIGN.RIGHT)
-
-    add_text(slide, "Group-level accuracy is intentionally omitted: Reviewer routing is conditional on task difficulty.", 0.38, 3.04, 11.2, 0.18, size=7.3, color=MUTED, align=PP_ALIGN.CENTER)
+    add_metric_box(slide, x + 5.92, y + 1.24, 1.46, 0.66, str(outcomes["reviewer_accepted_after_revision"]), "Strict rescue", fill=PALE_GOLD, color=GOLD)
     prs.save(PPTX_PATH)
 
     libreoffice = shutil.which("libreoffice") or shutil.which("soffice")
@@ -203,6 +203,8 @@ def main() -> int:
         "reader_question": "How often is an independent Reviewer invoked, and how many revision-requested tasks are recovered?",
         "claim": "Reviewer is invoked on 466 of 731 tasks; 43 receive revision requests, 34 later pass the official verifier, and 22 complete the strict review-loop rescue.",
         "scope": "Adaptive routing analysis, not randomized ablation.",
+        "visual_style": "anime research field note with cream paper, navy linework, mountain-ridge motif, and shared Engineer/Reviewer characters; flow counts remain exact",
+        "character_assets": [str(ENGINEER_AVATAR.relative_to(FIGURES)), str(REVIEWER_AVATAR.relative_to(FIGURES))],
         "inputs": {STATS_PATH.name: sha256(STATS_PATH), TASKS_PATH.name: sha256(TASKS_PATH)},
         "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, MACROS_PATH)},
         "editable_source": PPTX_PATH.name,

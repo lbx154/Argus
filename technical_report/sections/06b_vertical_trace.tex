@@ -1,8 +1,8 @@
 \subsection{Representative Vertical Agent Trace}
 \label{sec:vertical-trace}
 
-Figure~\ref{fig:erdos-vertical-trace} shows how the four roles cooperate inside
-one real mathematical campaign. The case begins with an open-ended research objective.
+Figure~\ref{fig:erdos-vertical-trace} follows the retained mathematical claim
+frontier inside one real campaign. The case begins with an open-ended research objective.
 The Manager preserves that goal through budget and process
 failures; the Planner turns the current reviewed state into bounded work; the
 Engineer retrieves sources, runs tools, and writes research artifacts; and the
@@ -12,11 +12,15 @@ enter durable state.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/erdos_vertical_trace.pdf}
-  \caption{Role-resolved execution of one vertical research campaign. The top
-  strip states the four authorities; the main panel follows the same campaign
-  through recovery, scope, route testing, proof production, revision,
-  strengthening, and retained state. Bottom cards summarize the mathematical
-  outputs accumulated by the campaign.}
+  \caption{Claim frontier and work attribution in the representative mathematical
+  campaign. C5 is a falsified reduction killed by a checked 24-vertex witness;
+  C20--C21 are known-style baseline results; C22--C25 are the retained campaign
+  frontier, including the improvement from 27 to 25 and two bridge lemmas. Check
+  marks denote acceptance by the internal \systemname Reviewer, not external peer
+  review or a novelty claim. Artifact panels state the concrete rejected route,
+  theorem, quantitative strengthening, and bridge closure. Bottom bars compare
+  strict frontier-changing work with an inclusive measure that also credits
+  successful validation and state consolidation.}
   \label{fig:erdos-vertical-trace}
 \end{figure}
 
@@ -50,6 +54,7 @@ a coarse attribution rule for process allocation.
 \renewcommand{\arraystretch}{1.12}
 \begin{tabularx}{\linewidth}{@{}p{2.65cm}rrrX@{}}
 \toprule
+\rowcolor{papersand}
 \textbf{Efficiency view} & \textbf{Direct} & \textbf{Auxiliary} & \textbf{Failed/no-op} & \textbf{Unit and interpretation} \\
 \midrule
 Reasoning & 56.0\% & 39.1\% & 4.9\% & Engineer reasoning-output Tokens; direct means a frontier-changing proof mission. \\

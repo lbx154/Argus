@@ -6,10 +6,24 @@
     "paper_trajectory_summary.json",
     "paper_scientific_findings.json"
   ],
-  "encoding": "A recurrent four-role state loop is paired with six paper cards that report task-native findings and process counts.",
+  "encoding": "Six real first-page PDF thumbnails are paired with task-native scientific headlines; a separate bottom strip reports Argus production-process counts.",
   "scope": "Observed Argus campaigns; paper-format completion is not venue acceptance or a human-quality comparison.",
-  "target_size": "12 x 7.15 inch source canvas; approximately 4.2 inches high at manuscript width",
-  "visual_style": "shared Argus paper palette, white background, compact panels, and fixed role colors",
+  "target_size": "12 x 5.75 inch source canvas; approximately 3.2 inches high at manuscript width",
+  "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and fixed role colors",
+  "character_assets": [
+    "assets/anime/manager.svg",
+    "assets/anime/planner.svg",
+    "assets/anime/engineer.svg",
+    "assets/anime/reviewer.svg"
+  ],
+  "visual_assets": [
+    "assets/paper_thumbnails/bench-fragile.png",
+    "assets/paper_thumbnails/cv-compositional.png",
+    "assets/paper_thumbnails/cv-frontier.png",
+    "assets/paper_thumbnails/mm-gui.png",
+    "assets/paper_thumbnails/mm-hallucination.png",
+    "assets/paper_thumbnails/quant-vocab.png"
+  ],
   "editable_source": [
     "build_paper_case_study.py",
     "paper_case_study.html"

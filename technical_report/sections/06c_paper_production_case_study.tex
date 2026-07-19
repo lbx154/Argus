@@ -22,13 +22,15 @@ projects and are not calendar time because several projects overlap.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/paper_case_study.pdf}
-  \caption{One recurrent runtime, six scientific outputs. Panel (a)
-  schematizes the four role authorities around persistent research state. Panel
-  (b) reports the research topic and principal measured finding from each
-  final manuscript. The bottom strip aggregates structured runtime events across
-  the six campaigns. The mechanism panel is schematic; the paper findings and
-  process counts are measured. AAAI and ACL labels denote formatting rather than
-  venue acceptance.}
+  \caption{Six scientific outputs produced by \systemname. Each card contains the
+  actual first page of the final PDF, its research domain, a short manuscript label,
+  and the principal task-native scientific result. These headlines are paper
+  findings---for example, 15 stable leaderboard claims, a weaker compositional
+  gate, and 15 hallucination-evaluation cells---not measures of writing quality.
+  The separately labeled bottom strip reports the \systemname production process:
+  completed pipelines, aggregate campaign-hours, Engineer rounds, Reviewer
+  revisions, session rolls, and Stage rollbacks. Formatting completion does not
+  imply venue acceptance or external peer review.}
   \label{fig:paper-case-study}
 \end{figure}
 
@@ -56,14 +58,15 @@ package completes the pipeline.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/paper_case_trajectory.pdf}
-  \caption{Representative 163.6-hour paper-production trajectory. The upper panel
+  \caption{Representative 163.6-hour paper-production trajectory. The main panel
   plots the actual Manager-controlled Stage state against elapsed campaign-hours;
-  red points mark rollback decisions. Seven early no-go rollbacks prune weak method
-  routes before a negative-results scope pivot, and two submission-to-benchmark
-  rollbacks repair the final evidence package. The lower panel identifies the role
-  actions and retained artifacts at each scientific episode. The canonical
-  experiment contains 15 method--benchmark cells and 4,500 official-scored rows;
-  29 session rolls do not reset the campaign state.}
+  the upper-right boxes report campaign-hours, Engineer rounds, Reviewer revisions,
+  session rolls, and early/late rollback counts. Red points mark rollback decisions.
+  Seven early no-go rollbacks prune weak method routes before a negative-results
+  scope pivot, and two submission-to-benchmark rollbacks repair the final evidence
+  package. The five connected episodes summarize hypothesis pruning, scientific
+  pivot, the 15-cell/4,500-row canonical experiment, manuscript construction, and
+  submission recovery.}
   \label{fig:paper-case-trajectory}
 \end{figure}
 

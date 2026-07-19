@@ -1,4 +1,8 @@
 {
+  "character_assets": [
+    "assets/anime/engineer.png",
+    "assets/anime/reviewer.png"
+  ],
   "claim": "Reviewer is invoked on 466 of 731 tasks; 43 receive revision requests, 34 later pass the official verifier, and 22 complete the strict review-loop rescue.",
   "editable_source": "reviewer_mechanism.pptx",
   "figure_id": "reviewer-mechanism",
@@ -7,12 +11,13 @@
     "reviewer_mechanism_stats.json": "da7f4206345b1092b6750426b09995396aaadedf91235299eb40295b55910919"
   },
   "outputs": {
-    "reviewer_mechanism.pdf": "9098fa59cf5aa8eb0cbaf64d56d752551bfddf73e19b12157041e72001719de9",
-    "reviewer_mechanism.png": "6e6c2d506f0f26fa73e2743914c44e04cba6c8c6c59bb9854fb06c5b84112f31",
-    "reviewer_mechanism.pptx": "a617645530f237c4aff588106c0fd2df93384dbc46a6e53cd3acd56c41eacd38",
-    "reviewer_mechanism.svg": "b3ec22d8c2e22155735896eabebe1f8295ea08547db73668b9f31b6678e69927",
+    "reviewer_mechanism.pdf": "cc7050fdb7ef6ba7b6bcf2f42a3ec1eed32d220bf9756baa2282c98ddf34fdac",
+    "reviewer_mechanism.png": "12f8e467260de3da24361e7f36df4d4c25491e9db9dca030c961e479d7614c52",
+    "reviewer_mechanism.pptx": "d274d34a5a5b603c31d10514d374ca81431d350cf6972b4f36f939fafbdc01a6",
+    "reviewer_mechanism.svg": "9055680dba7fdb4822cadabfd339af54515fa3fe78c8188fdcbd73d9f0c3ec15",
     "reviewer_metrics.tex": "21c39bbe66483362360893ec56ee53c37e22edae3baf40884e9a75deeeebf5ab"
   },
   "reader_question": "How often is an independent Reviewer invoked, and how many revision-requested tasks are recovered?",
-  "scope": "Adaptive routing analysis, not randomized ablation."
+  "scope": "Adaptive routing analysis, not randomized ablation.",
+  "visual_style": "anime research field note with cream paper, navy linework, mountain-ridge motif, and shared Engineer/Reviewer characters; flow counts remain exact"
 }

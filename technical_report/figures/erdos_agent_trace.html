@@ -1,116 +1,33 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Argus four-role vertical research trace</title>
-  <style>
-    @page { size: 12in 5.3in; margin: 0; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; width: 12in; height: 5.3in; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #202932; background: #fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    .canvas {
-      width: 12in; height: 5.3in; padding: 20px 24px 16px;
-      display: grid; grid-template-rows: 66px 82px 220px 64px;
-      gap: 9px; border-top: 5px solid #315bce; overflow: hidden;
-    }
-    .kicker { color: #315bce; font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
-    h1 { margin: 3px 0 3px; font-size: 24px; line-height: 1.03; letter-spacing: -.022em; }
-    header p { margin: 0; color: #607080; font-size: 13.5px; }
-
-    .roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-    .role {
-      --c: #315bce; position: relative; display: grid; grid-template-columns: 28px 1fr;
-      gap: 7px; align-items: start; border: 1px solid #d6dee6; border-top: 4px solid var(--c);
-      border-radius: 9px; background: #f8fafc; padding: 8px 9px;
-    }
-    .role .letter { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: var(--c); color: #fff; font-size: 11px; font-weight: 900; }
-    .role h2 { margin: 0 0 2px; color: var(--c); font-size: 14px; line-height: 1; }
-    .role p { margin: 0; color: #4d5a68; font-size: 10.8px; line-height: 1.17; }
-    .authority { margin-top: 3px; color: #75818d; font-size: 9.5px; font-weight: 700; }
-
-    .trace-panel { border: 1px solid #d5dee6; border-radius: 11px; background: #f8fafc; padding: 8px; overflow: hidden; }
-    .trace-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
-    .trace-head strong { color: #173b70; font-size: 14px; }
-    .trace-head span { color: #71808e; font-size: 10.5px; }
-    .phases { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; align-items: start; }
-    .phase { background: #fff; border: 1px solid #d7dfe7; border-radius: 8px; padding: 7px; position: relative; min-height: 140px; }
-    .phase:not(:last-child)::after { content: "→"; position: absolute; right: -7px; top: 64px; z-index: 4; color: #8fa0b1; font-size: 14px; font-weight: 900; }
-    .phase-title { color: #173b70; font-size: 12.5px; font-weight: 800; margin-bottom: 5px; }
-    .act { display: grid; grid-template-columns: 25px 1fr; gap: 5px; padding: 6px 0; border-top: 1px solid #edf0f3; color: #465362; font-size: 10.3px; line-height: 1.18; }
-    .act:first-of-type { border-top: 0; }
-    .badge { width: 24px; min-height: 19px; border-radius: 5px; color: #fff; display: grid; place-items: center; padding: 2px; font-size: 8.5px; font-weight: 900; background: var(--c); }
-    .act b { color: #1d2733; }
-    .accepted { color: #287d70; font-weight: 800; }
-    .revision { color: #b8691c; font-weight: 800; }
-    .rejected { color: #b43f55; font-weight: 800; }
-    .state-loop { margin-top: 6px; padding: 5px 8px; border: 1px dashed #8da1b4; border-radius: 7px; background: #fff; color: #43576a; font-size: 10.5px; text-align: center; font-weight: 700; }
-    .state-loop b { color: #173b70; }
-
-    footer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-    .metric { --c: #315bce; position: relative; border: 1px solid #d6dee6; border-radius: 8px; background: #f8fafc; padding: 7px 9px 6px 13px; }
-    .metric::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 8px 0 0 8px; background: var(--c); }
-    .metric strong { display: block; color: #354453; font-size: 10px; margin-bottom: 2px; }
-    .metric b { color: var(--c); font-size: 17px; margin-right: 4px; }
-    .metric small { color: #657281; font-size: 9.3px; line-height: 1.1; }
-  </style>
-</head>
-<body>
-<main class="canvas">
-  <header>
-    <div class="kicker">Representative vertical run · observed campaign</div>
-    <h1>Four recurrent roles turn one open objective into reviewed progress</h1>
-    <p>The workflow tests routes, repairs proof packages, retains failed branches, and continues from accepted state.</p>
-  </header>
-
-  <section class="roles">
-    <article class="role" style="--c:#b43f55"><span class="letter">M</span><div><h2>Manager</h2><p>Preserves the objective and owns Stage advance or rollback.</p><div class="authority">Authority: objective · route · Stage</div></div></article>
-    <article class="role" style="--c:#315bce"><span class="letter">P</span><div><h2>Planner</h2><p>Turns reviewed state into bounded missions and success criteria.</p><div class="authority">Authority: next task · dependencies</div></div></article>
-    <article class="role" style="--c:#c38a20"><span class="letter">E</span><div><h2>Engineer</h2><p>Retrieves sources, runs checks, and writes proofs and artifacts.</p><div class="authority">Authority: execution · artifacts</div></div></article>
-    <article class="role" style="--c:#287d70"><span class="letter">R</span><div><h2>Reviewer</h2><p>Accepts, revises, or blocks work before it enters durable state.</p><div class="authority">Authority: completion · admitted state</div></div></article>
-  </section>
-
-  <section class="trace-panel">
-    <div class="trace-head"><strong>One Erdős--Gyárfás campaign: repeated handoffs over the same state</strong><span>simplified from the retained trace</span></div>
-    <div class="phases">
-      <article class="phase"><div class="phase-title">1 · Recover & scope</div>
-        <div class="act"><span class="badge" style="--c:#b43f55">M</span><div><b>Restore campaign.</b> Preserve the original goal through operational recovery.</div></div>
-        <div class="act"><span class="badge" style="--c:#315bce">P</span><div><b>Select a checkable problem</b> and define a bounded first mission.</div></div>
-        <div class="act"><span class="badge" style="--c:#c38a20">E/R</span><div><b>Ground and accept scope</b> from sources and deterministic checks.</div></div>
-      </article>
-
-      <article class="phase"><div class="phase-title">2 · Test the route</div>
-        <div class="act"><span class="badge" style="--c:#315bce">P</span><div><b>Choose a cheap falsifier</b> before expensive proof search.</div></div>
-        <div class="act"><span class="badge" style="--c:#c38a20">E</span><div><b>Run a witness check.</b> A known graph kills the proposed reduction.</div></div>
-        <div class="act"><span class="badge" style="--c:#b43f55">R/M</span><div><span class="rejected">Reject the route</span>, retain the branch, and continue the campaign.</div></div>
-      </article>
-
-      <article class="phase"><div class="phase-title">3 · Build the proof</div>
-        <div class="act"><span class="badge" style="--c:#315bce">P</span><div><b>Set a theorem contract.</b> Computation alone cannot close the mission.</div></div>
-        <div class="act"><span class="badge" style="--c:#c38a20">E</span><div><b>Write the package:</b> proof, checks, lemma graph, and limits.</div></div>
-        <div class="act"><span class="badge" style="--c:#287d70">R/E</span><div><span class="revision">Request repair</span>, revise, and resubmit against the same criteria.</div></div>
-      </article>
-
-      <article class="phase"><div class="phase-title">4 · Strengthen state</div>
-        <div class="act"><span class="badge" style="--c:#315bce">P</span><div><b>Require strict progress</b> from the current theorem frontier.</div></div>
-        <div class="act"><span class="badge" style="--c:#c38a20">E</span><div><b>Advance artifacts:</b> improve a bound and prove bridge results.</div></div>
-        <div class="act"><span class="badge" style="--c:#287d70">R</span><div><span class="accepted">Certify correctness</span> and relation to prior work.</div></div>
-      </article>
-
-      <article class="phase"><div class="phase-title">5 · Retain & continue</div>
-        <div class="act"><span class="badge" style="--c:#287d70">R</span><div><b>Write the checkpoint:</b> accepted claims, dead routes, and blockers.</div></div>
-        <div class="act"><span class="badge" style="--c:#b43f55">M</span><div><b>Advance or roll back</b> from reviewed results rather than activity.</div></div>
-        <div class="act"><span class="badge" style="--c:#315bce">P/E</span><div><b>Launch the next mission</b> from retained state, not from scratch.</div></div>
-      </article>
-    </div>
-    <div class="state-loop"><b>Reviewer-accepted artifacts → durable state → Manager and Planner select the next bounded mission ↺</b></div>
-  </section>
-
-  <footer>
-    <div class="metric" style="--c:#315bce"><strong>Persistent campaign</strong><b>1</b><small>survives restarts and Stage rollback</small></div>
-    <div class="metric" style="--c:#b43f55"><strong>Rejected route retained</strong><b>1</b><small>false branch remains available as history</small></div>
-    <div class="metric" style="--c:#287d70"><strong>Reviewed math deltas</strong><b>6</b><small>proof-backed updates enter durable state</small></div>
-    <div class="metric" style="--c:#7766a6"><strong>Current frontier</strong><b>Open</b><small>the research program continues</small></div>
-  </footer>
-</main>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><title>Argus mathematical claim frontier</title>
+<style>
+@page{size:12in 5.2in;margin:0}*{box-sizing:border-box}html,body{margin:0;width:12in;height:5.2in}
+body{font-family:Arial,Helvetica,sans-serif;color:#24465d;background:#fbf7ee;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+.canvas{position:relative;width:12in;height:5.2in;padding:16px 22px 54px;border:2px solid #24465d;display:grid;grid-template-rows:42px 154px 126px 74px;gap:8px;overflow:hidden}
+.mountain{position:absolute;left:0;bottom:0;width:100%;height:56px;object-fit:cover;opacity:.9}.header,.timeline,.artifacts,.efficiency{position:relative;z-index:2}
+.header{display:flex;align-items:center;justify-content:space-between}.header strong{font-size:17px;color:#173b70}.legend{display:flex;gap:8px}.legend span{border:1px solid #d8e0e8;border-radius:999px;background:#fffdf8;padding:4px 8px;font-size:9.5px;font-weight:700}.legend .red{color:#b43f55}.legend .gray{color:#687582}.legend .gold{color:#9b6b16}.legend .green{color:#287d70}
+.timeline{border:1.5px solid #24465d;border-radius:11px;background:rgba(255,253,248,.96);padding:10px 10px 8px}.timeline-title{font-size:12.5px;font-weight:800;color:#173b70;margin-bottom:9px}.claims{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}.claim{--c:#315bce;position:relative;border:1px solid #d8e0e8;border-top:5px solid var(--c);border-radius:8px;background:#fffdf8;padding:8px 7px;min-height:105px}.claim:not(:last-child)::after{content:"→";position:absolute;right:-10px;top:45%;z-index:3;color:#8b9baa;font-size:17px;font-weight:900}.claim .id{color:var(--c);font-size:16px;font-weight:900}.claim b{display:block;margin:5px 0;color:#1e2732;font-size:11.5px;line-height:1.12}.claim small{display:block;color:#667482;font-size:9.3px;line-height:1.2}.claim.falsified{--c:#b43f55;background:#fff6f6}.claim.known{--c:#7a838e}.claim.frontier{--c:#c38a20;background:#fffaf0}.claim.best{box-shadow:inset 0 0 0 2px #c38a20}.claim.reviewed::after{content:"✓";position:absolute;right:7px;top:7px;color:#287d70;font-size:13px;font-weight:900}
+.artifacts{display:grid;grid-template-columns:1.1fr 1fr 1.1fr 1fr;gap:8px}.artifact{--c:#315bce;border:1px solid #24465d;border-left:6px solid var(--c);border-radius:9px;background:#fffdf8;padding:10px 11px}.artifact strong{display:block;color:var(--c);font-size:12px;margin-bottom:7px}.artifact b{display:block;color:#1e2732;font-size:15px;line-height:1.08;margin-bottom:5px}.artifact span{display:block;color:#5d6b78;font-size:10px;line-height:1.22}
+.efficiency{border:1.5px solid #24465d;border-radius:10px;background:rgba(255,253,248,.96);padding:8px 12px;display:grid;grid-template-columns:130px repeat(3,1fr);gap:12px;align-items:center}.eff-title strong{display:block;color:#173b70;font-size:12px}.eff-title span{display:block;color:#667482;font-size:9px;margin-top:4px}.eff{display:grid;grid-template-columns:74px 1fr;gap:7px;align-items:center}.eff label{font-size:10px;font-weight:800}.track{position:relative;height:15px;border-radius:7px;background:#e8edf2;overflow:hidden}.inclusive{position:absolute;left:0;top:0;bottom:0;background:#b8c8e7}.strict{position:absolute;left:0;top:0;bottom:0;background:#315bce}.eff em{grid-column:2;color:#5d6b78;font-size:8.8px;font-style:normal}
+</style></head><body><main class="canvas"><img class="mountain" src="assets/anime/mountain_strip.png" alt="">
+<section class="header"><strong>Erdős–Gyárfás campaign · claim frontier</strong><div class="legend"><span class="red">falsified</span><span class="gray">known baseline</span><span class="gold">campaign frontier</span><span class="green">✓ Argus-reviewed</span></div></section>
+<section class="timeline"><div class="timeline-title">Seven retained claim updates</div><div class="claims">
+  <div class="claim falsified reviewed"><span class="id">C5</span><b>Route falsified</b><small>24-vertex witness</small></div>
+  <div class="claim known reviewed"><span class="id">C20</span><b>C4 degree bound</b><small>δ(δ−1) &gt; n−1</small></div>
+  <div class="claim known reviewed"><span class="id">C21</span><b>Rooted paths</b><small>length 2 vs. 4</small></div>
+  <div class="claim frontier reviewed"><span class="id">C22</span><b>Blocker or 27</b><small>threshold 28</small></div>
+  <div class="claim frontier best reviewed"><span class="id">C23</span><b>Blocker or 25</b><small>threshold 26</small></div>
+  <div class="claim frontier reviewed"><span class="id">C24</span><b>Simple triples</b><small>injective map</small></div>
+  <div class="claim frontier reviewed"><span class="id">C25</span><b>Fano excluded</b><small>gap closure</small></div>
+</div></section>
+<section class="artifacts">
+  <div class="artifact" style="--c:#b43f55"><strong>Rejected branch</strong><b>P13/P17 + C16</b><span>The witness disproves the proposed P13-free reduction.</span></div>
+  <div class="artifact" style="--c:#7a838e"><strong>Baseline theorem</strong><b>C4 degree bound</b><span>Known-style result independently re-derived and checked.</span></div>
+  <div class="artifact" style="--c:#c38a20"><strong>Frontier strengthened</strong><b>27 → 25</b><span>Forced-blocker threshold improves from 28 to 26.</span></div>
+  <div class="artifact" style="--c:#287d70"><strong>Bridge closure</strong><b>2 bridge lemmas</b><span>Simple triples and the simple Fano pattern are excluded.</span></div>
+</section>
+<section class="efficiency"><div class="eff-title"><strong>Work attribution</strong><span>dark = direct · light = inclusive</span></div>
+  <div class="eff"><label>Reasoning</label><div class="track"><div class="inclusive" style="width:95.12%"></div><div class="strict" style="width:55.98%"></div></div><em>56% direct · 95% inclusive</em></div>
+  <div class="eff"><label>Verification</label><div class="track"><div class="inclusive" style="width:90.43%"></div><div class="strict" style="width:55.38%"></div></div><em>55% direct · 90% inclusive</em></div>
+  <div class="eff"><label>Action</label><div class="track"><div class="inclusive" style="width:94.44%"></div><div class="strict" style="width:55.56%"></div></div><em>56% direct · 94% inclusive</em></div>
+</section></main></body></html>

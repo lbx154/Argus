@@ -1,137 +1,87 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Argus autonomous paper portfolio</title>
 <style>
-@page { size: 12in 7.15in; margin: 0; }
+@page { size: 12in 5.75in; margin: 0; }
 * { box-sizing: border-box; }
-html, body { margin:0; width:12in; height:7.15in; }
-body { font-family:Arial,Helvetica,sans-serif; color:#202932; background:#FFFFFF; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
-.canvas { width:12in; height:7.15in; padding:20px 24px 18px; display:grid; grid-template-rows:78px minmax(0,1fr) 66px; gap:10px; border-top:5px solid #315BCE; overflow:hidden; }
-header { display:flex; align-items:flex-start; justify-content:space-between; }
-.kicker { color:#315BCE; font-size:12px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; margin-bottom:3px; }
-h1 { margin:0; font-size:25px; line-height:1.04; letter-spacing:-.022em; color:#1E2732; }
-header p { margin:5px 0 0; color:#607080; font-size:14px; }
-.header-tag { margin-top:2px; border:1px solid #D6DEE6; border-radius:999px; padding:6px 10px; color:#526273; background:#F8FAFC; font-size:12px; font-weight:700; }
-.body { display:grid; grid-template-columns:330px 1fr; gap:10px; min-height:0; }
-.panel { border:1px solid #D5DEE6; border-radius:11px; background:#F8FAFC; padding:10px; min-height:0; }
-.panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
-.panel-head strong { font-size:15px; color:#173B70; }
-.panel-head span { color:#71808E; font-size:11px; }
-.mechanism { position:relative; overflow:hidden; }
-.loop-shell { height:386px; position:relative; margin-top:0; }
-.loop-arrows { position:absolute; left:0; top:0; width:100%; height:350px; }
-.loop-arrows path { fill:none; stroke:#8EA2B7; stroke-width:2.2; stroke-dasharray:5 5; }
-.role { position:absolute; width:126px; min-height:68px; border:1px solid #D6DEE6; border-top:4px solid var(--c); border-radius:9px; background:#fff; padding:8px 7px 6px 36px; }
-.role b { position:absolute; left:8px; top:9px; width:21px; height:21px; border-radius:6px; display:grid; place-items:center; background:var(--c); color:white; font-size:11px; }
-.role strong { display:block; color:var(--c); font-size:14px; margin-bottom:2px; }
-.role span { display:block; color:#5E6B78; font-size:10.5px; line-height:1.18; }
-.manager { --c:#B43F55; left:0; top:10px; } .planner { --c:#315BCE; right:0; top:22px; }
-.engineer { --c:#C38A20; right:0; top:262px; } .reviewer { --c:#287D70; left:0; top:250px; }
-.persistent-state { position:absolute; left:78px; top:88px; width:150px; height:150px; border:2px solid #315BCE; border-radius:14px; background:#EDF3FF; padding:9px 8px; text-align:center; overflow:hidden; }
-.persistent-state small { color:#315BCE; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
-.persistent-state strong { display:block; margin:4px 0 7px; color:#173B70; font-size:14px; }
-.persistent-state div { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }
-.persistent-state span { border:1px solid #C9D8F6; background:white; border-radius:999px; padding:3px 5px; color:#4E6280; font-size:9.5px; font-weight:700; }
-.loop-note { position:absolute; left:6px; right:6px; bottom:0; border:1px dashed #9AAABB; background:white; border-radius:7px; padding:7px; text-align:center; color:#45586A; font-size:10.5px; font-weight:700; }
-.portfolio { display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
-.paper-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); gap:7px; min-height:0; overflow:hidden; }
-.paper-card { border:1px solid #D6DEE6; border-left:5px solid var(--accent); border-radius:9px; background:#fff; padding:8px; display:grid; grid-template-columns:32px 1fr; gap:7px; min-height:0; overflow:hidden; }
-.paper-icon { width:29px; height:29px; border-radius:8px; background:#F4F7FA; display:grid; place-items:center; }
-.paper-icon svg { width:20px; height:20px; }
+html, body { margin:0; width:12in; height:5.75in; }
+body { font-family:Arial,Helvetica,sans-serif; color:#24465D; background:#FBF7EE; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+.canvas { position:relative; width:12in; height:5.75in; padding:15px 20px 52px; display:grid; grid-template-rows:38px minmax(0,1fr) 58px; gap:8px; border:2px solid #24465D; overflow:hidden; background:#FBF7EE; }
+.mountain-strip { position:absolute; left:0; bottom:0; width:100%; height:54px; object-fit:cover; object-position:center bottom; opacity:.92; z-index:0; }
+header,.paper-grid,.metrics { position:relative; z-index:2; }
+header { display:flex; align-items:center; justify-content:space-between; }
+header strong { color:#173B70; font-size:17px; }
+header span { color:#667482; font-size:10.5px; font-weight:700; }
+.paper-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; min-height:0; }
+.paper-card { border:1px solid #24465D; border-top:5px solid var(--accent); border-radius:10px; background:#FFFDF8; padding:7px; display:grid; grid-template-rows:218px minmax(0,1fr); gap:6px; min-width:0; overflow:hidden; }
+.paper-page { border:1px solid #D8E0E8; border-radius:5px; background:#EEF2F5; overflow:hidden; display:grid; place-items:center; }
+.paper-page img { width:100%; height:100%; object-fit:contain; object-position:center top; }
 .paper-copy { min-width:0; }
-.paper-top { display:flex; justify-content:space-between; gap:5px; color:#6A7783; font-size:10.5px; font-weight:700; }
-.paper-top span { color:var(--accent); } .paper-top i { font-style:normal; white-space:nowrap; }
-.paper-card h3 { margin:3px 0 4px; color:#1E2732; font-size:14.5px; line-height:1.08; }
-.paper-card > .paper-copy > strong { display:block; color:var(--accent); font-size:16.5px; line-height:1.06; margin:5px 0 4px; }
-.finding { margin:0; color:#3F4D5A; font-size:11.5px; line-height:1.19; }
-.metrics { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
-.metric { position:relative; border:1px solid #D5DEE6; border-radius:8px; background:#F8FAFC; padding:7px 8px 6px 12px; }
+.paper-top { color:var(--accent); font-size:9.3px; font-weight:800; line-height:1.05; }
+.paper-card h3 { margin:4px 0 5px; color:#1E2732; font-size:11.5px; line-height:1.08; }
+.paper-card > .paper-copy > strong { display:block; color:var(--accent); font-size:13.5px; line-height:1.08; margin:0; }
+.metrics { display:grid; grid-template-columns:.82fr repeat(6,1fr); gap:7px; }
+.metric-label { border:1px solid #24465D; border-radius:8px; background:#F5E6C8; padding:8px 9px; }
+.metric-label b { display:block; color:#173B70; font-size:12px; } .metric-label span { display:block; color:#667482; font-size:9px; margin-top:4px; font-weight:700; }
+.metric { position:relative; border:1px solid #24465D; border-radius:8px; background:rgba(255,253,248,.96); padding:7px 7px 6px 11px; }
 .metric::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px; border-radius:10px 0 0 10px; background:var(--c); }
-.metric b { display:block; color:var(--c); font-size:20px; line-height:1; margin-bottom:3px; }
-.metric span { color:#5C6B79; font-size:10.5px; font-weight:700; line-height:1.06; }
-</style></head><body><main class="canvas">
-<header><div><div class="kicker">Autonomous research production · six observed campaigns</div><h1>One persistent runtime produces six scientific manuscripts</h1><p>Repeated planning, execution, review, rollback, and session continuation connect each research question to a measured result.</p></div><div class="header-tag">2 AAAI-formatted · 4 ACL-formatted</div></header>
-<section class="body">
-  <article class="panel mechanism"><div class="panel-head"><strong>(a) Recurrent role loop</strong><span>schematic</span></div>
-      <div class="loop-shell">
-        <svg class="loop-arrows" viewBox="0 0 360 390" aria-hidden="true">
-          <path d="M103 59 C164 18 254 26 304 72"/>
-          <path d="M320 105 C350 176 325 280 268 318"/>
-          <path d="M232 340 C158 365 74 326 48 266"/>
-          <path d="M40 232 C14 151 39 88 92 58"/>
-        </svg>
-        <div class="role manager"><b>M</b><strong>Manager</strong><span>route · advance · rollback</span></div>
-        <div class="role planner"><b>P</b><strong>Planner</strong><span>bounded mission · success contract</span></div>
-        <div class="role engineer"><b>E</b><strong>Engineer</strong><span>experiment · code · manuscript</span></div>
-        <div class="role reviewer"><b>R</b><strong>Reviewer</strong><span>done · continue · blocked</span></div>
-        <div class="persistent-state">
-          <small>Persistent research state</small>
-          <strong>One campaign, many sessions</strong>
-          <div><span>Objective</span><span>Evidence</span><span>Failures</span><span>Skills / Wiki</span><span>Manuscript</span></div>
-        </div>
-        <div class="loop-note">Reviewer-admitted artifacts become the next Planner input ↺</div>
-      </div>
-    </article>
-  <article class="panel portfolio"><div class="panel-head"><strong>(b) Six scientific outputs</strong><span>task-native findings</span></div><div class="paper-grid">
+.metric b { display:block; color:var(--c); font-size:16px; line-height:1; margin-bottom:3px; }
+.metric span { color:#5C6B79; font-size:9.4px; font-weight:700; line-height:1.06; }
+</style></head><body><main class="canvas"><img class="mountain-strip" src="assets/anime/mountain_strip.png" alt="">
+<header><strong>Six completed manuscripts · real PDF first pages</strong><span>Scientific result on each card · Argus production process below</span></header>
+<section class="paper-grid">
       <article class="paper-card" style="--accent:#315BCE">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path stroke="#315BCE" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M5 21V12M12 21V7M19 21V3"/><path stroke="#315BCE" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M3 21h20M4 9l6-4 6 2 5-5"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/bench-fragile.png" alt="First page of From Leaderboard Ranks to Audited Decisions"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Evaluation reliability</span><i>ACL · 13p</i></div>
+          <div class="paper-top"><span>Evaluation reliability</span></div>
           <h3>Audited leaderboard decisions</h3>
           <strong>15 stable · 300 abstained</strong>
-          <p class="finding">Across 2,560 scored rows, simultaneous bands authorize only 15 of 315 pairwise claims; 53 pairs change direction under the observed evaluator-format axis.</p>
         </div>
       </article>
     
       <article class="paper-card" style="--accent:#7766A6">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect stroke="#7766A6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" x="3" y="4" width="7" height="7" rx="1.5"/><rect stroke="#7766A6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" x="14" y="13" width="7" height="7" rx="1.5"/><path stroke="#7766A6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M9 10l6 4M14 6h6v6M4 14v6h6"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/cv-compositional.png" alt="First page of When Structure Does Not Help"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Vision--language matching</span><i>ACL · 11p</i></div>
+          <div class="paper-top"><span>Vision--language matching</span></div>
           <h3>Compositional matching gate</h3>
           <strong>0.953 fallback &gt; 0.942 gate</strong>
-          <p class="finding">Across 61,902 tasks, the gate records 0 gate-only wins and blocks 681 corrections made by the simpler fallback.</p>
         </div>
       </article>
     
       <article class="paper-card" style="--accent:#D27A32">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path stroke="#D27A32" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M4 21V4h12v17M16 8h4v9h-4M8 8h4M8 12h4M8 16h4"/><path stroke="#D27A32" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1 12h3M20 12h3"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/cv-frontier.png" alt="First page of When a Frozen Gate Refuses to Adapt"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Test-time adaptation</span><i>AAAI · 10p</i></div>
+          <div class="paper-top"><span>Test-time adaptation</span></div>
           <h3>Frozen adaptation gate</h3>
           <strong>2 / 1,880 DTD updates</strong>
-          <p class="finding">The gate rejects nearly all DTD updates and gated accuracy is worse than native DOTA across all three evaluated families.</p>
         </div>
       </article>
     
       <article class="paper-card" style="--accent:#287D70">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path stroke="#287D70" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M5 3l13 11-6 1 3 6-3 1-3-6-4 4z"/><circle stroke="#287D70" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" cx="19" cy="6" r="3"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/mm-gui.png" alt="First page of Surface-Prior Selection for Training-Free GUI Reliability"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Multimodal agents</span><i>ACL · 11p</i></div>
+          <div class="paper-top"><span>Multimodal agents</span></div>
           <h3>GUI reliability at matched coverage</h3>
           <strong>0.0125 → 0.0115 risk area</strong>
-          <p class="finding">A fixed surface prior reduces aggregate high-cost wrong-execution area, with a narrow family-wise gain on one of four benchmarks.</p>
         </div>
       </article>
     
       <article class="paper-card" style="--accent:#B43F55">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path stroke="#B43F55" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle stroke="#B43F55" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" cx="12" cy="12" r="2.5"/><path stroke="#B43F55" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M4 4l16 16"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/mm-hallucination.png" alt="First page of When Frozen Multimodal Hallucination Wrappers Fail"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Multimodal hallucination</span><i>AAAI · 10p</i></div>
+          <div class="paper-top"><span>Multimodal hallucination</span></div>
           <h3>Frozen hallucination wrappers</h3>
           <strong>15 cells · 4,500 rows</strong>
-          <p class="finding">Retained wrappers are normalized-answer no-ops or cause benchmark-specific degradation rather than a reliable mitigation gain.</p>
         </div>
       </article>
     
       <article class="paper-card" style="--accent:#C38A20">
-        <div class="paper-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect stroke="#C38A20" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" x="3" y="3" width="18" height="18" rx="2"/><path stroke="#C38A20" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M9 3v18M15 3v18M3 9h18M3 15h18"/><circle cx="12" cy="12" r="2.2" fill="#C38A20"/></svg></div>
+        <div class="paper-page"><img src="assets/paper_thumbnails/quant-vocab.png" alt="First page of When Vocabulary-Row Proxies Fail"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>Model quantization</span><i>ACL · 10p</i></div>
+          <div class="paper-top"><span>Model quantization</span></div>
           <h3>Vocabulary-row quantization proxies</h3>
           <strong>0 significant wins vs random</strong>
-          <p class="finding">Across 18,934 scored rows, frequency, entity-membership, and row-norm proxies do not consistently beat random bypass controls.</p>
         </div>
       </article>
-    </div></article>
-</section>
-<footer class="metrics"><div class="metric" style="--c:#173B70"><b>6/6</b><span>canonical pipelines completed</span></div><div class="metric" style="--c:#315BCE"><b>640</b><span>aggregate campaign-hours</span></div><div class="metric" style="--c:#C38A20"><b>576</b><span>Engineer rounds</span></div><div class="metric" style="--c:#287D70"><b>286</b><span>Reviewer revisions</span></div><div class="metric" style="--c:#7766A6"><b>89</b><span>session rolls</span></div><div class="metric" style="--c:#B43F55"><b>16</b><span>Manager Stage rollbacks</span></div></footer>
+    </section>
+<footer class="metrics"><div class="metric-label"><b>ARGUS</b><span>production process</span></div><div class="metric" style="--c:#173B70"><b>6/6</b><span>papers completed</span></div><div class="metric" style="--c:#315BCE"><b>640</b><span>campaign-hours</span></div><div class="metric" style="--c:#C38A20"><b>576</b><span>Engineer rounds</span></div><div class="metric" style="--c:#287D70"><b>286</b><span>Reviewer revisions</span></div><div class="metric" style="--c:#7766A6"><b>89</b><span>session rolls</span></div><div class="metric" style="--c:#B43F55"><b>16</b><span>Stage rollbacks</span></div></footer>
 </main></body></html>

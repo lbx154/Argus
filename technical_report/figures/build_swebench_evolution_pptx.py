@@ -23,18 +23,25 @@ FIGURES = REPORT / "figures"
 EVIDENCE = REPORT / "evidence" / "swebench_pro"
 SUMMARY_PATH = EVIDENCE / "unified_experiment_summary.json"
 WAVES_PATH = EVIDENCE / "argus_wave_efficiency.csv"
+REVIEWER_STATS_PATH = EVIDENCE / "reviewer_mechanism_stats.json"
 PPTX_PATH = FIGURES / "swebench_evolution.pptx"
 PDF_PATH = FIGURES / "swebench_evolution.pdf"
 SVG_PATH = FIGURES / "swebench_evolution.svg"
 PNG_PATH = FIGURES / "swebench_evolution.png"
 WINDOWS_PATH = EVIDENCE / "argus_six_wave_windows.csv"
 MACROS_PATH = FIGURES / "swebench_metrics.tex"
+REVIEWER_MACROS_PATH = FIGURES / "reviewer_metrics.tex"
 PROVENANCE_PATH = FIGURES / "swebench_evolution.provenance.json"
+ANIME = FIGURES / "assets" / "anime"
+PLANNER_AVATAR = ANIME / "planner.png"
+ENGINEER_AVATAR = ANIME / "engineer.png"
+MOUNTAIN_STRIP = ANIME / "mountain_strip.png"
 
 
-WHITE = RGBColor(255, 255, 255)
-INK = RGBColor(30, 39, 50)
-MUTED = RGBColor(94, 104, 117)
+WHITE = RGBColor(255, 253, 248)
+PAPER = RGBColor(251, 247, 238)
+INK = RGBColor(36, 70, 93)
+MUTED = RGBColor(102, 113, 125)
 BLUE = RGBColor(49, 91, 206)
 DEEP = RGBColor(23, 59, 112)
 PALE_BLUE = RGBColor(232, 238, 252)
@@ -42,8 +49,8 @@ LIGHT_BLUE = RGBColor(166, 188, 235)
 GOLD = RGBColor(195, 138, 32)
 PALE_GOLD = RGBColor(252, 246, 229)
 GRAY = RGBColor(122, 131, 142)
-LIGHT_GRAY = RGBColor(219, 225, 231)
-PANEL = RGBColor(248, 250, 252)
+LIGHT_GRAY = RGBColor(216, 224, 232)
+PANEL = RGBColor(255, 253, 248)
 
 
 def sha256(path: Path) -> str:
@@ -66,7 +73,7 @@ def add_text(
     color: RGBColor = INK,
     bold: bool = False,
     align: PP_ALIGN = PP_ALIGN.LEFT,
-    font: str = "Aptos",
+    font: str = "Arial",
     margin: float = 0.02,
 ) -> Any:
     box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
@@ -193,46 +200,85 @@ def write_windows(rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def draw_accuracy_panel(slide, summary: dict[str, Any]) -> None:
-    x, y, w, h = 0.35, 1.15, 3.2, 5.1
+def draw_accuracy_panel(slide, summary: dict[str, Any], reviewer_stats: dict[str, Any]) -> None:
+    x, y, w, h = 0.35, 0.25, 3.2, 4.85
     add_rect(slide, x, y, w, h, fill=PANEL)
-    add_text(slide, "(a) Full-suite comparison", x + 0.18, y + 0.10, 2.8, 0.32, size=12, bold=True, color=DEEP)
+    add_text(slide, "(a) Outcome + review", x + 0.18, y + 0.10, 2.6, 0.32, size=11.5, bold=True, color=DEEP)
     aggregate = summary["aggregate_comparison"]
     direct = 100.0 * aggregate["direct_copilot_accuracy_approx"]
     argus = 100.0 * aggregate["argus_accuracy_approx"]
-    add_text(slide, "Accuracy on 731 tasks", x + 0.18, y + 0.53, 2.6, 0.25, size=9.5, bold=True)
+    add_text(slide, "Accuracy · 731 tasks", x + 0.18, y + 0.50, 2.6, 0.25, size=10.5, bold=True)
     bar_x, bar_w = x + 0.18, 2.55
     for label, value, yy, color in (
-        ("Direct Copilot", direct, y + 0.90, GRAY),
-        ("Argus", argus, y + 1.55, BLUE),
+        ("Direct Copilot", direct, y + 0.88, GRAY),
+        ("Argus", argus, y + 1.42, BLUE),
     ):
         add_text(slide, label, bar_x, yy - 0.27, 1.4, 0.22, size=8.7, bold=True if label == "Argus" else False)
         add_rect(slide, bar_x, yy, bar_w, 0.28, fill=WHITE, line=LIGHT_GRAY, radius=False)
         add_rect(slide, bar_x, yy, bar_w * value / 100.0, 0.28, fill=color, line=color, radius=False)
         add_text(slide, f"≈{value:.0f}%", bar_x + bar_w * value / 100.0 - 0.62, yy - 0.01, 0.56, 0.28, size=10, bold=True, color=WHITE, align=PP_ALIGN.RIGHT)
-    add_text(slide, "+19 percentage points", x + 0.18, y + 2.03, 2.55, 0.33, size=13.5, bold=True, color=BLUE)
-
-    add_line(slide, x + 0.18, y + 2.48, x + w - 0.18, y + 2.48, LIGHT_GRAY, 0.8)
-    add_text(slide, "Normalized aggregate tokens", x + 0.18, y + 2.65, 2.6, 0.25, size=9.5, bold=True)
+    add_rect(slide, x + 0.18, y + 1.86, 1.24, 0.52, fill=PALE_BLUE, line=LIGHT_BLUE)
+    add_text(slide, "+19 pp", x + 0.24, y + 1.93, 1.12, 0.35, size=14, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
     token_ratio = float(aggregate["argus_to_direct_total_token_ratio_approx"])
-    scale = 1.5
-    for label, value, yy, color in (
-        ("Direct Copilot", 1.0, y + 3.03, GRAY),
-        ("Argus", token_ratio, y + 3.60, BLUE),
-    ):
-        add_text(slide, label, bar_x, yy - 0.24, 1.4, 0.20, size=8.5)
-        add_rect(slide, bar_x, yy, bar_w, 0.22, fill=WHITE, line=LIGHT_GRAY, radius=False)
-        add_rect(slide, bar_x, yy, bar_w * value / scale, 0.22, fill=color, line=color, radius=False)
-        add_text(slide, f"{value:.2f}×", bar_x + bar_w + 0.03, yy - 0.03, 0.45, 0.28, size=9.5, bold=True, color=color)
-    add_text(
-        slide,
-        "Only the aggregate Token ratio is available;\nCopilot per-wave Token/time was not logged.",
-        x + 0.18,
-        y + 4.13,
-        2.78,
-        0.55,
-        size=8.1,
-        color=MUTED,
+    add_rect(slide, x + 1.55, y + 1.86, 1.24, 0.52, fill=PALE_GOLD, line=GOLD)
+    add_text(slide, f"{token_ratio:.2f}× tokens", x + 1.61, y + 1.93, 1.12, 0.35, size=12.5, bold=True, color=GOLD, align=PP_ALIGN.CENTER)
+
+    add_line(slide, x + 0.18, y + 2.55, x + w - 0.18, y + 2.55, LIGHT_GRAY, 0.8)
+    routing = reviewer_stats["routing"]
+    outcomes = reviewer_stats["external_reviewer_outcomes"]
+    workload = reviewer_stats["descriptive_workload"]
+    reviewer_share = float(routing["external_reviewer_share"])
+    add_text(slide, "Reviewer routing", x + 0.18, y + 2.68, 2.6, 0.25, size=10.5, bold=True)
+    add_rect(slide, bar_x, y + 2.98, bar_w, 0.28, fill=WHITE, line=LIGHT_GRAY, radius=False)
+    add_rect(slide, bar_x, y + 2.98, bar_w * reviewer_share, 0.28, fill=BLUE, line=BLUE, radius=False)
+    add_rect(slide, bar_x + bar_w * reviewer_share, y + 2.98, bar_w * (1 - reviewer_share), 0.28, fill=GRAY, line=GRAY, radius=False)
+    add_text(slide, f"{routing['external_reviewer_tasks']} Reviewer", bar_x + 0.05, y + 2.98, bar_w * reviewer_share - 0.10, 0.28, size=8.5, bold=True, color=WHITE)
+    add_text(slide, f"{routing['engineer_self_review_tasks']} self", bar_x + bar_w * reviewer_share, y + 2.98, bar_w * (1-reviewer_share) - 0.04, 0.28, size=8.2, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    token_hardness = workload["external_reviewer_mean_solve_input_tokens"] / workload["self_review_mean_solve_input_tokens"]
+    time_hardness = workload["external_reviewer_mean_active_seconds"] / workload["self_review_mean_active_seconds"]
+    add_text(slide, f"routed workload · {token_hardness:.2f}× tokens · {time_hardness:.2f}× time", x + 0.18, y + 3.34, w - 0.36, 0.25, size=8.7, bold=True, color=DEEP, align=PP_ALIGN.CENTER)
+
+    add_text(slide, "Review outcomes", x + 0.18, y + 3.68, 2.6, 0.24, size=10.5, bold=True)
+    branches = [
+        (x + 0.18, str(outcomes["first_review_accepted"]), "first-pass", PALE_BLUE, DEEP),
+        (x + 1.08, str(outcomes["revision_requested"]), "revise", PALE_GOLD, GOLD),
+        (x + 1.98, str(outcomes["first_review_blocked"]), "blocked", WHITE, GRAY),
+    ]
+    for xx, value, label, fill, color in branches:
+        add_rect(slide, xx, y + 3.96, 0.72, 0.48, fill=fill, line=color)
+        add_text(slide, value, xx + 0.04, y + 3.99, 0.64, 0.24, size=12, bold=True, color=color, align=PP_ALIGN.CENTER)
+        add_text(slide, label, xx + 0.03, y + 4.21, 0.66, 0.16, size=7.3, color=MUTED, align=PP_ALIGN.CENTER)
+    add_line(slide, x + 1.44, y + 4.44, x + 1.16, y + 4.58, GOLD, 1.3)
+    add_line(slide, x + 1.44, y + 4.44, x + 2.06, y + 4.58, GOLD, 1.3)
+    add_rect(slide, x + 0.82, y + 4.55, 0.68, 0.48, fill=PALE_BLUE, line=BLUE)
+    add_text(slide, str(outcomes["official_verifier_resolved_after_revision"]), x + 0.86, y + 4.58, 0.60, 0.23, size=12, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
+    add_text(slide, "verifier", x + 0.85, y + 4.80, 0.62, 0.16, size=7.3, color=MUTED, align=PP_ALIGN.CENTER)
+    add_rect(slide, x + 1.72, y + 4.55, 0.68, 0.48, fill=PALE_GOLD, line=GOLD)
+    add_text(slide, str(outcomes["reviewer_accepted_after_revision"]), x + 1.76, y + 4.58, 0.60, 0.23, size=12, bold=True, color=GOLD, align=PP_ALIGN.CENTER)
+    add_text(slide, "strict", x + 1.75, y + 4.80, 0.62, 0.16, size=7.3, color=MUTED, align=PP_ALIGN.CENTER)
+
+
+def write_reviewer_macros(stats: dict[str, Any]) -> None:
+    routing = stats["routing"]
+    outcomes = stats["external_reviewer_outcomes"]
+    workload = stats["descriptive_workload"]
+    values = {
+        "ReviewerTasks": stats["tasks"],
+        "ReviewerInvoked": routing["external_reviewer_tasks"],
+        "ReviewerInvokedPercent": f"{100 * routing['external_reviewer_share']:.1f}",
+        "ReviewerSkipped": routing["engineer_self_review_tasks"],
+        "ReviewerSkippedPercent": f"{100 * routing['engineer_self_review_share']:.1f}",
+        "ReviewerFirstAccepted": outcomes["first_review_accepted"],
+        "ReviewerFirstBlocked": outcomes["first_review_blocked"],
+        "ReviewerRevisionRequested": outcomes["revision_requested"],
+        "ReviewerVerifierRecovered": outcomes["official_verifier_resolved_after_revision"],
+        "ReviewerStrictRescues": outcomes["reviewer_accepted_after_revision"],
+        "ReviewerTokenRatio": f"{workload['external_reviewer_mean_solve_input_tokens'] / workload['self_review_mean_solve_input_tokens']:.2f}",
+        "ReviewerTimeRatio": f"{workload['external_reviewer_mean_active_seconds'] / workload['self_review_mean_active_seconds']:.2f}",
+    }
+    REVIEWER_MACROS_PATH.write_text(
+        "".join(f"\\newcommand{{\\{key}}}{{{value}}}\n" for key, value in values.items()),
+        encoding="utf-8",
     )
 
 
@@ -253,7 +299,7 @@ def draw_series_panel(
     best_reduction: float | None = None,
 ) -> None:
     add_rect(slide, x, y, w, h, fill=WHITE)
-    add_text(slide, title, x + 0.16, y + 0.08, w - 0.32, 0.30, size=11.5, bold=True, color=DEEP)
+    add_text(slide, title, x + 0.16, y + 0.08, w - 0.32, 0.30, size=10.2, bold=True, color=DEEP)
     plot_x, plot_y = x + 0.56, y + 0.48
     plot_w, plot_h = w - 1.10, h - 0.94
     tail_x = plot_x + plot_w * 4 / 4
@@ -276,8 +322,7 @@ def draw_series_panel(
         add_circle(slide, px, py, 0.075, color)
         value_text = f"{value / 1_000_000:.2f}M" if value_key == "solve_input_tokens_mean" else f"{value / 60:.2f}m"
         add_text(slide, value_text, px - 0.35, py - 0.32, 0.70, 0.22, size=8.0, bold=True, color=color, align=PP_ALIGN.CENTER)
-        add_text(slide, window["label"], px - 0.43, plot_y + plot_h + 0.07, 0.86, 0.20, size=7.6, bold=True, color=INK, align=PP_ALIGN.CENTER)
-        add_text(slide, window["stage"], px - 0.55, plot_y + plot_h + 0.27, 1.10, 0.20, size=7.0, color=MUTED, align=PP_ALIGN.CENTER)
+        add_text(slide, window["label"], px - 0.43, plot_y + plot_h + 0.10, 0.86, 0.24, size=8.4, bold=True, color=INK, align=PP_ALIGN.CENTER)
     mature = points[3]
     add_text(
         slide,
@@ -291,11 +336,6 @@ def draw_series_panel(
         color=BLUE,
         align=PP_ALIGN.RIGHT,
     )
-    if best_reduction is not None:
-        add_text(slide, f"Best six-wave regime: −{best_reduction:.0f}%", x + 0.55, y + 0.37, 2.1, 0.22, size=7.8, color=MUTED)
-    if value_key == "active_seconds_mean":
-        spike = points[2]
-        add_text(slide, "composition shift", spike[0] - 0.57, spike[1] + 0.12, 1.14, 0.20, size=7.2, color=GOLD, bold=True, align=PP_ALIGN.CENTER)
 
 
 def write_macros(summary: dict[str, Any], windows: list[dict[str, Any]]) -> None:
@@ -327,10 +367,12 @@ def write_macros(summary: dict[str, Any], windows: list[dict[str, Any]]) -> None
 
 def main() -> int:
     summary = json.loads(SUMMARY_PATH.read_text(encoding="utf-8"))
+    reviewer_stats = json.loads(REVIEWER_STATS_PATH.read_text(encoding="utf-8"))
     wave_rows = load_rows()
     windows = build_windows(wave_rows)
     write_windows(windows)
     write_macros(summary, windows)
+    write_reviewer_macros(reviewer_stats)
 
     start, best, mature = windows[0], windows[2], windows[3]
     token_reduction = 100.0 * (1.0 - mature["solve_input_tokens_mean"] / start["solve_input_tokens_mean"])
@@ -339,31 +381,21 @@ def main() -> int:
 
     prs = Presentation()
     prs.slide_width = Inches(12)
-    prs.slide_height = Inches(6.75)
+    prs.slide_height = Inches(5.4)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = WHITE
-    add_rect(slide, 0, 0, 12, 0.065, fill=BLUE, line=BLUE, radius=False)
-    add_text(slide, "SWE-Bench Pro: accuracy gain and runtime convergence", 0.35, 0.20, 11.2, 0.42, size=20, bold=True, color=INK)
-    add_text(
-        slide,
-        "One continuous 731-task evaluation · GPT-5.5/xhigh · Skill and Wiki state updated throughout the run",
-        0.37,
-        0.64,
-        11.1,
-        0.28,
-        size=9.5,
-        color=MUTED,
-    )
-    draw_accuracy_panel(slide, summary)
+    slide.background.fill.fore_color.rgb = PAPER
+    slide.shapes.add_picture(str(MOUNTAIN_STRIP), Inches(0), Inches(5.12), width=Inches(12), height=Inches(0.28))
+    add_rect(slide, 0, 0, 12, 0.055, fill=INK, line=INK, radius=False)
+    draw_accuracy_panel(slide, summary, reviewer_stats)
     draw_series_panel(
         slide,
         windows,
         x=3.75,
-        y=1.15,
+        y=0.25,
         w=7.90,
-        h=2.40,
-        title="(b) Argus solve input per task",
+        h=2.25,
+        title="(b) Solve tokens / task",
         value_key="solve_input_tokens_mean",
         unit="M tokens",
         y_max=4_200_000,
@@ -375,26 +407,15 @@ def main() -> int:
         slide,
         windows,
         x=3.75,
-        y=3.80,
+        y=2.85,
         w=7.90,
-        h=2.40,
-        title="(c) Argus active workflow time per task",
+        h=2.25,
+        title="(c) Active time / task",
         value_key="active_seconds_mean",
         unit="minutes",
         y_max=720,
         grid_step=120,
         reduction=time_reduction,
-    )
-    add_text(
-        slide,
-        "Task-weighted window means. Two incomplete Waves are omitted; W23–24 are shown separately as late difficult-task stress. Active time excludes orchestration wait, environment preparation, external verification, infrastructure recovery, and post-task knowledge maintenance.",
-        0.38,
-        6.40,
-        11.2,
-        0.22,
-        size=7.2,
-        color=MUTED,
-        align=PP_ALIGN.CENTER,
     )
     prs.save(PPTX_PATH)
 
@@ -433,12 +454,14 @@ def main() -> int:
     subprocess.run(["pdftoppm", "-singlefile", "-png", "-r", "180", str(PDF_PATH), str(preview_prefix)], check=True)
 
     provenance = {
-        "figure_id": "swebench-unified-evolution",
-        "reader_question": "Does persistent Skill/Wiki evolution improve full-suite accuracy and reduce mature-run Argus resource use?",
-        "claim": f"Argus reaches approximately 78% versus 59% for Direct Copilot at 1.41x aggregate tokens; W19-22 uses {token_reduction:.0f}% fewer solve tokens and {time_reduction:.0f}% less active time than W1-6.",
-        "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational and W23-24 are shown separately as late difficult-task stress.",
-        "inputs": {SUMMARY_PATH.name: sha256(SUMMARY_PATH), WAVES_PATH.name: sha256(WAVES_PATH)},
-        "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, WINDOWS_PATH, MACROS_PATH)},
+        "figure_id": "swebench-unified-result-evolution-review",
+        "reader_question": "How do the full-suite result, longitudinal efficiency, and adaptive Reviewer mechanism relate within one 731-task experiment?",
+        "claim": f"Argus reaches approximately 78% versus 59% for Direct Copilot at 1.41x aggregate tokens; W19-22 uses {token_reduction:.0f}% fewer solve tokens and {time_reduction:.0f}% less active time than W1-6; adaptive Reviewer routing issues 43 revision requests, followed by 34 official-verifier passes and 22 strict rescues.",
+        "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational, W23-24 are shown separately as late difficult-task stress, and Reviewer routing is task-dependent rather than randomized.",
+        "visual_style": "anime research field log with cream paper, navy linework, mountain-ridge motif, and shared Planner/Engineer characters; quantitative marks remain exact",
+        "character_assets": [str(PLANNER_AVATAR.relative_to(FIGURES)), str(ENGINEER_AVATAR.relative_to(FIGURES))],
+        "inputs": {SUMMARY_PATH.name: sha256(SUMMARY_PATH), WAVES_PATH.name: sha256(WAVES_PATH), REVIEWER_STATS_PATH.name: sha256(REVIEWER_STATS_PATH)},
+        "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, WINDOWS_PATH, MACROS_PATH, REVIEWER_MACROS_PATH)},
         "editable_source": PPTX_PATH.name,
     }
     PROVENANCE_PATH.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")

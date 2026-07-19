@@ -22,6 +22,14 @@ TRAJECTORY_HTML = HERE / "paper_case_trajectory.html"
 MACROS_PATH = HERE / "paper_case_study_metrics.tex"
 OVERVIEW_PROVENANCE = HERE / "paper_case_study.provenance.json"
 TRAJECTORY_PROVENANCE = HERE / "paper_case_trajectory.provenance.json"
+THUMBNAILS = {
+    "bench-fragile-leaderboard": "assets/paper_thumbnails/bench-fragile.png",
+    "cv-compositional-match": "assets/paper_thumbnails/cv-compositional.png",
+    "cv-frontier": "assets/paper_thumbnails/cv-frontier.png",
+    "mm-gui-agent": "assets/paper_thumbnails/mm-gui.png",
+    "mm-hallucination": "assets/paper_thumbnails/mm-hallucination.png",
+    "quant-vocab-matrix": "assets/paper_thumbnails/quant-vocab.png",
+}
 
 STAGES = [
     "research",
@@ -91,15 +99,13 @@ def icon_svg(kind: str, color: str) -> str:
 
 
 def paper_card(paper: dict, finding: dict) -> str:
-    venue = str(paper["venue_format"]).split("/")[0]
     return f"""
       <article class="paper-card" style="--accent:{esc(finding['accent'])}">
-        <div class="paper-icon">{icon_svg(str(finding['icon']), str(finding['accent']))}</div>
+        <div class="paper-page"><img src="{THUMBNAILS[paper['project']]}" alt="First page of {esc(paper['title'])}"></div>
         <div class="paper-copy">
-          <div class="paper-top"><span>{esc(paper['domain'])}</span><i>{esc(venue)} · {paper['final_pages']}p</i></div>
+          <div class="paper-top"><span>{esc(paper['domain'])}</span></div>
           <h3>{esc(finding['display_title'])}</h3>
           <strong>{esc(finding['headline'])}</strong>
-          <p class="finding">{esc(finding['finding'])}</p>
         </div>
       </article>
     """
@@ -114,16 +120,16 @@ def role_loop() -> str:
           <path d="M232 340 C158 365 74 326 48 266"/>
           <path d="M40 232 C14 151 39 88 92 58"/>
         </svg>
-        <div class="role manager"><b>M</b><strong>Manager</strong><span>route · advance · rollback</span></div>
-        <div class="role planner"><b>P</b><strong>Planner</strong><span>bounded mission · success contract</span></div>
-        <div class="role engineer"><b>E</b><strong>Engineer</strong><span>experiment · code · manuscript</span></div>
-        <div class="role reviewer"><b>R</b><strong>Reviewer</strong><span>done · continue · blocked</span></div>
+        <div class="role manager"><img src="assets/anime/manager.png"><strong>Manager</strong><span>govern</span></div>
+        <div class="role planner"><img src="assets/anime/planner.png"><strong>Planner</strong><span>plan</span></div>
+        <div class="role engineer"><img src="assets/anime/engineer.png"><strong>Engineer</strong><span>build</span></div>
+        <div class="role reviewer"><img src="assets/anime/reviewer.png"><strong>Reviewer</strong><span>review</span></div>
         <div class="persistent-state">
-          <small>Persistent research state</small>
-          <strong>One campaign, many sessions</strong>
-          <div><span>Objective</span><span>Evidence</span><span>Failures</span><span>Skills / Wiki</span><span>Manuscript</span></div>
+          <small>Persistent state</small>
+          <strong>One campaign</strong>
+          <p>objective · evidence</p>
+          <p>wiki · manuscript</p>
         </div>
-        <div class="loop-note">Reviewer-admitted artifacts become the next Planner input ↺</div>
       </div>
     """
 
@@ -134,12 +140,12 @@ def overview_html(summary: dict, findings: dict) -> str:
     finding_map = findings["papers"]
     cards = "".join(paper_card(paper, finding_map[paper["project"]]) for paper in papers)
     metrics = [
-        (f"{aggregate['pipeline_complete']}/{aggregate['papers']}", "canonical pipelines completed", "#173B70"),
-        (f"{round(aggregate['aggregate_campaign_hours']):,}", "aggregate campaign-hours", "#315BCE"),
+        (f"{aggregate['pipeline_complete']}/{aggregate['papers']}", "papers completed", "#173B70"),
+        (f"{round(aggregate['aggregate_campaign_hours']):,}", "campaign-hours", "#315BCE"),
         (f"{aggregate['engineer_rounds']:,}", "Engineer rounds", "#C38A20"),
         (f"{aggregate['review_continue']:,}", "Reviewer revisions", "#287D70"),
         (f"{aggregate['session_rolls']:,}", "session rolls", "#7766A6"),
-        (f"{aggregate['stage_rollbacks']:,}", "Manager Stage rollbacks", "#B43F55"),
+        (f"{aggregate['stage_rollbacks']:,}", "Stage rollbacks", "#B43F55"),
     ]
     metric_html = "".join(
         f'<div class="metric" style="--c:{color}"><b>{value}</b><span>{label}</span></div>'
@@ -148,60 +154,35 @@ def overview_html(summary: dict, findings: dict) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Argus autonomous paper portfolio</title>
 <style>
-@page {{ size: 12in 7.15in; margin: 0; }}
+@page {{ size: 12in 5.75in; margin: 0; }}
 * {{ box-sizing: border-box; }}
-html, body {{ margin:0; width:12in; height:7.15in; }}
-body {{ font-family:Arial,Helvetica,sans-serif; color:#202932; background:#FFFFFF; print-color-adjust:exact; -webkit-print-color-adjust:exact; }}
-.canvas {{ width:12in; height:7.15in; padding:20px 24px 18px; display:grid; grid-template-rows:78px minmax(0,1fr) 66px; gap:10px; border-top:5px solid #315BCE; overflow:hidden; }}
-header {{ display:flex; align-items:flex-start; justify-content:space-between; }}
-.kicker {{ color:#315BCE; font-size:12px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; margin-bottom:3px; }}
-h1 {{ margin:0; font-size:25px; line-height:1.04; letter-spacing:-.022em; color:#1E2732; }}
-header p {{ margin:5px 0 0; color:#607080; font-size:14px; }}
-.header-tag {{ margin-top:2px; border:1px solid #D6DEE6; border-radius:999px; padding:6px 10px; color:#526273; background:#F8FAFC; font-size:12px; font-weight:700; }}
-.body {{ display:grid; grid-template-columns:330px 1fr; gap:10px; min-height:0; }}
-.panel {{ border:1px solid #D5DEE6; border-radius:11px; background:#F8FAFC; padding:10px; min-height:0; }}
-.panel-head {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }}
-.panel-head strong {{ font-size:15px; color:#173B70; }}
-.panel-head span {{ color:#71808E; font-size:11px; }}
-.mechanism {{ position:relative; overflow:hidden; }}
-.loop-shell {{ height:386px; position:relative; margin-top:0; }}
-.loop-arrows {{ position:absolute; left:0; top:0; width:100%; height:350px; }}
-.loop-arrows path {{ fill:none; stroke:#8EA2B7; stroke-width:2.2; stroke-dasharray:5 5; }}
-.role {{ position:absolute; width:126px; min-height:68px; border:1px solid #D6DEE6; border-top:4px solid var(--c); border-radius:9px; background:#fff; padding:8px 7px 6px 36px; }}
-.role b {{ position:absolute; left:8px; top:9px; width:21px; height:21px; border-radius:6px; display:grid; place-items:center; background:var(--c); color:white; font-size:11px; }}
-.role strong {{ display:block; color:var(--c); font-size:14px; margin-bottom:2px; }}
-.role span {{ display:block; color:#5E6B78; font-size:10.5px; line-height:1.18; }}
-.manager {{ --c:#B43F55; left:0; top:10px; }} .planner {{ --c:#315BCE; right:0; top:22px; }}
-.engineer {{ --c:#C38A20; right:0; top:262px; }} .reviewer {{ --c:#287D70; left:0; top:250px; }}
-.persistent-state {{ position:absolute; left:78px; top:88px; width:150px; height:150px; border:2px solid #315BCE; border-radius:14px; background:#EDF3FF; padding:9px 8px; text-align:center; overflow:hidden; }}
-.persistent-state small {{ color:#315BCE; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }}
-.persistent-state strong {{ display:block; margin:4px 0 7px; color:#173B70; font-size:14px; }}
-.persistent-state div {{ display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }}
-.persistent-state span {{ border:1px solid #C9D8F6; background:white; border-radius:999px; padding:3px 5px; color:#4E6280; font-size:9.5px; font-weight:700; }}
-.loop-note {{ position:absolute; left:6px; right:6px; bottom:0; border:1px dashed #9AAABB; background:white; border-radius:7px; padding:7px; text-align:center; color:#45586A; font-size:10.5px; font-weight:700; }}
-.portfolio {{ display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }}
-.paper-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); gap:7px; min-height:0; overflow:hidden; }}
-.paper-card {{ border:1px solid #D6DEE6; border-left:5px solid var(--accent); border-radius:9px; background:#fff; padding:8px; display:grid; grid-template-columns:32px 1fr; gap:7px; min-height:0; overflow:hidden; }}
-.paper-icon {{ width:29px; height:29px; border-radius:8px; background:#F4F7FA; display:grid; place-items:center; }}
-.paper-icon svg {{ width:20px; height:20px; }}
+html, body {{ margin:0; width:12in; height:5.75in; }}
+body {{ font-family:Arial,Helvetica,sans-serif; color:#24465D; background:#FBF7EE; print-color-adjust:exact; -webkit-print-color-adjust:exact; }}
+.canvas {{ position:relative; width:12in; height:5.75in; padding:15px 20px 52px; display:grid; grid-template-rows:38px minmax(0,1fr) 58px; gap:8px; border:2px solid #24465D; overflow:hidden; background:#FBF7EE; }}
+.mountain-strip {{ position:absolute; left:0; bottom:0; width:100%; height:54px; object-fit:cover; object-position:center bottom; opacity:.92; z-index:0; }}
+header,.paper-grid,.metrics {{ position:relative; z-index:2; }}
+header {{ display:flex; align-items:center; justify-content:space-between; }}
+header strong {{ color:#173B70; font-size:17px; }}
+header span {{ color:#667482; font-size:10.5px; font-weight:700; }}
+.paper-grid {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; min-height:0; }}
+.paper-card {{ border:1px solid #24465D; border-top:5px solid var(--accent); border-radius:10px; background:#FFFDF8; padding:7px; display:grid; grid-template-rows:218px minmax(0,1fr); gap:6px; min-width:0; overflow:hidden; }}
+.paper-page {{ border:1px solid #D8E0E8; border-radius:5px; background:#EEF2F5; overflow:hidden; display:grid; place-items:center; }}
+.paper-page img {{ width:100%; height:100%; object-fit:contain; object-position:center top; }}
 .paper-copy {{ min-width:0; }}
-.paper-top {{ display:flex; justify-content:space-between; gap:5px; color:#6A7783; font-size:10.5px; font-weight:700; }}
-.paper-top span {{ color:var(--accent); }} .paper-top i {{ font-style:normal; white-space:nowrap; }}
-.paper-card h3 {{ margin:3px 0 4px; color:#1E2732; font-size:14.5px; line-height:1.08; }}
-.paper-card > .paper-copy > strong {{ display:block; color:var(--accent); font-size:16.5px; line-height:1.06; margin:5px 0 4px; }}
-.finding {{ margin:0; color:#3F4D5A; font-size:11.5px; line-height:1.19; }}
-.metrics {{ display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }}
-.metric {{ position:relative; border:1px solid #D5DEE6; border-radius:8px; background:#F8FAFC; padding:7px 8px 6px 12px; }}
+.paper-top {{ color:var(--accent); font-size:9.3px; font-weight:800; line-height:1.05; }}
+.paper-card h3 {{ margin:4px 0 5px; color:#1E2732; font-size:11.5px; line-height:1.08; }}
+.paper-card > .paper-copy > strong {{ display:block; color:var(--accent); font-size:13.5px; line-height:1.08; margin:0; }}
+.metrics {{ display:grid; grid-template-columns:.82fr repeat(6,1fr); gap:7px; }}
+.metric-label {{ border:1px solid #24465D; border-radius:8px; background:#F5E6C8; padding:8px 9px; }}
+.metric-label b {{ display:block; color:#173B70; font-size:12px; }} .metric-label span {{ display:block; color:#667482; font-size:9px; margin-top:4px; font-weight:700; }}
+.metric {{ position:relative; border:1px solid #24465D; border-radius:8px; background:rgba(255,253,248,.96); padding:7px 7px 6px 11px; }}
 .metric::before {{ content:""; position:absolute; left:0; top:0; bottom:0; width:5px; border-radius:10px 0 0 10px; background:var(--c); }}
-.metric b {{ display:block; color:var(--c); font-size:20px; line-height:1; margin-bottom:3px; }}
-.metric span {{ color:#5C6B79; font-size:10.5px; font-weight:700; line-height:1.06; }}
-</style></head><body><main class="canvas">
-<header><div><div class="kicker">Autonomous research production · six observed campaigns</div><h1>One persistent runtime produces six scientific manuscripts</h1><p>Repeated planning, execution, review, rollback, and session continuation connect each research question to a measured result.</p></div><div class="header-tag">2 AAAI-formatted · 4 ACL-formatted</div></header>
-<section class="body">
-  <article class="panel mechanism"><div class="panel-head"><strong>(a) Recurrent role loop</strong><span>schematic</span></div>{role_loop()}</article>
-  <article class="panel portfolio"><div class="panel-head"><strong>(b) Six scientific outputs</strong><span>task-native findings</span></div><div class="paper-grid">{cards}</div></article>
-</section>
-<footer class="metrics">{metric_html}</footer>
+.metric b {{ display:block; color:var(--c); font-size:16px; line-height:1; margin-bottom:3px; }}
+.metric span {{ color:#5C6B79; font-size:9.4px; font-weight:700; line-height:1.06; }}
+</style></head><body><main class="canvas"><img class="mountain-strip" src="assets/anime/mountain_strip.png" alt="">
+<header><strong>Six completed manuscripts · real PDF first pages</strong><span>Scientific result on each card · Argus production process below</span></header>
+<section class="paper-grid">{cards}</section>
+<footer class="metrics"><div class="metric-label"><b>ARGUS</b><span>production process</span></div>{metric_html}</footer>
 </main></body></html>"""
 
 
@@ -278,8 +259,8 @@ def stage_plot_svg(transitions: list[dict[str, str]], trace: dict) -> str:
 
 
 def role_badges(*roles: str) -> str:
-    colors = {"M": "#B43F55", "P": "#315BCE", "E": "#C38A20", "R": "#287D70"}
-    return "".join(f'<b style="--c:{colors[role]}">{role}</b>' for role in roles)
+    names = {"M": "manager", "P": "planner", "E": "engineer", "R": "reviewer"}
+    return "".join(f'<img src="assets/anime/{names[role]}.png" alt="{role}">' for role in roles)
 
 
 def trajectory_html(transitions: list[dict[str, str]], trace: dict) -> str:
@@ -289,53 +270,48 @@ def trajectory_html(transitions: list[dict[str, str]], trace: dict) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Argus representative autonomous paper trajectory</title>
 <style>
-@page {{ size:12in 7.1in; margin:0; }}
-* {{ box-sizing:border-box; }} html,body {{ margin:0; width:12in; height:7.1in; }}
-body {{ font-family:Arial,Helvetica,sans-serif; color:#202932; background:#FFFFFF; print-color-adjust:exact; -webkit-print-color-adjust:exact; }}
-.canvas {{ width:12in; height:7.1in; padding:20px 24px 16px; border-top:5px solid #315BCE; display:grid; grid-template-rows:88px 248px minmax(0,1fr) 42px; gap:10px; overflow:hidden; }}
-header {{ display:flex; justify-content:space-between; align-items:flex-start; }}
-.kicker {{ color:#315BCE; font-size:12px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; margin-bottom:3px; }}
-h1 {{ margin:0; font-size:24px; line-height:1.03; letter-spacing:-.022em; max-width:730px; }}
-header p {{ margin:5px 0 0; color:#607080; font-size:13.5px; max-width:730px; }}
-.summary {{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px; width:352px; }}
-.summary div {{ border:1px solid #D6DEE6; background:#F8FAFC; border-radius:7px; padding:5px 7px; }}
-.summary b {{ display:block; color:#173B70; font-size:16px; line-height:1; }}
-.summary span {{ color:#677482; font-size:9.5px; font-weight:700; }}
-.plot-panel {{ border:1px solid #D5DEE6; border-radius:11px; background:#F8FAFC; padding:7px 10px 4px; }}
-.plot-head {{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:1px; }}
-.plot-head strong {{ color:#173B70; font-size:14px; }} .plot-head span {{ color:#71808E; font-size:10.5px; }}
-.stage-plot {{ width:100%; height:214px; display:block; }}
+@page {{ size:12in 5.2in; margin:0; }}
+* {{ box-sizing:border-box; }} html,body {{ margin:0; width:12in; height:5.2in; }}
+body {{ font-family:Arial,Helvetica,sans-serif; color:#24465D; background:#FBF7EE; print-color-adjust:exact; -webkit-print-color-adjust:exact; }}
+.canvas {{ position:relative; width:12in; height:5.2in; padding:14px 20px 48px; border:2px solid #24465D; display:grid; grid-template-rows:252px minmax(0,1fr); gap:8px; overflow:hidden; background:#FBF7EE; }}
+.mountain-strip {{ position:absolute; left:0; bottom:0; width:100%; height:50px; object-fit:cover; object-position:center bottom; opacity:.92; z-index:0; }}
+.plot-panel,.episodes-wrap {{ position:relative; z-index:2; }}
+.plot-panel {{ border:1.5px solid #24465D; border-radius:11px; background:rgba(255,253,248,.96); padding:7px 10px 4px; display:grid; grid-template-rows:52px 1fr; }}
+.plot-top {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }}
+.plot-head strong {{ display:block; color:#173B70; font-size:13px; margin-top:4px; }} .plot-head span {{ display:block; color:#71808E; font-size:9.5px; margin-top:5px; }}
+.summary {{ display:grid; grid-template-columns:repeat(6,1fr); gap:4px; width:650px; }}
+.summary div {{ border:1px solid #24465D; background:#FFFDF8; border-radius:7px; padding:5px 6px; text-align:center; }}
+.summary b {{ display:block; color:#173B70; font-size:14px; line-height:1; }}
+.summary span {{ color:#677482; font-size:8.5px; font-weight:700; }}
+.stage-plot {{ width:100%; height:185px; display:block; }}
 .episodes-wrap {{ display:grid; grid-template-rows:18px minmax(0,1fr); gap:4px; min-height:0; overflow:hidden; }}
 .episodes-title {{ display:flex; align-items:baseline; justify-content:space-between; padding:0 2px; }}
-.episodes-title strong {{ color:#173B70; font-size:14px; }} .episodes-title span {{ color:#71808E; font-size:10.5px; }}
+.episodes-title strong {{ color:#173B70; font-size:12.5px; }} .episodes-title span {{ color:#71808E; font-size:9.5px; }}
 .episodes {{ display:grid; grid-template-columns:1.35fr .88fr 1fr 1fr .92fr; gap:6px; min-height:0; overflow:hidden; }}
-.episode {{ border:1px solid #D6DEE6; border-top:4px solid var(--c); border-radius:9px; background:#fff; padding:7px 8px; position:relative; overflow:hidden; }}
+.episode {{ border:1px solid #24465D; border-top:4px solid var(--c); border-radius:10px; background:#FFFDF8; padding:7px 8px; position:relative; overflow:hidden; }}
+.episode::before {{ content:attr(data-step); position:absolute; right:8px; bottom:-9px; color:var(--c); font-size:46px; font-weight:900; opacity:.10; }}
+.episode:not(:last-child)::after {{ content:"→"; position:absolute; right:-9px; top:46%; z-index:4; color:#8B9BAA; font-size:17px; font-weight:900; }}
 .episode-head {{ display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px; }}
 .episode-head small {{ color:var(--c); font-size:9.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }}
-.badges {{ display:flex; gap:2px; }} .badges b {{ width:18px; height:18px; border-radius:5px; display:grid; place-items:center; background:var(--c); color:white; font-size:9px; }}
-.episode h3 {{ margin:0 0 4px; font-size:14.5px; line-height:1.07; color:#1E2732; }}
+.badges {{ display:flex; gap:2px; }} .badges img {{ width:22px; height:27px; object-fit:contain; margin-top:-4px; }}
+.episode h3 {{ margin:0 0 4px; font-size:12.5px; line-height:1.07; color:#1E2732; }}
 .episode p {{ margin:0; color:#4D5A67; font-size:10.8px; line-height:1.19; }}
 .episode strong {{ color:var(--c); }}
 .chips {{ display:flex; flex-wrap:wrap; gap:3px; margin-top:5px; }} .chips span {{ border:1px solid #E4B9C1; background:#FFF5F6; border-radius:999px; padding:2px 4px; color:#8B3E4C; font-size:8.3px; font-weight:700; }}
-.pivot {{ display:grid; place-items:center; text-align:center; min-height:67px; border:1px solid #C8D7F4; background:#F0F5FF; border-radius:7px; margin:6px 0 5px; padding:5px; color:#315BCE; font-size:11.5px; font-weight:800; }}
+.pivot {{ display:grid; place-items:center; text-align:center; min-height:42px; border:1px solid #C8D7F4; background:#F0F5FF; border-radius:7px; margin:4px 0; padding:4px; color:#315BCE; font-size:11.5px; font-weight:800; }}
 .pivot i {{ display:block; color:#8A98A7; font-style:normal; font-size:18px; line-height:.7; }}
 .matrix {{ display:grid; grid-template-columns:repeat(3,1fr); gap:3px; margin:6px 0 5px; }} .matrix span {{ background:#EDF4FF; border:1px solid #C9D8F6; border-radius:4px; padding:3px 2px; text-align:center; color:#315BCE; font-size:9px; font-weight:800; }}
 .episode ul {{ margin:5px 0 5px 14px; padding:0; color:#4D5A67; font-size:9.7px; line-height:1.16; }}
-.paper-output {{ margin-top:6px; border:1px solid #E2C77E; background:#FFF8E7; border-radius:7px; padding:5px; text-align:center; }} .paper-output b {{ color:#8B6515; font-size:18px; }} .paper-output span {{ display:block; color:#6E5A2D; font-size:9.5px; font-weight:700; }}
-footer {{ border:1px dashed #8DA1B4; border-radius:8px; background:#F2F6F9; display:flex; align-items:center; justify-content:center; gap:6px; color:#43576A; font-size:11px; font-weight:700; }}
-footer b {{ color:#173B70; }}
-</style></head><body><main class="canvas">
-<header><div><div class="kicker">Representative paper campaign · measured state trajectory</div><h1>A failed method search becomes a rigorous negative-results paper</h1><p>The multimodal-hallucination project repeatedly changes route without losing the objective, prior failures, official results, or manuscript state.</p></div>
-<div class="summary"><div><b>{trace['campaign_hours']:.1f} h</b><span>campaign-hours</span></div><div><b>{trace['engineer_rounds']}</b><span>Engineer rounds</span></div><div><b>{trace['reviewer_revisions']}</b><span>Reviewer revisions</span></div><div><b>{trace['session_rolls']}</b><span>session rolls</span></div><div><b>{trace['early_no_go_rollbacks']}</b><span>early rollbacks</span></div><div><b>{trace['submission_rollbacks']}</b><span>late rollbacks</span></div></div></header>
-<section class="plot-panel"><div class="plot-head"><strong>(a) The canonical Stage state is recurrent, not linear</strong><span>red points denote Manager/Reviewer rollback decisions</span></div>{plot}</section>
-<section class="episodes-wrap"><div class="episodes-title"><strong>(b) Role-resolved scientific episodes</strong><span>the same persistent campaign state crosses every episode</span></div><div class="episodes">
-  <article class="episode" style="--c:#B43F55"><div class="episode-head"><small>Hypothesis pruning</small><div class="badges">{role_badges('R','M','P')}</div></div><h3><strong>7 no-go gates</strong> prune weak routes</h3><p>Official pilots expose missing signal or base-identical behavior. Reviewer rejects; Manager rolls back; Planner retires the branch.</p><div class="chips">{no_go_chips}</div></article>
-  <article class="episode" style="--c:#315BCE"><div class="episode-head"><small>Scientific pivot</small><div class="badges">{role_badges('P','M')}</div></div><h3>Change the claim, retain the evidence</h3><div class="pivot">positive method<i>↓</i>negative-results audit</div><p>Failed routes become study objects.</p></article>
-  <article class="episode" style="--c:#C38A20"><div class="episode-head"><small>Canonical experiment</small><div class="badges">{role_badges('E','R')}</div></div><h3><strong>{trace['canonical_cells']} cells · {trace['canonical_scored_rows']:,} rows</strong></h3><div class="matrix"><span>POPE</span><span>AMBER</span><span>HallusionBench</span><span>5 methods</span><span>official scorers</span><span>paired audits</span></div><p>Engineer completes the matrix; Reviewer binds claims to official outputs.</p></article>
-  <article class="episode" style="--c:#287D70"><div class="episode-head"><small>Paper construction</small><div class="badges">{role_badges('E','R','M')}</div></div><h3>Analysis → draft → review</h3><p>Measured no-op and degradation modes become a scoped paper with synchronized claims, citations, figures, and layout.</p><div class="paper-output"><b>{trace['final_pages']} pages</b><span>{esc(trace['final_format'])}-formatted manuscript</span></div></article>
-  <article class="episode" style="--c:#B43F55"><div class="episode-head"><small>Submission recovery</small><div class="badges">{role_badges('R','M','E')}</div></div><h3><strong>2 late rollbacks</strong> repair the package</h3><ul>{repairs}</ul><p>The same 15-cell evidence is rebound and re-reviewed.</p></article>
+.paper-output {{ margin-top:4px; border:1px solid #E2C77E; background:#FFF8E7; border-radius:7px; padding:4px; text-align:center; }} .paper-output b {{ color:#8B6515; font-size:18px; }} .paper-output span {{ display:block; color:#6E5A2D; font-size:9.5px; font-weight:700; }}
+</style></head><body><main class="canvas"><img class="mountain-strip" src="assets/anime/mountain_strip.png" alt="">
+<section class="plot-panel"><div class="plot-top"><div class="plot-head"><strong>Stage trajectory</strong><span>red = rollback · gold = completion</span></div><div class="summary"><div><b>{trace['campaign_hours']:.1f} h</b><span>campaign</span></div><div><b>{trace['engineer_rounds']}</b><span>rounds</span></div><div><b>{trace['reviewer_revisions']}</b><span>revisions</span></div><div><b>{trace['session_rolls']}</b><span>sessions</span></div><div><b>{trace['early_no_go_rollbacks']}</b><span>early rollback</span></div><div><b>{trace['submission_rollbacks']}</b><span>late rollback</span></div></div></div>{plot}</section>
+<section class="episodes-wrap"><div class="episodes-title"><strong>(b) Scientific episodes</strong></div><div class="episodes">
+  <article class="episode" data-step="01" style="--c:#B43F55"><div class="episode-head"><small>Prune</small><div class="badges">{role_badges('R','M','P')}</div></div><h3><strong>7 no-go gates</strong></h3><div class="pivot">reject weak routes</div></article>
+  <article class="episode" data-step="02" style="--c:#315BCE"><div class="episode-head"><small>Pivot</small><div class="badges">{role_badges('P','M')}</div></div><h3>Method → audit</h3><div class="pivot">retain evidence</div></article>
+  <article class="episode" data-step="03" style="--c:#C38A20"><div class="episode-head"><small>Experiment</small><div class="badges">{role_badges('E','R')}</div></div><h3><strong>{trace['canonical_cells']} cells</strong></h3><div class="pivot">{trace['canonical_scored_rows']:,} rows</div></article>
+  <article class="episode" data-step="04" style="--c:#287D70"><div class="episode-head"><small>Write</small><div class="badges">{role_badges('E','R','M')}</div></div><h3>Analyze → review</h3><div class="paper-output"><b>{trace['final_pages']} pages</b></div></article>
+  <article class="episode" data-step="05" style="--c:#B43F55"><div class="episode-head"><small>Repair</small><div class="badges">{role_badges('R','M','E')}</div></div><h3><strong>2 late rollbacks</strong></h3><div class="pivot">rebind evidence</div></article>
 </div></section>
-<footer><b>Durable state:</b> failed hypotheses + canonical runs + reviewer decisions + manuscript artifacts survive 29 session replacements and remain available to the next mission.</footer>
 </main></body></html>"""
 
 
@@ -345,10 +321,12 @@ def write_provenance() -> None:
         "reader_question": "What scientific work did Argus produce, and how does the recurrent runtime connect to those outputs?",
         "claim": "Six canonical pipelines completed across six domains through repeated role handoffs, review, rollback, and session continuation.",
         "evidence": [SUMMARY_PATH.name, FINDINGS_PATH.name],
-        "encoding": "A recurrent four-role state loop is paired with six paper cards that report task-native findings and process counts.",
+        "encoding": "Six real first-page PDF thumbnails are paired with task-native scientific headlines; a separate bottom strip reports Argus production-process counts.",
         "scope": "Observed Argus campaigns; paper-format completion is not venue acceptance or a human-quality comparison.",
-        "target_size": "12 x 7.15 inch source canvas; approximately 4.2 inches high at manuscript width",
-        "visual_style": "shared Argus paper palette, white background, compact panels, and fixed role colors",
+        "target_size": "12 x 5.75 inch source canvas; approximately 3.2 inches high at manuscript width",
+        "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and fixed role colors",
+        "character_assets": ["assets/anime/manager.svg", "assets/anime/planner.svg", "assets/anime/engineer.svg", "assets/anime/reviewer.svg"],
+        "visual_assets": list(THUMBNAILS.values()),
         "editable_source": [Path(__file__).name, OVERVIEW_HTML.name],
         "export": ["paper_case_study.pdf", "paper_case_study.svg", "paper_case_study.png"],
     }
@@ -357,10 +335,11 @@ def write_provenance() -> None:
         "reader_question": "How does one Argus campaign recover from failed hypotheses and late submission defects?",
         "claim": "The representative campaign uses seven early no-go rollbacks, a scientific scope pivot, and two late submission repairs to reach a completed manuscript.",
         "evidence": [TRANSITIONS_PATH.name, TRACE_PATH.name],
-        "encoding": "An actual Stage-versus-time trace is linked to role-resolved episodes and retained scientific artifacts.",
+        "encoding": "An actual Stage-versus-time trace carries the main visual, with six campaign statistics above it and five role-resolved episodes below.",
         "scope": "One 163.6-hour multimodal-hallucination campaign; role labels summarize structured events rather than private model reasoning.",
-        "target_size": "12 x 7.1 inch source canvas; approximately 4.2 inches high at manuscript width",
-        "visual_style": "shared Argus paper palette, white background, compact panels, and rollback red reserved for failure transitions",
+        "target_size": "12 x 5.2 inch source canvas; approximately 2.9 inches high at manuscript width",
+        "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and rollback red reserved for failure transitions",
+        "character_assets": ["assets/anime/manager.svg", "assets/anime/planner.svg", "assets/anime/engineer.svg", "assets/anime/reviewer.svg"],
         "editable_source": [Path(__file__).name, TRAJECTORY_HTML.name],
         "export": ["paper_case_trajectory.pdf", "paper_case_trajectory.svg", "paper_case_trajectory.png"],
     }

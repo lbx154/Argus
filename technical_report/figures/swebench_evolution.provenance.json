@@ -1,19 +1,26 @@
 {
-  "claim": "Argus reaches approximately 78% versus 59% for Direct Copilot at 1.41x aggregate tokens; W19-22 uses 21% fewer solve tokens and 15% less active time than W1-6.",
+  "character_assets": [
+    "assets/anime/planner.png",
+    "assets/anime/engineer.png"
+  ],
+  "claim": "Argus reaches approximately 78% versus 59% for Direct Copilot at 1.41x aggregate tokens; W19-22 uses 21% fewer solve tokens and 15% less active time than W1-6; adaptive Reviewer routing issues 43 revision requests, followed by 34 official-verifier passes and 22 strict rescues.",
   "editable_source": "swebench_evolution.pptx",
-  "figure_id": "swebench-unified-evolution",
+  "figure_id": "swebench-unified-result-evolution-review",
   "inputs": {
     "argus_wave_efficiency.csv": "e148b77a444c0b5929b03010cfc5f7a75201412bee6bb9b6fbb1b6e4312cf14a",
+    "reviewer_mechanism_stats.json": "da7f4206345b1092b6750426b09995396aaadedf91235299eb40295b55910919",
     "unified_experiment_summary.json": "465ee0e72271272a3d9916e2a0dda16c05daa3089e3a59d4e4b825a0fa8a3d63"
   },
   "outputs": {
     "argus_six_wave_windows.csv": "318fde2287c680d4ef18acf4407dede79811e6af9c216095af85a18e2e60c6d0",
-    "swebench_evolution.pdf": "97bde09363c2269e71575b49dc090db3821ec0f43b4c5ca31915476aa8da692e",
-    "swebench_evolution.png": "bf981168935dbc2d7bfbcf6df4211e1feb12d2496c207660e1a0272bccffcdb0",
-    "swebench_evolution.pptx": "324169ad0aaa5c9e17fc76458c383490085e37021d294bd3c2c10715f6e19bd2",
-    "swebench_evolution.svg": "4277e520f65a3cf89e4365c42ce11cac2ec486f13ad206f5fe817eb9d3276a44",
+    "reviewer_metrics.tex": "21c39bbe66483362360893ec56ee53c37e22edae3baf40884e9a75deeeebf5ab",
+    "swebench_evolution.pdf": "1456d6a623fae49eff3e09c7eb028fe94e7d1b973144d6879510529dab652bd9",
+    "swebench_evolution.png": "6dcc0bf31a418ac9442a486f3de79b7251f595a4a529c1fc1e467a5adbf5d68d",
+    "swebench_evolution.pptx": "2e7462fc0cb92dbad54b11973af7c04199206c9f48abc9978c826385c42ec5cc",
+    "swebench_evolution.svg": "6bf5fa10131c29047fbad0ca7ebb6067946c7ef9a2175cf198f1d5da5c7b4236",
     "swebench_metrics.tex": "283412cd0b69cfbeccc3a0e447f7f0ceab961db7b7833379bd94d80670302b6f"
   },
-  "reader_question": "Does persistent Skill/Wiki evolution improve full-suite accuracy and reduce mature-run Argus resource use?",
-  "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational and W23-24 are shown separately as late difficult-task stress."
+  "reader_question": "How do the full-suite result, longitudinal efficiency, and adaptive Reviewer mechanism relate within one 731-task experiment?",
+  "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational, W23-24 are shown separately as late difficult-task stress, and Reviewer routing is task-dependent rather than randomized.",
+  "visual_style": "anime research field log with cream paper, navy linework, mountain-ridge motif, and shared Planner/Engineer characters; quantitative marks remain exact"
 }

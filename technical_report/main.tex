@@ -7,13 +7,15 @@
 \usepackage[scaled=0.92]{helvet}
 \usepackage{amsmath}
 \usepackage{amssymb}
-\usepackage[letterpaper,top=0.55in,bottom=0.62in,left=0.72in,right=0.72in,
+\usepackage[letterpaper,top=0.65in,bottom=0.72in,left=0.78in,right=0.78in,
   headheight=14pt]{geometry}
 \usepackage[protrusion=true,expansion=true]{microtype}
 \usepackage{xspace}
-\usepackage{xcolor}
+\usepackage[table]{xcolor}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{colortbl}
+\usepackage{etoolbox}
 \usepackage{tabularx}
 \usepackage{array}
 \usepackage{enumitem}
@@ -25,16 +27,20 @@
 \usepackage[round,authoryear]{natbib}
 \usepackage[colorlinks=true,allcolors=argusblue]{hyperref}
 
-% A restrained academic palette: SJTU red for affiliation, Argus blue for
-% navigation, and neutral ink for the paper body.
+% Anime-editorial paper palette derived from the mountain illustration: navy
+% linework, cream paper, restrained blue, sand, and sage accents.
 \definecolor{sjtuRed}{HTML}{C8161D}
 \definecolor{argusblue}{HTML}{315BCE}
-\definecolor{argusdeep}{HTML}{173B70}
-\definecolor{ink}{HTML}{1E2732}
-\definecolor{muted}{HTML}{5E6875}
-\definecolor{mist}{HTML}{EEF3F7}
-\definecolor{rulegray}{HTML}{D7DEE5}
-\definecolor{softgray}{HTML}{F7F8FA}
+\definecolor{argusdeep}{HTML}{24465D}
+\definecolor{ink}{HTML}{24465D}
+\definecolor{muted}{HTML}{66717D}
+\definecolor{papercream}{HTML}{FBF7EE}
+\definecolor{papersand}{HTML}{F5E6C8}
+\definecolor{papersage}{HTML}{6F9B86}
+\definecolor{papergold}{HTML}{D9C58F}
+\definecolor{mist}{HTML}{F8F2E7}
+\definecolor{rulegray}{HTML}{D8E0E8}
+\definecolor{softgray}{HTML}{FFFDF8}
 
 % Canonical product name; use \MakeUppercase{\systemname} only where the
 % surrounding typography requires all caps.
@@ -50,7 +56,7 @@
 \color{ink}
 \setlength{\parindent}{1.05em}
 \setlength{\parskip}{0pt}
-\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{12pt plus 2pt minus 2pt}
 \setlength{\intextsep}{9pt plus 2pt minus 2pt}
 \setlength{\floatsep}{8pt plus 2pt minus 2pt}
 \setlength{\abovecaptionskip}{4pt}
@@ -58,6 +64,8 @@
 \renewcommand{\arraystretch}{1.10}
 \setlist{leftmargin=1.45em,itemsep=1.5pt,topsep=3pt,parsep=0pt}
 \setlength{\emergencystretch}{2.5em}
+\AtBeginEnvironment{table}{\rowcolors{2}{papercream}{white}\arrayrulecolor{rulegray}}
+\AtEndEnvironment{table}{\rowcolors{2}{white}{white}\arrayrulecolor{black}}
 
 \titleformat{\section}
   {\sffamily\Large\bfseries\color{ink}}
@@ -93,8 +101,8 @@
 
 \newtcolorbox{abstractbox}{
   enhanced,
-  colback=mist,
-  colframe=mist,
+  colback=papercream,
+  colframe=papergold,
   borderline west={1.8pt}{0pt}{argusblue},
   boxrule=0pt,
   arc=1.5pt,
@@ -105,7 +113,7 @@
 \newtcolorbox{paperbox}[1]{
   enhanced,
   colback=softgray,
-  colframe=rulegray,
+  colframe=papergold,
   boxrule=0.45pt,
   arc=1.5pt,
   left=8pt,right=8pt,top=6pt,bottom=6pt,
@@ -123,8 +131,8 @@
 \begin{document}
 \thispagestyle{firstpage}
 
-\noindent{\color{sjtuRed}\rule{0.11\linewidth}{2.2pt}}%
-{\color{argusblue}\rule{0.89\linewidth}{2.2pt}}\par
+\noindent{\color{papergold}\rule{0.16\linewidth}{2.2pt}}%
+{\color{argusdeep}\rule{0.84\linewidth}{2.2pt}}\par
 \vspace{0.18in}
 
 {\sffamily\small\bfseries\color{muted}
@@ -201,13 +209,14 @@ for future supervised and reinforcement learning.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
-  \caption{\systemname at a glance. (A) A dense-intelligence objective enters a
-  role-separated runtime; artifacts and run results pass through a review gate
-  before updating reusable state around a fixed model. (B) The result panel retains
-  six heterogeneous public arenas and 41 research artifacts, and adds the unified
-  SWE-Bench Pro result: approximately 59\% for Direct Copilot versus 78\% for
-  \systemname at 1.41$\times$ aggregate tokens. Task-native public values are not
-  cross-normalized.}
+  \caption{\systemname at a glance. The center redraws the runtime framework:
+  Manager governs task, vertical, and Stage decisions; Planner, Engineer, and
+  Reviewer operate through the control plane over a shared workspace and persistent
+  harness. Seven surrounding plots summarize SWE-Bench Pro and six public arenas in
+  their native units. Arrows indicate whether larger or smaller values are better;
+  each mini-chart uses its own task-specific scale rather than a shared normalization. The
+  SWE-Bench Pro aggregate is approximately 59\% for Direct Copilot versus 78\%
+  for \systemname at 1.41$\times$ aggregate tokens.}
   \label{fig:overview}
 \end{figure}
 

@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="383" viewBox="0 0 900 383" data-pptx-page-role="content" font-family="Arial, Microsoft YaHei, sans-serif">
+  <g id="background" data-pptx-role="background" data-pptx-bounds="0 0 900 383">
+    <rect x="0" y="0" width="900" height="383" fill="#FBF7EE"/>
+  </g>
+
+  <g id="result-connectors" data-pptx-role="decoration" data-pptx-bounds="8 8 884 367">
+    <line x1="322" y1="64" x2="322" y2="82" stroke="#315BCE" stroke-width="1.5"/>
+    <line x1="578" y1="64" x2="578" y2="82" stroke="#287D70" stroke-width="1.5"/>
+    <line x1="178" y1="131" x2="198" y2="131" stroke="#315BCE" stroke-width="1.5"/>
+    <line x1="178" y1="234" x2="198" y2="234" stroke="#287D70" stroke-width="1.5"/>
+    <line x1="702" y1="131" x2="722" y2="131" stroke="#315BCE" stroke-width="1.5"/>
+    <line x1="702" y1="234" x2="722" y2="234" stroke="#C38A20" stroke-width="1.5"/>
+    <line x1="450" y1="306" x2="450" y2="316" stroke="#287D70" stroke-width="1.5"/>
+  </g>
+
+  <g id="argus-framework" data-pptx-bounds="188 76 524 230">
+    <rect x="188" y="76" width="524" height="230" rx="10" fill="#FFFDF8" stroke="#24465D" stroke-width="1.4"/>
+    <text x="202" y="92" font-size="12" font-weight="bold" fill="#173B70">ARGUS RUNTIME</text>
+
+    <rect x="202" y="99" width="150" height="48" rx="7" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+    <circle cx="219" cy="116" r="8" fill="#315BCE"/>
+    <text x="219" y="120" text-anchor="middle" font-size="10" font-weight="bold" fill="#FFFDF8">M</text>
+    <text x="234" y="116" font-size="15" font-weight="bold" fill="#173B70">Manager</text>
+    <text x="234" y="132" font-size="10" fill="#66717D">task · vertical · stage</text>
+
+    <rect x="365" y="99" width="333" height="48" rx="7" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+    <text x="380" y="115" font-size="12" font-weight="bold" fill="#173B70">Manager I/O</text>
+    <rect x="380" y="121" width="95" height="17" rx="3" fill="#FBF7EE" stroke="#D8E0E8" stroke-width="1"/>
+    <rect x="481" y="121" width="95" height="17" rx="3" fill="#FBF7EE" stroke="#D8E0E8" stroke-width="1"/>
+    <rect x="582" y="121" width="101" height="17" rx="3" fill="#FBF7EE" stroke="#D8E0E8" stroke-width="1"/>
+    <text x="427.5" y="133" text-anchor="middle" font-size="10" fill="#24465D">Task + review</text>
+    <text x="528.5" y="133" text-anchor="middle" font-size="10" fill="#24465D">Vertical + stage</text>
+    <text x="632.5" y="133" text-anchor="middle" font-size="10" fill="#24465D">Advance · hold · back</text>
+
+    <line x1="277" y1="147" x2="277" y2="157" stroke="#24465D" stroke-width="1.3"/>
+    <polygon points="277,160 273,154 281,154" fill="#24465D"/>
+
+    <rect x="202" y="160" width="112" height="52" rx="7" fill="#FFFDF8" stroke="#287D70" stroke-width="1.2"/>
+    <circle cx="219" cy="178" r="8" fill="#287D70"/>
+    <text x="219" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#FFFDF8">P</text>
+    <text x="233" y="178" font-size="12" font-weight="bold" fill="#173B70">Planner</text>
+    <text x="233" y="196" font-size="10" fill="#66717D">schedule</text>
+
+    <rect x="326" y="160" width="126" height="52" rx="7" fill="#FFFDF8" stroke="#24465D" stroke-width="1.2"/>
+    <circle cx="343" cy="178" r="8" fill="#24465D"/>
+    <text x="343" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#FFFDF8">E</text>
+    <text x="358" y="178" font-size="12" font-weight="bold" fill="#173B70">Engineer</text>
+    <text x="358" y="196" font-size="10" fill="#66717D">research · build</text>
+
+    <rect x="464" y="160" width="128" height="52" rx="7" fill="#FFFDF8" stroke="#C38A20" stroke-width="1.2"/>
+    <circle cx="481" cy="178" r="8" fill="#C38A20"/>
+    <text x="481" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#FFFDF8">R</text>
+    <text x="496" y="178" font-size="12" font-weight="bold" fill="#173B70">Reviewer</text>
+    <text x="496" y="196" font-size="10" fill="#66717D">validate</text>
+
+    <rect x="604" y="160" width="94" height="52" rx="7" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+    <text x="651" y="174" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">CONTROL</text>
+    <text x="651" y="188" text-anchor="middle" font-size="10" fill="#315BCE">Review</text>
+    <text x="651" y="200" text-anchor="middle" font-size="10" fill="#287D70">Stage · Mission</text>
+
+    <line x1="314" y1="186" x2="326" y2="186" stroke="#24465D" stroke-width="1.3"/>
+    <polygon points="326,186 320,182 320,190" fill="#24465D"/>
+    <line x1="452" y1="186" x2="464" y2="186" stroke="#24465D" stroke-width="1.3"/>
+    <polygon points="464,186 458,182 458,190" fill="#24465D"/>
+    <line x1="592" y1="186" x2="604" y2="186" stroke="#24465D" stroke-width="1.3"/>
+    <polygon points="604,186 598,182 598,190" fill="#24465D"/>
+    <path d="M528 212 V220 H389 V212" fill="none" stroke="#C38A20" stroke-width="1.3"/>
+    <polygon points="389,212 385,218 393,218" fill="#C38A20"/>
+
+    <rect x="202" y="222" width="496" height="22" rx="5" fill="#FBF7EE" stroke="#315BCE" stroke-width="1.2"/>
+    <text x="450" y="237" text-anchor="middle" font-size="12" font-weight="bold" fill="#173B70">SHARED WORKSPACE</text>
+
+    <rect x="202" y="250" width="151" height="35" rx="6" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.1"/>
+    <rect x="374" y="250" width="151" height="35" rx="6" fill="#FFFDF8" stroke="#287D70" stroke-width="1.1"/>
+    <rect x="546" y="250" width="152" height="35" rx="6" fill="#FFFDF8" stroke="#24465D" stroke-width="1.1"/>
+    <text x="277.5" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Knowledge</text>
+    <text x="277.5" y="278" text-anchor="middle" font-size="10" fill="#66717D">Wiki · Skills</text>
+    <text x="449.5" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Log</text>
+    <text x="449.5" y="278" text-anchor="middle" font-size="10" fill="#66717D">Events · Decisions</text>
+    <text x="622" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Artifacts</text>
+    <text x="622" y="278" text-anchor="middle" font-size="10" fill="#66717D">Code · Results</text>
+
+    <rect x="202" y="291" width="496" height="13" rx="4" fill="#FFFDF8" stroke="#24465D" stroke-width="1.1"/>
+    <text x="450" y="301" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">LifeSupervisor · Backlog · Budget · Daemon · Memory</text>
+  </g>
+
+  <g id="results" data-pptx-bounds="8 8 884 367">
+    <g id="chartArea" data-pptx-bounds="8 8 884 367">
+      <!-- chart-plot-area: 8,8,892,375 -->
+
+      <g id="result-swe" data-pptx-bounds="210 8 225 56">
+        <rect x="210" y="8" width="225" height="56" rx="8" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+        <text x="220" y="24" font-size="12" font-weight="bold" fill="#173B70">SWE-Bench Pro ↑</text>
+        <text x="220" y="42" font-size="10" fill="#66717D">Direct 59</text>
+        <rect x="275" y="34" width="100" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="275" y="34" width="59" height="7" rx="3" fill="#66717D"/>
+        <text x="220" y="57" font-size="10" font-weight="bold" fill="#315BCE">Argus 78</text>
+        <rect x="275" y="49" width="100" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="275" y="49" width="78" height="7" rx="3" fill="#315BCE"/>
+        <text x="424" y="52" text-anchor="end" font-size="10" font-weight="bold" fill="#C38A20">1.41×</text>
+      </g>
+
+      <g id="result-aarri" data-pptx-bounds="465 8 225 56">
+        <rect x="465" y="8" width="225" height="56" rx="8" fill="#FFFDF8" stroke="#287D70" stroke-width="1.2"/>
+        <text x="475" y="24" font-size="12" font-weight="bold" fill="#173B70">AARRI-Bench ↑</text>
+        <text x="475" y="42" font-size="10" fill="#66717D">Paper 68.3</text>
+        <rect x="545" y="34" width="100" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="545" y="34" width="68.3" height="7" rx="3" fill="#66717D"/>
+        <text x="475" y="57" font-size="10" font-weight="bold" fill="#287D70">Argus 76.8</text>
+        <rect x="545" y="49" width="100" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="545" y="49" width="76.8" height="7" rx="3" fill="#287D70"/>
+      </g>
+
+      <g id="result-b200" data-pptx-bounds="8 88 170 87">
+        <rect x="8" y="88" width="170" height="87" rx="8" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+        <text x="18" y="106" font-size="12" font-weight="bold" fill="#173B70">nanochat B200 ↓</text>
+        <text x="18" y="129" font-size="10" font-weight="bold" fill="#315BCE">Argus .9636</text>
+        <rect x="18" y="135" width="140" height="8" rx="3" fill="#D8E0E8"/>
+        <rect x="18" y="135" width="84" height="8" rx="3" fill="#315BCE"/>
+        <text x="18" y="158" font-size="10" fill="#66717D">Human .9646</text>
+        <rect x="18" y="164" width="140" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="18" y="164" width="107.3" height="7" rx="3" fill="#66717D"/>
+      </g>
+
+      <g id="result-h100" data-pptx-bounds="8 191 170 87">
+        <rect x="8" y="191" width="170" height="87" rx="8" fill="#FFFDF8" stroke="#287D70" stroke-width="1.2"/>
+        <text x="18" y="209" font-size="12" font-weight="bold" fill="#173B70">nanochat H100 ↓</text>
+        <text x="18" y="232" font-size="10" font-weight="bold" fill="#287D70">Argus .9855</text>
+        <rect x="18" y="238" width="140" height="8" rx="3" fill="#D8E0E8"/>
+        <rect x="18" y="238" width="42" height="8" rx="3" fill="#287D70"/>
+        <text x="18" y="261" font-size="10" fill="#66717D">Human .9879</text>
+        <rect x="18" y="267" width="140" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="18" y="267" width="109.2" height="7" rx="3" fill="#66717D"/>
+      </g>
+
+      <g id="result-nanogpt" data-pptx-bounds="722 88 170 87">
+        <rect x="722" y="88" width="170" height="87" rx="8" fill="#FFFDF8" stroke="#315BCE" stroke-width="1.2"/>
+        <text x="732" y="106" font-size="12" font-weight="bold" fill="#173B70">nanoGPT ↓</text>
+        <text x="732" y="129" font-size="10" font-weight="bold" fill="#315BCE">Argus 79.77 s</text>
+        <rect x="732" y="135" width="140" height="8" rx="3" fill="#D8E0E8"/>
+        <rect x="732" y="135" width="37.8" height="8" rx="3" fill="#315BCE"/>
+        <text x="732" y="158" font-size="10" fill="#66717D">Human 80.18 s</text>
+        <rect x="732" y="164" width="140" height="7" rx="3" fill="#D8E0E8"/>
+        <rect x="732" y="164" width="95.2" height="7" rx="3" fill="#66717D"/>
+      </g>
+
+      <g id="result-sol" data-pptx-bounds="722 191 170 87">
+        <rect x="722" y="191" width="170" height="87" rx="8" fill="#FFFDF8" stroke="#C38A20" stroke-width="1.2"/>
+        <text x="732" y="209" font-size="12" font-weight="bold" fill="#173B70">SOL-ExecBench</text>
+        <text x="882" y="209" text-anchor="end" font-size="12" font-weight="bold" fill="#C38A20">#6</text>
+        <text x="732" y="232" font-size="15" font-weight="bold" fill="#C38A20">7 top-3</text>
+        <rect x="732" y="243" width="140" height="13" rx="4" fill="#D8E0E8"/>
+        <rect x="732" y="243" width="40" height="13" rx="4" fill="#315BCE"/>
+        <rect x="772" y="243" width="100" height="13" rx="4" fill="#287D70"/>
+        <text x="732" y="272" font-size="10" font-weight="bold" fill="#315BCE">2 wins</text>
+        <text x="882" y="272" text-anchor="end" font-size="10" fill="#66717D">101 kernels</text>
+      </g>
+
+      <g id="result-math" data-pptx-bounds="250 316 400 59">
+        <rect x="250" y="316" width="400" height="59" rx="8" fill="#FFFDF8" stroke="#287D70" stroke-width="1.2"/>
+        <text x="262" y="335" font-size="12" font-weight="bold" fill="#173B70">Math data ↑</text>
+        <line x1="345" y1="365" x2="635" y2="365" stroke="#D8E0E8" stroke-width="1"/>
+        <rect x="365" y="337" width="28" height="28" rx="3" fill="#287D70"/>
+        <rect x="435" y="344" width="28" height="21" rx="3" fill="#C38A20"/>
+        <rect x="505" y="357" width="28" height="8" rx="3" fill="#315BCE"/>
+        <rect x="575" y="359" width="28" height="6" rx="3" fill="#24465D"/>
+        <text x="379" y="333" text-anchor="middle" font-size="10" font-weight="bold" fill="#287D70">28.0</text>
+        <text x="449" y="340" text-anchor="middle" font-size="10" fill="#C38A20">20.83</text>
+        <text x="519" y="353" text-anchor="middle" font-size="10" fill="#315BCE">8.33</text>
+        <text x="589" y="355" text-anchor="middle" font-size="10" fill="#24465D">6.25</text>
+        <text x="379" y="371" text-anchor="middle" font-size="10" fill="#66717D">Argus</text>
+        <text x="449" y="371" text-anchor="middle" font-size="10" fill="#66717D">Arbor</text>
+        <text x="519" y="371" text-anchor="middle" font-size="10" fill="#66717D">Claude</text>
+        <text x="589" y="371" text-anchor="middle" font-size="10" fill="#66717D">Codex</text>
+      </g>
+    </g>
+  </g>
+</svg>
