@@ -11,6 +11,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+_HIGH_CONFIDENCE_INLINE_SECRET_PATTERN = (
+    re.compile(
+        r"(?i)\b((?:x[_-]?)?api[_-]?key|client[_-]?secret|private[_-]?key)\b"
+        r"(['\"]?)([^\S\r\n]*[=:])"
+        r"(?![^\S\r\n]*['\"]?<REDACTED:)"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+    ),
+    r"\1\2\3 <REDACTED:secret>",
+)
+_AMBIGUOUS_INLINE_SECRET_PATTERN = (
+    re.compile(
+        r"(?i)\b(secret|token|password|passwd|auth)\b"
+        r"(['\"]?)([^\S\r\n]*[=:])"
+        r"(?![^\S\r\n]*['\"]?<REDACTED:)"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+    ),
+    r"\1\2\3 <REDACTED:secret>",
+)
+
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
@@ -34,19 +53,17 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{16,}"),
         "<REDACTED:token>",
     ),
-    (
-        re.compile(
-            r"(?i)\b(api[_-]?key|secret|token|password|passwd|auth)\b"
-            r"(['\"]?)([^\S\r\n]*[=:])"
-            r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-            r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
-        ),
-        r"\1\2\3 <REDACTED:secret>",
-    ),
+    _HIGH_CONFIDENCE_INLINE_SECRET_PATTERN,
+    _AMBIGUOUS_INLINE_SECRET_PATTERN,
     (
         re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@"),
         r"\1<REDACTED:creds>@",
     ),
+)
+_ARTIFACT_SECRET_PATTERNS = tuple(
+    item
+    for item in _SECRET_PATTERNS
+    if item is not _AMBIGUOUS_INLINE_SECRET_PATTERN
 )
 _SENSITIVE_ENV_NAME = re.compile(
     r"(?i)(?:^|_)(?:api_?key|token|secret|password|passwd)(?:_|$)"
@@ -290,7 +307,12 @@ def redact_secrets_text_with_count(
             out = out.replace(value, "<REDACTED:known-secret>")
             replacements += count
     if include_patterns:
-        for pattern, replacement in _SECRET_PATTERNS:
+        patterns = (
+            _SECRET_PATTERNS
+            if redact_ambiguous_record_keys
+            else _ARTIFACT_SECRET_PATTERNS
+        )
+        for pattern, replacement in patterns:
             out, count = pattern.subn(replacement, out)
             replacements += count
     return out, replacements if out != text else 0

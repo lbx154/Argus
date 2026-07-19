@@ -322,6 +322,14 @@ def test_artifact_scrub_preserves_synthetic_task_tokens(
         json.dumps({
             "task_id": "synthetic-auth-task",
             "arguments": {"access_token": "access_token_abc123"},
+            "raw_output": (
+                '<tool_call>{"username":"mzhang",'
+                '"password":"SecurePass123"}</tool_call>'
+            ),
+            "executed_call": (
+                "trading_login(username='your_username',"
+                "password='your_password')"
+            ),
         })
         + "\n"
         + json.dumps({
@@ -345,6 +353,8 @@ def test_artifact_scrub_preserves_synthetic_task_tokens(
 
     rows = [json.loads(line) for line in artifact.read_text().splitlines()]
     assert rows[0]["arguments"]["access_token"] == "access_token_abc123"
+    assert "SecurePass123" in rows[0]["raw_output"]
+    assert "your_password" in rows[0]["executed_call"]
     assert rows[1]["github_token"] == "<REDACTED:secret>"
     assert rows[2]["arguments"]["access_token"] == (
         "<REDACTED:known-secret>"
