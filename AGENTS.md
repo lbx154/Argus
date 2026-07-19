@@ -324,6 +324,7 @@ paper/
   PAPER_INFRASTRUCTURE_REVIEW.json
   LAYOUT_REVIEW.json
   figures/IMAGE2_FIGURES.json
+  figures/FIGURE_PROVENANCE.json
   style_ref/
 ```
 
@@ -375,7 +376,7 @@ repair_emnlp_contract_artifacts
 > 要重新引入某项机器校验，优先在 `stage_checklists.py` 的 checklist 里加一条，由 reviewer 验证。
 
 项目是否“EMNLP ready”由 L2 reviewer 的 `format_full_pipeline_checklist` 整链裁决决定
-（evidence、claim graph、paper contract、format、image-2、review、manifest、freshness、
+（evidence、claim graph、paper contract、format、figure provenance、review、manifest、freshness、
 submission assurance 都在 checklist 里），不是看某个 validator 的返回值，也不只是看 PDF
 存不存在。
 
@@ -407,7 +408,16 @@ submission assurance 都在 checklist 里），不是看某个 validator 的返�
 
 这些 review JSON 是生成证据。不要为了让 gate 绿而手改成 PASS；应该改 `main.tex` / PDF / evidence 后重跑工具。
 
-## IMAGE2 / 论文图
+## 科研绘图路由 / IMAGE2
+
+Research vertical 的统一入口是
+`verticals/research/skills/engineer/research-visualization-router.md`。图的 renderer
+由 Engineer 根据科学语义、可编辑性、最终尺寸和真实 capability 选择；Reviewer
+裁决质量。允许的路线包括数据脚本、Vega/ECharts/Recharts/HTML/React、FigureSpec、
+Mermaid/Graphviz、Draw.io、PPT Master 和 image-2。paper-facing figure 可选写入
+`paper/figures/FIGURE_PROVENANCE.json` 作为 renderer/source handoff，不能成为
+完成 gate 或 Reviewer blocker。Reviewer 只看实际图片是否清晰、正确、协调且够好看；
+轻微审美问题直接通过，不得反复返工。Harness 不用关键词替 agent 选工具或评价图片。
 
 图像工具在 `argus_skill/tools/image_tool.py`。
 
@@ -421,7 +431,12 @@ python -m argus_skill.tools.image_tool review --image paper/figures/overview.png
 python -m argus_skill.tools.image_tool sync-paper-metadata --project-root . --image paper/figures/overview.png --figure-id overview
 ```
 
-contract 要求非数据类 paper-facing figure 通过 image-2/codex-image2 路线产生，并保留 prompt、sidecar、inspect、review、provenance、manifest hash。不要用本地 matplotlib/TikZ/SVG 画一个概念图再伪装成 image-2。
+image-2 只是 capability 可用且 router 认为合适时的一条路线；实际使用时必须保留
+prompt、sidecar、inspect、review、provenance、accepted-raster hash 和
+`IMAGE2_FIGURES.json`，并自动同步统一 manifest。没有 image API 时不得伪造
+image-2 metadata，也不得仅因此阻塞整篇论文；应由 agent 选择语义等价、可审计的
+确定性路线。任何本地 SVG/HTML/PPT 输出都必须以真实 renderer 名义登记，不能冒充
+image-2。
 
 ## Planner 的 EMNLP 完成判定
 

@@ -197,11 +197,17 @@ def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> N
         )
     )
     manifest = json.loads((figures / "IMAGE2_FIGURES.json").read_text(encoding="utf-8"))
+    unified = json.loads(
+        (figures / "FIGURE_PROVENANCE.json").read_text(encoding="utf-8")
+    )
     manifest_entry = manifest["figures"][0]
+    unified_entry = unified["figures"][0]
     assert entry["prompt_template_id"] == "argus-image2-paper-prompt-v1"
     assert entry["figure_studio_source"] == "paper-framework-figure-studio-pro-v3.1.4a"
     assert manifest_entry["output_sha256"] == info["sha256"]
     assert provenance["output_sha256"] == info["sha256"]
+    assert unified_entry["renderer"] == "image2"
+    assert unified_entry["output_sha256"] == info["sha256"]
     assert (figures / "method.png.inspect.json").exists()
 
 
@@ -328,6 +334,43 @@ def _sync_reviewed_candidate(root: Path, index: int) -> dict[str, Any]:
         figure_id=f"method-candidate-{index}",
         figure_type="method",
     )
+
+
+def test_sync_preflights_canonical_manifest_before_legacy_update(
+    tmp_path: Path,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    canonical = figures / "FIGURE_PROVENANCE.json"
+    canonical.write_text("{bad json", encoding="utf-8")
+
+    with pytest.raises(image_tool.ImageToolError, match="canonical figure provenance"):
+        _sync_reviewed_candidate(tmp_path, 1)
+
+    assert not (figures / "IMAGE2_FIGURES.json").exists()
+    assert canonical.read_text(encoding="utf-8") == "{bad json"
+
+
+def test_sync_rolls_back_legacy_manifest_when_canonical_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+
+    def fail_registration(**_kwargs):
+        raise OSError("simulated canonical write failure")
+
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.figure_provenance.register_figure",
+        fail_registration,
+    )
+    with pytest.raises(OSError, match="simulated canonical write failure"):
+        _sync_reviewed_candidate(tmp_path, 1)
+
+    figures = tmp_path / "paper" / "figures"
+    assert not (figures / "IMAGE2_FIGURES.json").exists()
+    assert not (figures / "FIGURE_PROVENANCE.json").exists()
 
 
 def test_reviewed_candidate_cache_reuses_frozen_context(

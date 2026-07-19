@@ -32,6 +32,7 @@ LITERATURE_GROUNDING_JSON_PATH = Path("research/LITERATURE_GROUNDING.json")
 CODE_REUSE_PLAN_JSON_PATH = Path("research/CODE_REUSE_PLAN.json")
 STYLE_STRUCTURE_BLUEPRINT_PATH = Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md")
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
+FIGURE_PROVENANCE_JSON_PATH = Path("paper/figures/FIGURE_PROVENANCE.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_PATH = ACADEMIC_LANGUAGE_REVIEW_JSON_PATH
 PAPER_INFRASTRUCTURE_REVIEW_PATH = PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH
@@ -88,11 +89,19 @@ MANIFEST_DISCOVERY_SUFFIXES = {
     ".md",
     ".pdf",
     ".png",
+    ".svg",
+    ".css",
     ".jpg",
     ".jpeg",
     ".tex",
     ".tsv",
     ".txt",
+    ".html",
+    ".js",
+    ".mjs",
+    ".tsx",
+    ".ts",
+    ".jsx",
 }
 MANIFEST_CANONICAL_PREFIXES = (
     "bench/",
@@ -143,11 +152,13 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/artifacts/claims_evidence.tsv",
     ),
     "paper/FIGURE_TABLE_STYLE_GUIDE.json": (
+        "paper/figures/FIGURE_PROVENANCE.json",
         "paper/figures/IMAGE2_FIGURES.json",
         "paper/artifacts/results_table.tsv",
         "paper/artifacts/result_to_claim.tsv",
     ),
     "paper/figures/IMAGE2_FIGURES.json": (),
+    "paper/figures/FIGURE_PROVENANCE.json": (),
     "paper/VALIDATION_PRIORITY_POLICY.json": (
         "paper/CLAIM_GRAPH.json",
         "paper/EVIDENCE_GAPS.json",
@@ -199,6 +210,7 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/CLAIM_GRAPH.json",
         "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
         "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+        "paper/figures/FIGURE_PROVENANCE.json",
         "paper/figures/IMAGE2_FIGURES.json",
     ),
     "paper/main.pdf": (
@@ -1248,13 +1260,20 @@ def _default_manifest_sources_for_generated_path(
             for path in canonical_fallbacks
             if path.startswith(("experiments/", "results/", "paper/artifacts/"))
         )
-    if generated_path == IMAGE2_FIGURES_JSON_PATH.as_posix():
+    if generated_path in {
+        IMAGE2_FIGURES_JSON_PATH.as_posix(),
+        FIGURE_PROVENANCE_JSON_PATH.as_posix(),
+    }:
+        figure_manifests = {
+            IMAGE2_FIGURES_JSON_PATH.as_posix(),
+            FIGURE_PROVENANCE_JSON_PATH.as_posix(),
+        }
         preferred.extend(
             sorted(
                 path
                 for path in all_paths
                 if path.startswith("paper/figures/")
-                and path != generated_path
+                and path not in figure_manifests
                 and path != PAPER_MAIN_TEX_PATH.as_posix()
             )
         )

@@ -729,24 +729,30 @@ class LifeWorker:
         # gets the active vertical's OWN domain skills (real bodies overwrite any
         # builtin pointer stub) alongside the cross-vertical skills. This is the
         # tree the reviewer agent reads when ``stage_check`` prints
-        # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Idempotent:
-        # only seeded when the dir is absent, so a re-bootstrap never clobbers
-        # operator/engineer edits.
+        # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Seeding is
+        # is additive for common skills and refreshes the active vertical's
+        # version-controlled read-only source, so newly shipped vertical skills
+        # reach existing projects without replacing unrelated local files.
         from ..skills.builtins import (
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
             seed_builtin_skills,
             seed_builtin_skills_for_vertical,
+            seed_vertical_skills,
         )
 
         skills_target = project_root / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
-        if not skills_target.exists():
+        try:
+            if vertical:
+                seed_builtin_skills_for_vertical(skills_target, vertical)
+            else:
+                seed_builtin_skills(skills_target)
+        except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
+            log.exception("daemon: failed to seed builtin skills during bootstrap")
+        if vertical and self.config.project_fingerprint:
             try:
-                if vertical and vertical != "research":
-                    seed_builtin_skills_for_vertical(skills_target, vertical)
-                else:
-                    seed_builtin_skills(skills_target)
+                seed_vertical_skills(Path(self.config.life_dir) / "skills", vertical)
             except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
-                log.exception("daemon: failed to seed builtin skills during bootstrap")
+                log.exception("daemon: failed to seed vertical runtime skills")
 
     def _seed_bootstrap_task(
         self,

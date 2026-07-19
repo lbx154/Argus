@@ -531,11 +531,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="draft.figures",
             statement=(
-                "At least one core conceptual figure is generated via image-2 with "
-                "preserved prompt, sidecar, sha256, and inspect/review JSON; data "
-                "figures are generated from raw results, not hand-drawn."
+                "The paper's figures are clear, readable at final size, visually "
+                "coherent, and attractive enough for the venue. Use a good-enough "
+                "standard: minor stylistic imperfections are not blockers, and do "
+                "not request repeated regeneration unless a figure is unreadable, "
+                "factually wrong, visibly broken, or seriously harms the paper."
             ),
-            evidence_hint="paper/figures/*.png + .json sidecars + paper/figures/IMAGE2_FIGURES.json",
+            evidence_hint=(
+                "paper/main.pdf rendered pages and the actual figure files; optional "
+                "FIGURE_PROVENANCE.json may help locate the source renderer"
+            ),
         ),
     ),
     "review": _checklist(

@@ -73,6 +73,35 @@ def test_research_objective_seeds_paper_contract(tmp_path: Path) -> None:
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
     assert state["current_stage"] == "research"
+    assert (
+        tmp_path
+        / "argus_builtin_skills"
+        / "engineer"
+        / "research-visualization-router.md"
+    ).is_file()
+
+
+def test_research_vertical_seeds_runtime_matcher_layer(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    persist_vertical(project, "research")
+    state_root = tmp_path / "state"
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=state_root,
+            project_fingerprint="demo",
+            continuous_objective="write a research paper",
+        )
+    )
+
+    worker._seed_project_agents_and_venv(project)
+
+    assert (
+        state_root
+        / "skills"
+        / "engineer"
+        / "research-visualization-router.md"
+    ).is_file()
 
 
 def test_env_forced_vertical_seeds_optimize_contract_on_a_fresh_project(

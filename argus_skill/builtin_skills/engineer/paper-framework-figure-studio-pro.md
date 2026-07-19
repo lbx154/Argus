@@ -1,6 +1,6 @@
 ---
-name: Paper Framework Figure Studio Pro
-description: "Argus-adapted autonomous S0-S7 figure workflow from paper-framework-figure-studio-pro-v3.1.4a. The engineer agent executes each stage in sequence — reading the paper, extracting module facts, exploring layout directions, refining candidates with project-specific content, co-designing figure+caption+legend, and jointly auditing for paper fidelity. Use when a paper needs a non-data conceptual figure. Prompt template marker: argus-image2-paper-prompt-v1."
+name: Paper Framework Figure Studio Pro (Image2)
+description: "Image-2-specific S0-S7 conceptual-figure workflow adapted from paper-framework-figure-studio-pro-v3.1.4a. Use only after the research Research Visualization Router selects image-2 and model-api-status reports an available image route."
 category: paper-figures
 version: "3.3.0-argus"
 created_at: "2026-05-28"
@@ -25,9 +25,11 @@ Source: `paper-framework-figure-studio-pro-v3.1.4a`
 
 ## When to use
 
-- The paper needs a non-data conceptual figure: Figure 1, method overview,
-  architecture diagram, pipeline figure, agent workflow schematic.
+- The Research Visualization Router selected image-2 for a non-data conceptual
+  figure and the secret-free capability status reports an available image route.
 - Data/metric/result plots are NOT handled here; use matplotlib scripts.
+- If image-2 is unavailable or a deterministic renderer better fits exact labels,
+  topology, or editability, return to the router instead of invoking this skill.
 
 ## S0-S7 Workflow — Agent Executes Each Stage
 
@@ -245,6 +247,7 @@ python -m argus_skill.tools.image_tool sync-paper-metadata \
   cards. Re-prompt with sharper constraints; do not fix in post.
 - If prompt/provenance/manifest hashes drift, run `sync-paper-metadata`
   from the real generated files. Do not patch JSON hashes by hand.
-- Do not draw non-data figures with matplotlib, TikZ, SVG, or PIL. Use
-  image-2 exclusively. If the result is ugly, improve the prompt and
-  regenerate; never hand-draw a replacement.
+- Inside this image-2 route, do not post-process the accepted raster with local
+  drawing tools or patch only metadata. If the result is weak, improve the
+  prompt and regenerate; if image-2 is no longer appropriate, return to the
+  router and explicitly register the replacement renderer.

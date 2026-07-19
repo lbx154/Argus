@@ -69,7 +69,7 @@ selected venue profile and official author kit.
 | --- | --- | --- |
 | Stage order, readiness state, pivots, or "what next?" | `argus_builtin_skills/auto-research-pipeline.md` | `research/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
 | Experiment implementation, public-benchmark runs, comparisons, controls, progress files | `argus_builtin_skills/engineer/research-experiment-runner.md` | runnable harnesses, manifests, status/progress, raw evidence, cancellation |
-| Results analysis, result tables, data figures, Figure 1 / teaser image-2 provenance | `argus_builtin_skills/research-results-analysis-and-figures.md` | `RESULTS_REPORT.md`, result-to-claim tables, paper figures/tables, `IMAGE2_FIGURES.json` |
+| Results analysis, result tables, and research figures | `argus_builtin_skills/engineer/research-results-analysis-and-figures.md` + research vertical `research-visualization-router.md` | `RESULTS_REPORT.md`, result-to-claim tables, figure source/render/review artifacts, `FIGURE_PROVENANCE.json`; image-2 outputs also retain `IMAGE2_FIGURES.json` |
 | Exemplar PDFs, page rhythm, structure blueprint, conformance | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
 | First LaTeX draft, citations, bibliography, narrative | selected venue drafting skill + official author kit | `paper/main.tex`, page/word budget, draft report, BibTeX connected to claims |
 | Format, page/word budget, references, appendix/checklist flow | selected venue format preflight | classify whether to fix layout/prose or route back to evidence |
@@ -500,12 +500,11 @@ checklist to be ticked off by the reviewer.
 10. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
 
 ## Figure contract
-1. Use image-2/codex-image2 for at least one core conceptual figure.
-2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must include the actual generated image-2 raster `output_path` directly from `paper/main.tex`.
-3. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Do not crop, downsample, resave, overwrite, redraw, trace, vectorize, PDF-wrap, screenshot, or relabel the image after provenance is written.
-4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or locally drawn mockups. If it is ugly, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keep `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`, then review and run `sync-paper-metadata`.
-5. Conceptual figures must be adaptive or landscape page-width assets, preferably `1536x1024` or `1920x1088` (image-route dimensions divisible by 16); do not use square `1024x1024`, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
-6. Data figures and tables must be generated from local raw data/results, not from image-2.
+1. Use the research vertical's Research Visualization Router for every figure.
+2. Optionally record renderer/source handoff metadata in `FIGURE_PROVENANCE.json`; it is not a completion gate.
+3. Data figures and tables trace to canonical raw data/results. Deterministic SVG/HTML/React/diagram/PPT figures trace to editable source.
+4. Image-2 is optional. When selected, preserve prompt, generation provenance, inspect/review artifacts, accepted raster SHA-256, width/height, and `IMAGE2_FIGURES.json`; never wrap a local file in image-2 metadata.
+5. Conceptual figures must be adaptive/landscape and readable at final paper size regardless of renderer. Avoid cramped squares, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
 
 ## Final review and assurance
 1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.

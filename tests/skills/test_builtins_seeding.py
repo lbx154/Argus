@@ -18,6 +18,7 @@ from argus_skill.skills.builtins import (
     iter_builtin_skill_texts,
     iter_vertical_skill_texts,
     seed_builtin_skills_for_vertical,
+    seed_vertical_skills,
     vertical_skill_source_path,
 )
 
@@ -36,8 +37,16 @@ def test_iter_vertical_skill_texts_quant() -> None:
 
 def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     assert list(iter_vertical_skill_texts("nope")) == []
-    # research ships no own skills dir -> empty (fail-open).
-    assert list(iter_vertical_skill_texts("research")) == []
+    assert list(iter_vertical_skill_texts("software")) == []
+
+
+def test_iter_vertical_skill_texts_research_visual_router() -> None:
+    names = {name for name, _ in iter_vertical_skill_texts("research")}
+
+    assert names == {
+        "engineer/research-visualization-router.md",
+        "engineer/research_visual_scripts/browser_render.py",
+    }
 
 
 def test_vertical_skill_source_path_rejects_injection() -> None:
@@ -96,3 +105,21 @@ def test_seed_for_research_does_not_pull_quant_real_body(tmp_path) -> None:
     stub = tmp_path / "reviewer" / "quant-factor-report-review.md"
     assert stub.exists()
     assert "MOVED" in stub.read_text(encoding="utf-8")
+    assert (
+        tmp_path / "engineer" / "research-visualization-router.md"
+    ).is_file()
+    assert (
+        tmp_path / "engineer" / "research_visual_scripts" / "browser_render.py"
+    ).is_file()
+
+
+def test_seed_vertical_skills_writes_only_research_runtime_layer(
+    tmp_path,
+) -> None:
+    written = seed_vertical_skills(tmp_path, "research")
+
+    assert set(written) == {
+        "engineer/research-visualization-router.md",
+        "engineer/research_visual_scripts/browser_render.py",
+    }
+    assert not (tmp_path / "engineer" / "argus-engineer-role.md").exists()

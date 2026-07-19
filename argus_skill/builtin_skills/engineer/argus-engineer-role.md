@@ -20,7 +20,7 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 
 ## Role behavior
 - Act like a careful senior implementation agent. Read enough context before editing, make the smallest complete change, and preserve unrelated user work.
-- If the task asks for research-paper work, read `AGENTS.md`, obey the paper skills and validators exactly, and use the L2 reviewer stage-checklist findings as the roadmap; retired pipeline-contract validation gates are no-ops. Do not invent shortcuts, fake evidence, duplicate benchmark rows, or use self-drawn non-data figures where image-2 output is required; only data/metric/result plots may be locally scripted.
+- If the task asks for research-paper work, read `AGENTS.md`, obey the paper skills and validators exactly, and use the L2 reviewer stage-checklist findings as the roadmap; retired pipeline-contract validation gates are no-ops. Do not invent shortcuts, fake evidence, duplicate benchmark rows, or fabricate figure renderer provenance. Use the research vertical's Research Visualization Router and preserve the selected renderer's real source, output, hashes, and review evidence.
 - For research execution, you may construct and maintain the project-specific
   research platform (environment, datasets, model bindings, evaluator, runner,
   telemetry, and teardown). Validate it with the real project smoke path before

@@ -1,251 +1,120 @@
 ---
-name: paper-illustration-image2
-description: "Generate publication-quality academic illustrations using gpt-image-2 with a multi-stage iterative workflow. Argus planner/reviewer agents specify and audit; the configured codex/image route renders. Use when user says 'generate figure', 'architecture diagram', 'method figure', or needs AI-generated paper illustrations."
+name: Paper Illustration Image2
+description: Generate and audit a research-paper illustration with the configured image-2 route. Use only after the Research Visualization Router selects generative raster rendering and model-api-status reports an available image route.
 category: paper-figures
-version: "1.0"
-created_at: "2025-07-17"
+version: 2
+created_at: 2026-07-19T00:00:00+00:00
 ---
 
 # Paper Illustration Image2
 
-Generate publication-quality paper figures using **Argus planner/reviewer agents**
-and **gpt-image-2** as the raster renderer via the configured codex/image backend.
+This is the **image-2 renderer-specific procedure**, not the global research
+figure policy. The research vertical's `Research Visualization Router` decides
+whether image-2, deterministic SVG/HTML, a diagram tool, a data-chart tool, or
+PPT Master best fits the figure.
 
-For EMNLP/ACL paper projects, data/metric/result plots are the only figures that may be locally scripted. Every other paper-facing figure, including method overviews, architecture/system diagrams, schematics, qualitative/example visuals, teasers, and explanatory diagrams, must be generated through this image-2 workflow and registered in `paper/figures/IMAGE2_FIGURES.json`; never substitute matplotlib, TikZ, SVG/PIL/HTML canvas, screenshots, cleaned PDFs, or manual vector redraws for those non-data figures.
+## Preconditions
 
-## Structural-gate contract (BLOCKING)
+1. The figure brief explains why a generative raster is appropriate.
+2. Canonical evidence, labels, and paper structure are frozen.
+3. This command reports an available `image` route:
 
-The `paper_structural_minimums` harness gate at draft/review/submission stages requires `paper/figures/IMAGE2_FIGURES.json` to contain BOTH:
-
-- a **teaser/hero/Figure-1** entry (name contains `teaser`, `hero`, `figure1`, `figure_1`, `fig1`, or `fig_1`)
-- a **pipeline/method/architecture** entry (name contains `pipeline`, `method`, `architecture`, `framework`, `overview`, `system`, `workflow`, or `schematic`)
-
-Each entry's `file` field must resolve to a real raster on disk; phantom paths do not satisfy the gate. Skipping either category means the draft round will exit non-zero and the supervisor will send the engineer back. Generate both figures before declaring the draft complete — there is no `--skip-figures` escape hatch.
-
-**Appendix is now also mandatory** (operator policy 2026-06-05): every `paper/main.tex` must include either the LaTeX `\appendix` command OR a `\section{Appendix...}` block (Appendices / Supplementary Material / Reproducibility Appendix all count). Put prompts, hyperparameter tables, additional results, or failure cases there. Missing appendix fails `paper_structural_minimums` with `no_appendix_section`.
-
-## Core Design Philosophy
-
-```text
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    MULTI-STAGE ITERATIVE WORKFLOW                        │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   User Request                                                           │
-│       │                                                                  │
-│       ▼                                                                  │
-│   ┌─────────────┐                                                        │
-│   │   Planner   │ ◄─── Step 1: Parse request, create initial prompt     │
-│   │             │      - Extract components, labels, and data flow       │
-│   │             │      - Write a paper-ready figure brief                │
-│   └──────┬──────┘                                                        │
-│          │                                                               │
-│          ▼                                                               │
-│   ┌─────────────┐                                                        │
-│   │   Layout    │ ◄─── Step 2: Optimize layout description               │
-│   │   Review    │      - Refine component positioning                    │
-│   │             │      - Optimize spacing and grouping                   │
-│   └──────┬──────┘                                                        │
-│          │                                                               │
-│          ▼                                                               │
-│   ┌─────────────┐                                                        │
-│   │   Style     │ ◄─── Step 3: CVPR/NeurIPS/EMNLP style verification    │
-│   │   Check     │      - Check palette, arrows, and label standards      │
-│   │             │      - Tighten the prompt before rendering             │
-│   └──────┬──────┘                                                        │
-│          │                                                               │
-│          ▼                                                               │
-│   ┌─────────────┐                                                        │
-│   │ gpt-image-2 │ ◄─── Step 4: Image generation                         │
-│   │  renderer   │      - Call images.generate API                        │
-│   │             │      - Accept only native image output                 │
-│   └──────┬──────┘                                                        │
-│          │                                                               │
-│          ▼                                                               │
-│   ┌─────────────┐                                                        │
-│   │  Reviewer   │ ◄─── Step 5: STRICT visual review + SCORE (1-10)      │
-│   │   STRICT!   │      - Verify logic, labels, arrows, and aesthetics    │
-│   │             │      - Reject unclear or non-paper-ready figures       │
-│   └──────┬──────┘                                                        │
-│          │                                                               │
-│          ▼                                                               │
-│   Score ≥ 9? ──YES──► Accept & Output                                    │
-│          │                                                               │
-│          NO                                                              │
-│          │                                                               │
-│          ▼                                                               │
-│   Generate SPECIFIC improvement feedback ──► Loop back to Step 2        │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+```bash
+"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status
 ```
 
-## Constants
+If the image route is unavailable, return to the router. Do not create
+`IMAGE2_OPERATOR_ACTION_REQUIRED.md`, block the whole paper solely on that API,
+or label a local vector/raster as image-2.
 
-- **RENDERER = `gpt-image-2`** — via configured API endpoint
-- **MAX_ITERATIONS = 5** — Maximum refinement rounds
-- **TARGET_SCORE = 9** — Minimum acceptable score (1-10)
-- **OUTPUT_DIR = `paper/figures/ai_generated/`** — Output directory
-- **TEXT_LANGUAGE = `English`** — Default figure text language
-- **SIZE = `1536x1024`** — Landscape for method/architecture figures (NEVER 1024x1024 for paper figs)
-- **TIMEOUT = 600** — gpt-image-2 takes 200-300s per call
+## Ordered workflow
 
-## Step 1: Parse & Plan
+1. Freeze paper context:
 
-Given a figure request (e.g., "architecture diagram for our multi-agent memory system"):
-
-1. Identify figure type: architecture | method-flow | comparison | teaser | ablation-visual
-2. Extract key components, their relationships, data flow direction
-3. Determine visual hierarchy (what's most important?)
-4. Write a structured figure brief:
-
-```yaml
-figure_type: architecture
-title: "SHM-Gate Memory Architecture"
-components:
-  - name: "Input Queue"
-    position: left
-    visual: rectangle with rounded corners
-  - name: "Admission Gate"
-    position: center
-    visual: diamond decision node
-  - name: "Hierarchical Memory"
-    position: right
-    visual: stacked layers (3 tiers)
-flow: left-to-right
-color_scheme: blue-gray academic (no saturated colors)
-labels: all components labeled, arrows annotated with operations
-size: 1536x1024 (landscape)
+```bash
+python -m argus_skill.tools.image_tool freeze-paper-context --project-root .
 ```
 
-## Step 2: Prompt Construction
-
-Convert the brief into a detailed gpt-image-2 prompt only through the canonical
-Argus paper-figure prompt scaffold. The scaffold is Argus-adapted from
-`paper-framework-figure-studio-pro-v3.1.4a` and carries the required markers
-`argus-image2-paper-prompt-v1` and
-`paper-framework-figure-studio-pro-v3.1.4a`.
-
-Required command:
+2. Create a canonical prompt:
 
 ```bash
 python -m argus_skill.tools.image_tool paper-prompt \
-  --out paper/figures/<figure_id>.prompt.txt \
-  --figure-title "<paper-facing figure title>" \
-  --input-label "<short input label>" \
-  --mechanism-label "<short method label>" \
-  --verification-label "<short gate/check label>" \
-  --state-label "<short state/library label>" \
-  --execution-label "<short execution label>" \
-  --output-label "<short output label>" \
-  --evidence-label "<short evidence label>" \
-  --caption-plan "<what the caption, not pixels, will explain>" \
-  --legend-plan "<arrow/color/icon semantics>" \
-  --core-step-visibility-plan "<visible internal mechanism plan>" \
+  --project-root . \
+  --out paper/figures/<id>.prompt.txt \
+  --figure-type <type> \
+  --figure-title "<title>" \
+  --input-label "<input>" \
+  --mechanism-label "<mechanism>" \
+  --verification-label "<verification>" \
+  --state-label "<state>" \
+  --execution-label "<execution>" \
+  --output-label "<output>" \
+  --evidence-label "<evidence>" \
+  --caption-plan "<caption contract>" \
+  --legend-plan "<legend contract>" \
+  --core-step-visibility-plan "<visible mechanism>" \
   --semantic-contract "<arrow/color/icon contract>" \
-  --layout-variant "<one chosen layout variant>"
+  --layout-variant "<one named variant>"
 ```
 
-After this command, edit only paper-specific labels, candidate contracts, and
-the layout block. Do not hand-write a fresh prompt from scratch, delete the
-template markers, or replace the scaffold with a thin one-sentence request.
-Generate 6--20 variants by re-running `paper-prompt` or editing only
-`--layout-variant` / candidate-contract fields; each candidate still needs its
-own image-2 raster and sidecars.
+Keep the `argus-image2-paper-prompt-v1` and
+`paper-framework-figure-studio-pro-v3.1.4a` markers. Pin visible labels exactly;
+never invent method names, results, or evidence.
 
-## Step 3: Style Verification Checklist
-
-Before rendering, verify the prompt against these academic figure standards:
-
-- [ ] White/light background (no dark themes)
-- [ ] Muted color palette (blues, grays, soft accents)
-- [ ] No gradients or 3D effects
-- [ ] All text is English and readable at column-width (3.25 inches)
-- [ ] Arrows are thin, black, with small heads
-- [ ] Components are clearly separated with adequate whitespace
-- [ ] Visual hierarchy matches importance hierarchy
-- [ ] Figure tells its story without needing the caption
-
-## Step 4: Render
+3. Generate one candidate and wait for completion:
 
 ```bash
 python -m argus_skill.tools.image_tool generate \
-  --prompt-file paper/figures/<figure_id>.prompt.txt \
-  --out paper/figures/<figure_id>.png \
-  --size 1536x1024 \
-  --force
+  --prompt-file paper/figures/<id>.prompt.txt \
+  --out paper/figures/<id>.png \
+  --size 1536x1024
 ```
 
-Cache by SHA-256(prompt) to avoid re-spending tokens on identical prompts.
+4. Only after the output exists, inspect and review it:
 
-## Step 5: Review & Score
+```bash
+python -m argus_skill.tools.image_tool inspect \
+  --image paper/figures/<id>.png
+python -m argus_skill.tools.image_tool review \
+  --image paper/figures/<id>.png \
+  --prompt-file paper/figures/<id>.prompt.txt \
+  --out paper/figures/<id>.png.review.json
+```
 
-Before review, enforce this ordering:
-
-1. Wait for the `image_tool generate` / `code/generate_image_2.py` command to finish.
-2. Confirm the output file exists and is non-empty with `test -s <output.png>` or the project helper return payload.
-3. Run `image_tool inspect` and `image_tool review` only after the generated raster exists.
-4. Run `image_tool sync-paper-metadata` after review so
-   `IMAGE2_FIGURES.json`, inspect sidecar, provenance sidecar, prompt hash, and
-   raster hash are synchronized from the actual files; do not hand-patch JSON
-   hashes.
-
-Do not launch inspect/review in parallel with generation. A missing-file inspect/review failure is noise, not a useful candidate verdict; rerun the ordered sequence instead of treating it as image quality feedback.
-
-After generation, review the image against these criteria (score 1-10):
-
-| Criterion | Weight | What to check |
-|---|---|---|
-| Logic correctness | 30% | Do arrows/flows match the described method? |
-| Label clarity | 20% | Are all labels readable and correctly placed? |
-| Academic style | 20% | Matches conference figure standards? |
-| Visual hierarchy | 15% | Most important elements stand out? |
-| Completeness | 15% | All described components present? |
-
-**Score ≥ 9**: Accept. Save final image + manifest entry.
-**Score < 9**: Generate specific improvement feedback, loop back to Step 2.
-
-Final synchronization command:
+5. Synchronize metadata from the real files:
 
 ```bash
 python -m argus_skill.tools.image_tool sync-paper-metadata \
   --project-root . \
-  --image paper/figures/<figure_id>.png \
-  --prompt-file paper/figures/<figure_id>.prompt.txt \
-  --figure-id <figure_id> \
-  --figure-type method
+  --image paper/figures/<id>.png \
+  --prompt-file paper/figures/<id>.prompt.txt \
+  --figure-id <id> \
+  --figure-type <type>
 ```
 
-## Output Manifest
+This writes the image-2-specific `IMAGE2_FIGURES.json` and also registers the
+figure in renderer-neutral `FIGURE_PROVENANCE.json`.
 
-Maintain `paper/figures/IMAGE2_FIGURES.json`:
+## Review criteria
 
-```json
-{
-  "figures": [
-    {
-      "name": "architecture_overview",
-      "file": "paper/figures/ai_generated/architecture_overview.png",
-      "prompt_sha256": "abc123...",
-      "score": 9,
-      "iterations": 2,
-      "size": "1536x1024",
-      "generated_at": "2025-07-17T10:30:00Z"
-    }
-  ]
-}
-```
+- Logic and arrows agree with the paper and claim graph.
+- Every visible label is spelled correctly and readable at final paper size.
+- The composition has a clear hierarchy and appropriate aspect ratio.
+- The output contains no unsupported result, hidden infrastructure detail,
+  watermark, stock-logo wall, or accidental code identifier.
+- Caption and figure divide explanatory work cleanly.
+- The accepted raster hash matches generation, inspect, review, provenance, and
+  both manifests.
 
-## Integration with Paper Pipeline
+Generate additional layout variants only when the current frozen context needs
+them. Reuse a reviewed candidate cache when valid; do not spend image calls to
+polish an unchanged context.
 
-- Called by `emnlp-paper-drafting` when figures are needed
-- Output referenced in LaTeX as `\includegraphics[width=\columnwidth]{figures/ai_generated/...}`
-- Manifest consumed by `emnlp-format-preflight` to verify all figures exist
+## Integrity rules
 
-## Pitfalls
-
-- Each gpt-image-2 call takes 200-300s — be patient, set timeout=600
-- Concurrency 4-8 with ThreadPoolExecutor is safe for batch generation
-- Only concurrentize independent complete generations; do not race inspect/review before each output file exists.
-- Expect occasional 429s — back off honoring Retry-After headers
-- Never use 1024x1024 for paper figures; use image-route-safe dimensions divisible by 16, for example landscape 1536x1024 or 1920x1088, or portrait 1024x1536.
-- Text in images can be imperfect; for critical labels, regenerate with a tighter prompt instead of locally overlaying labels on a non-data figure.
+- Never start inspect/review before generation completes.
+- Never hand-edit hashes or success-shaped review JSON.
+- Never crop, resave, downsample, or overwrite an accepted raster behind its
+  provenance. Regenerate or select another original candidate.
+- Never treat image text or visual geometry as experimental evidence.
+- Image-2 absence is a capability fact, not evidence that the paper is blocked.

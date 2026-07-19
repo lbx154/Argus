@@ -33,7 +33,7 @@ verdict.
 - claims-evidence mapping and artifact manifest/freshness;
 - manuscript source, PDF, build log, figures, tables, and bibliography;
 - format, academic-language, infrastructure, and layout review artifacts;
-- `paper/figures/IMAGE2_FIGURES.json`;
+- the actual figure files included by the manuscript;
 - `paper/SUBMISSION_ASSURANCE.md` and `.json`.
 
 ## Assurance layers
@@ -97,21 +97,13 @@ Use `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE`.
 - Block invented citations, missing bibliography entries, citation dumping, and
   metadata contradictions.
 
-### 7. Non-data figure contract
+### 7. Figure quality
 
-- Data/metric/result plots may be script-generated.
-- Every other paper-facing figure must be the actual image-2/codex-image2 raster
-  included in `paper/main.tex`.
-- Reject matplotlib/FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvas,
-  screenshots, Inkscape/manual vectors, cleaned PDFs, or hand-written image-2
-  metadata as substitutes.
-- Require prompt/output hashes, dimensions, generation sidecar, inspect sidecar,
-  provenance, and model-backed review.
-- Require the canonical paper-prompt scaffold and 6–20 reviewed Figma-style
-  layout variants.
-- Require a current `IMAGE2_CONTEXT_FREEZE.json` and candidate cache. Once six
-  reviewed candidates pass under that freeze, prose/layout-only manuscript
-  changes must reuse them rather than regenerating image-2 assets.
+- Reviewer inspects the actual rendered figures for readability, factual
+  correctness, coherence, and good-enough venue quality.
+- Image-2 is optional and its absence is not a submission blocker.
+- Minor stylistic imperfections, optional metadata gaps, and preference-level
+  differences do not block submission or trigger repeated figure regeneration.
 
 ### 8. Academic language and paper infrastructure
 

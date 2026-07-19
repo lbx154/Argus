@@ -75,11 +75,11 @@ treat absence of FIGURE_PLAN.md as a structural blocker even if
   `code/make_figs.py` with matplotlib. ACL style: serif font (cm),
   fontsize 9, single-column width 3.34in / double-column 6.94in. Save
   as PDF vector under `paper/figs/`.
-- **Conceptual figures (F1 teaser, F3 pipeline)**: follow
-  `paper-illustration-image2.md` — gpt-image-2 generation with
-  IMAGE2_FIGURES.json provenance and image-2 manifest. Do NOT redraw
-  conceptual figures in matplotlib/TikZ; that violates the structural
-  gate.
+- **Conceptual figures (F1 teaser, F3 pipeline)**: follow the research
+  vertical's Research Visualization Router. Select image-2 only when configured
+  and appropriate; otherwise use an exact deterministic SVG/HTML/diagram/PPT
+  route. Optional `FIGURE_PROVENANCE.json` metadata may help later repair but
+  does not decide whether the figure passes.
 - **Qualitative grid (F4)**: stitch real benchmark item PNGs from
   `bench/dev_smoke/images/` via PIL into a single PDF. This is a data
   figure (real samples), not conceptual, so matplotlib/PIL is fine.

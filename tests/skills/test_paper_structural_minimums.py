@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.verticals.research.figure_provenance import register_figure
 from argus_skill.verticals.research.paper_structural_minimums import (
     MIN_CITED_BIB_ENTRIES,
     MIN_FIGURES,
@@ -19,10 +20,20 @@ from argus_skill.verticals.research.paper_structural_minimums import (
 )
 
 
+def _seed_venue(root: Path) -> None:
+    research = root / "research"
+    research.mkdir(exist_ok=True)
+    (research / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "target_venue": "EMNLP"}),
+        encoding="utf-8",
+    )
+
+
 def _seed_minimal_passing_paper(root: Path) -> None:
     """Build a minimum-passing paper layout that satisfies every floor."""
     paper = root / "paper"
     paper.mkdir(parents=True)
+    _seed_venue(root)
     figures = paper / "figures"
     figures.mkdir()
     # 1 real figure file
@@ -179,14 +190,12 @@ We conclude.
     assert "too_few_bib_entries_cited" in codes
     assert "no_related_work_section" in codes
     assert "no_appendix_section" in codes
-    # v1 also never ran image-2 / framework-figure skills → manifest absent
-    assert "missing_image2_manifest" in codes
+    assert "missing_figure_provenance_manifest" not in codes
 
 
-def test_missing_teaser_figure_fires(tmp_path: Path) -> None:
-    """IMAGE2_FIGURES.json exists, has a pipeline figure but no teaser
-    — the gate must flag missing_teaser_figure and pass everything else
-    when other minimums are satisfied."""
+def test_missing_teaser_is_reviewer_judgment_not_structural_failure(
+    tmp_path: Path,
+) -> None:
     _seed_minimal_passing_paper(tmp_path)
     # overwrite manifest with only a pipeline entry
     (tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json").write_text(
@@ -199,17 +208,16 @@ def test_missing_teaser_figure_fires(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     report = validate_paper_structural_minimums(tmp_path)
-    assert not report.ok
     codes = {i.code for i in report.issues}
-    assert "missing_teaser_figure" in codes
-    assert "missing_pipeline_figure" not in codes
+    assert "missing_teaser_figure" not in codes
+    assert report.ok, report.to_text()
     assert report.has_pipeline_figure is True
     assert report.has_teaser_figure is False
 
 
-def test_missing_pipeline_figure_fires(tmp_path: Path) -> None:
-    """Symmetric: teaser only, no pipeline. Reviewer can't grok the
-    method without a system diagram, so this must block."""
+def test_missing_pipeline_is_reviewer_judgment_not_structural_failure(
+    tmp_path: Path,
+) -> None:
     _seed_minimal_passing_paper(tmp_path)
     (tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json").write_text(
         json.dumps({
@@ -221,8 +229,8 @@ def test_missing_pipeline_figure_fires(tmp_path: Path) -> None:
     )
     report = validate_paper_structural_minimums(tmp_path)
     codes = {i.code for i in report.issues}
-    assert "missing_pipeline_figure" in codes
-    assert "missing_teaser_figure" not in codes
+    assert "missing_pipeline_figure" not in codes
+    assert report.ok, report.to_text()
 
 
 def test_image2_entry_pointing_at_missing_file_does_not_count(tmp_path: Path) -> None:
@@ -240,11 +248,151 @@ def test_image2_entry_pointing_at_missing_file_does_not_count(tmp_path: Path) ->
     )
     report = validate_paper_structural_minimums(tmp_path)
     codes = {i.code for i in report.issues}
-    assert "missing_teaser_figure" in codes
-    assert "missing_pipeline_figure" in codes
+    assert "missing_teaser_figure" not in codes
+    assert "missing_pipeline_figure" not in codes
+    assert "invalid_figure_provenance" not in codes
     # Both manifest entries logged as missing_file in the role summary
     assert report.image2_role_summary.get("teaser_hero") == "missing_file"
     assert report.image2_role_summary.get("pipeline") == "missing_file"
+
+
+def test_malformed_legacy_manifest_is_not_a_structural_blocker(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    manifest = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    manifest.write_text("{not json", encoding="utf-8")
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
+
+
+def test_renderer_neutral_manifest_accepts_non_image2_figure(tmp_path: Path) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    (figures / "IMAGE2_FIGURES.json").unlink()
+    source = figures / "fig1.spec.json"
+    source.write_text('{"figure": 1}\n', encoding="utf-8")
+    register_figure(
+        project_root=tmp_path,
+        figure_id="fig1",
+        role="method",
+        renderer="react-recharts-svg",
+        source_path=source,
+        output_path=figures / "fig1.pdf",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
+    assert report.figure_renderer_summary == {"fig1": "react-recharts-svg"}
+    assert report.image2_manifest_path is None
+
+
+def test_canonical_manifest_coverage_is_not_a_structural_gate(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    (figures / "IMAGE2_FIGURES.json").unlink()
+    source = figures / "different.spec.json"
+    output = figures / "different.svg"
+    source.write_text("{}\n", encoding="utf-8")
+    output.write_text("<svg viewBox='0 0 1 1'/>\n", encoding="utf-8")
+    register_figure(
+        project_root=tmp_path,
+        figure_id="different",
+        role="other",
+        renderer="figure-spec",
+        source_path=source,
+        output_path=output,
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
+
+
+def test_canonical_image2_metadata_is_not_a_structural_gate(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    (figures / "IMAGE2_FIGURES.json").unlink()
+    prompt = figures / "fig1.prompt.txt"
+    prompt.write_text("prompt\n", encoding="utf-8")
+    canonical_entry = register_figure(
+        project_root=tmp_path,
+        figure_id="fig1",
+        role="method",
+        renderer="image2",
+        source_path=prompt,
+        output_path=figures / "fig1.pdf",
+    )
+
+    missing = validate_paper_structural_minimums(tmp_path)
+    assert missing.ok, missing.to_text()
+
+    (figures / "IMAGE2_FIGURES.json").write_text(
+        json.dumps(
+            {
+                "figures": [
+                    {
+                        "figure_id": "fig1",
+                        "output_path": canonical_entry["output_path"],
+                        "output_sha256": canonical_entry["output_sha256"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    matched = validate_paper_structural_minimums(tmp_path)
+    assert matched.ok, matched.to_text()
+
+
+def test_legacy_manifest_symlink_is_not_a_structural_blocker(tmp_path: Path) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    manifest = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    manifest.unlink()
+    outside = tmp_path.parent / "outside-image2-manifest.json"
+    outside.write_text(
+        json.dumps(
+            {
+                "figures": [
+                    {
+                        "figure_id": "outside",
+                        "output_path": "paper/figures/fig1.pdf",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest.symlink_to(outside)
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
+
+
+def test_canonical_manifest_symlink_is_not_a_structural_blocker(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    (figures / "IMAGE2_FIGURES.json").unlink()
+    outside = tmp_path.parent / "outside-figure-directory"
+    outside.mkdir(exist_ok=True)
+    (figures / "FIGURE_PROVENANCE.json").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
 
 
 def test_image2_role_keyword_variants_accepted(tmp_path: Path) -> None:
@@ -327,12 +475,33 @@ def test_includegraphics_resolves_with_or_without_extension(tmp_path: Path) -> N
     assert report.figures_found == 1
 
 
+def test_includesvg_counts_as_a_real_figure(tmp_path: Path) -> None:
+    paper = tmp_path / "paper"
+    figures = paper / "figures"
+    figures.mkdir(parents=True)
+    (figures / "architecture.svg").write_text(
+        "<svg viewBox='0 0 10 10'/>\n",
+        encoding="utf-8",
+    )
+    (paper / "main.tex").write_text(
+        "\\documentclass{article}\\begin{document}\n"
+        "\\includesvg[width=\\linewidth]{figures/architecture}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.figures_found == 1
+
+
 def test_section_files_are_scanned(tmp_path: Path) -> None:
     """Cites/figures inside `paper/sections/*.tex` (the ARIS-style layout)
     must count, not just main.tex."""
     paper = tmp_path / "paper"
     sections = paper / "sections"
     figures = paper / "figures"
+    _seed_venue(tmp_path)
     sections.mkdir(parents=True)
     figures.mkdir()
     (figures / "f.pdf").write_bytes(b"%PDF\n")
@@ -380,6 +549,44 @@ def test_section_files_are_scanned(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     report = validate_paper_structural_minimums(tmp_path)
+    assert report.ok, report.to_text()
+
+
+def test_only_reachable_nested_tex_files_are_scanned(tmp_path: Path) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    paper = tmp_path / "paper"
+    sections = paper / "sections"
+    nested = sections / "nested"
+    nested.mkdir(parents=True)
+    (paper / "figures" / "fig1.pdf").write_bytes(b"%PDF reachable\n")
+    (paper / "figures" / "unused.pdf").write_bytes(b"%PDF unused\n")
+    (paper / "main.tex").write_text(
+        "\\documentclass{article}\\begin{document}\n"
+        "\\input{sections/nested/body}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    cites = " ".join(
+        f"\\cite{{work{i}}}" for i in range(MIN_INTEXT_CITES)
+    )
+    (nested / "body.tex").write_text(
+        "\\section{Introduction}\n"
+        "\\includegraphics{figures/fig1.pdf}\n"
+        f"{cites}\n"
+        "\\section{Related Work}\n"
+        + ("Prior work. " * 120)
+        + "\n\\section{Conclusion}\nDone.\n"
+        "\\appendix\n\\section{Reproducibility}\nDetails.\n",
+        encoding="utf-8",
+    )
+    (sections / "unused.tex").write_text(
+        "\\includegraphics{figures/unused.pdf}\n",
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.figures_found == 1
     assert report.ok, report.to_text()
 
 
@@ -439,6 +646,7 @@ End.
 
 def test_alt_section_titles_recognised(tmp_path: Path) -> None:
     paper = tmp_path / "paper"
+    _seed_venue(tmp_path)
     (paper / "figures").mkdir(parents=True)
     (paper / "figures" / "f.pdf").write_bytes(b"%PDF\n")
     (paper / "figures" / "teaser.png").write_bytes(b"\x89PNG\r\n")

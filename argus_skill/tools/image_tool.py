@@ -632,6 +632,14 @@ def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) 
     os.replace(tmp, path)
 
 
+def _restore_optional_file(path: Path, snapshot: bytes | None) -> None:
+    if snapshot is None:
+        if path.exists():
+            path.unlink()
+        return
+    _atomic_write(path, snapshot, force=True)
+
+
 def _sidecar_path(out: Path) -> Path:
     suffix = out.suffix or ".image"
     return out.with_suffix(suffix + ".json")
@@ -1323,7 +1331,7 @@ def _load_image2_manifest(path: Path) -> dict[str, Any]:
     payload = _read_json_object(path)
     figures = payload.get("figures")
     if not isinstance(figures, list):
-        payload["figures"] = []
+        raise ImageToolError(f"{path} `figures` must be a JSON list")
     return payload
 
 
@@ -1452,6 +1460,21 @@ def sync_paper_metadata(
     if not figure_id.strip():
         raise ImageToolError("missing --figure-id")
     project_root = project_root.resolve()
+    manifest_path = _project_path(project_root, manifest)
+    _load_image2_manifest(manifest_path)
+    from ..verticals.research.figure_provenance import (
+        FIGURE_PROVENANCE_PATH,
+        figure_manifest_transaction,
+        preflight_figure_provenance,
+        register_figure,
+    )
+
+    try:
+        canonical_manifest_path = preflight_figure_provenance(project_root)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise ImageToolError(
+            f"canonical figure provenance is not writable/valid: {exc}"
+        ) from exc
     image_path = _project_path(project_root, image)
     if not image_path.is_file():
         raise ImageToolError(f"generated image does not exist: {image_path}")
@@ -1513,8 +1536,6 @@ def sync_paper_metadata(
         if provenance_path is not None
         else image_path.with_suffix(image_path.suffix + ".provenance.json")
     )
-    manifest_path = _project_path(project_root, manifest)
-
     model = str(sidecar_payload.get("model") or "gpt-image-2")
     requested_size = str(
         sidecar_payload.get("requested_size")
@@ -1599,7 +1620,47 @@ def sync_paper_metadata(
         provenance.update(cache_fields)
         entry.update(cache_fields)
         _atomic_write_json(provenance_sidecar_path, provenance)
-    _upsert_image2_manifest_entry(manifest_path, entry)
+    with figure_manifest_transaction(project_root):
+        _load_image2_manifest(manifest_path)
+        canonical_manifest_path = preflight_figure_provenance(project_root)
+        legacy_manifest_snapshot = (
+            manifest_path.read_bytes() if manifest_path.exists() else None
+        )
+        canonical_manifest_snapshot = (
+            canonical_manifest_path.read_bytes()
+            if canonical_manifest_path.exists()
+            else None
+        )
+        try:
+            _upsert_image2_manifest_entry(manifest_path, entry)
+            register_figure(
+                project_root=project_root,
+                figure_id=figure_id,
+                role=figure_type,
+                renderer="image2",
+                source_path=prompt_path,
+                output_path=image_path,
+                inputs=(sidecar_path, inspect_sidecar_path, provenance_sidecar_path),
+                review_path=review_sidecar_path,
+                render_metadata_path=sidecar_path,
+                command=(
+                    "python -m argus_skill.tools.image_tool generate "
+                    f"--prompt-file {prompt_rel} --out {output_rel} "
+                    f"--size {requested_size}"
+                ),
+                manifest_path=FIGURE_PROVENANCE_PATH,
+                _transaction_locked=True,
+            )
+        except BaseException:
+            _restore_optional_file(manifest_path, legacy_manifest_snapshot)
+            _restore_optional_file(
+                canonical_manifest_path,
+                canonical_manifest_snapshot,
+            )
+            raise
+    entry["figure_provenance_path"] = (
+        "paper/figures/FIGURE_PROVENANCE.json"
+    )
     return entry
 
 

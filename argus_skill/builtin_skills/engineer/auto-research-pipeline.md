@@ -127,33 +127,25 @@ A method losing to a baseline is not an automatic pivot. If the run is valid and
 the loss, null, or boundary changes understanding or practice, preserve it and
 write the strongest honest paper supported by the evidence.
 
-## Non-data figure contract (retain as a hard requirement)
+## Research figure contract
 
-- Data, metric, and result plots may be generated from scripts.
-- Every other paper-facing figure — Figure 1, teaser, overall,
-  method/framework/system/pipeline overview, schematic, qualitative/example
-  visual, architecture diagram, or explanatory non-data figure — must use the
-  actual image-2/codex-image2 raster output in `paper/main.tex`.
-- The Engineer must not draw, redraw, trace, clean, or improve a non-data figure
-  with matplotlib/FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvas,
-  Inkscape/manual vector tools, screenshots, or cleaned PDF derivatives.
-- Record prompt path, output path, dimensions, SHA-256, raw generation sidecar,
-  inspect sidecar, generation provenance, and model-backed review path in
-  `paper/figures/IMAGE2_FIGURES.json`.
-- The prompt must be created with
-  `python -m argus_skill.tools.image_tool paper-prompt ...` and retain
-  `argus-image2-paper-prompt-v1` plus
-  `paper-framework-figure-studio-pro-v3.1.4a`.
-- Freeze claim/evidence and `PAPER_STRUCTURE_BLUEPRINT.md` first with
-  `image_tool freeze-paper-context`; do not generate while either is moving.
-- Generate and review 6–20 Figma-style layout variants by changing only the
-  named layout/candidate-contract fields. Register each through
-  `sync-paper-metadata`. Once six passing candidates are cached for the current
-  freeze, reuse them; ordinary manuscript wording/layout changes do not justify
-  regeneration.
-- Preserve the exact accepted raster bytes after provenance is recorded. If the
-  figure is weak, regenerate through image-2; do not repair only metadata or
-  substitute a locally drawn asset.
+- Use the research vertical's Research Visualization Router for every figure.
+- Renderer choice belongs to the Engineer and Reviewer, grounded in the figure
+  brief, scientific semantics, editability, and actually available capabilities.
+- Optionally record source/renderer handoff metadata in
+  `paper/figures/FIGURE_PROVENANCE.json`; it is not a completion gate.
+- Image-2 is one optional renderer. When selected, retain its canonical prompt,
+  raw sidecars, accepted raster, review, and `IMAGE2_FIGURES.json`; when
+  unavailable, use a truthful deterministic route rather than fabricating
+  image-2 metadata or blocking the paper solely on the API.
+- Reviewer uses a good-enough visual standard. Do not repeat figure regeneration
+  for minor aesthetic preferences once the figure is readable, coherent, and
+  attractive enough.
+- When the router selects image-2, generate/review its required candidate set,
+  register through `sync-paper-metadata`, reuse a valid frozen cache, and preserve
+  exact accepted raster bytes. These image-2-specific rules do not apply to
+  deterministic SVG/HTML/diagram/PPT renderers, which repair their own source and
+  re-render.
 
 ## Stage guidance
 
@@ -200,7 +192,8 @@ write the strongest honest paper supported by the evidence.
 - Regenerate all aggregates from raw artifacts.
 - Map claims to evidence.
 - Keep losing, null, and contradictory comparisons visible.
-- Produce data figures/tables plus the required image-2 non-data figures.
+- Produce the required data and conceptual figures through the Research
+  Visualization Router; image-2 is conditional on capability and renderer choice.
 
 ### 6. Draft
 
