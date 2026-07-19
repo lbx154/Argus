@@ -65,6 +65,9 @@ Follow `references/idgl-loop.md`. An expensive full gate is not a debugging
 tool. After a red gate, isolate the first failing node/shape/config and run the
 cheapest decisive diagnostic. If the same failure signature repeats, stop and
 request replanning; never run the unchanged full gate again.
+Read `references/experiment-budget-ladder.md` before optimize-stage work. It
+defines the route-proof → microbaseline → timeline → leverage → focused-profiler
+ladder and its stop conditions.
 
 ## Required order of work
 
@@ -153,7 +156,17 @@ request replanning; never run the unchanged full gate again.
    memory traffic, compute/tensor-core use, occupancy/latency, synchronization,
    compilation, or a multi-kernel boundary. If counters are unavailable,
    document that limitation and use derived roofline/timing evidence rather than
-   pretending.
+   pretending. Start with one path-aligned shape and the lowest-overhead timeline
+   view. Record end-to-end median/spread and the selected kernel's duration.
+   Before editing source or collecting a second expensive profile, write
+   `attempts/<id>/LEVERAGE.json` with
+   `python -m argus_skill.verticals.kernel_engineering.leverage_gate analyze`.
+   Supply baseline/path evidence, end-to-end and target-kernel durations, the
+   noise-bounded required total speedup, and a justified plausible kernel bound.
+   Use `--help` and `references/experiment-budget-ladder.md` for the exact shape.
+   If the verdict rejects the target, preserve a no-go attempt and choose a
+   higher-leverage boundary. Do not edit the kernel merely because one generated
+   subkernel has an interesting counter.
 9. **Run hypothesis-driven attempts.** Each `attempts/<id>/` must preserve source
    diff/snapshot, short `CHANGES.md`, correctness output, benchmark output, and a
    compact `OUTCOME.json`. Generate the shape with:
@@ -165,6 +178,8 @@ request replanning; never run the unchanged full gate again.
    ```
 
    Record `execution_status`, `failure_class`, and `idea_status` separately.
+   Source editing is unlocked only when `LEVERAGE.json` says `proceed`, unless
+   new evidence changes the measured end-to-end share or the required MDE.
    Before the run, check the ledger for an equivalent mechanism/config and write
    the one-line claim being tested. After the run, retain a compact result and
    reusable insight; do not paste raw logs into the next Engineer prompt.

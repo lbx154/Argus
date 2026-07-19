@@ -67,6 +67,14 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     assert reviewer.is_file()
     assert "missing compiler" in engineer.read_text(encoding="utf-8").lower()
     assert "hard environment gate" in reviewer.read_text(encoding="utf-8").lower()
+    assert "leverage.json" in engineer.read_text(encoding="utf-8").lower()
+    assert "leverage.json" in reviewer.read_text(encoding="utf-8").lower()
+
+
+def test_kernel_optimize_stage_requires_leverage_gate() -> None:
+    mod = load_vertical("kernel_engineering")
+    commands = "\n".join(command for _label, command in mod.STAGE_CHECKS["optimize"])
+    assert "leverage_gate check" in commands
 
 
 def test_reviewer_checklist_skill_paths_exist() -> None:

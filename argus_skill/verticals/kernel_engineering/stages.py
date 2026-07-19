@@ -41,6 +41,9 @@ _FRONTIER = (
 _OUTCOME = (
     "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.attempt_outcome"
 )
+_LEVERAGE = (
+    "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.kernel_engineering.leverage_gate"
+)
 
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "scope": [
@@ -65,6 +68,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "optimize": [
         _PIPELINE_CHECK,
+        ("Kernel leverage gate is valid", f"{_LEVERAGE} check --project-root ."),
         (
             "Hypothesis-driven attempt evidence exists",
             "find attempts experiments -mindepth 2 -maxdepth 3 -type f "
@@ -74,6 +78,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "validate": [
         _PIPELINE_CHECK,
+        ("Kernel leverage gate is valid", f"{_LEVERAGE} check --project-root ."),
         ("Attempt outcome taxonomy is valid", f"{_OUTCOME} check --project-root ."),
         ("Validation matrix present", "test -s research/VALIDATION_MATRIX.md"),
         ("Candidate validation evidence present", "test -s research/VALIDATION_RESULT.json"),
@@ -139,13 +144,13 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "optimize": (
         _ENGINEER_SKILL,
         "Evaluate the latest attempt as an engineering experiment: measured bottleneck, "
-        "mechanistic hypothesis, minimal implementation, correctness result, timing, "
+        "Amdahl/leverage gate, mechanistic hypothesis, minimal implementation, correctness result, timing, "
         "and verdict. Reject blind parameter sweeps and reinvention of an available "
         "project/vendor primitive. Compile/runtime failures must be attributed to code "
         "versus environment before abandoning the mechanism. Every attempt must have "
         "OUTCOME.json with separate execution_status, failure_class, and idea_status; "
         "environment/toolchain/infrastructure failures cannot refute an idea.",
-        ["attempts/", "research/ENVIRONMENT_AUDIT.json", "research/BASELINE_RESULT.json"],
+        ["attempts/", "attempts/*/LEVERAGE.json", "research/ENVIRONMENT_AUDIT.json", "research/BASELINE_RESULT.json"],
     ),
     "validate": (
         _REVIEWER_SKILL,

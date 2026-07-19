@@ -26,6 +26,9 @@ Experiment ledger:
   the changed dispatch/code path. Record baseline revision, candidate revision
   plus dirty-diff hash, and dispatch/trace evidence; matching commit labels on a
   dirty worktree are not sufficient provenance.
+- Before editing, run the Amdahl/leverage gate against wall-clock end-to-end
+  time, not only summed CUDA time. A faster low-share subkernel is a no-go when
+  its plausible total effect cannot clear the measurement noise floor.
 
 Efficiency rules:
 
@@ -34,6 +37,8 @@ Efficiency rules:
 - First failure: isolate one node/shape/configuration.
 - Repeated failure: bisect configuration or code path; do not regenerate prose.
 - Full suite: baseline certification and retained-candidate certification only.
+- Profiler ladder: timeline first, then only the filtered NCU/NSYS launches and
+  sections needed for one decision; never use all-section replay by default.
 - CHECKPOINT.md carries the state; continuation prompts should not resend the
   full skill, objective, registry, and frontier catalog.
 - Long diagnostics and certification gates must stream to a durable artifact.

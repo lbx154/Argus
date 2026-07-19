@@ -100,6 +100,10 @@ Require evidence appropriate to the public contract:
 
 ## Performance evidence
 
+Require valid `attempts/<id>/LEVERAGE.json` before accepting a source edit. If
+the selected kernel cannot plausibly clear the end-to-end noise floor, require a
+no-go or higher-leverage target instead of rewarding a faster subkernel.
+
 Require same-machine, same-stack, isolated A/B measurement after warmup/JIT/
 autotune. Report forward, backward, and combined paths when applicable; include
 shape/dtype matrix, p50 and spread/quantiles, memory, and enough independent
