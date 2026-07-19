@@ -52,14 +52,14 @@ async function renderNode(node: React.ReactElement, width: number): Promise<stri
 async function renderPanel(
   panel: PanelState,
   width: number,
-  options: { snap?: Snapshot | null; events?: EventMsg[] } = {},
+  options: { snap?: Snapshot | null; events?: EventMsg[]; viewportRows?: number } = {},
 ): Promise<string> {
   return renderNode(
     React.createElement(PanelView, {
       panel,
       snap: options.snap ?? null,
       events: options.events ?? [],
-      viewportRows: 24,
+      viewportRows: options.viewportRows ?? 24,
       viewportColumns: width,
       activeProject: 's-live',
     }),
@@ -185,7 +185,7 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
     },
     mission_view: missionView,
   } as Snapshot;
-  const output = await renderPanel({ kind: 'operations' }, 60, { snap });
+  const output = await renderPanel({ kind: 'operations' }, 60, { snap, viewportRows: 40 });
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
@@ -484,6 +484,59 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   assert.match(finalFrame, /ENGINEER.*Waiting/);
   assert.match(finalFrame, /REVIEWER.*Waiting/);
   assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
+});
+
+test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
+  const snap = {
+    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
+    daemon: {
+      alive: false, pid: null, uptime_seconds: null, backend: 'copilot', backend_label: 'Copilot',
+      per_mission_cap_usd: 30, daily_cap_usd: 180, global_daily_cap_usd: 10_000,
+      protocol: { name: 'argus.daemon', major: 1, minor: 1 },
+    },
+    roles: ['manager', 'planner', 'engineer', 'reviewer'].map((role) => ({
+      role, backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.5',
+      effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
+    })),
+    backlog: [], recent_events: [], spend_usd: 0, spend_status: 'priced',
+    request_usage: {
+      day: '2026-07-19',
+      codex: { provider: 'codex', day: '2026-07-19', daily_calls: 0, daily_cap: 300, remaining: 300 },
+      copilot: { provider: 'copilot', day: '2026-07-19', daily_calls: 476, daily_cap: 10_000, remaining: 9_524, premium_requests: 109, premium_cap: 10_000 },
+    },
+    cost_control: {
+      reserved_usd: 5, active_reservations: 1, unresolved_calls: 108,
+      fence_breach_calls: 0, fence_breach_remaining_seconds: 0,
+    },
+    usage_summary: {
+      input_tokens: 16_296, cached_input_tokens: 14_848, cache_write_tokens: 0,
+      output_tokens: 103, reasoning_output_tokens: 61, call_count: 1,
+    },
+    mission_view: emptyMissionView(),
+  } as Snapshot;
+  const events: EventMsg[] = [{
+    type: 'role.activity', activity_id: 'manager-request', role: 'manager',
+    label: 'handling the operator request', status: 'running', ts: Date.now() / 1000,
+  }];
+  const output = await renderNode(
+    React.createElement(
+      Box,
+      { flexDirection: 'column' },
+      React.createElement(Header, { width: 99 }),
+      React.createElement(PanelView, {
+        panel: { kind: 'operations' },
+        snap,
+        events,
+        viewportRows: 24,
+        viewportColumns: 99,
+        activeProject: 's-ops',
+      }),
+    ),
+    99,
+  );
+  const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
+  assert.ok(finalFrame.trimEnd().split('\n').length < 24);
+  assert.match(finalFrame, /activity\s+manager · handling the operator request/);
 });
 
 test('long input wraps while keeping a bounded view around the caret', async () => {
