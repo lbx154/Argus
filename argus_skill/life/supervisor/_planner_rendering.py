@@ -35,7 +35,11 @@ class PlannerRenderingMixin:
                     evidence = str(extra.get("completion_summary") or "").strip()
                     if evidence:
                         line += f" | final-submission evidence: {evidence[:500]}"
-                if e.kind in ("mission_complete", "mission_failed"):
+                if e.kind in (
+                    "mission_complete",
+                    "mission_failed",
+                    "mission_replan_requested",
+                ):
                     # Surface the L2 reviewer's own structured briefing so the
                     # planner attends to *what actually happened*, not just the
                     # `status=done` field. A mission can be marked done by being
@@ -57,6 +61,11 @@ class PlannerRenderingMixin:
                         rendered_sb = self._render_step_back(step_back)
                         if rendered_sb:
                             line += "\n" + rendered_sb
+                    claim_synthesis = extra.get("claim_synthesis")
+                    if isinstance(claim_synthesis, dict) and claim_synthesis:
+                        rendered_claim = self._render_claim_synthesis(claim_synthesis)
+                        if rendered_claim:
+                            line += "\n" + rendered_claim
             lines.append(line)
         return "\n".join(lines) or "(empty)"
 
@@ -97,6 +106,27 @@ class PlannerRenderingMixin:
                 why = _clean(entry.get("why"), 600)
                 parts.append(f"      - {path}" + (f"  — {why}" if why else ""))
         return "\n".join(parts)
+
+    @staticmethod
+    def _render_claim_synthesis(claim: dict) -> str:
+        route = str(claim.get("route") or "").strip()
+        action = str(claim.get("action") or "").strip()
+        headline = str(claim.get("headline") or "").strip()[:1200]
+        if not route or not action:
+            return ""
+        lines = [
+            "    VALID_RESULT→CLAIM: "
+            f"route={route} action={action} advance_to_analysis_or_report=true"
+        ]
+        if headline:
+            lines.append(f"      strongest_supported_finding: {headline}")
+        evidence = claim.get("evidence")
+        if isinstance(evidence, list):
+            for item in evidence[:6]:
+                text = str(item or "").strip()[:500]
+                if text:
+                    lines.append(f"      evidence: {text}")
+        return "\n".join(lines)
 
     @staticmethod
     def _render_step_back(step_back: dict) -> str:

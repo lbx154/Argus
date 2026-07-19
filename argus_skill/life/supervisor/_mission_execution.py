@@ -582,6 +582,13 @@ class MissionExecutionMixin:
             if isinstance(getattr(outcome, "research_result", {}), dict)
             else {}
         )
+        from ...core.claim_synthesis import build_claim_synthesis
+
+        claim_synthesis = build_claim_synthesis(
+            research_result=research_result,
+            planner_report=planner_report,
+            step_back=step_back,
+        )
         completion_summary = self._completion_evidence_from_outcome(outcome)
         if final_submission_certified:
             self._persist_final_submission_certification(title=item.title)
@@ -664,6 +671,7 @@ class MissionExecutionMixin:
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
             "completion_summary": completion_summary,
             "research_result": research_result or None,
+            "claim_synthesis": claim_synthesis,
             "planner_report": planner_report,
             "checklist_feedback": checklist_feedback,
             "step_back": step_back,
@@ -683,6 +691,7 @@ class MissionExecutionMixin:
             "iteration": None,
             "auth_failure": auth_failure,
             "planner_report": planner_report,
+            "claim_synthesis": claim_synthesis,
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
         }

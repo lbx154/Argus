@@ -39,6 +39,7 @@ from ..core.models import (
     RunnerOptions,
     RunnerResult,
 )
+from ..core.claim_synthesis import claim_synthesis_for_review
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import (
@@ -2561,6 +2562,15 @@ class SupervisedEngineer:
                     f"Repairable {failure_layer} failure; scientific state is "
                     "unchanged. Replan to repair the failed layer, validate it, "
                     "and resume the scientific experiment. "
+                    + (review.reason or ""),
+                )
+            claim_synthesis = claim_synthesis_for_review(review)
+            if failure_layer == "scientific" and claim_synthesis is not None:
+                return (
+                    "replan_requested",
+                    "Valid scientific result routed to "
+                    f"{claim_synthesis['route']} / {claim_synthesis['action']}; "
+                    "do not discard the data or hold the campaign. "
                     + (review.reason or ""),
                 )
             if review.failure_cause == "environmental" and not review.operator_question:
