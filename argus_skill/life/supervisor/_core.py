@@ -533,6 +533,10 @@ class LifeSupervisor(
                         if str(getattr(item, "pending_question", "") or "").strip()
                     ]
                     if pending_questions:
+                        if self._resolve_pending_question_from_inbox(
+                            pending_questions
+                        ):
+                            continue
                         sleep_s = self._enter_pause_backoff()
                         self._emit({
                             "type": "life.planner.deferred",

@@ -1961,6 +1961,7 @@ def _build_supervisor_config(
     from ..apps._runtime import (
         _inbox_drainer_for,
         _paper_mission_for_project_root,
+        _pending_question_resolver_for,
     )
     from ..life.telemetry import telemetry_interval_from_env
     from ..manager._core import manager_pipeline_yield_requested
@@ -1987,6 +1988,7 @@ def _build_supervisor_config(
             runtime_root,
             project_root=cfg.project_workdir or runtime_root,
         ),
+        pending_question_resolver=_pending_question_resolver_for(runtime_root),
         runtime_context=_worker_runtime_context(cfg, paper_mission=paper_mission),
         continuous=init_continuous,
         continuous_objective=init_objective,

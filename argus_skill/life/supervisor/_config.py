@@ -333,6 +333,10 @@ class LifeSupervisorConfig:
     # prelude_context so the engineer sees it as live operator
     # guidance. The default ``None`` disables the bus.
     user_inbox: Any = None  # Callable[[], str | None] | None
+    # Manager-mediated resolver for one durable pending question. The callback
+    # receives ``(blocked_item, operator_message)`` and returns the authoritative
+    # answer result. Hosts wire the same resolver used by the web answer path.
+    pending_question_resolver: Any = None
     # Runtime context injected into the prelude of every mission so
     # the agent knows its own backend, models, and budget constraints.
     # Set by the cockpit / daemon worker; empty string disables injection.
