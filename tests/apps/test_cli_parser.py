@@ -208,6 +208,12 @@ def test_parser_model_api_flags_present():
     assert p.parse_args(["--init-model-api"]).init_model_api is True
 
 
+def test_parser_ppt_master_flags_present():
+    p = build_parser()
+    assert p.parse_args(["--install-ppt-master"]).install_ppt_master is True
+    assert p.parse_args(["--ppt-master-status"]).ppt_master_status is True
+
+
 def test_parser_export_builtin_skills_flag_present():
     p = build_parser()
     assert (

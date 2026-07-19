@@ -916,6 +916,8 @@ class LifeWorker:
         # import argus_skill.
         _argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
         os.environ.setdefault("ARGUS_SKILL_PYTHON", _argus_python)
+        if self.config.global_root is not None:
+            os.environ["ARGUS_SKILL_HOME"] = str(self.config.global_root.resolve())
         # Also prepend the venv bin dir to PATH so bare `python` resolves
         # to the venv interpreter in child shells.
         _venv_bin = str(Path(_argus_python).resolve().parent)

@@ -819,6 +819,40 @@ def test_life_worker_continues_when_telegram_poller_start_fails(
     assert rc == 0
 
 
+def test_life_worker_exports_custom_global_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global_root = tmp_path / "custom-home"
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {}
+
+    monkeypatch.delenv("ARGUS_SKILL_HOME", raising=False)
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=global_root / "projects" / "demo",
+            global_root=global_root,
+            project_fingerprint="demo",
+            project_workdir=project_root,
+            backend="memory",
+            poll_interval=0.01,
+        )
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert os.environ["ARGUS_SKILL_HOME"] == str(global_root.resolve())
+
+
 def test_life_worker_does_not_start_telegram_by_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

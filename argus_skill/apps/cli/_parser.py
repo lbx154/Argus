@@ -271,6 +271,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="import OPENAI_* / Codex config into the private capability vault "
              "(~/.argus-skill/capabilities/model_api.json, mode 0600)",
     )
+    capability_grp.add_argument(
+        "--install-ppt-master",
+        action="store_true",
+        help="install the pinned MIT-licensed PPT Master toolkit and Python dependencies",
+    )
+    capability_grp.add_argument(
+        "--ppt-master-status",
+        action="store_true",
+        help="show the installed PPT Master path, revision, and dependency status",
+    )
 
     skills_grp = parser.add_argument_group("skill admin")
     skills_grp.add_argument(

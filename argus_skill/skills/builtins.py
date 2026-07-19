@@ -8,6 +8,7 @@ local skills.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import uuid
@@ -22,6 +23,11 @@ _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _VERTICAL_SKILL_INHERITANCE = {
     "digital_circuit_benchmark": ("digital_circuit",),
+}
+_SAFE_BUILTIN_UPGRADE_DIGESTS = {
+    "engineer/presentation-master.md": {
+        "a78fab7703be6727a6cbf6e27ba8b397630908268135b89e6a88c34dda16662e",
+    },
 }
 
 
@@ -131,6 +137,11 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
+            previous_digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+            if previous_digest in _SAFE_BUILTIN_UPGRADE_DIGESTS.get(filename, set()):
+                _atomic_write_text(dest, text)
+                created[filename] = True
+                continue
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)

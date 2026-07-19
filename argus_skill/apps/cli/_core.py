@@ -276,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.setup)
         + bool(args.model_api_status)
         + bool(args.init_model_api)
+        + bool(args.install_ppt_master)
+        + bool(args.ppt_master_status)
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
         + bool(args.export_builtin_skills is not None)
@@ -295,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             "--daemon-runbook / --config-help / --config-snapshot / "
             "--watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
+            "--install-ppt-master / --ppt-master-status / "
             "--skill-cleanse / --export-builtin-skills / "
             "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
             "wiki subcommands "
@@ -372,6 +375,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
     if args.init_model_api:
         return _run_with_path_resolution_errors(lambda: _cmd_init_model_api(args))
+    if args.install_ppt_master:
+        return _run_with_path_resolution_errors(lambda: _cmd_install_ppt_master(args))
+    if args.ppt_master_status:
+        return _run_with_path_resolution_errors(lambda: _cmd_ppt_master_status(args))
     if args.skill_stats:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_stats(args))
     if args.skill_cleanse:
@@ -983,6 +990,30 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
     return 0
+
+
+def _cmd_install_ppt_master(args: argparse.Namespace) -> int:
+    from ...tools.ppt_master import install_ppt_master
+
+    status = install_ppt_master(global_root=_resolve_global_root(args))
+    sys.stdout.write(
+        f"PPT Master ready at {status.skill_root}\n"
+        f"revision: {status.revision}\n"
+    )
+    return 0
+
+
+def _cmd_ppt_master_status(args: argparse.Namespace) -> int:
+    from ...tools.ppt_master import ppt_master_status
+
+    status = ppt_master_status(global_root=_resolve_global_root(args))
+    sys.stdout.write(
+        f"PPT Master: {status.detail}\n"
+        f"root: {status.root}\n"
+        f"skill: {status.skill_root}\n"
+        f"revision: {status.revision or 'unknown'}\n"
+    )
+    return 0 if status.valid and status.dependencies_installed else 1
 
 
 def _cmd_evidence_chain_check(args: argparse.Namespace) -> int:

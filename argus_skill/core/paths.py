@@ -9,6 +9,7 @@ Current runtime layout::
     ~/.argus-skill/
     ├─ identity.md
     ├─ global_budget.json
+    ├─ tools/
     ├─ skills/
     │   └─ *_archive/
     └─ projects/
@@ -63,6 +64,7 @@ __all__ = [
     "daemon_pid_path",
     "skills_global_root",
     "skills_archive_root",
+    "tools_root",
     "projects_root",
     "project_root",
     "project_memory_path",
@@ -175,6 +177,11 @@ def skills_global_root() -> Path:
 
 def skills_archive_root() -> Path:
     return global_root() / "skills" / "_archive"
+
+
+def tools_root() -> Path:
+    """Return the root for optional, externally versioned tool installations."""
+    return global_root() / "tools"
 
 
 def projects_root() -> Path:
