@@ -58,6 +58,12 @@ class TaskSpec:
     impact_score: int = 0  # 0-5; parser accepts only high-value work
     impact_area: str = ""
     evidence: str = ""
+    # One decisive completion check plus explicit read-only inputs. These form
+    # the canonical Planner→Engineer context packet instead of forcing every
+    # fresh session to rediscover the whole project.
+    acceptance_check: str = ""
+    non_goals: list[str] = field(default_factory=list)
+    context_refs: list[dict[str, str]] = field(default_factory=list)
     scope: str = TASK_SCOPE_BOUNDED
     # A mission expected to satisfy the current-stage gate must receive an
     # independent Reviewer verdict so the Manager gets per-item evidence.
@@ -71,6 +77,74 @@ class TaskSpec:
     # before the DAG existed.
     key: str = ""
     deps: list[str] = field(default_factory=list)
+
+
+_TASK_PHASE_MARKERS: dict[str, tuple[str, ...]] = {
+    "grounding": (
+        "literature", "survey", "primary source", "candidate", "idea", "文献", "候选",
+    ),
+    "access": (
+        "access", "preflight", "environment", "availability", "license", "访问", "环境",
+    ),
+    "freeze": (
+        "preregister", "pre-register", "freeze", "contract", "预注册", "冻结",
+    ),
+    "execute": (
+        "run experiment", "execute", "inference", "training", "benchmark run", "gpu", "执行", "训练", "推理",
+    ),
+    "synthesize": (
+        "analysis", "claim-evidence", "write-up", "paper", "manuscript", "分析", "论文", "写作",
+    ),
+}
+
+
+def _task_granularity_issue(task: TaskSpec) -> str:
+    """Reject a whole-stage monolith that cannot fit one fresh session."""
+    text = " ".join(f"{task.title} {task.objective}".casefold().split())
+    phases = {
+        phase
+        for phase, markers in _TASK_PHASE_MARKERS.items()
+        if any(marker in text for marker in markers)
+    }
+    certification_only = (
+        any(marker in task.title.casefold() for marker in ("review", "certif", "audit", "审查", "认证", "审计"))
+        and any(marker in text for marker in ("reuse", "do not rerun", "without rerun", "复用", "不重跑"))
+    )
+    if len(phases) >= 4 and not certification_only:
+        return (
+            "combines too many decision phases in one Engineer session: "
+            + ", ".join(sorted(phases))
+        )
+    if len(task.objective) > 1800 and len(phases) >= 3 and not certification_only:
+        return "objective is too broad for one fresh Engineer session"
+    return ""
+
+
+def _planner_task_granularity_issues(tasks: list[TaskSpec]) -> list[str]:
+    return [
+        f"{task.title}: {issue}"
+        for task in tasks
+        if (issue := _task_granularity_issue(task))
+    ]
+
+
+def _parse_context_refs(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for raw in value[:12]:
+        if not isinstance(raw, dict):
+            continue
+        target = str(raw.get("ref") or "").strip()
+        if not target:
+            continue
+        refs.append({
+            "kind": str(raw.get("kind") or "artifact").strip() or "artifact",
+            "ref": target,
+            "why": str(raw.get("why") or "").strip(),
+            "content_hash": str(raw.get("content_hash") or "").strip(),
+        })
+    return refs
 
 
 def _requires_theorem_proof_contract(objective: str) -> bool:
@@ -536,6 +610,26 @@ class Planner:
                 new_tasks=[],
                 checklist_ops=[],
                 error=f"hard objective contract violation: {issue_text}",
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
+                premium_requests=premium_requests,
+            )
+        granularity_issues = _planner_task_granularity_issues(parsed.new_tasks)
+        if granularity_issues:
+            issue_text = "; ".join(granularity_issues[:6])
+            return replace(
+                parsed,
+                project_done=False,
+                reason=(
+                    "planner proposed a whole-stage task that cannot fit one fresh "
+                    "Engineer session; split at the next decision/artifact boundary "
+                    f"and preserve handoff through context_refs: {issue_text}"
+                ),
+                new_tasks=[],
+                checklist_ops=[],
+                error=f"task granularity violation: {issue_text}",
                 input_tokens=input_tokens,
                 cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
@@ -1063,8 +1157,6 @@ class Planner:
             + meta_block
             + "\n\nOriginal operator request (immutable anchor):\n"
             + continuous_objective.strip()
-            + "\n\nOperator's continuous goal (do not mutate the anchor above):\n"
-            + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
             + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")
             + "\n\nCurrent reality (authoritative over the journal above):\n"
@@ -1353,6 +1445,15 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             impact_score = _parse_impact_score(entry.get("impact_score"))
             impact_area = str(entry.get("impact_area", "")).strip()
             evidence = str(entry.get("evidence", "")).strip()
+            acceptance_check = str(
+                entry.get("acceptance_check") or evidence
+            ).strip()
+            non_goals = [
+                str(item).strip()
+                for item in (entry.get("non_goals") or [])
+                if str(item).strip()
+            ][:8]
+            context_refs = _parse_context_refs(entry.get("context_refs"))
             scope = _parse_task_scope(entry.get("scope"))
             stage_closing = _parse_json_bool(
                 entry.get("stage_closing", False),
@@ -1379,6 +1480,9 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     impact_score=impact_score,
                     impact_area=impact_area,
                     evidence=evidence,
+                    acceptance_check=acceptance_check,
+                    non_goals=non_goals,
+                    context_refs=context_refs,
                     scope=scope,
                     stage_closing=stage_closing,
                     key=key,

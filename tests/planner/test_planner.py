@@ -81,6 +81,77 @@ def test_parse_planner_text_emits_task_specs() -> None:
     assert spec.impact_score == 5
     assert spec.scope == "bounded"
     assert spec.stage_closing is True
+    # Legacy planner rows remain readable; evidence becomes the fallback check.
+    assert spec.acceptance_check == "loader crashes on empty input"
+
+
+def test_parse_planner_text_preserves_context_packet_fields() -> None:
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "screen one candidate",
+        "new_tasks": [{
+            "title": "Screen candidate access",
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "The selected candidate has not been access-checked.",
+            "acceptance_check": "research/access_screen.json records pass or fail",
+            "non_goals": ["do not preregister", "do not execute inference"],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/IDEA_CANDIDATES.md",
+                "why": "selected candidate",
+                "content_hash": "abc",
+            }],
+            "scope": "bounded",
+            "stage_closing": False,
+            "objective": "Verify public code, data, model, and evaluator access.",
+            "key": "access",
+            "deps": [],
+        }],
+    })
+
+    spec = parse_planner_text(txt).new_tasks[0]
+    assert spec.acceptance_check.endswith("pass or fail")
+    assert spec.non_goals == ["do not preregister", "do not execute inference"]
+    assert spec.context_refs[0]["ref"] == "research/IDEA_CANDIDATES.md"
+
+
+def test_plan_next_rejects_whole_stage_research_monolith() -> None:
+    broad = json.dumps({
+        "project_done": False,
+        "reason": "close research in one mission",
+        "new_tasks": [{
+            "title": "Close research with a new thesis",
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "The stage is open.",
+            "acceptance_check": "independent review closes research",
+            "non_goals": [],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/PIPELINE_STATE.json",
+                "why": "stage state",
+                "content_hash": "",
+            }],
+            "scope": "bounded",
+            "stage_closing": True,
+            "objective": (
+                "Survey primary literature and select candidate ideas; verify "
+                "access and environment preflight; freeze a preregistration and "
+                "run the GPU experiment; analyze results and write the paper claim."
+            ),
+            "key": "all-research",
+            "deps": [],
+        }],
+    })
+
+    verdict = Planner(_FakeRunner(broad)).plan_next(
+        continuous_objective="Develop a strong paper.",
+    )
+
+    assert verdict.new_tasks == []
+    assert "granularity" in verdict.error
+    assert "one fresh Engineer session" in verdict.reason
 
 
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
@@ -1181,6 +1252,14 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "impact_score": 5,
             "impact_area": "reliability",
             "evidence": "e",
+            "acceptance_check": "pytest -q",
+            "non_goals": ["do not edit unrelated files"],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/STATE.json",
+                "why": "current state",
+                "content_hash": "",
+            }],
             "scope": "bounded",
             "stage_closing": False,
             "objective": "o",

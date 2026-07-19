@@ -867,6 +867,8 @@ class SupervisedConfig:
     # Ordinary Markdown file edited directly by Engineer and Reviewer. None
     # disables the shared checkpoint for callers that intentionally opt out.
     checkpoint_path: Path | None = None
+    # Mission-level canonical packet. Round handoffs are written beside it.
+    context_packet_path: str = ""
     # Kill a live Codex subprocess if it keeps emitting heartbeat/token
     # noise but makes no effective progress for a long time. Effective
     # progress means either a non-token Codex session event or a project file
@@ -1501,6 +1503,19 @@ class SupervisedEngineer:
                 raw_engineer_message,
                 known_values=known_secret_values(),
             )
+            if supervised_config.context_packet_path:
+                try:
+                    from ..life.context_packet import record_engineer_handoff
+
+                    record_engineer_handoff(
+                        mission_context_path=supervised_config.context_packet_path,
+                        round_index=round_index,
+                        engineer_summary=engineer_message,
+                        checkpoint_path=checkpoint_path,
+                        thread_id=str(round_thread_id or ""),
+                    )
+                except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
+                    log.exception("failed to persist Engineer context packet")
             _secret_report, secret_guard_reviewer_note = _apply_round_secret_guard(
                 workdir=workdir,
                 modified_since=round_started_at,

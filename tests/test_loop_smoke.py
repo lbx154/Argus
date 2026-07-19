@@ -13,6 +13,7 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.life.context_packet import create_mission_context
 from argus_skill.loop import _nearest_transfer_scores
 
 SKILL_MD = (
@@ -134,11 +135,29 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     ))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
+    mission_context = create_mission_context(
+        life_dir=tmp_path / "state",
+        mission_id="hello-mission",
+        stage="direct",
+        scope="bounded",
+        objective="say hi to the user",
+        acceptance_check="the greeting is printed",
+        context_refs=[{
+            "kind": "artifact",
+            "ref": "request.txt",
+            "why": "requested wording",
+            "content_hash": "",
+        }],
+    )
     loop = SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=4),
+        config=SkillLoopConfig(
+            max_rounds=4,
+            checkpoint_path=mission_context.parent / "CHECKPOINT.md",
+            context_packet_path=str(mission_context),
+        ),
     )
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
@@ -158,6 +177,20 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert "Print the actual greeting" in r2_prompt
     assert "## Continuation turn" in r2_prompt
     assert "## Current mission task" not in r2_prompt
+    assert str(mission_context.parent / "latest.json") in r2_prompt
+
+    latest = json.loads((mission_context.parent / "latest.json").read_text())
+    assert latest["kind"] == "round_reviewed_handoff"
+    assert latest["round"] == 2
+    assert latest["scope"] == "bounded"
+    assert latest["objective"] == "say hi to the user"
+    assert latest["acceptance_check"] == "the greeting is printed"
+    assert latest["context_refs"][0]["ref"] == "request.txt"
+    assert latest["mission"]["path"] == str(mission_context)
+    assert latest["review"]["status"] == "done"
+    assert (mission_context.parent / "round-0001-engineer.json").exists()
+    assert (mission_context.parent / "round-0001.json").exists()
+    assert (mission_context.parent / "round-0002.json").exists()
 
     # Skill is still present and was reused, not re-created.
     store = SkillStore(skills_dir)

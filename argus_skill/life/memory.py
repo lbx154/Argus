@@ -813,6 +813,11 @@ class BacklogItem:
     plan_version: int = 0
     node_key: str = ""
     context_refs: list[dict[str, str]] = field(default_factory=list)
+    # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
+    # these fields bound completion and prevent a fresh session from reopening
+    # unrelated project history.
+    acceptance_check: str = ""
+    non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
 
@@ -839,6 +844,8 @@ class BacklogItem:
         plan_version: int = 0,
         node_key: str = "",
         context_refs: list[dict[str, str]] | None = None,
+        acceptance_check: str = "",
+        non_goals: list[str] | None = None,
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
@@ -862,6 +869,12 @@ class BacklogItem:
                 {str(key): str(value) for key, value in ref.items()}
                 for ref in (context_refs or [])
                 if isinstance(ref, dict)
+            ],
+            acceptance_check=str(acceptance_check or "").strip(),
+            non_goals=[
+                str(item).strip()
+                for item in (non_goals or [])
+                if str(item).strip()
             ],
         )
 
@@ -907,6 +920,12 @@ class BacklogItem:
                 {str(key): str(value) for key, value in ref.items()}
                 for ref in (row.get("context_refs", []) or [])
                 if isinstance(ref, dict)
+            ],
+            acceptance_check=str(row.get("acceptance_check", "")),
+            non_goals=[
+                str(item).strip()
+                for item in (row.get("non_goals", []) or [])
+                if str(item).strip()
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
@@ -1301,6 +1320,17 @@ class Backlog:
                 iterate=blocked.iterate,
                 iteration_max_cycles=blocked.iteration_max_cycles,
                 iteration_budget_usd=blocked.iteration_budget_usd,
+                deps=list(blocked.deps),
+                plan_id=blocked.plan_id,
+                plan_version=blocked.plan_version,
+                node_key=(
+                    f"{blocked.node_key}-operator-answer"
+                    if blocked.node_key
+                    else ""
+                ),
+                context_refs=list(blocked.context_refs),
+                acceptance_check=blocked.acceptance_check,
+                non_goals=list(blocked.non_goals),
             )
             blocked.pending_question = ""
             items.append(continuation)

@@ -633,6 +633,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         preplanned: bool = False,
         mission_id: str | None = None,
         usage_mission_id: str | None = None,
+        context_packet_path: str = "",
         max_rounds_override: int | None = None,
         progressive_experiment_matrix: bool = False,
         workflow_mode_override: str = "",
@@ -719,6 +720,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
             ),
+            "context_packet_path": str(context_packet_path or ""),
             "session_id": mission_id,
             # Process-correctness audit: the reviewer runs in the project
             # work-tree and only sees the engineer's final summary. Give it the
@@ -733,6 +735,11 @@ class _SkillLoopRunner(SelfReplyMixin):
             config_kwargs["max_rounds"] = 2_147_483_647
             config_kwargs["soft_round_limit"] = 0
             config_kwargs["hard_escalate_rounds"] = 0
+        if context_packet_path:
+            config_kwargs["checkpoint_path"] = (
+                Path(context_packet_path).expanduser().resolve().parent
+                / "CHECKPOINT.md"
+            )
         _project_state_dir = _project_state_dir_for(
             args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )

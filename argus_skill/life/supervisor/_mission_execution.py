@@ -88,6 +88,7 @@ class MissionExecutionMixin:
         pipeline_stage_at_start = self._current_pipeline_stage() or ""
         usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
+        item_scope = self._planner_scope_from_item(item)
 
         self._emit({
             "type": EventType.LIFE_MISSION_STARTED,
@@ -97,7 +98,7 @@ class MissionExecutionMixin:
             # entry) so the live mission-context line renders the
             # real goal instead of "objective=-".
             "objective": item.objective,
-            "scope": self._planner_scope_from_item(item),
+            "scope": item_scope,
             "independent_review_required": (
                 self._item_requires_independent_review(item)
             ),
@@ -122,6 +123,27 @@ class MissionExecutionMixin:
             or getattr(self.memory, "root", None)
             or self._artifact_root()
         )
+        context_packet_path: Path | None = None
+        try:
+            from ..context_packet import create_mission_context
+
+            context_packet_path = create_mission_context(
+                life_dir=usage_root,
+                mission_id=item.id,
+                stage=pipeline_stage_at_start,
+                scope=item_scope,
+                objective=item.objective,
+                acceptance_check=getattr(item, "acceptance_check", ""),
+                non_goals=list(getattr(item, "non_goals", []) or []),
+                context_refs=list(getattr(item, "context_refs", []) or []),
+                plan_id=item.plan_id,
+                plan_version=item.plan_version,
+                node_key=item.node_key,
+                deps=item.deps,
+                tags=item.tags,
+            )
+        except Exception:  # noqa: BLE001 - packet persistence must fail soft
+            log.exception("life supervisor: failed to create mission context packet")
         usage_ledger = (
             UsageLedger(usage_root)
             if hasattr(self.runner, "_set_usage_context")
@@ -176,7 +198,7 @@ class MissionExecutionMixin:
                 "objective": item.objective,
                 "sink": cost_sink,
                 "prelude_context": prelude,
-                "scope": self._planner_scope_from_item(item),
+                "scope": item_scope,
             }
             original_objective = (
                 getattr(item, "original_objective", "") or item.objective
@@ -212,6 +234,10 @@ class MissionExecutionMixin:
                     execute_kwargs["mission_id"] = item.id
                 if "usage_mission_id" in params or _accepts_kw:
                     execute_kwargs["usage_mission_id"] = usage_attempt_id
+                if "context_packet_path" in params or _accepts_kw:
+                    execute_kwargs["context_packet_path"] = (
+                        str(context_packet_path) if context_packet_path else ""
+                    )
                 tags = {
                     str(tag).strip().lower()
                     for tag in getattr(item, "tags", [])
@@ -236,6 +262,9 @@ class MissionExecutionMixin:
                 execute_kwargs["usage_mission_id"] = usage_attempt_id
                 execute_kwargs["require_independent_review"] = (
                     self._item_requires_independent_review(item)
+                )
+                execute_kwargs["context_packet_path"] = (
+                    str(context_packet_path) if context_packet_path else ""
                 )
             outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -350,6 +379,11 @@ class MissionExecutionMixin:
                 "pricing_status": usage_summary.pricing_status,
                 "cap_usd": cap,
                 "spent_usd": known_usd,
+                "context_packet": (
+                    str(context_packet_path.parent / "latest.json")
+                    if context_packet_path is not None
+                    else ""
+                ),
             })
             return {
                 "status": pause_status,
@@ -360,6 +394,11 @@ class MissionExecutionMixin:
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
+                "context_packet": (
+                    str(context_packet_path.parent / "latest.json")
+                    if context_packet_path is not None
+                    else ""
+                ),
             }
 
         stage_transition = getattr(outcome, "stage_transition", {})
@@ -596,7 +635,7 @@ class MissionExecutionMixin:
         )
         final_submission_certified = bool(
             kind == "mission_complete"
-            and self._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION
+            and item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
         )
         planner_report = (
@@ -641,7 +680,7 @@ class MissionExecutionMixin:
             "item_id": item.id,
             "title": item.title,
             "objective": item.objective,
-            "scope": self._planner_scope_from_item(item),
+            "scope": item_scope,
             "independent_review_required": (
                 self._item_requires_independent_review(item)
             ),
@@ -712,6 +751,11 @@ class MissionExecutionMixin:
             "planner_report": planner_report,
             "checklist_feedback": checklist_feedback,
             "step_back": step_back,
+            "context_packet": (
+                str(context_packet_path.parent / "latest.json")
+                if context_packet_path is not None
+                else ""
+            ),
             "final_submission_certified": final_submission_certified,
             "iteration": None,
         })
@@ -731,6 +775,11 @@ class MissionExecutionMixin:
             "claim_synthesis": claim_synthesis,
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
+            "context_packet": (
+                str(context_packet_path.parent / "latest.json")
+                if context_packet_path is not None
+                else ""
+            ),
         }
 
     # ------------------------------------------------------------------

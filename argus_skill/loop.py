@@ -334,6 +334,9 @@ class SkillLoopConfig:
     # Ordinary Markdown file edited directly by Engineer and Reviewer as the
     # shared baton between fresh per-round sessions. None disables it.
     checkpoint_path: Path | None = None
+    # Canonical machine-readable mission packet created by the supervisor.
+    # Every fresh role session reads/writes versioned round handoffs beside it.
+    context_packet_path: str = ""
     # Absolute path to this project's engineer execution log
     # (``<life_dir>/events.jsonl``), threaded down to SupervisedConfig so the
     # reviewer can grep HOW the engineer produced its result (process-correctness
@@ -1213,6 +1216,19 @@ class SkillLoop:
             )
 
         def capture_reviewed_round(record: RoundRecord) -> None:
+            if self.config.context_packet_path:
+                try:
+                    from .life.context_packet import record_reviewed_handoff
+
+                    record_reviewed_handoff(
+                        mission_context_path=self.config.context_packet_path,
+                        round_index=record.round_index,
+                        engineer_summary=record.engineer_message,
+                        review=record.review,
+                        checkpoint_path=self.config.checkpoint_path,
+                    )
+                except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
+                    log.exception("failed to persist reviewed context packet")
             if not self.config.wiki_ops_enabled:
                 return
             from .wiki.lifecycle import capture_reviewed_round as _capture
@@ -1411,6 +1427,7 @@ class SkillLoop:
                 backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,
                 checkpoint_path=self.config.checkpoint_path,
+                context_packet_path=self.config.context_packet_path,
                 engineer_log_path=self.config.engineer_log_path,
                 allow_engineer_self_review=(
                     self.config.engineer_self_review_enabled

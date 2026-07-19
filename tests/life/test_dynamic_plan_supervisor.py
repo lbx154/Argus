@@ -640,6 +640,8 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
         plan_id="plan-b",
         plan_version=2,
         node_key="discover",
+        acceptance_check="research/replacement.json records a reviewed decision",
+        non_goals=["do not rerun the obsolete route"],
         context_refs=[
             {
                 "kind": "artifact",
@@ -654,6 +656,9 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
 
     assert "plan-b v2" in rendered
     assert "node_key: discover" in rendered
+    assert "decisive_acceptance_check" in rendered
+    assert "research/replacement.json records a reviewed decision" in rendered
+    assert "do not rerun the obsolete route" in rendered
     assert "Open only as needed" in rendered
     assert "research/NO_GO.md" in rendered
     assert "records why the prior route failed" in rendered

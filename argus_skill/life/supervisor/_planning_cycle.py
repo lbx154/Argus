@@ -1098,7 +1098,7 @@ class PlanningCycleMixin:
         new_plan_version = (
             expected_plan_version + 1 if revision_request is not None else 1
         )
-        context_refs = (
+        revision_context_refs = (
             _revision_context_refs(revision_request)
             if revision_request is not None
             else []
@@ -1234,7 +1234,15 @@ class PlanningCycleMixin:
                 plan_id=new_plan_id,
                 plan_version=new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
-                context_refs=context_refs,
+                context_refs=(
+                    list(getattr(task, "context_refs", []) or [])
+                    or revision_context_refs
+                ),
+                acceptance_check=str(
+                    getattr(task, "acceptance_check", "")
+                    or getattr(task, "evidence", "")
+                ),
+                non_goals=list(getattr(task, "non_goals", []) or []),
             )
             # Reserve the signature now so a later sibling in the SAME batch
             # with an identical title/objective still de-dupes against this

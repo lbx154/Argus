@@ -66,6 +66,12 @@ class PlannerRenderingMixin:
                         rendered_claim = self._render_claim_synthesis(claim_synthesis)
                         if rendered_claim:
                             line += "\n" + rendered_claim
+                    context_packet = str(extra.get("context_packet") or "").strip()
+                    if context_packet:
+                        line += (
+                            "\n    sealed_context_packet: "
+                            + context_packet[:600]
+                        )
             lines.append(line)
         return "\n".join(lines) or "(empty)"
 

@@ -96,6 +96,9 @@
           "impact_score",
           "impact_area",
           "evidence",
+          "acceptance_check",
+          "non_goals",
+          "context_refs",
           "scope",
           "stage_closing",
           "objective",
@@ -139,6 +142,35 @@
           "evidence": {
             "type": "string",
             "minLength": 1
+          },
+          "acceptance_check": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1200,
+            "description": "One decisive command, observation, or artifact check that completes this mission."
+          },
+          "non_goals": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {"type": "string"},
+            "description": "Work explicitly outside this mission so one fresh session does not absorb adjacent stages."
+          },
+          "context_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "description": "Exact artifacts the Engineer should open instead of rediscovering the whole project.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "ref", "why", "content_hash"],
+              "properties": {
+                "kind": {"type": "string"},
+                "ref": {"type": "string", "minLength": 1},
+                "why": {"type": "string"},
+                "content_hash": {"type": "string"}
+              }
+            }
           },
           "scope": {
             "type": "string",

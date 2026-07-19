@@ -109,11 +109,19 @@ class PlanningContextMixin:
         context_refs = [
             ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)
         ]
+        acceptance_check = str(getattr(item, "acceptance_check", "") or "").strip()
+        non_goals = [
+            str(value).strip()
+            for value in getattr(item, "non_goals", [])
+            if str(value).strip()
+        ]
         if (
             not scope
             and not item.tags
             and not getattr(item, "plan_id", "")
             and not context_refs
+            and not acceptance_check
+            and not non_goals
         ):
             return ""
         is_paper_long_horizon = self.config.paper_mission
@@ -131,6 +139,11 @@ class PlanningContextMixin:
             )
         if item.tags:
             lines.append("- tags: " + ", ".join(item.tags))
+        if acceptance_check:
+            lines.append("- decisive_acceptance_check: " + acceptance_check)
+        if non_goals:
+            lines.append("- non_goals:")
+            lines.extend(f"  - {value}" for value in non_goals)
         if scope == PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
                 f"- final_submission_gate: {FULL_PAPER_GATE_DESCRIPTION} must be "
