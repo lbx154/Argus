@@ -17,9 +17,9 @@ import pytest
 import argus_skill.engineer.runner as runner_module
 from argus_skill.engineer.runner import (
     _EffectiveProgressWatchdog,
-    _is_project_progress_ignored_dir,
     _is_codex_compaction_line,
     _is_effective_codex_session_line,
+    _is_project_progress_ignored_dir,
     fatal_error_looks_like_compaction_thrash,
     should_clear_thread_id_after_outcome,
 )

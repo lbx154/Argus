@@ -68,9 +68,47 @@ The leverage gate trades a small fixed prompt/schema cost for eliminating an
 entire low-leverage candidate branch. Raw profiler evidence remains on disk and
 continuation prompts remain compact.
 
+## Live B200 confirmation
+
+The modified vertical was then checked live on one NVIDIA B200 against the
+equal-head `chunk_kda` fwdbwd path (`B=8, T=1024, H=8, D=64`, bf16,
+`FLA_TILELANG=1`, `FLA_FLASH_KDA=0`). Dispatch logging proved that
+`kda.chunk_kda_bwd_wy_dqkg_fused` used TileLang.
+
+The project-native warmed benchmark reported an end-to-end median of
+`1.849456 ms` with p20/p80 of `1.832134/1.863795 ms`. A five-iteration Torch
+CUDA timeline measured the target `kernel_kernel` launch at
+`0.110912 ms` median (`0.110495–0.111232 ms`), or `5.9970%` of end-to-end time.
+Using the same historically observed plausible kernel gain (`1.144057x`), the
+live gate computed:
+
+- predicted total speedup: `1.007609x`;
+- kernel speedup required to clear `1.02x`: `1.485797x`;
+- theoretical total speedup if the target vanished: `1.063796x`;
+- verdict: `reject_insufficient_plausible_gain`.
+
+This is the live B result: it reaches the historical no-go decision before a
+source edit, candidate correctness run, candidate benchmark, or candidate
+counter profile. The machine-readable summary is
+`docs/experiment/artifacts/2026-07-19-live-b200-leverage.json`.
+
+For cross-checking only, a filtered three-section NCU collection required nine
+passes and reported `0.17136 ms` for the same launch, about 54% above the
+low-overhead timeline duration. NVIDIA documents that metric count, selected
+sections, replay passes, and memory save/restore can add profiling overhead.
+The experiment therefore tightened the vertical: leverage uses timeline time;
+multi-pass NCU is a post-gate mechanism diagnostic, not a share estimator.
+
+The first NCU launch also failed before kernel execution because `/tmp` was the
+script directory and the project root was absent from `PYTHONPATH`. It succeeded
+unchanged after repairing the import path. This is recorded as an environment
+failure, not an idea failure. The initial benchmark additionally spent several
+minutes in JIT/runner setup and PVC/NFS reads before steady-state GPU execution;
+that bootstrap time is reported separately and excluded from kernel latency.
+
 ## Limitations
 
-This first A/B is a deterministic historical replay, not a randomized agent
-trial. A live B200 check should run the same path-aligned baseline microbenchmark
-and feed its measured wall-clock/kernel times to the new gate; it should not
-apply the rejected candidate when the gate remains red.
+The A arm is an observed historical workflow and the B arm is a deterministic
+replay plus a live B200 confirmation, not a randomized multi-agent trial. The
+claim is process-bounded: this gate avoids a known low-leverage branch; it does
+not prove that every future kernel target will consume less total search time.

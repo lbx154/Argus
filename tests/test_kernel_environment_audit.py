@@ -5,8 +5,8 @@ from pathlib import Path
 
 from argus_skill.verticals.kernel_engineering.environment_audit import (
     SCHEMA_VERSION,
-    _partition_dependency_issues,
     _normalize_requirements,
+    _partition_dependency_issues,
     collect_project_signals,
     derive_capabilities,
     main,

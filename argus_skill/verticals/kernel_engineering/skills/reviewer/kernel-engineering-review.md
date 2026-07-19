@@ -103,6 +103,10 @@ Require evidence appropriate to the public contract:
 Require valid `attempts/<id>/LEVERAGE.json` before accepting a source edit. If
 the selected kernel cannot plausibly clear the end-to-end noise floor, require a
 no-go or higher-leverage target instead of rewarding a faster subkernel.
+Require the target share to come from a low-overhead timeline aligned with the
+end-to-end workload. Do not accept a multi-pass NCU counter-replay duration as a
+wall-clock-share substitute; use focused NCU sections after the leverage gate to
+diagnose a mechanism.
 
 Require same-machine, same-stack, isolated A/B measurement after warmup/JIT/
 autotune. Report forward, backward, and combined paths when applicable; include

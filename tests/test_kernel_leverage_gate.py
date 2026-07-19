@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from argus_skill.verticals.kernel_engineering.leverage_gate import (
     analyze_leverage,
     main,
@@ -26,6 +28,24 @@ def test_argus3_attempt_would_stop_before_low_leverage_edit() -> None:
     assert record["predicted_total_speedup"] < 1.02
     assert record["verdict"] == "reject_insufficient_plausible_gain"
     assert validate_leverage(record) == []
+
+
+def test_live_b200_timeline_confirms_low_leverage_rejection() -> None:
+    record = analyze_leverage(
+        attempt_id="live-b200-leverage-ab-timeline",
+        baseline_identity="B200 live baseline fe8fce9f",
+        path_coverage="equal-head TileLang fused WY/DQKG; torch CUDA timeline",
+        evidence="timeline-summary.json",
+        end_to_end_ms=1.8494559526443481,
+        target_kernel_ms=0.110912,
+        required_total_speedup=1.02,
+        plausible_kernel_speedup=1.144057377,
+    )
+
+    assert record["target_share"] == pytest.approx(0.059970068409262875)
+    assert record["predicted_total_speedup"] == pytest.approx(1.0076087651243133)
+    assert record["required_kernel_speedup"] == pytest.approx(1.4857968807496196)
+    assert record["verdict"] == "reject_insufficient_plausible_gain"
 
 
 def test_high_leverage_target_can_proceed() -> None:

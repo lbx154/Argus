@@ -157,7 +157,12 @@ ladder and its stop conditions.
    compilation, or a multi-kernel boundary. If counters are unavailable,
    document that limitation and use derived roofline/timing evidence rather than
    pretending. Start with one path-aligned shape and the lowest-overhead timeline
-   view. Record end-to-end median/spread and the selected kernel's duration.
+   view. Record environment/bootstrap and JIT/autotune time separately from the
+   warmed steady-state measurement. Record end-to-end median/spread and the
+   selected kernel's timeline duration. Do not use duration from a multi-pass
+   NCU counter replay as the selected kernel's wall-clock share: replay and
+   metric collection can perturb it. Reserve focused counter sections for a
+   target that has already passed the leverage gate.
    Before editing source or collecting a second expensive profile, write
    `attempts/<id>/LEVERAGE.json` with
    `python -m argus_skill.verticals.kernel_engineering.leverage_gate analyze`.

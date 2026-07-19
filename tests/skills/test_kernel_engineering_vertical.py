@@ -65,10 +65,17 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     reviewer = tmp_path / "reviewer" / "kernel-engineering-review.md"
     assert engineer.is_file()
     assert reviewer.is_file()
-    assert "missing compiler" in engineer.read_text(encoding="utf-8").lower()
-    assert "hard environment gate" in reviewer.read_text(encoding="utf-8").lower()
-    assert "leverage.json" in engineer.read_text(encoding="utf-8").lower()
-    assert "leverage.json" in reviewer.read_text(encoding="utf-8").lower()
+    engineer_text = engineer.read_text(encoding="utf-8").lower()
+    reviewer_text = reviewer.read_text(encoding="utf-8").lower()
+    assert "missing compiler" in engineer_text
+    assert "hard environment gate" in reviewer_text
+    assert "leverage.json" in engineer_text
+    assert "leverage.json" in reviewer_text
+    assert "selected kernel's timeline duration" in engineer_text
+    assert "multi-pass" in engineer_text
+    assert "ncu counter replay" in engineer_text
+    assert "low-overhead timeline" in reviewer_text
+    assert "focused ncu sections after the leverage gate" in reviewer_text
 
 
 def test_kernel_optimize_stage_requires_leverage_gate() -> None:
