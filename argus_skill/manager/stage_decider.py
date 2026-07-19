@@ -168,7 +168,11 @@ def build_stage_decision_prompt(
             else
             "You may set `resolves_wait=true` only when PRE-EXISTING operator "
             "authority already shown below or concrete changed evidence satisfies "
-            "the recheck condition. Never invent a new mission/thesis authorization. "
+            "the recheck condition. Inside an open-ended standing objective, a new "
+            "mechanism, benchmark, or evidence-supported framing is an ordinary "
+            "route decision, not scope expansion. Never invent credentials, legal "
+            "permission, irreversible external authority, or work outside the "
+            "operator objective. "
         )
         wait_resolution_block = (
             "## Planner-wait reconciliation\n"

@@ -1212,45 +1212,17 @@ def _operator_action_required_for_wait(
         "choose",
         "decision",
     )
-    scope_terms = (
-        "mission",
-        "thesis",
-        "mechanism",
-        "scope",
-        "research",
-        "work",
-    )
-    expansion_terms = (
-        "new",
-        "additional",
-        "another",
-        "distinct",
-        "expand",
-        "exhausted",
-        "consumed",
-    )
     if any(term in normalized for term in operator_terms) and any(
         term in normalized for term in operator_actions
     ):
         return True
-    if (
-        any(term in normalized for term in ("authoriz", "authority", "approval"))
-        and any(term in normalized for term in scope_terms)
-        and any(term in normalized for term in expansion_terms)
-    ):
-        return True
-    compact = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
-    return any(
-        marker in compact
-        for marker in (
-            "no-viable-thesis",
-            "no-lawful-mission",
-            "authorization-exhausted",
-            "authority-exhausted",
-            "authorization-consumed",
-            "authority-consumed",
-        )
-    )
+    # An open-ended campaign objective is standing authority to choose another
+    # mechanism, benchmark, or paper framing inside that objective. Historical
+    # code inferred an operator-only blocker from phrases such as "no viable
+    # thesis" or "authorization exhausted", which let one NO-GO permanently
+    # stop autonomous research. Scope expansion must now be explicit in the
+    # structured field; prose about exhausted attempts is never sufficient.
+    return False
 
 
 def _parse_waiting_contract(

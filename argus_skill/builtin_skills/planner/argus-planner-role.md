@@ -65,8 +65,13 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   changed evidence. Manager owns stage transitions but can never create credentials,
   broaden scope, or authorize an additional mission/thesis. Set
   `operator_action_required=true` whenever fresh operator input is the only legal
-  change, including exhausted authorization, a new scope choice, or credentials; in
+  change, such as credentials, legal/licensed access, an irreversible external
+  action, or an actual expansion beyond the standing objective; in
   that case do not ask Manager to manufacture authorization. Otherwise set it false.
+  A failed thesis, exhausted attempt family, benchmark dead-end, or NO-GO inside
+  an open-ended continuous objective is NOT an operator-only blocker: preserve the
+  evidence and autonomously select a materially distinct mechanism, benchmark, or
+  evidence-supported paper framing within the same objective.
   Set
   `allow_verification_probe=false` for an operator-only blocker with no evidence of
   change. If one future probe is justified, set it true and choose

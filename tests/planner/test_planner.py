@@ -214,7 +214,7 @@ def test_waiting_contract_positional_api_remains_backward_compatible() -> None:
     assert contract.operator_action_required is False
 
 
-def test_waiting_contract_infers_operator_only_scope_expansion() -> None:
+def test_waiting_contract_does_not_infer_operator_hold_from_failed_theses() -> None:
     verdict = parse_planner_text(json.dumps({
         "project_done": False,
         "reason": "all authorized theses are exhausted",
@@ -236,7 +236,36 @@ def test_waiting_contract_infers_operator_only_scope_expansion() -> None:
 
     assert verdict.waiting
     assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is False
+
+
+def test_waiting_contract_preserves_explicit_operator_only_scope_expansion() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "operator must choose whether to expand beyond the objective",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "operator decision required",
+        "waiting_contract": {
+            "blocker_fingerprint": "operator:scope-expansion",
+            "recheck_condition": "operator explicitly expands the objective",
+            "recheck_token": "scope-v1",
+            "stage_reconciliation_required": False,
+            "operator_action_required": True,
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+    }))
+    assert verdict.waiting_contract is not None
     assert verdict.waiting_contract.operator_action_required is True
+
+
+def test_planner_role_treats_no_go_as_autonomous_pivot() -> None:
+    text = Path(
+        "argus_skill/builtin_skills/planner/argus-planner-role.md"
+    ).read_text()
+    assert "NO-GO" in text
+    assert "NOT an operator-only blocker" in text
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
