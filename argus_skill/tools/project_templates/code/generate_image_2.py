@@ -13,9 +13,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import uuid
 from pathlib import Path
 from typing import Any
 
+from argus_skill.skills.venue_profiles import resolve_venue_profile
 from argus_skill.tools.image_tool import (
     PAPER_FIGURE_PROMPT_TEMPLATE,
     PAPER_FIGURE_PROMPT_TEMPLATE_ID,
@@ -25,7 +28,9 @@ from argus_skill.tools.image_tool import (
     review_image,
     write_paper_figure_prompt,
 )
-from argus_skill.skills.venue_profiles import resolve_venue_profile
+from argus_skill.verticals.research.figure_provenance import (
+    figure_manifest_transaction,
+)
 
 DEFAULT_PROMPT_PATH = Path("paper/figures/method_overview.prompt.txt")
 DEFAULT_OUTPUT_PATH = Path("paper/figures/method_overview.png")
@@ -43,24 +48,37 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def project_path(project_root: Path, path: Path) -> Path:
-    return path if path.is_absolute() else project_root / path
+    root = project_root.resolve()
+    resolved = path.expanduser().resolve() if path.is_absolute() else (root / path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(f"path escapes project root: {path}") from exc
+    return resolved
 
 
 def relpath(project_root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(project_root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+    except ValueError as exc:
+        raise RuntimeError(f"path escapes project root: {path}") from exc
 
 
 def write_prompt_scaffold(
@@ -98,29 +116,36 @@ def load_manifest(path: Path) -> dict[str, Any]:
         return {"figures": []}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"figures": []}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"manifest is not valid JSON: {path}") from exc
     if not isinstance(payload, dict):
-        return {"figures": []}
+        raise RuntimeError(f"manifest must contain a JSON object: {path}")
     figures = payload.get("figures")
     if not isinstance(figures, list):
-        payload["figures"] = []
+        raise RuntimeError(f"manifest `figures` must be a JSON list: {path}")
     return payload
 
 
-def upsert_manifest_entry(manifest_path: Path, entry: dict[str, Any]) -> None:
-    payload = load_manifest(manifest_path)
-    figures = payload.setdefault("figures", [])
-    figure_id = entry["figure_id"]
-    replaced = False
-    for index, existing in enumerate(figures):
-        if isinstance(existing, dict) and existing.get("figure_id") == figure_id:
-            figures[index] = entry
-            replaced = True
-            break
-    if not replaced:
-        figures.append(entry)
-    write_json(manifest_path, payload)
+def upsert_manifest_entry(
+    manifest_path: Path,
+    entry: dict[str, Any],
+    *,
+    project_root: Path,
+) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with figure_manifest_transaction(project_root):
+        payload = load_manifest(manifest_path)
+        figures = payload.setdefault("figures", [])
+        figure_id = entry["figure_id"]
+        replaced = False
+        for index, existing in enumerate(figures):
+            if isinstance(existing, dict) and existing.get("figure_id") == figure_id:
+                figures[index] = entry
+                replaced = True
+                break
+        if not replaced:
+            figures.append(entry)
+        write_json(manifest_path, payload)
 
 
 def generate_image2_figure(
@@ -136,10 +161,11 @@ def generate_image2_figure(
     review: bool = True,
 ) -> dict[str, Any]:
     project_root = project_root.resolve()
-    venue_profile = resolve_venue_profile(project_root)
     prompt_path = project_path(project_root, prompt_file)
     output_path = project_path(project_root, output)
     manifest_path = project_path(project_root, manifest)
+    load_manifest(manifest_path)
+    venue_profile = resolve_venue_profile(project_root)
     prompt = prompt_path.read_text(encoding="utf-8").strip()
     if not prompt:
         raise RuntimeError(f"prompt file is empty: {prompt_path}")
@@ -186,7 +212,7 @@ def generate_image2_figure(
         "figure_studio_source": PAPER_FIGURE_STUDIO_SOURCE_ID,
         "figure_studio_stage": "S5-CANDIDATE-IMAGE",
         "prompt_path": relpath(project_root, prompt_path),
-        "prompt_sha256": sha256_text(prompt),
+        "prompt_sha256": sha256_file(prompt_path),
         "output_path": relpath(project_root, output_path),
         "output_sha256": output_sha256,
         "sidecar_path": relpath(project_root, sidecar_path),
@@ -225,7 +251,7 @@ def generate_image2_figure(
         entry["original_requested_size"] = original_requested_size
     if size_was_normalized:
         entry["size_normalized_to_multiple_of_16"] = True
-    upsert_manifest_entry(manifest_path, entry)
+    upsert_manifest_entry(manifest_path, entry, project_root=project_root)
     return entry
 
 

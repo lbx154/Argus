@@ -80,6 +80,8 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     },
     "engineer/research-results-analysis-and-figures.md": {
         "41c046a4a4c6e89eaa063bdd1804a114792d4ae54051c0ac16f950e47eb8af9c",
+        "d2529cf7bf29486dcc3e8ae5baca15d04e4e0a1368c2c99d2e4dda4d7bf481af",
+        "4f0baf6ce7b0de2da3790fd51ef04d957e210f525b4761c12e498d893baf0186",
     },
     "engineer/research-submission-assurance-gate.md": {
         "89b29cad54f8b790997a3374c273a028953acd909dcb51a9170addfd3bfb4a97",
@@ -202,9 +204,7 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
-            previous_digest = hashlib.sha256(dest.read_bytes()).hexdigest()
-            if previous_digest in _SAFE_BUILTIN_UPGRADE_DIGESTS.get(filename, set()):
-                _atomic_write_text(dest, text)
+            if _upgrade_unmodified_builtin(dest, filename, text):
                 created[filename] = True
                 continue
             created[filename] = False
@@ -256,6 +256,9 @@ def seed_builtin_skills_for_vertical(
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
+            if _upgrade_unmodified_builtin(dest, filename, text):
+                created[filename] = True
+                continue
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -304,6 +307,14 @@ def _validate_builtin(filename: str, text: str) -> None:
         raise ValueError(f"bundled skill has no name: {filename}")
     if not skill.description.strip():
         raise ValueError(f"bundled skill has no description: {filename}")
+
+
+def _upgrade_unmodified_builtin(dest: Path, filename: str, text: str) -> bool:
+    previous_digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+    if previous_digest not in _SAFE_BUILTIN_UPGRADE_DIGESTS.get(filename, set()):
+        return False
+    _atomic_write_text(dest, text)
+    return True
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

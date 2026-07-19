@@ -449,10 +449,8 @@ def render_skills_cmd(tokens: Sequence[str]) -> str:
         from ..skills.store import SkillStore
         from ..skills.vertical_select import VERTICALS
 
-        if to_vertical is not None and (
-            to_vertical not in VERTICALS or to_vertical == "research"
-        ):
-            known = ", ".join(v for v in VERTICALS if v != "research")
+        if to_vertical is not None and to_vertical not in VERTICALS:
+            known = ", ".join(VERTICALS)
             return f"unknown/invalid vertical {to_vertical!r}; known: {known}"
 
         runtime = SkillStore(core_paths.skills_global_root())

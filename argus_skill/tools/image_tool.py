@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -618,18 +619,33 @@ def _atomic_write(path: Path, data: bytes, *, force: bool) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _restore_optional_file(path: Path, snapshot: bytes | None) -> None:
@@ -969,8 +985,14 @@ def review_image(
 
 
 def _project_path(project_root: Path, path: Path | str) -> Path:
-    value = Path(path)
-    return value if value.is_absolute() else project_root / value
+    root = project_root.resolve()
+    value = Path(path).expanduser()
+    resolved = value.resolve() if value.is_absolute() else (root / value).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ImageToolError(f"path escapes project root: {path}") from exc
+    return resolved
 
 
 def _context_records(
@@ -1311,8 +1333,8 @@ def _register_paper_figure_candidate(
 def _project_relative(project_root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(project_root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+    except ValueError as exc:
+        raise ImageToolError(f"path escapes project root: {path}") from exc
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
@@ -1434,8 +1456,11 @@ def _review_image_sha(review: dict[str, Any]) -> str:
 def _recorded_prompt_path(project_root: Path, prompt_file: Path, sidecar: dict[str, Any]) -> str:
     raw_prompt_path = sidecar.get("prompt_path")
     if isinstance(raw_prompt_path, str) and raw_prompt_path.strip():
-        candidate = _project_path(project_root, raw_prompt_path)
-        if candidate.resolve() == prompt_file.resolve():
+        try:
+            candidate = _project_path(project_root, raw_prompt_path)
+        except ImageToolError:
+            candidate = None
+        if candidate is not None and candidate.resolve() == prompt_file.resolve():
             return _project_relative(project_root, candidate)
     return _project_relative(project_root, prompt_file)
 
@@ -1486,9 +1511,22 @@ def sync_paper_metadata(
 
     if prompt_file is None:
         raw_prompt_path = sidecar_payload.get("prompt_path")
-        if not isinstance(raw_prompt_path, str) or not raw_prompt_path.strip():
-            raise ImageToolError("pass --prompt-file; generation sidecar has no prompt_path")
-        prompt_path = _project_path(project_root, raw_prompt_path)
+        prompt_path = None
+        if isinstance(raw_prompt_path, str) and raw_prompt_path.strip():
+            try:
+                recorded_prompt_path = _project_path(project_root, raw_prompt_path)
+            except ImageToolError:
+                recorded_prompt_path = None
+            if recorded_prompt_path is not None and recorded_prompt_path.is_file():
+                prompt_path = recorded_prompt_path
+        inferred_prompt_path = image_path.with_suffix(".prompt.txt")
+        if prompt_path is None and inferred_prompt_path.is_file():
+            prompt_path = inferred_prompt_path
+        if prompt_path is None:
+            raise ImageToolError(
+                "pass --prompt-file; generation sidecar has no usable in-project "
+                "prompt_path and no sibling prompt file exists"
+            )
     else:
         prompt_path = _project_path(project_root, prompt_file)
     if not prompt_path.is_file():

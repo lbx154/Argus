@@ -11,8 +11,11 @@ These tests pin that contract on the quant vertical (the first to adopt it).
 """
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
+import argus_skill.skills.builtins as builtins_module
 from argus_skill.skills.builtins import (
     _validate_builtin,
     iter_builtin_skill_texts,
@@ -96,6 +99,28 @@ def test_seed_for_vertical_keeps_cross_vertical_skills(tmp_path) -> None:
     seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
     assert (tmp_path / "reviewer" / "experiment-plan-review.md").exists()
     assert (tmp_path / "engineer" / "argus-engineer-role.md").exists()
+
+
+def test_seed_for_vertical_upgrades_known_unmodified_common_builtin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    relative = "engineer/research-results-analysis-and-figures.md"
+    destination = tmp_path / relative
+    destination.parent.mkdir(parents=True)
+    old = "known unmodified common builtin\n"
+    destination.write_text(old, encoding="utf-8")
+    monkeypatch.setitem(
+        builtins_module._SAFE_BUILTIN_UPGRADE_DIGESTS,
+        relative,
+        {hashlib.sha256(old.encode()).hexdigest()},
+    )
+
+    seeded = seed_builtin_skills_for_vertical(tmp_path, "research")
+
+    expected = dict(iter_builtin_skill_texts())[relative]
+    assert seeded[relative] is True
+    assert destination.read_text(encoding="utf-8") == expected
 
 
 def test_seed_for_research_does_not_pull_quant_real_body(tmp_path) -> None:
