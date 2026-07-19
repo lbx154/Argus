@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import os
 import time
 from pathlib import Path
 
 from ...core.event_catalog import EventType
+from ..terminal_state import build_terminal_idle_signature
 from ._constants import (
     IDLE_BACKOFF_BASE_SECONDS,
     IDLE_BACKOFF_CAP_SECONDS,
@@ -19,42 +18,6 @@ from ._constants import (
 
 log = logging.getLogger(__name__)
 _DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 30.0
-_TERMINAL_FINGERPRINT_VOLATILE_KEYS = frozenset({
-    "created_at",
-    "event_sequence",
-    "last_event_ts",
-    "rendered_at",
-    "rendering_timestamp",
-    "sequence",
-    "ts",
-    "updated_at",
-})
-
-
-def _semantic_terminal_value(value, *, field_name: str = ""):
-    if isinstance(value, dict):
-        return {
-            str(key): _semantic_terminal_value(item, field_name=str(key))
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-            if str(key).lower() not in _TERMINAL_FINGERPRINT_VOLATILE_KEYS
-        }
-    if isinstance(value, list):
-        items = [
-            _semantic_terminal_value(item, field_name=field_name)
-            for item in value
-        ]
-        if "summary" in field_name.lower():
-            return sorted(
-                items,
-                key=lambda item: json.dumps(
-                    item,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                ),
-            )
-        return items
-    return value
-
 def _idle_exit_seconds() -> float:
     """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
     raw = os.environ.get("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "").strip()
@@ -215,13 +178,7 @@ class IdleCycleMixin:
         return False
 
     def _open_ended_terminal_idle_signature(self) -> str:
-        """Fingerprint semantic completion state without refresh-time metadata."""
-        digest = hashlib.sha256()
-        digest.update(b"open-ended-terminal-idle-v2\0")
-        digest.update(str(self.config.continuous_objective or "").encode())
-        digest.update(b"\0")
-        digest.update(str(self._current_pipeline_stage() or "").encode())
-        digest.update(b"\0")
+        """Fingerprint only state that can justify another Planner decision."""
         try:
             backlog = sorted(
                 (
@@ -231,118 +188,9 @@ class IdleCycleMixin:
                 )
                 for item in self.memory.backlog.all()
             )
-            digest.update(json.dumps(backlog, separators=(",", ":")).encode())
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"backlog-error:{type(exc).__name__}:{exc}".encode())
-        digest.update(b"\0")
-
-        root = self._artifact_root()
-        pipeline_state = root / "research" / "PIPELINE_STATE.json"
-        try:
-            state = json.loads(pipeline_state.read_text(encoding="utf-8"))
-            semantic_state = _semantic_terminal_value(state)
-            digest.update(
-                json.dumps(
-                    semantic_state,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            )
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"pipeline-state-error:{type(exc).__name__}:{exc}".encode())
-        digest.update(b"\0")
-
-        try:
-            reviews = sorted(root.rglob("REVIEW.md"))
-            for path in reviews[:100]:
-                digest.update(str(path.relative_to(root)).encode("utf-8"))
-                digest.update(b"\0")
-                digest.update(path.read_bytes())
-                digest.update(b"\0")
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"review-error:{type(exc).__name__}:{exc}".encode())
-        digest.update(b"\0")
-
-        project_root = self._planner_workdir()
-        ignored_dirs = {
-            ".git",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            ".venv",
-            "__pycache__",
-            "node_modules",
-        }
-        ignored_files = {
-            "backlog.jsonl",
-            "continuous.json",
-            "daemon.log",
-            "daemon.pid",
-            "daemon.status.json",
-            "events.jsonl",
-            "journal.jsonl",
-            "mission-view.json",
-            "mission-view.lock",
-            "planner-verdict-outbox.json",
-        }
-        try:
-            count = 0
-            for dirpath, dirnames, filenames in os.walk(project_root):
-                dirnames[:] = [
-                    name
-                    for name in sorted(dirnames)
-                    if name not in ignored_dirs and not name.endswith(".egg-info")
-                ]
-                for name in sorted(filenames):
-                    if (
-                        name in ignored_files
-                        or name.startswith("events.jsonl.")
-                        or name == "REVIEW.md"
-                    ):
-                        continue
-                    path = Path(dirpath) / name
-                    if path == pipeline_state:
-                        continue
-                    try:
-                        relative = path.relative_to(project_root)
-                        size = path.stat().st_size
-                        if size <= 4 * 1024 * 1024:
-                            raw = path.read_bytes()
-                        else:
-                            with path.open("rb") as handle:
-                                head = handle.read(64 * 1024)
-                                handle.seek(max(0, size - 64 * 1024))
-                                tail = handle.read(64 * 1024)
-                            raw = str(size).encode() + b"\0" + head + b"\0" + tail
-                    except OSError:
-                        continue
-                    digest.update(str(relative).encode("utf-8", "surrogateescape"))
-                    digest.update(b"\0")
-                    if path.suffix.lower() == ".json" and size <= 4 * 1024 * 1024:
-                        try:
-                            semantic_json = _semantic_terminal_value(
-                                json.loads(raw.decode("utf-8"))
-                            )
-                            raw = json.dumps(
-                                semantic_json,
-                                ensure_ascii=False,
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            ).encode("utf-8")
-                        except (UnicodeDecodeError, json.JSONDecodeError):
-                            pass
-                    digest.update(hashlib.sha256(raw).digest())
-                    count += 1
-                    if count >= 5000:
-                        digest.update(b"file-scan-truncated\0")
-                        raise StopIteration
-        except StopIteration:
-            pass
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"project-files-error:{type(exc).__name__}:{exc}".encode())
-        digest.update(b"\0")
-
+        except Exception:  # noqa: BLE001
+            backlog = []
+        completion_contract = None
         try:
             for entry in reversed(self.memory.journal.all()):
                 if str(getattr(entry, "kind", "") or "") != "mission_complete":
@@ -350,7 +198,7 @@ class IdleCycleMixin:
                 extra = getattr(entry, "extra", None)
                 if not isinstance(extra, dict):
                     continue
-                contract = {
+                completion_contract = {
                     key: extra.get(key)
                     for key in (
                         "success",
@@ -362,18 +210,18 @@ class IdleCycleMixin:
                     )
                     if key in extra
                 }
-                digest.update(
-                    json.dumps(
-                        _semantic_terminal_value(contract),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode("utf-8")
-                )
                 break
-        except Exception as exc:  # noqa: BLE001
-            digest.update(f"completion-contract-error:{type(exc).__name__}:{exc}".encode())
-        return digest.hexdigest()
+        except Exception:  # noqa: BLE001
+            pass
+        return build_terminal_idle_signature(
+            objective=str(self.config.continuous_objective or ""),
+            stage=str(self._current_pipeline_stage() or ""),
+            backlog=backlog,
+            artifact_root=self._artifact_root(),
+            project_root=self._planner_workdir(),
+            state_root=Path(self.memory.root),
+            completion_contract=completion_contract,
+        )
 
     def _maybe_idle_after_unchanged_open_ended_done(self) -> str | None:
         if not (
