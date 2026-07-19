@@ -25,6 +25,7 @@ from argus_skill.skills.stage_checklists import (
     ChecklistItem,
     ChecklistLoadState,
     StageChecklistContract,
+    advance_stage,
     resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import persist_vertical
@@ -410,6 +411,106 @@ def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     st = mgr.decide_stage_transition(review=_review(status="continue"), project_root=root)
     assert st.action == "rollback"
     assert _read_stage(root) == "benchmark"
+
+
+def test_unchanged_ground_truth_snapshot_cannot_undo_legal_advance(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text(
+        "Observed pipeline stage: research\n",
+        encoding="utf-8",
+    )
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+        advanced_by="manager",
+    )
+    state = json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    snapshot = state["stage_history"][-1]["ground_truth_snapshot"]
+    assert snapshot["observed_pipeline_stage"] == "research"
+    assert snapshot["pipeline_revision"] == 0
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": (
+            "research/GROUND_TRUTH.md contradicts the live "
+            "research/PIPELINE_STATE.json plan stage"
+        ),
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "hold"
+    assert (
+        transition.diagnostic
+        == "certified_ground_truth_snapshot_rollback_rejected"
+    )
+    assert _read_stage(root) == "plan"
+
+
+def test_changed_ground_truth_can_still_support_real_rollback(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text("certified evidence\n", encoding="utf-8")
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+        advanced_by="manager",
+    )
+    ground_truth.write_text("newly discovered missing evidence\n", encoding="utf-8")
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": "GROUND_TRUTH now records newly missing research evidence",
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "rollback"
+    assert _read_stage(root) == "research"
+
+
+def test_unchanged_ground_truth_does_not_mask_independent_rollback_reason(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text("Observed pipeline stage: research\n", encoding="utf-8")
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+    )
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": (
+            "GROUND_TRUTH stage differs from PIPELINE_STATE, and the plan has an "
+            "invalid contract that independently requires research repair"
+        ),
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "rollback"
+    assert _read_stage(root) == "research"
 
 
 @pytest.mark.parametrize("target", ["`benchmark`", "benchmark stage"])

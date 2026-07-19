@@ -346,24 +346,15 @@ def answer_pending_question(
     *,
     global_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
-    """Continue one blocked item without routing its answer through Manager."""
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return None
-    answer = text.strip()
-    mem = LifeMemory.open(life_dir)
-    blocked, continuation = mem.backlog.continue_with_operator_reply(
+    """Route one blocked-item answer through the Manager authority boundary."""
+    from .manager_bridge import manager_answer_pending_question
+
+    return manager_answer_pending_question(
+        sid,
         item_id,
-        answer,
+        text,
+        global_root=global_root,
     )
-    if blocked is None:
-        return None
-    if continuation is None:
-        return {"error": "question is no longer pending"}
-    return {
-        "answered_item_id": blocked.id,
-        "item": continuation.to_jsonable(),
-    }
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
@@ -2389,12 +2380,13 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown backlog item")
         if result.get("error"):
             raise HTTPException(status_code=409, detail=result["error"])
-        result["daemon"] = await run_in_threadpool(
-            start_project_daemon,
-            sid,
-            global_root=project_root,
-            reclaim_idle=True,
-        )
+        if result.get("resolved"):
+            result["daemon"] = await run_in_threadpool(
+                start_project_daemon,
+                sid,
+                global_root=project_root,
+                reclaim_idle=True,
+            )
         return result
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(_require_auth)])
@@ -2413,7 +2405,14 @@ def create_app(
             manager_message, sid, body.text, global_root=project_root
         )
         # A task classification lazily spawns the executor, mirroring /tasks.
-        if result.get("kind") == "task" and not result.get("daemon_alive"):
+        starts_executor = (
+            result.get("kind") == "task"
+            or (
+                result.get("kind") == "pending_question"
+                and bool(result.get("resolved"))
+            )
+        )
+        if starts_executor and not result.get("daemon_alive"):
             result["daemon"] = await run_in_threadpool(
                 start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
@@ -2463,9 +2462,16 @@ def create_app(
                 )
                 # Mirror the blocking endpoint: a task classification lazily spawns
                 # the executor so streamed dispatch behaves like /message + /tasks.
+                starts_executor = (
+                    result.get("kind") == "task"
+                    or (
+                        result.get("kind") == "pending_question"
+                        and bool(result.get("resolved"))
+                    )
+                )
                 if (
                     not cancel_event.is_set()
-                    and result.get("kind") == "task"
+                    and starts_executor
                     and not result.get("daemon_alive")
                 ):
                     try:

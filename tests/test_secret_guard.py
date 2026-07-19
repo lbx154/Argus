@@ -234,7 +234,9 @@ def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
-def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
+def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
+    tmp_path: Path,
+) -> None:
     recent = tmp_path / "response.headers"
     recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
 
@@ -249,7 +251,8 @@ def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
     )
     cache_file.parent.mkdir(parents=True)
     cache_file.write_text(
-        '{"token": "public-tokenizer-schema-value"}\n',
+        '{"token": "public-tokenizer-schema-value", '
+        '"download_auth": "live-cache-secret-value"}\n',
         encoding="utf-8",
     )
     now = time.time()
@@ -258,13 +261,18 @@ def test_scrub_skips_project_huggingface_cache(tmp_path: Path) -> None:
     report = scrub_recent_text_artifacts(
         tmp_path,
         modified_since=now - 5,
+        known_values=("live-cache-secret-value",),
     )
 
-    assert report.redacted_paths == ("response.headers",)
-    assert cache_file.read_text(encoding="utf-8") == (
-        '{"token": "public-tokenizer-schema-value"}\n'
+    assert report.redacted_paths == (
+        "response.headers",
+        str(cache_file.relative_to(tmp_path)),
     )
-    assert report.scanned_files == 1
+    assert cache_file.read_text(encoding="utf-8") == (
+        '{"token": "public-tokenizer-schema-value", '
+        '"download_auth": "<REDACTED:known-secret>"}\n'
+    )
+    assert report.scanned_files == 2
 
 
 def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:

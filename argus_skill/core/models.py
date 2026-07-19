@@ -21,6 +21,7 @@ ReviewStatus = Literal[
     "done",
     "continue",
     "blocked",
+    "replan_requested",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",

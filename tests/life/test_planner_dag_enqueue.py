@@ -483,6 +483,61 @@ def test_new_explicit_stage_request_bypasses_wait_cadence(
     assert state["current_stage"] == "optimize"
 
 
+def test_revision_stage_mismatch_rolls_back_and_retires_old_plan(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="rollback",
+    )
+    current = sup.memory.backlog.add(BacklogItem.new(
+        item_id="current",
+        title="current benchmark route",
+        objective="execute the invalid benchmark route",
+        plan_id="plan-a",
+        plan_version=1,
+        node_key="current",
+    ))
+    follow_up = sup.memory.backlog.add(BacklogItem.new(
+        item_id="follow-up",
+        title="dependent benchmark work",
+        objective="continue the invalid benchmark route",
+        deps=[current.id],
+        plan_id="plan-a",
+        plan_version=1,
+        node_key="follow-up",
+    ))
+    revision_request = {
+        "status": "replan_requested",
+        "item_id": current.id,
+        "expected_plan_id": "plan-a",
+        "expected_plan_version": 1,
+        "planner_report": {
+            "plan_signal": "reconsider",
+            "plan_signal_reason": "current stage makes the repair illegal",
+            "evidence_files": [],
+        },
+    }
+
+    assert sup._plan_next_work(revision_request=revision_request) == PLAN_RETRY
+
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "optimize"
+    rows = {item.id: item for item in sup.memory.backlog.all()}
+    assert rows[current.id].status == "superseded"
+    assert rows[follow_up.id].status == "superseded"
+    assert backend.manager_calls == 1
+    assert any(
+        event.get("type") == "life.plan.revision.rolled_back"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
 def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
 

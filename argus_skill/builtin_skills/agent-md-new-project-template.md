@@ -368,8 +368,11 @@ upstream defect is discovered.** Examples:
   `benchmark` (evaluator authenticity) or `run` (matrix completeness),
   fix the upstream cause, then re-advance.
 
-When the reviewer detects this, it must reply `continue` and tell the
-engineer to run:
+When the reviewer detects an upstream defect that cannot be repaired within
+the current mission's scope, it must reply `replan_requested` (never
+`continue`) and name the target stage plus concrete reason in `next_action`.
+The Supervisor then hands control to the Manager, which must schedule a fresh
+mission to run:
 
 ```python
 from argus_skill.skills.stage_checklists import rollback_stage

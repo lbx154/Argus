@@ -653,6 +653,13 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     # "reviewer needs a decision" from a genuine crash/error.
     assert rows[item.id].status == "failed"
     assert rows[item.id].pending_question == "fp16 精度损失可以接受吗，还是必须 fp32？"
+    pending_events = [
+        event
+        for event in sink.events
+        if event["type"] == "life.operator_question.pending"
+    ]
+    assert pending_events[-1]["item_id"] == item.id
+    assert pending_events[-1]["question"] == "fp16 精度损失可以接受吗，还是必须 fp32？"
 
 
 def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:

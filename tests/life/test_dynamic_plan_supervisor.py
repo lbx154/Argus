@@ -65,8 +65,10 @@ class _StageReplanRunner(_ReplanRunner):
 class _PlannerRunner:
     def __init__(self, response: str) -> None:
         self.response = response
+        self.last_prompt = ""
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.last_prompt = prompt
         return RunnerResult(exit_code=0, agent_messages=[self.response])
 
 
@@ -168,6 +170,26 @@ def _supervisor(tmp_path, *, runner=None, planner_response: str | None = None):
     return supervisor, sink
 
 
+def _stage_reconciliation_waiting_verdict() -> str:
+    return json.dumps(
+        {
+            "project_done": False,
+            "reason": "current stage blocks prerequisite repair",
+            "restart_daemon": False,
+            "restart_reason": "",
+            "waiting": True,
+            "waiting_reason": "Manager must reconcile the stage",
+            "waiting_contract": {
+                "blocker_fingerprint": "stage-blocker",
+                "recheck_condition": "Manager resolves the stage",
+                "recheck_token": "stage-blocker-v1",
+                "stage_reconciliation_required": True,
+            },
+            "new_tasks": [],
+        }
+    )
+
+
 def _seed_plan(supervisor: LifeSupervisor):
     current = supervisor.memory.backlog.add(
         BacklogItem.new(
@@ -254,6 +276,124 @@ def test_stage_reconciled_replan_retires_invalid_current_item(tmp_path) -> None:
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows[current.id].status == "failed"
     assert "manager rollback to benchmark" in rows[current.id].last_error
+
+
+def test_stage_reconciliation_hold_keeps_plan_and_calls_manager_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_stage_reconciliation_waiting_verdict(),
+    )
+    current, stale = _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return "hold"
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    result = supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert result == "planner_retry"
+    assert len(reconciliations) == 1
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows[current.id].status == "pending"
+    assert rows[stale.id].status == "pending"
+    assert not any(
+        event["type"] == "life.plan.revision.rolled_back"
+        for event in _sink.events
+    )
+
+
+def test_revision_wait_without_explicit_request_still_checks_reconciliation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    planner_response = _stage_reconciliation_waiting_verdict().replace(
+        '"stage_reconciliation_required": true',
+        '"stage_reconciliation_required": false',
+    )
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=planner_response,
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return ""
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert len(reconciliations) == 1
+
+
+def test_planning_cycle_drains_operator_input_while_waiting(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    messages = iter(["GPU 1 is now allocated", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+    deactivated: list[bool] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_deactivate_planner_waiting_contract",
+        lambda: deactivated.append(True),
+    )
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work() is True
+
+    drained = [
+        event for event in sink.events if event["type"] == "life.inbox.drained"
+    ]
+    assert drained[-1]["messages"] == ["GPU 1 is now allocated"]
+    assert deactivated
+    assert "LIVE OPERATOR GUIDANCE" in supervisor.planner_runner.last_prompt
+    assert "GPU 1 is now allocated" in supervisor.planner_runner.last_prompt
+
+
+def test_pending_operator_question_defers_planner_without_calling_it(tmp_path) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+
+    summary = supervisor.run()
+
+    assert summary["stopped_by"] == "pending_operator_question"
+    assert supervisor.planner_runner.last_prompt == ""
+    deferred = [
+        event
+        for event in sink.events
+        if event["type"] == "life.planner.deferred"
+    ]
+    assert deferred[-1]["reason"] == "waiting for operator answer"
+    assert deferred[-1]["item_ids"] == [blocked.id]
 
 
 def test_replan_planner_atomically_replaces_active_revision(

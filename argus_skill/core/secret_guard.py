@@ -180,9 +180,11 @@ _MAX_SCANNED_FILES = 10_000
 _NON_ARTIFACT_TREE_PARTS = {
     ("code", "references"),
     ("experiments", "comparator_worker_env"),
-    ("models", "huggingface"),
     ("third_party", "reference_sources"),
     ("third_party", "runtime_deps"),
+}
+_KNOWN_SECRET_ONLY_TREE_PREFIXES = {
+    ("models", "huggingface"),
 }
 _TEXT_ARTIFACT_SUFFIXES = {
     "",
@@ -281,7 +283,7 @@ def redact_secrets_text_with_count(
     if not isinstance(text, str) or not text:
         return text, 0
     stripped = text.strip()
-    if stripped.startswith(("{", "[")):
+    if include_patterns and stripped.startswith(("{", "[")):
         try:
             parsed = json.loads(text)
         except (json.JSONDecodeError, TypeError):
@@ -534,7 +536,14 @@ def scrub_recent_text_artifacts(
                 errors.append(f"{relative}: {type(exc).__name__}")
                 continue
             scanned_files += 1
-            include_patterns = path.suffix.casefold() not in _SOURCE_SUFFIXES
+            known_secret_only = any(
+                rel_dir_parts[: len(prefix)] == prefix
+                for prefix in _KNOWN_SECRET_ONLY_TREE_PREFIXES
+            )
+            include_patterns = (
+                not known_secret_only
+                and path.suffix.casefold() not in _SOURCE_SUFFIXES
+            )
             redacted, count = redact_secrets_text_with_count(
                 text,
                 known_values=known_values,

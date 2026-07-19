@@ -56,6 +56,38 @@ def test_bounded_dag_node_keeps_vertical_stage_workflow(tmp_path) -> None:
     assert runner.kwargs["max_rounds_override"] >= 2
 
 
+def test_experiment_matrix_is_not_limited_by_bounded_node_rounds(
+    tmp_path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.backlog.add(
+        BacklogItem.new(
+            title="Close frozen E0 run-stage matrix",
+            objective=(
+                "Continue canonical evaluation matrix waves until closure."
+            ),
+            tags=["planner", "bounded_dag_node", "scope:bounded"],
+        )
+    )
+    runner = _CaptureRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    supervisor.tick()
+
+    assert runner.kwargs is not None
+    assert runner.kwargs["progressive_experiment_matrix"] is True
+    assert "max_rounds_override" not in runner.kwargs
+
+
 def test_stage_closing_item_requires_independent_review(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     memory.backlog.add(

@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
@@ -82,6 +83,57 @@ from .self_review import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _snapshot_wiki_pages(workdir: Path) -> dict[Path, bytes]:
+    """Capture the reviewer-protected wiki card bytes under this project."""
+    from ..wiki.auto_hooks import discover_wikis
+
+    snapshot: dict[Path, bytes] = {}
+    for wiki_root in discover_wikis(workdir):
+        pages_root = wiki_root / "pages"
+        if not pages_root.exists():
+            continue
+        for path in sorted(pages_root.rglob("*.md")):
+            if path.is_file():
+                snapshot[path] = path.read_bytes()
+    return snapshot
+
+
+def _restore_reviewer_wiki_page_edits(
+    workdir: Path,
+    snapshot: dict[Path, bytes],
+) -> list[str]:
+    """Revert direct reviewer writes; WikiRouter is the sole card writer."""
+    from ..wiki.auto_hooks import discover_wikis
+
+    current: set[Path] = set()
+    for wiki_root in discover_wikis(workdir):
+        pages_root = wiki_root / "pages"
+        if pages_root.exists():
+            current.update(path for path in pages_root.rglob("*.md") if path.is_file())
+    changed = sorted(
+        path
+        for path in current | set(snapshot)
+        if path not in snapshot
+        or path not in current
+        or path.read_bytes() != snapshot[path]
+    )
+    if not changed:
+        return []
+    for path in changed:
+        original = snapshot.get(path)
+        if original is None:
+            path.unlink(missing_ok=True)
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.reviewer-restore-{uuid.uuid4().hex}")
+        try:
+            tmp.write_bytes(original)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+    return [str(path.relative_to(workdir)) for path in changed]
 
 _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "empty output",
@@ -1896,7 +1948,18 @@ class SupervisedEngineer:
                     "GPU quota / preemption, missing credentials, or a host that "
                     "stays unreachable after retries — return status=`blocked` with "
                     "a precise operator ask INSTEAD of `continue`. Do not keep "
-                    "looping on an unresolvable external dependency."
+                    "looping on an unresolvable external dependency.\n"
+                    "This also applies to an INTERNAL blocker: if the last 2+ "
+                    "rounds have independently re-derived the SAME root-cause "
+                    "finding that a frozen upstream artifact/contract (e.g. plan, "
+                    "run contract, curriculum, checklist) is defective and the fix "
+                    "requires a Manager-owned stage rollback or edit this mission's "
+                    "own scope forbids performing, do not keep re-verifying that "
+                    "same finding. Return status=`blocked` with `reason` naming the "
+                    "repeated finding and the exact stage/artifact that needs "
+                    "Manager-owned repair, so the mission ends now and control "
+                    "returns to the Planner/Manager instead of waiting for the "
+                    "hard round cap."
                 )
                 if on_event and round_index == supervised_config.soft_round_limit:
                     on_event({
@@ -1916,7 +1979,9 @@ class SupervisedEngineer:
             # the (cheap) reviewer leg — NOT discard the round and re-run the
             # (xhigh) engineer turn. We leave this inner loop with a real verdict,
             # or by failing loud once the reviewer-backend streak hits threshold.
+            reviewer_direct_write_violations = 0
             while True:
+                wiki_pages_before_review = _snapshot_wiki_pages(workdir)
                 reviewer_background_context = ""
                 if supervised_config.background_subagent_advisory:
                     try:
@@ -1983,6 +2048,48 @@ class SupervisedEngineer:
                         failure_cause="environmental",
                         backend_unavailable=True,
                         backend_stop_kind="backend_unavailable",
+                    )
+                direct_wiki_edits = _restore_reviewer_wiki_page_edits(
+                    workdir,
+                    wiki_pages_before_review,
+                )
+                if direct_wiki_edits:
+                    reviewer_direct_write_violations += 1
+                    paths = ", ".join(direct_wiki_edits[:8])
+                    violation = (
+                        "Reviewer directly modified protected wiki card files "
+                        f"({paths}). Those writes were atomically reverted. "
+                        "Return the intended changes only through structured "
+                        "`wiki_ops`; WikiRouter is the sole writer for wiki/pages."
+                    )
+                    if violation not in pending_secret_guard_notes:
+                        pending_secret_guard_notes.append(violation)
+                    if on_event:
+                        on_event({
+                            "type": "wiki.reviewer_direct_write_reverted",
+                            "round_index": round_index,
+                            "paths": direct_wiki_edits,
+                            "operator_alert": True,
+                            "text": violation,
+                        })
+                    if reviewer_direct_write_violations < 3:
+                        continue
+                    review = ReviewDecision(
+                        status="blocked",
+                        reason=violation,
+                        next_action=(
+                            "Retry this Reviewer turn and express the same judgment "
+                            "through schema-valid wiki_ops."
+                        ),
+                        round_summary_markdown=(
+                            "# Reviewer write-boundary violation\n\n"
+                            f"- Reverted: {paths}\n"
+                        ),
+                        completion_summary_markdown="",
+                        failure_cause="environmental",
+                        backend_unavailable=True,
+                        backend_stop_kind="transient_error",
+                        backend_fatal_error=violation,
                     )
                 reviewer_fatal_error = str(
                     getattr(review, "backend_fatal_error", "") or ""
@@ -2615,6 +2722,11 @@ class SupervisedEngineer:
             if review.failure_cause == "environmental" and not review.operator_question:
                 return "infra_blocked", review.reason or "Research infrastructure blocked progress."
             return "blocked", review.reason or "Reviewer blocked progress."
+        if review.status == "replan_requested":
+            return (
+                "replan_requested",
+                review.reason or "Reviewer requested a Manager-owned replacement plan.",
+            )
         if review.status in {
             "research_incomplete",
             "paused_no_breakthrough",

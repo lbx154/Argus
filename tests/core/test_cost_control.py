@@ -136,7 +136,7 @@ def test_priced_settlement_replaces_reservation_with_actual_ledger_cost(
     }
 
 
-def test_copilot_premium_settlement_unblocks_next_call_but_unknown_still_blocks(
+def test_copilot_partial_settlement_holds_cap_without_blocking_next_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,7 +207,11 @@ def test_copilot_premium_settlement_unblocks_next_call_but_unknown_still_blocks(
     UsageLedger(project, migrate_legacy=False).append(unknown)
     assert unknown_reservation.settle(unknown) is True
 
-    blocked, reason = reserve_call_budget(
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(5.0)
+
+    next_reservation, reason = reserve_call_budget(
         call_id="planner-next",
         project_root=project,
         mission_id="mission-1",
@@ -220,8 +224,8 @@ def test_copilot_premium_settlement_unblocks_next_call_but_unknown_still_blocks(
         global_daily_cap_usd=10.0,
         per_call_cap_usd=5.0,
     )
-    assert blocked is None
-    assert "unresolved provider cost" in reason
+    assert next_reservation is not None and reason == ""
+    next_reservation.release(reason="test")
 
 
 def test_unpriced_settlement_blocks_until_usage_is_reconciled(
@@ -340,6 +344,68 @@ def test_interrupted_partial_cost_holds_reservation_without_global_block(
     )
     assert next_reservation is not None
     assert reason == ""
+    next_reservation.release(reason="test")
+
+
+def test_completed_copilot_partial_cost_holds_reservation_without_global_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setattr(
+        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        lambda _project_root: False,
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = reserve_call_budget(
+        call_id="completed-partial",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert reservation is not None and reason == ""
+    record = build_usage_record(
+        call_id="completed-partial",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="reviewer",
+        started_at=time.time() - 1,
+        completed_at=time.time(),
+        status="completed",
+    )
+    assert record.pricing_status == "partial" and record.cost_usd is None
+    UsageLedger(project, migrate_legacy=False).append(record)
+    reservation.settle(record)
+
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved_held_usd"] == pytest.approx(5.0)
+
+    next_reservation, reason = reserve_call_budget(
+        call_id="next",
+        project_root=project,
+        mission_id="mission-2",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner.cycle0",
+        global_root=tmp_path,
+        per_mission_cap_usd=20.0,
+        project_daily_cap_usd=20.0,
+        global_daily_cap_usd=20.0,
+        per_call_cap_usd=5.0,
+    )
+    assert next_reservation is not None and reason == ""
     next_reservation.release(reason="test")
 
 

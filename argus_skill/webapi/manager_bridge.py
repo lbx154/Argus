@@ -8,6 +8,7 @@ or a vertical; only TEAM/complex work is enqueued as a mission.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import weakref
@@ -171,6 +172,208 @@ def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> N
         )
     except Exception:  # noqa: BLE001 — Activity mirroring must never break chat
         pass
+
+
+def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    candidates = [cleaned]
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if 0 <= start < end:
+        candidates.append(cleaned[start : end + 1])
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("is_answer"), bool)
+            or not isinstance(payload.get("resolved"), bool)
+        ):
+            continue
+        decision = str(payload.get("decision") or "").strip()
+        reply = str(payload.get("reply") or "").strip()
+        if payload["resolved"] and (not payload["is_answer"] or not decision):
+            continue
+        return {
+            "is_answer": payload["is_answer"],
+            "resolved": payload["resolved"],
+            "decision": decision,
+            "reply": reply,
+        }
+    return None
+
+
+def _resolve_pending_question_with_manager(
+    mem: Any,
+    item: Any,
+    answer: str,
+    chat_state: dict[str, Any],
+    *,
+    root_task_id: str | None = None,
+) -> dict[str, Any]:
+    from ..apps._inbox import queue_inbox_message
+    from ..core.event_catalog import EventType
+    from ..life.event_log import JsonlEventSink
+    from ..manager.front_door import manager_triage
+
+    question = str(getattr(item, "pending_question", "") or "").strip()
+    prompt = (
+        "You are the Manager resolving an operator-only blocker for an existing "
+        "mission. Interpret the operator response in the blocked mission context. "
+        "Return ONLY one JSON object with exactly these fields: "
+        '{"is_answer": boolean, "resolved": boolean, "decision": string, '
+        '"reply": string}. Set is_answer=false when the message is unrelated '
+        "chat, status, configuration, or control rather than an attempted answer; "
+        "in that case also set resolved=false and leave decision and reply empty. "
+        "Set resolved=true only when the response supplies enough authority or "
+        "information for the team to continue. decision must then be an explicit, "
+        "role-clean instruction for Planner/Engineer. If it is unrelated or "
+        "insufficient, set resolved=false, keep decision empty, and use reply to "
+        "ask one concise clarification question.\n\n"
+        f"Blocked item id: {item.id}\n"
+        f"Blocked mission title: {item.title}\n"
+        f"Blocked mission objective:\n{item.objective}\n\n"
+        f"Reviewer question:\n{question}\n\n"
+        f"Operator response:\n{answer.strip()}"
+    )
+    try:
+        manager_reply = manager_triage(
+            mem,
+            prompt,
+            chat_state,
+            route="simple",
+            root_task_id=root_task_id,
+            on_fragment=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "error": (
+                "Manager could not interpret the pending-question response: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+            "answered_item_id": item.id,
+        }
+    parsed = _parse_pending_question_decision(manager_reply or "")
+    if parsed is None:
+        return {
+            "error": "Manager could not produce a valid pending-question decision",
+            "answered_item_id": item.id,
+        }
+    if not parsed["is_answer"]:
+        return {
+            "answered_item_id": item.id,
+            "answer_intent": False,
+            "resolved": False,
+            "reply": "",
+        }
+    if not parsed["resolved"]:
+        return {
+            "answered_item_id": item.id,
+            "answer_intent": True,
+            "resolved": False,
+            "reply": parsed["reply"] or "Please clarify the requested decision.",
+        }
+
+    blocked, continuation = mem.backlog.continue_with_operator_reply(
+        item.id,
+        answer,
+        manager_decision=parsed["decision"],
+    )
+    if blocked is None:
+        return {"error": "unknown backlog item", "answered_item_id": item.id}
+    if continuation is None:
+        return {
+            "error": "question is no longer pending",
+            "answered_item_id": item.id,
+        }
+
+    life_dir = Path(mem.project_root)
+    directive = (
+        "[MANAGER OPERATOR-ANSWER DECISION] "
+        f"Blocked item {item.id} was answered and continuation {continuation.id} "
+        f"was durably enqueued with this decision: {parsed['decision']} "
+        "Treat this as authority/context and deactivate any stale waiting contract. "
+        "Do not enqueue duplicate work if that continuation is already terminal."
+    )
+    queue_inbox_message(life_dir, directive, source="manager.answer")
+    JsonlEventSink(None, life_dir=life_dir).append({
+        "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
+        "item_id": item.id,
+        "continuation_item_id": continuation.id,
+        "question": question,
+        "manager_decision": parsed["decision"],
+    })
+    return {
+        "answered_item_id": item.id,
+        "answer_intent": True,
+        "resolved": True,
+        "reply": parsed["reply"] or "I have delivered your decision to the team.",
+        "manager_decision": parsed["decision"],
+        "item": continuation.to_jsonable(),
+    }
+
+
+def manager_answer_pending_question(
+    sid: str,
+    item_id: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Have Manager interpret and atomically deliver one operator answer."""
+    from ..core.transcript import append_turn
+    from ..life.memory import MemoryBundle
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    with _lock_for(sid):
+        if not mem.project_root.is_dir():
+            return None
+        item = next((row for row in mem.backlog.all() if row.id == item_id), None)
+        if item is None:
+            return None
+        if not str(item.pending_question or "").strip():
+            return {"error": "question is no longer pending"}
+        chat_state = _chat_state_for(sid)
+        chat_state["session_id"] = sid
+        chat_state["global_root"] = str(mem.global_root)
+        turn_id = f"web-{time.time_ns()}"
+        append_turn(mem.project_root, "operator", text.strip())
+        _emit_ui_turn(
+            mem.project_root,
+            "operator",
+            text.strip(),
+            message_id=f"{turn_id}-operator",
+        )
+        result = _resolve_pending_question_with_manager(
+            mem,
+            item,
+            text,
+            chat_state,
+        )
+        reply = str(
+            result.get("reply")
+            or result.get("error")
+            or "Manager could not resolve the pending question."
+        )
+        append_turn(mem.project_root, "argus", reply)
+        _emit_ui_turn(
+            mem.project_root,
+            "argus",
+            reply,
+            message_id=f"{turn_id}-argus",
+        )
+        return result
 
 
 def record_task_dispatch_ack(
@@ -479,7 +682,7 @@ def manager_message(
     ``/message``) keeps the whole exchange synchronous.
     """
     from ..core.transcript import append_turn
-    from ..life.memory import MemoryBundle
+    from ..life.memory import BacklogItem, MemoryBundle
     from ..manager.config_intent import _apply_config_intent, _front_door_classify
     from ..manager.dispatch import (
         enqueue_mission,
@@ -488,7 +691,6 @@ def manager_message(
     )
     from ..manager.front_door import (
         _accepts_keyword,
-        _maybe_name_session,
         manager_triage,
     )
 
@@ -569,6 +771,56 @@ def manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
+        pending_questions = [
+            item
+            for item in mem.backlog.all()
+            if str(getattr(item, "pending_question", "") or "").strip()
+        ]
+        if len(pending_questions) == 1:
+            _phase("Manager · interpreting your answer to the blocked mission")
+            result = _resolve_pending_question_with_manager(
+                mem,
+                pending_questions[0],
+                body,
+                chat_state,
+                root_task_id=BacklogItem.new_id(),
+            )
+            if result.get("answer_intent") is not False:
+                reply = str(
+                    result.get("reply")
+                    or result.get("error")
+                    or "Manager could not resolve the pending question."
+                )
+                _fragment("delta", {"text": reply})
+                try:
+                    append_turn(life_dir, "argus", reply)
+                except Exception:  # noqa: BLE001
+                    pass
+                _emit_ui_turn(
+                    life_dir,
+                    "argus",
+                    reply,
+                    message_id=f"{turn_id}-argus",
+                )
+                return {"kind": "pending_question", "reply": reply, **result}
+        if len(pending_questions) > 1:
+            reply = (
+                "More than one task needs your input. Open the Needs you prompt "
+                "for the specific task you want to answer."
+            )
+            _fragment("delta", {"text": reply})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return {"kind": "pending_question_choice", "reply": reply}
+
         # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
         # protocol events while the model is reasoning, so without this real
         # transition the TUI can only show its generic rotating slogan.
@@ -581,8 +833,6 @@ def manager_message(
         # operator never notices the seam. Turn count is a cheap proxy for "full".
         chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
         send_body = f"{startup_handoff}\n\n{body}" if startup_handoff else body
-        from ..life import BacklogItem
-
         root_task_id = BacklogItem.new_id()
         if chat_state["turns"] > _rotate_after():
             send_body = f"{_build_handoff(life_dir)}\n\n{body}"

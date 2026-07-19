@@ -44,6 +44,28 @@ def test_wakeable_sleep_wakes_on_inbox_growth(tmp_path) -> None:
     assert elapsed < 5.0  # returned early due to inbox growth, not full 60s
 
 
+def test_wakeable_sleep_returns_when_inbox_is_already_pending(tmp_path) -> None:
+    w = _worker()
+    (tmp_path / "inbox.jsonl").write_text('{"msg": "hi"}\n', encoding="utf-8")
+
+    t0 = time.monotonic()
+    w._wakeable_sleep(60.0, 5.0, tmp_path)
+
+    assert time.monotonic() - t0 < 1.0
+
+
+def test_wakeable_sleep_ignores_fully_consumed_inbox(tmp_path) -> None:
+    w = _worker()
+    inbox = tmp_path / "inbox.jsonl"
+    inbox.write_text('{"msg": "old"}\n', encoding="utf-8")
+    (tmp_path / "inbox.offset").write_text(str(inbox.stat().st_size), encoding="utf-8")
+
+    t0 = time.monotonic()
+    w._wakeable_sleep(0.4, 0.1, tmp_path)
+
+    assert time.monotonic() - t0 >= 0.35
+
+
 def test_wakeable_sleep_sleeps_full_when_quiet(tmp_path) -> None:
     w = _worker()
     t0 = time.monotonic()

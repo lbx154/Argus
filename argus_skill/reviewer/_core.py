@@ -953,9 +953,12 @@ class Reviewer:
         rollback_block = (
             "## Upstream defects\n"
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "If earlier-stage evidence is broken, return `continue` and name the "
-            "earliest broken stage in `reason` and `planner_report.blocker`. The "
-            "the Manager owns rollback; never edit `research/PIPELINE_STATE.json`."
+            "If earlier-stage evidence is broken and this mission cannot repair it "
+            "within its own scope, return `replan_requested` (never `continue`) and "
+            "name the earliest broken stage in `reason` and "
+            "`planner_report.blocker`. Set `planner_report.plan_signal` to "
+            "`reconsider` with a non-empty `plan_signal_reason`. The Manager owns "
+            "rollback; never edit `research/PIPELINE_STATE.json`."
         )
         # Checklist-feedback channel. The PLANNER owns the per-stage checklist
         # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
@@ -1118,7 +1121,9 @@ class Reviewer:
             "hypothesis failed.\n"
             "- `failure_cause` classifies non-done outcomes. Reusable skill/wiki "
             "learning must already have been edited directly during this Reviewer "
-            "turn; never encode memory edits in the final JSON.\n"
+            "turn, except Wiki pages, which must use the schema's structured "
+            "`wiki_ops`. Never directly edit `.autors/**/wiki/pages/**`, and never "
+            "encode other memory edits in the final JSON.\n"
             "- `failure_layer` is orthogonal and must be one of `platform`, "
             "`orchestration`, `evaluator`, `evidence_packaging`, `scientific`, "
             "`operator`, or `unknown`. Platform/program/evaluator/packaging failures "

@@ -55,6 +55,11 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Set `waiting=true` only when a verified live, nonterminal external job is healthy, **and** you have exhausted useful independent current-stage work. Prefer platform/evaluator preparation, analysis scaffolding, claim-evidence organization, or placeholder-safe drafting while the job runs. The Supervisor may replace an avoidable wait with one bounded overlap mission.
   a non-local external capability blocker is documented by a written action artifact
   naming the required operator action, and no independent high-impact work remains.
+  Reversible project-local housekeeping is not such a blocker: archive or quarantine
+  stale/partial artifacts with provenance and queue the real continuation. Never wait
+  for operator approval merely because deletion or overwrite was one possible option;
+  choose the safe archive instead. Require approval only when no non-destructive,
+  reversible route exists.
   Put the job status path or blocker artifact path in `waiting_reason`; never queue a
   pure polling mission. Also emit `waiting_contract`: choose a stable
   `blocker_fingerprint`, state the concrete `recheck_condition`, and keep

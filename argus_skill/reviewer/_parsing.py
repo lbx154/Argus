@@ -13,7 +13,7 @@ from ..core.models import ReviewDecision, ReviewStatus
 from ..core.research_contract import adapt_legacy_research_result_payload
 from .failure_taxonomy import normalize_failure_layer
 
-_BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
+_BASE_REVIEW_STATUSES = {"done", "continue", "blocked", "replan_requested"}
 _RESEARCH_PAUSE_STATUSES = {
     "research_incomplete",
     "paused_no_breakthrough",
@@ -555,6 +555,8 @@ def _parse_next_action(parsed: dict, *, status: str) -> str | None:
         return "No further action needed. Objective complete."
     if status == "blocked":
         return "Need additional user input before continuing."
+    if status == "replan_requested":
+        return "Return control to the Planner/Manager for a replacement plan."
     if status == "continue":
         return "Continue implementation and include clear completion evidence."
     return None

@@ -634,6 +634,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         mission_id: str | None = None,
         usage_mission_id: str | None = None,
         max_rounds_override: int | None = None,
+        progressive_experiment_matrix: bool = False,
         workflow_mode_override: str = "",
         require_independent_review: bool = False,
     ) -> _Outcome:
@@ -725,6 +726,13 @@ class _SkillLoopRunner(SelfReplyMixin):
             # (``<life_dir>/events.jsonl``) so it can grep HOW the result was
             # produced. This runtime log remains outside the worktree.
         }
+        if progressive_experiment_matrix:
+            # Matrix closure is governed by measurable progress/stall detection,
+            # not an arbitrary round count. This value is practically unbounded
+            # while preserving the existing integer config/event schema.
+            config_kwargs["max_rounds"] = 2_147_483_647
+            config_kwargs["soft_round_limit"] = 0
+            config_kwargs["hard_escalate_rounds"] = 0
         _project_state_dir = _project_state_dir_for(
             args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )

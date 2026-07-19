@@ -57,6 +57,8 @@ class PlanningContextMixin:
             # old skip path remains as migration support for persisted rows.
             scope = PLANNER_SCOPE_BOUNDED
         tags = ["planner", f"scope:{scope}"]
+        if scope == PLANNER_SCOPE_BOUNDED:
+            tags.append("bounded_dag_node")
         if bool(getattr(task, "stage_closing", False)):
             tags.extend(["stage_closing", "review:required"])
         return tags
@@ -451,7 +453,9 @@ class PlanningContextMixin:
             if contract is not None
             else None
         )
-        sleep_s = self._enter_idle_backoff()
+        # A declared external wait is active campaign work, not terminal
+        # inactivity. Keep exponential polling without arming daemon idle-exit.
+        sleep_s = self._enter_pause_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         self._emit({
             "type": EventType.LIFE_PLANNER_WAITING,
@@ -486,6 +490,99 @@ class PlanningContextMixin:
     def _planner_waiting_objective_fingerprint(self) -> str:
         objective = str(getattr(self.config, "continuous_objective", "") or "")
         return hashlib.sha256(objective.encode("utf-8")).hexdigest()
+
+    def _manager_planner_feedback_path(self) -> Path:
+        root = Path(
+            getattr(self.config, "telemetry_dir", None)
+            or getattr(self.memory, "root", None)
+            or "."
+        )
+        objective_fingerprint = self._planner_waiting_objective_fingerprint()
+        return root / f"manager-planner-feedback-{objective_fingerprint[:16]}.json"
+
+    def _load_manager_planner_feedback(self) -> dict[str, Any] | None:
+        path = self._manager_planner_feedback_path()
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            log.warning("Manager feedback is unreadable: %s", path, exc_info=True)
+            return None
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return None
+        if (
+            str(payload.get("objective_fingerprint") or "")
+            != self._planner_waiting_objective_fingerprint()
+        ):
+            return None
+        if not bool(payload.get("active")):
+            return None
+        if not str(payload.get("reason") or "").strip():
+            return None
+        return payload
+
+    def _write_manager_planner_feedback(self, payload: dict[str, Any]) -> bool:
+        path = self._manager_planner_feedback_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+        try:
+            tmp.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            log.exception("failed to persist Manager feedback: %s", path)
+            return False
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _persist_manager_planner_feedback(
+        self,
+        *,
+        stage: str,
+        reason: str,
+        diagnostic: str,
+    ) -> bool:
+        return self._write_manager_planner_feedback({
+            "version": 1,
+            "active": True,
+            "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+            "stage": str(stage or "").strip(),
+            "reason": str(reason or "").strip(),
+            "diagnostic": str(diagnostic or "").strip(),
+            "created_at": time.time(),
+        })
+
+    def _clear_manager_planner_feedback(self) -> None:
+        state = self._load_manager_planner_feedback()
+        if state is None:
+            return
+        state["active"] = False
+        state["resolved_at"] = time.time()
+        self._write_manager_planner_feedback(state)
+
+    def _manager_planner_feedback_runtime_note(self) -> str:
+        state = self._load_manager_planner_feedback()
+        if state is None:
+            return ""
+        return (
+            "MANAGER TO PLANNER REVISION FEEDBACK (durable and unresolved):\n"
+            f"- current_stage: {state.get('stage') or ''}\n"
+            f"- diagnostic: {state.get('diagnostic') or ''}\n"
+            f"- rejection_reason: {state.get('reason') or ''}\n"
+            "The Manager attempted the requested stage transition, but framework "
+            "authority rejected it because the required Reviewer evidence is "
+            "incomplete. Re-plan now: emit one or more bounded new_tasks that gather "
+            "or repair the missing current-stage evidence and obtain a complete "
+            "Reviewer verdict. Do not return waiting on the same stage authority, "
+            "and do not start next-stage work."
+        )
 
     @staticmethod
     def _waiting_contract_key(contract: Any) -> tuple[str, str]:

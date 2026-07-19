@@ -1659,6 +1659,7 @@ class LifeWorker:
             return
         chunk = max(0.5, float(poll_interval))
         inbox = Path(runtime_root) / "inbox.jsonl"
+        offset_file = Path(runtime_root) / "inbox.offset"
 
         def _inbox_size() -> int:
             try:
@@ -1666,7 +1667,18 @@ class LifeWorker:
             except OSError:
                 return 0
 
+        def _inbox_offset() -> int:
+            try:
+                return max(
+                    0,
+                    int(offset_file.read_text(encoding="utf-8").strip() or "0"),
+                )
+            except (OSError, ValueError):
+                return 0
+
         baseline = _inbox_size()
+        if _inbox_offset() < baseline:
+            return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
             self._stop.wait(timeout=min(chunk, remaining))

@@ -249,8 +249,8 @@ class LifeBudget:
       process (resets per ``LifeSupervisor`` instance).
     """
 
-    per_mission_cap_usd: float = 30.0
-    daily_cap_usd: float = 180.0
+    per_mission_cap_usd: float = 200.0
+    daily_cap_usd: float = 1_200.0
     global_daily_cap_usd: float = 0.0
     max_missions: int = 6
 
@@ -341,7 +341,7 @@ class LifeSupervisorConfig:
     # items already use the BacklogItem defaults; keep planner-generated work
     # equally capable instead of cutting it off after one local polish cycle.
     planner_task_iteration_max_cycles: int = 6
-    planner_task_iteration_budget_usd: float = 30.0
+    planner_task_iteration_budget_usd: float = 200.0
     # Subagent family failure circuit breaker (F6). A planner-generated task
     # is reworded from scratch every cycle, so the exact-text dedup below
     # (``_planner_task_signature``) cannot catch "the SAME underlying

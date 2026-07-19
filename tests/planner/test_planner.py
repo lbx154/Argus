@@ -958,6 +958,18 @@ def test_waiting_external_capability_documented_in_role() -> None:
     assert "written action artifact" in text
     assert "operator action" in text
     assert "no independent high-impact work remains" in text
+    assert "Reversible project-local housekeeping is not such a blocker" in text
+    assert "choose the safe archive instead" in text
+
+
+def test_prompt_routes_reversible_local_archive_as_engineer_work(
+    monkeypatch, tmp_path
+) -> None:
+    prompt = _prompt_for_stage(monkeypatch, tmp_path, "run")
+    compact = " ".join(prompt.split())
+    assert "reversible project-local archive/quarantine" in compact
+    assert "ordinary Engineer work, not an external operator dependency" in compact
+    assert "queue the safe archive" in compact
 
 
 def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
