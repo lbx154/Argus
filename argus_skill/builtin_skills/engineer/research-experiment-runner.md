@@ -94,6 +94,9 @@ human cohort, or systems measurement.
    official-evaluator check that catches wiring errors.
 2. **Execute the preregistered comparison.** Keep data, metric, compute, and
    stopping conditions fair across the proposed method and baselines.
+   Launch every long/GPU command through the durable subagent interface; raw
+   attached shell launches are an orchestration defect because their owner and
+   terminalizer disappear with the model session.
 3. **Monitor without steering toward success.** Preserve crashes, nulls,
    exclusions, and failed cases. Do not change thresholds or remove difficult
    examples after seeing results.

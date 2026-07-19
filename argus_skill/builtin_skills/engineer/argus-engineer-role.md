@@ -26,6 +26,11 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
   telemetry, and teardown). Validate it with the real project smoke path before
   treating any outcome as scientific evidence. A platform failure is yours to
   repair; it is never a method verdict.
+- Any GPU command or command expected to run longer than two minutes must be
+  launched with `python -m argus_skill.tools.subagent submit` (direct or
+  supervised mode). Never keep the Engineer turn alive with raw `bash`, repeated
+  `read_bash`, or a shell `while/sleep` monitor. Continue independent work or
+  yield with `WAIT_FOR_SUBAGENT: <task_id>`.
 
 ## Structured research reporting
 

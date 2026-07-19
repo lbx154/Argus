@@ -67,6 +67,7 @@ from .background_subagents import (
     render_background_subagents_advisory,
     wait_for_subagent_cadence,
 )
+from .long_job_policy import find_unmanaged_long_jobs
 from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
 from .failure_signature import (
     FailureSignature,
@@ -1462,6 +1463,43 @@ class SupervisedEngineer:
                 pending_secret_guard_notes.append(secret_guard_reviewer_note)
                 del pending_secret_guard_notes[:-8]
             last_engineer_message = engineer_message or last_engineer_message
+            unmanaged_long_jobs: list[dict[str, Any]] = []
+            if supervised_config.engineer_log_path:
+                unmanaged_long_jobs = find_unmanaged_long_jobs(
+                    supervised_config.engineer_log_path,
+                    call_id=(
+                        str(getattr(engineer_result, "call_id", "") or "")
+                        if bool(
+                            getattr(engineer_result, "call_id_log_correlated", False)
+                        )
+                        else ""
+                    ),
+                    since=round_started_at,
+                )
+            unmanaged_long_job_note = ""
+            if unmanaged_long_jobs:
+                examples = "\n".join(
+                    f"- {row['classification']}: {row['command'][:500]}"
+                    for row in unmanaged_long_jobs[:5]
+                )
+                unmanaged_long_job_note = (
+                    "ARGUS LONG-JOB OWNERSHIP WARNING: this Engineer turn launched "
+                    "or busy-waited on a long job outside the durable subagent/job "
+                    "owner. Preserve any valid terminal artifacts, but classify the "
+                    "workflow defect as failure_layer=orchestration and require all "
+                    "future long/GPU launches through `python -m "
+                    "argus_skill.tools.subagent submit`. Do not interpret owner loss "
+                    "or missing finalization as scientific evidence.\n" + examples
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.unmanaged_long_job",
+                        "round_index": round_index,
+                        "count": len(unmanaged_long_jobs),
+                        "operator_alert": True,
+                        "findings": unmanaged_long_jobs[:5],
+                        "text": unmanaged_long_job_note[:2000],
+                    })
 
             # Phase-2 instrumentation: emit ``round.main.completed`` so the
             # supervisor's _CostTrackingSink can fold engineer-side token
@@ -1902,6 +1940,7 @@ class SupervisedEngineer:
                                 for part in (
                                     engineer_message or "(no message)",
                                     *pending_secret_guard_notes,
+                                    unmanaged_long_job_note,
                                 )
                                 if part
                             )
