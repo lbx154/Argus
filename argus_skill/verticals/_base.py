@@ -43,6 +43,9 @@ log = logging.getLogger(__name__)
 #: The safe fallback vertical: its stages module always imports.
 DEFAULT_VERTICAL = "research"
 VerticalDefinition: TypeAlias = ModuleType | DataDomain
+_VERTICAL_IMPORT_ALIASES = {
+    "digital_circuit_benchmark": "digital_circuit.benchmark",
+}
 
 
 def _normalize_vertical_name(name: object) -> str:
@@ -80,14 +83,19 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
     the data domain becomes inert.
     """
     cleaned = _normalize_vertical_name(name)
+    import_name = _VERTICAL_IMPORT_ALIASES.get(cleaned, cleaned)
     try:
-        return importlib.import_module(f"argus_skill.verticals.{cleaned}.stages")
+        return importlib.import_module(f"argus_skill.verticals.{import_name}.stages")
     except Exception as exc:  # noqa: BLE001
         # Distinguish a genuinely-missing / typo'd / half-built vertical (safe
         # fallback) from a REAL named vertical whose stages module errored. The
         # latter must NOT be hidden: silently degrading e.g. nanochat → research
         # turns a metric optimizer into the paper pipeline with only a log line.
-        stages_path = os.path.join(os.path.dirname(__file__), cleaned, "stages.py")
+        stages_path = os.path.join(
+            os.path.dirname(__file__),
+            *import_name.split("."),
+            "stages.py",
+        )
         if cleaned != DEFAULT_VERTICAL and os.path.isfile(stages_path):
             raise RuntimeError(
                 f"load_vertical({name!r}): the vertical exists ({stages_path}) but "

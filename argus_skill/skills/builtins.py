@@ -20,6 +20,9 @@ from .store import Skill
 
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
+_VERTICAL_SKILL_INHERITANCE = {
+    "digital_circuit_benchmark": ("digital_circuit",),
+}
 
 
 def builtin_skill_source_path() -> Path:
@@ -64,10 +67,16 @@ def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     ``<role>/<name>.md`` layout as the bundled builtins. Fail-open: an unknown
     vertical or one with no ``skills/`` dir yields nothing.
     """
-    root = vertical_skill_source_path(vertical)
-    if not root.is_dir():
-        return
-    yield from _iter_builtin_skill_resources(root)
+    emitted: set[str] = set()
+    for source_vertical in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical):
+        root = vertical_skill_source_path(source_vertical)
+        if not root.is_dir():
+            continue
+        for filename, text in _iter_builtin_skill_resources(root):
+            if filename in emitted:
+                continue
+            emitted.add(filename)
+            yield filename, text
 
 
 def _iter_builtin_skill_resources(

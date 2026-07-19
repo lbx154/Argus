@@ -21,6 +21,23 @@ version: 1
 10. Bound repair by the predeclared attempt, cost, or time limit. Preserve every failed attempt and stop honestly when the cap is reached.
 11. Report per-task status plus aggregate Pass@1, post-repair success, category/difficulty macro averages, compile/simulation failures, cost, elapsed time, and failure taxonomy.
 
+## Pre-score handoff schema
+
+The controller-facing gate is `evidence/preflight.json`. It must contain:
+
+```json
+{
+  "status": "pass",
+  "top_modules": ["exact_public_top"],
+  "rtl_files": ["rtl/generated.sv"],
+  "output_paths": ["rtl/expected_output.sv"],
+  "compile_results": [{"returncode": 0}]
+}
+```
+
+Use `"status": "blocked"` when interface closure or elaboration is incomplete;
+never invoke the official scorer from a blocked preflight.
+
 ## Required campaign artifacts
 
 ```text

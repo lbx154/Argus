@@ -129,6 +129,12 @@ def test_digital_circuit_skills_are_packaged() -> None:
     assert "design/BENCHMARK_INTERFACE.json" in skills[
         "engineer/digital-circuit-first-pass-contract-closure.md"
     ]
+    assert '"status": "ready"' in skills[
+        "engineer/digital-circuit-first-pass-contract-closure.md"
+    ]
+    assert "evidence/preflight.json" in skills[
+        "engineer/digital-circuit-benchmark-execution.md"
+    ]
     assert "Pure combinational truth table" in skills[
         "engineer/digital-circuit-spec-guidance-registry.md"
     ]

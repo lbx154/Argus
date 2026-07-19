@@ -11,6 +11,7 @@ version: 1
 
 Before writing RTL, create `design/BENCHMARK_INTERFACE.json` from public inputs:
 
+- top-level `"status": "ready"` after all public contract fields are resolved;
 - exact output file path and top-level module name;
 - every port name, direction, width, signedness, and reset value;
 - every parameter name, type, default, legal range, and visible override;
@@ -35,6 +36,10 @@ contract instead of guessing.
    running-state, and relock tests.
 7. Only after these checks pass may the controller construct an official answer
    or invoke a scorer.
+
+Before handoff, write `evidence/preflight.json` with `"status": "pass"`, the
+exact top module, RTL source paths, compiler command/return code, and output
+schema mapping. Any unresolved issue keeps status `"blocked"`.
 
 Do not add compatibility aliases merely to guess hidden interfaces. Exact public
 contract fidelity is preferable; missing public context is a packaging defect.
