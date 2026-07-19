@@ -97,6 +97,17 @@ human cohort, or systems measurement.
    Launch every long/GPU command through the durable subagent interface; raw
    attached shell launches are an orchestration defect because their owner and
    terminalizer disappear with the model session.
+   Separate the full-cohort quality pass from the resource microbenchmark when
+   they answer different questions. Batch homogeneous examples when batching
+   preserves outputs, and apply the same execution implementation to compared
+   conditions for resource claims. Do not repeat an entire deterministic cohort
+   merely to estimate runtime when a declared representative resource sample is
+   sufficient.
+   For expensive repeats, predeclare `min_repeats`, `max_repeats`, minimum
+   meaningful effect, and interval precision, then use
+   `python -m argus_skill.tools.experiment_efficiency` after each repeat. Stop on
+   supported effect, futility, sufficient precision, or the declared maximum;
+   retain every observation regardless of the stopping decision.
 3. **Monitor without steering toward success.** Preserve crashes, nulls,
    exclusions, and failed cases. Do not change thresholds or remove difficult
    examples after seeing results.
