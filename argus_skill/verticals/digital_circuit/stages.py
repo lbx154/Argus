@@ -173,13 +173,28 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="a scenario-to-expected-result verification matrix",
         ),
+        ChecklistItem(
+            id="spec.benchmark-interface-closure",
+            statement=(
+                "For an external RTL benchmark, exact output path, top module, ports, "
+                "parameters, reset/clock semantics, control interpretation, and cycle "
+                "latency are frozen before generation; otherwise the artifact explicitly "
+                "states that no external benchmark contract applies."
+            ),
+            evidence_hint=(
+                "design/BENCHMARK_INTERFACE.json derived only from public prompt/context "
+                "and output schema, or an explicit non-benchmark statement"
+            ),
+        ),
     ),
     "rtl": (
         ChecklistItem(
             id="rtl.spec-traceability",
             statement=(
                 "Every state element, datapath operation, and interface response traces to the "
-                "frozen specification; the implementation does not silently redefine behavior."
+                "frozen specification; benchmark output filenames and module/port/parameter "
+                "identifiers exactly match the interface manifest, and implementation does "
+                "not silently redefine behavior."
             ),
             evidence_hint="RTL review notes mapping modules and state transitions to spec clauses",
         ),
@@ -333,7 +348,8 @@ def role_banner(role: str) -> str:
             "and document synthesis as outside scorer scope instead of manufacturing "
             "unscored implementation work. Select only visible-evidence-supported "
             "spec-guidance detectors, and route repair work only after the Engineer or "
-            "Reviewer records an evidence-backed failure-taxonomy class."
+            "Reviewer records an evidence-backed failure-taxonomy class. Require exact "
+            "benchmark interface closure before any RTL generation."
         )
     if role_norm == "engineer":
         return common + (
@@ -343,7 +359,9 @@ def role_banner(role: str) -> str:
             "before declaring a tool unavailable, and serialize shared container "
             "runtimes. Preserve failing seeds, logs, and waveforms; fix RTL rather than "
             "weakening assertions or expected values. For each failed attempt, name one "
-            "failure-taxonomy class, one root-cause hypothesis, and one regression."
+            "failure-taxonomy class, one root-cause hypothesis, and one regression. Before "
+            "the first attempt, freeze and compile the exact public top/module/port/parameter "
+            "contract instead of guessing compatibility aliases."
         )
     if role_norm == "reviewer":
         return common + (
@@ -354,7 +372,8 @@ def role_banner(role: str) -> str:
             "non-emptiness, hidden-input non-exposure, and separate first-attempt and "
             "post-repair records. Promote guidance only from cross-task evidence, never "
             "from task-specific hidden-oracle behavior. Do not trust a summary or a "
-            "single happy-path test."
+            "single happy-path test. Reject first-attempt readiness when the benchmark "
+            "interface manifest is absent or does not match the RTL exactly."
         )
     return common
 

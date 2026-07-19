@@ -60,6 +60,13 @@ def test_digital_circuit_persists_and_renders_own_checklists(tmp_path) -> None:
         "verify.no-xz-and-properties",
         "verify.reproducible-pass",
     }
+    specification = resolve_stage_checklist_contract(
+        "specification",
+        project_root=tmp_path,
+    )
+    assert "spec.benchmark-interface-closure" in {
+        item.id for item in specification.items
+    }
     delivery = resolve_stage_checklist_contract(
         "delivery",
         project_root=tmp_path,
@@ -97,6 +104,7 @@ def test_digital_circuit_skills_are_packaged() -> None:
     assert "engineer/digital-circuit-rtl-verification.md" in skills
     assert "engineer/digital-circuit-benchmark-execution.md" in skills
     assert "engineer/digital-circuit-error-guided-repair.md" in skills
+    assert "engineer/digital-circuit-first-pass-contract-closure.md" in skills
     assert "engineer/digital-circuit-spec-guidance-registry.md" in skills
     assert "reviewer/digital-circuit-signoff-review.md" in skills
     assert "reviewer/digital-circuit-benchmark-review.md" in skills
@@ -117,6 +125,9 @@ def test_digital_circuit_skills_are_packaged() -> None:
     ]
     assert "`cdc-transfer`" in skills[
         "engineer/digital-circuit-error-guided-repair.md"
+    ]
+    assert "design/BENCHMARK_INTERFACE.json" in skills[
+        "engineer/digital-circuit-first-pass-contract-closure.md"
     ]
     assert "Pure combinational truth table" in skills[
         "engineer/digital-circuit-spec-guidance-registry.md"
@@ -144,10 +155,13 @@ def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> 
         assert "golden outputs or hidden harness sources" in banner
     assert "shortest auditable path" in planner
     assert "route repair work" in planner
+    assert "exact benchmark interface closure" in planner
     assert "declared local containers" in engineer
     assert "failure-taxonomy class" in engineer
+    assert "instead of guessing compatibility aliases" in engineer
     assert "post-repair records" in reviewer
     assert "cross-task evidence" in reviewer
+    assert "interface manifest is absent" in reviewer
 
 
 def test_digital_circuit_uses_custom_staged_kind() -> None:
