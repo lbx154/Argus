@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.js';
 import type { Edit } from '../input/editor.js';
+import { useImeCursorTarget } from '../imeCursor.js';
 
 const MAX_INPUT_ROWS = 4;
 const FULL_LABEL = 'talk to Argus › ';
@@ -95,6 +96,8 @@ function promptRows(edit: Edit, columns: number): {
   rows: Segment[][];
   clipped: boolean;
   length: number;
+  cursorRow: number;
+  cursorColumn: number;
 } {
   // Wide glyphs can leave one unusable cell at a line boundary. Reserve that
   // possible slack so CJK and emoji still fit within the row limit.
@@ -112,20 +115,53 @@ function promptRows(edit: Edit, columns: number): {
   }
   if (cursor === chars.length) segments.push({ kind: 'caret', text: '▏', width: 1 });
   if (end < chars.length) segments.push({ kind: 'dim', text: '…', width: 1 });
+  const rows = wrapSegments(segments, columns);
+  let cursorRow = 0;
+  let cursorColumn = 0;
+  rows.some((row, rowIndex) => {
+    let column = 0;
+    for (const segment of row) {
+      if (segment.kind === 'caret') {
+        cursorRow = rowIndex;
+        cursorColumn = column;
+        return true;
+      }
+      column += segment.width;
+    }
+    return false;
+  });
   return {
-    rows: wrapSegments(segments, columns),
+    rows,
     clipped: start > 0 || end < chars.length,
     length: chars.length,
+    cursorRow,
+    cursorColumn,
   };
 }
 
 /** Rounded, wrapped input that keeps the caret visible without taking over the terminal. */
-export function PromptBox({ edit, width = 80 }: { edit: Edit; width?: number }) {
+export function PromptBox({
+  edit,
+  width = 80,
+  rowsBelow = 1,
+}: {
+  edit: Edit;
+  width?: number;
+  rowsBelow?: number;
+}) {
   const label = width < 52 ? COMPACT_LABEL : FULL_LABEL;
   // App has two columns of outer padding; the box border and padding use four
   // more. Keeping that reserve here makes manual wrapping stable in real use.
   const contentColumns = Math.max(4, width - 6 - stringWidth(`◆ ${label}`));
   const view = promptRows(edit, contentColumns);
+  const nativeCursor = useImeCursorTarget({
+    rowsAboveFrameBottom:
+      view.rows.length - view.cursorRow +
+      (view.clipped ? 1 : 0) +
+      Math.max(0, rowsBelow),
+    // Outer padding, left border, and inner padding occupy three cells.
+    column: 3 + stringWidth(`◆ ${label}`) + view.cursorColumn,
+  });
   return (
     <Box
       borderStyle="round"
@@ -147,7 +183,9 @@ export function PromptBox({ edit, width = 80 }: { edit: Edit; width?: number }) 
           <Text key={rowIndex} wrap="truncate-end">
             {row.map((segment, segmentIndex) => (
               segment.kind === 'caret'
-                ? <Text key={segmentIndex} inverse>{segment.text}</Text>
+                ? nativeCursor
+                  ? <Text key={segmentIndex}>{segment.text === '▏' ? ' ' : segment.text}</Text>
+                  : <Text key={segmentIndex} inverse>{segment.text}</Text>
                 : <Text key={segmentIndex} dimColor={segment.kind === 'dim'}>{segment.text}</Text>
             ))}
           </Text>

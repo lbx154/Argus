@@ -450,6 +450,38 @@ test('collapsing the event log preserves Static history without replaying it', a
   assert.equal(clean.split('STATIC_ONCE_MARKER').length - 1, 1);
 });
 
+test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
+  const view = emptyMissionView();
+  const output = await renderNode(
+    React.createElement(
+      Box,
+      { flexDirection: 'column' },
+      React.createElement(Header, { width: 135 }),
+      React.createElement(MissionCockpit, { view, width: 135, height: 19 }),
+      React.createElement(EventLog, {
+        events: [],
+        width: 135,
+        mode: 'conversation',
+        showIdle: false,
+      }),
+      React.createElement(PromptBox, {
+        edit: { value: '', cursor: 0 },
+        width: 135,
+        rowsBelow: 1,
+      }),
+      React.createElement(Footer, { width: 135 }),
+    ),
+    135,
+  );
+  // Debug rendering writes one frame at mount and one at unmount; measure the
+  // final frame, which is what Ink compares against the terminal height.
+  const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
+  assert.ok(finalFrame.trimEnd().split('\n').length < 19);
+  assert.match(finalFrame, /MISSION/);
+  assert.match(finalFrame, /TEAM/);
+  assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
+});
+
 test('long input wraps while keeping a bounded view around the caret', async () => {
   const value = `first line\n${'long prompt '.repeat(20)}final line`;
   const output = await renderNode(

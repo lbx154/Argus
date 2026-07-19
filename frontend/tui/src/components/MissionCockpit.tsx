@@ -56,6 +56,7 @@ export function requestSummary(requestUsage?: RequestUsage | null): string {
 export function MissionCockpit({
   view,
   width,
+  height,
   spentUsd,
   spendStatus,
   dailyCapUsd,
@@ -64,6 +65,7 @@ export function MissionCockpit({
 }: {
   view: MissionView;
   width: number;
+  height?: number;
   spentUsd?: number | null;
   spendStatus?: string;
   dailyCapUsd?: number | null;
@@ -83,6 +85,68 @@ export function MissionCockpit({
     : '';
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
+  const compactHeight = height != null && height < 26;
+
+  if (compactHeight) {
+    const latest = timeline[timeline.length - 1];
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text dimColor>MISSION</Text>
+        <Text bold>{compact(mission, Math.max(24, width - 2))}</Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>STAGE </Text>
+          <Text color={theme.info}>{compact(stage, 20)}</Text>
+          <Text dimColor>{` · ROUND ${round} · ELAPSED `}</Text>
+          <Text>{formatMissionElapsed(view.mission.elapsed_seconds)}</Text>
+          <Text dimColor> · BEST </Text>
+          <Text color={metric?.verification_status === 'accepted' ? theme.success : theme.warning}>
+            {metricDisplay(metric)}
+          </Text>
+        </Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>BUDGET </Text>
+          <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
+            {budgetSummary(spentUsd, spendStatus, dailyCapUsd, globalDailyCapUsd, false)}
+          </Text>
+          <Text dimColor>{` · ${requestSummary(requestUsage)}`}</Text>
+        </Text>
+        <Box>
+          <Text dimColor>TEAM </Text>
+          {ROLE_ORDER.map((name, index) => {
+            const role = roleByName.get(name);
+            const status = role?.status ?? 'waiting';
+            const glyph = status === 'active'
+              ? '●'
+              : status === 'done'
+              ? '✓'
+              : status === 'rejected' || status === 'error'
+              ? '!'
+              : '○';
+            const color = status === 'rejected' || status === 'error'
+              ? theme.error
+              : status === 'done'
+              ? theme.success
+              : status === 'active'
+              ? theme.role[name] ?? theme.info
+              : 'gray';
+            return (
+              <Text key={name} color={color}>
+                {`${index ? ' · ' : ''}${name[0].toUpperCase()}${glyph}`}
+              </Text>
+            );
+          })}
+        </Box>
+        <Text wrap="truncate-end">
+          <Text dimColor>TIMELINE </Text>
+          {latest ? (
+            <Text color={timelineColor(latest)}>
+              {compact(latest.title + (latest.detail ? ` · ${latest.detail}` : ''), Math.max(18, width - 12))}
+            </Text>
+          ) : <Text dimColor>Waiting for structured research events…</Text>}
+        </Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" marginTop={1}>

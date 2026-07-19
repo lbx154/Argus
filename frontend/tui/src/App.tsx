@@ -362,7 +362,11 @@ export function App({
       try {
         const s = await api.snapshot();
         if (alive) {
-          setSnap(s);
+          setSnap((current) => (
+            current && JSON.stringify(current) === JSON.stringify(s)
+              ? current
+              : s
+          ));
           setSnapshotError('');
         }
       } catch (error) {
@@ -1128,6 +1132,7 @@ export function App({
             <MissionCockpit
               view={missionView}
               width={terminal.columns}
+              height={terminal.rows}
               spentUsd={snap?.spend_usd}
               spendStatus={snap?.spend_status}
               dailyCapUsd={snap?.daemon.daily_cap_usd}
@@ -1143,6 +1148,7 @@ export function App({
             mode="conversation"
             liveMessageId={managerRequestRef.current?.messageId}
             collapsed={slashMenuOpen || Boolean(panel)}
+            showIdle={!missionView}
           />
           {panel ? (
             <PanelView
@@ -1168,7 +1174,11 @@ export function App({
                   selected={Math.min(menuSel, comps.length - 1)}
                   maxVisible={slashMenuVisibleRows(terminal.rows)}
                 />
-                <PromptBox edit={edit} width={terminal.columns} />
+                <PromptBox
+                  edit={edit}
+                  width={terminal.columns}
+                  rowsBelow={slashMenuOpen ? 0 : 1}
+                />
               </Box>
               {!slashMenuOpen ? (
                 <Footer
