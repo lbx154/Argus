@@ -309,92 +309,20 @@ def test_skill_miss_scientist_spend_is_journaled(
     assert mem.backlog.all()[0].status == "done"
 
 
-def _write_journal_rows(path, rows: list[dict[str, float]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
-
-
-def test_global_daily_spend_sums_across_projects_and_rollover(tmp_path) -> None:
-    now = time.time()
-    local = time.localtime(now)
-    day_start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
-    root = tmp_path / "root"
-    _write_journal_rows(
-        root / "projects" / "p1" / "journal.jsonl",
-        [
-            {"ts": day_start - 1, "cost_usd": 99.0},
-            {"ts": day_start + 10, "cost_usd": 1.25},
-        ],
-    )
-    _write_journal_rows(
-        root / "projects" / "p2" / "journal.jsonl.1",
-        [
-            {"ts": day_start + 20, "cost_usd": 2.5},
-            {"ts": day_start - 20, "cost_usd": 7.0},
-        ],
-    )
-
-    assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.75)
-
-
-def test_global_daily_spend_reads_canonical_events_and_all_rollovers(tmp_path) -> None:
-    now = time.time()
-    local = time.localtime(now)
-    day_start = time.mktime(
-        (local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)
-    )
-    root = tmp_path / "root"
-    project = root / "projects" / "p1"
-    project.mkdir(parents=True)
-    for name, cost, offset in (
-        ("events.jsonl.2", 1.25, 10),
-        ("events.jsonl.1", 2.5, 20),
-        ("events.jsonl", 3.75, 30),
-    ):
-        (project / name).write_text(
-            json.dumps({
-                "type": "life.mission.completed",
-                "ts": day_start + offset,
-                "cost_usd": cost,
-                "success": True,
-            }) + "\n",
-            encoding="utf-8",
-        )
-
-    assert global_daily_spend(global_root=root, now=now) == pytest.approx(7.5)
-
-
-def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) -> None:
-    now = time.time()
-    root = tmp_path / "root"
-    path = root / "projects" / "p1" / "events.jsonl"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps({
-            "type": "life.mission.completed",
-            "ts": now,
-            "cost_usd": 1.0,
-            "success": True,
-        }) + "\n",
-        encoding="utf-8",
-    )
-    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.0)
-
+def _append_usage(project, call_id: str, completed_at: float, cost_usd: float) -> None:
     from argus_skill.core.usage import UsageLedger, UsageRecord
 
-    UsageLedger(path.parent, migrate_legacy=False).append(
+    project.mkdir(parents=True, exist_ok=True)
+    UsageLedger(project, migrate_legacy=False).append(
         UsageRecord(
-            call_id="new-call",
-            project_id="p1",
+            call_id=call_id,
+            project_id=project.name,
             mission_id=None,
-            provider="legacy",
+            provider="test",
             model="",
             run_label="test.aggregate",
-            started_at=now + 1,
-            completed_at=now + 1,
+            started_at=completed_at,
+            completed_at=completed_at,
             status="completed",
             input_tokens=None,
             cached_input_tokens=None,
@@ -403,11 +331,55 @@ def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) ->
             premium_requests=None,
             pricing_status="priced",
             pricing_tier="test",
-            cost_usd=2.0,
-            cost_basis="legacy_aggregate",
-            source="legacy.events",
+            cost_usd=cost_usd,
+            cost_basis="test",
         )
     )
+
+
+def test_global_daily_spend_sums_across_projects_and_rollover(tmp_path) -> None:
+    now = time.time()
+    local = time.localtime(now)
+    day_start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)    )
+    root = tmp_path / "root"
+    _append_usage(root / "projects" / "p1", "old-p1", day_start - 1, 99.0)
+    _append_usage(root / "projects" / "p1", "new-p1", day_start + 10, 1.25)
+    _append_usage(root / "projects" / "p2", "new-p2", day_start + 20, 2.5)
+    _append_usage(root / "projects" / "p2", "old-p2", day_start - 20, 7.0)
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.75)
+
+
+def test_global_daily_spend_reads_canonical_usage_across_projects(tmp_path) -> None:
+    now = time.time()
+    local = time.localtime(now)
+    day_start = time.mktime(
+        (local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)
+    )
+    root = tmp_path / "root"
+    for project_id, call_id, cost, offset in (
+        ("p1", "call-1", 1.25, 10),
+        ("p2", "call-2", 2.5, 20),
+        ("p3", "call-3", 3.75, 30),
+    ):
+        _append_usage(
+            root / "projects" / project_id,
+            call_id,
+            day_start + offset,
+            cost,
+        )
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(7.5)
+
+
+def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) -> None:
+    now = time.time()
+    root = tmp_path / "root"
+    project = root / "projects" / "p1"
+    _append_usage(project, "first-call", now, 1.0)
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.0)
+
+    _append_usage(project, "new-call", now + 1, 2.0)
 
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.0)
 

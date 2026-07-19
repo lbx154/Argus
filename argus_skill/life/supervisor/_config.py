@@ -53,7 +53,9 @@ def global_daily_usage_summary(
     records = []
     for project_dir in project_dirs:
         try:
-            records.extend(UsageLedger(project_dir).records(since=day_start))
+            records.extend(
+                UsageLedger(project_dir, migrate_legacy=False).records(since=day_start)
+            )
         except Exception:  # noqa: BLE001 — one corrupt project must not hide others
             continue
     return summarize_usage(records)
