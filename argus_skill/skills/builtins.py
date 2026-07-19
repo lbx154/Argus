@@ -30,6 +30,7 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     },
     "agent-md-new-project-template.md": {
         "34f4a486c681e3bd42e360b2d13ae64db3251380cd307e7a64268a12cf605e02",
+        "7da2456956d5e6a99f0af6a64b9413ff926744806a376ae76d476418006f0a36",
     },
     "engineer/aaai-format-preflight.md": {
         "7a7ca6c7b65ec06bd2dc52527122a9321bf79195c92c1d51ddeb223c5b675a80",
@@ -42,6 +43,7 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     },
     "engineer/argus-engineer-role.md": {
         "13480bb0c54ebea266197f8f78dcfe0e0802bedd5bb4fca56e8295fbd2a840ad",
+        "8225b379f4e0069117e5666e6610dcefd0e3478b4ba3a207ad5feb8d43c52a96",
     },
     "engineer/auto-research-pipeline.md": {
         "2d480ab8e64a451201631a0bda7fe0a90f05d4e1183c74c4bba6fc7c22393a02",
