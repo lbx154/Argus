@@ -575,12 +575,14 @@ class AgentCliRunner:
         elif process.returncode != 0 and fatal_error is None:
             turn_failed = True
             fatal_error = f"Process exited with code {process.returncode} before turn completion."
-        elif not turn_completed and not agent_messages and fatal_error is None:
-            # Some CLIs report configuration errors on stderr but still exit 0
-            # (Copilot does this for an unavailable --model). A clean process
-            # exit is not a successful model turn: preserve the concrete stderr
-            # diagnostic so the supervisor fails fast instead of laundering it
-            # into two rounds of "empty output" / no_progress.
+        elif not turn_completed and fatal_error is None:
+            # A provider message is not a terminal turn receipt. Copilot can
+            # exit 0 after emitting assistant/tool deltas without the final
+            # ``result`` event; accepting that partial stream loses sessionId,
+            # records thread_id=null, and lets an unfinished Engineer round
+            # advance to review. Fail closed unless the backend emitted its
+            # authoritative completion event. Preserve stderr when available
+            # so configuration failures still retain their concrete diagnosis.
             turn_failed = True
             fatal_error = _incomplete_turn_error(stderr_lines)
 
