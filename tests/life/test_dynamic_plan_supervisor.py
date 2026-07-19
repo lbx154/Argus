@@ -170,6 +170,26 @@ def _supervisor(tmp_path, *, runner=None, planner_response: str | None = None):
     return supervisor, sink
 
 
+def _stage_reconciliation_waiting_verdict() -> str:
+    return json.dumps(
+        {
+            "project_done": False,
+            "reason": "current stage blocks prerequisite repair",
+            "restart_daemon": False,
+            "restart_reason": "",
+            "waiting": True,
+            "waiting_reason": "Manager must reconcile the stage",
+            "waiting_contract": {
+                "blocker_fingerprint": "stage-blocker",
+                "recheck_condition": "Manager resolves the stage",
+                "recheck_token": "stage-blocker-v1",
+                "stage_reconciliation_required": True,
+            },
+            "new_tasks": [],
+        }
+    )
+
+
 def _seed_plan(supervisor: LifeSupervisor):
     current = supervisor.memory.backlog.add(
         BacklogItem.new(
@@ -256,6 +276,41 @@ def test_stage_reconciled_replan_retires_invalid_current_item(tmp_path) -> None:
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows[current.id].status == "failed"
     assert "manager rollback to benchmark" in rows[current.id].last_error
+
+
+def test_stage_reconciliation_hold_keeps_plan_and_calls_manager_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_stage_reconciliation_waiting_verdict(),
+    )
+    current, stale = _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return "hold"
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    result = supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert result == "planner_retry"
+    assert len(reconciliations) == 1
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows[current.id].status == "pending"
+    assert rows[stale.id].status == "pending"
+    assert not any(
+        event["type"] == "life.plan.revision.rolled_back"
+        for event in _sink.events
+    )
 
 
 def test_planning_cycle_drains_operator_input_while_waiting(

@@ -257,7 +257,7 @@ class PlanningCycleMixin:
         self._reset_idle_backoff()
         return True
 
-    def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> bool:
+    def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
         """Let the Manager repair a stage/Planner mutual wait.
 
         Planner explicitly requests reconciliation when ``current_stage`` blocks
@@ -265,25 +265,25 @@ class PlanningCycleMixin:
         repeated idle cycles. The Manager alone decides HOLD versus ROLLBACK.
         """
         if not getattr(self.config, "open_ended", False):
-            return False
+            return ""
         if not bool(getattr(verdict, "waiting", False)):
-            return False
+            return ""
         if bool(getattr(verdict, "project_done", False)):
-            return False
+            return ""
         if list(getattr(verdict, "new_tasks", []) or []):
-            return False
+            return ""
 
         contract = getattr(verdict, "waiting_contract", None)
         blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
         if not blocker_fingerprint or not recheck_token:
-            return False
+            return ""
 
         # Manager is the sole stage authority, but it is not the operator and
         # cannot expand the operator's scope.  Never invoke wait reconciliation
         # when fresh operator input is the declared (or parser-inferred) gate.
         if bool(getattr(contract, "operator_action_required", False)):
             self._planner_waits_since_reconciliation = 0
-            return False
+            return ""
 
         explicitly_requested = bool(
             getattr(contract, "stage_reconciliation_required", False)
@@ -318,7 +318,7 @@ class PlanningCycleMixin:
             (explicitly_requested and key_changed)
             or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
         ):
-            return False
+            return ""
 
         from ...manager import Manager
 
@@ -381,7 +381,7 @@ class PlanningCycleMixin:
             self._emit_status(
                 f"Manager rejection returned to Planner for {stage} replanning"
             )
-            return True
+            return "hold"
 
         if (
             decision.action == "hold"
@@ -399,10 +399,10 @@ class PlanningCycleMixin:
                 "manager resolved planner wait while holding "
                 f"current stage {decision.target_stage}"
             )
-            return True
+            return "hold"
 
         if decision.action != "rollback":
-            return False
+            return ""
 
         self._deactivate_planner_waiting_contract()
         self._clear_planner_wait_resolution()
@@ -414,7 +414,7 @@ class PlanningCycleMixin:
             "manager resolved planner wait by reopening "
             f"{decision.target_stage}"
         )
-        return True
+        return "rollback"
 
     def _resolve_vertical_once(self) -> None:
         """DECIDE + persist the active vertical exactly once per mission, BEFORE
@@ -801,9 +801,15 @@ class PlanningCycleMixin:
                 return PLAN_ERROR
             if revision_request is not None:
                 contract = getattr(verdict, "waiting_contract", None)
-                if bool(
+                reconciliation_required = bool(
                     getattr(contract, "stage_reconciliation_required", False)
-                ) and self._reconcile_open_ended_planner_waiting(verdict):
+                )
+                reconciliation_result = (
+                    self._reconcile_open_ended_planner_waiting(verdict)
+                    if reconciliation_required
+                    else ""
+                )
+                if reconciliation_result == "rollback":
                     superseding_plan_id = (
                         f"manager-rollback-{BacklogItem.new_id()}"
                     )
@@ -845,13 +851,18 @@ class PlanningCycleMixin:
                         "reason": verdict.waiting_reason or verdict.reason,
                     })
                     return PLAN_RETRY
+                if reconciliation_result:
+                    return PLAN_RETRY
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": "replacement planner returned waiting",
                     "expected_plan_id": expected_plan_id,
                     "expected_plan_version": expected_plan_version,
                 })
-            if self._reconcile_open_ended_planner_waiting(verdict):
+            if (
+                revision_request is None
+                and self._reconcile_open_ended_planner_waiting(verdict)
+            ):
                 return PLAN_RETRY
             record = self._record_planner_waiting(
                 verdict,
