@@ -76,13 +76,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         ("Results report exists", "test -f paper/RESULTS_REPORT.md"),
         ("Results table exists", "test -f paper/artifacts/results_table.tsv"),
-        ("Figures exist", "ls paper/figures/*.png paper/figures/*.pdf 2>/dev/null | head -1 | grep -q ."),
+        (
+            "Figures exist",
+            "ls paper/figures/*.png paper/figures/*.pdf paper/figures/*.svg "
+            "2>/dev/null | head -1 | grep -q .",
+        ),
     ],
     "draft": [
         _PIPELINE_CHECK,
         ("main.tex exists", "test -f paper/main.tex"),
         ("PDF compiles", "test -f paper/main.pdf"),
-        ("Image2 figures manifest present", "test -f paper/figures/IMAGE2_FIGURES.json"),
     ],
     "review": [
         _PIPELINE_CHECK,
@@ -358,7 +361,9 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "2. Layout — official Frontiers Harvard basis, single spacing, page and line numbers; Frontiers has NO fixed page limit, so judge readability rather than conference page quotas.\n"
         "3. Authorship — single-anonymized review requires real author names, affiliations, corresponding email, CRediT contributions, conflicts, and funding.\n"
         "4. AI disclosure — public, journal-compliant disclosure of technology name/version/model/source; no internal routes, daemons, or orchestration details.\n"
-        "5. Figures — every figure is authentic, reviewed, and has distinct alt text; the core overview is recorded in IMAGE2_FIGURES.json.\n"
+        "5. Figures — every visible figure is readable, coherent, factually "
+        "correct, good-looking enough, and has distinct alt text. Minor aesthetic "
+        "imperfections and optional metadata gaps are not blockers.\n"
         "6. Evidence — every numerical or headline claim traces to current canonical evidence; executed and planned evidence remain distinct.\n"
         "7. Idea-centricity and honest framing — does the article revolve around one central testable thesis with a stated conceptual insight, treat null or uncertain evidence honestly without spin, scope every claim to the supported evidence, and keep planned and executed evidence distinct? Do not hide evidence that was produced; genuine nulls are reported as findings.\n"
         "Block if any review artifact is stale, unavailable, or has unresolved major issues.",
@@ -367,7 +372,7 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
             "paper/LAYOUT_REVIEW.json",
             "paper/ACADEMIC_LANGUAGE_REVIEW.json",
             "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
-            "paper/figures/IMAGE2_FIGURES.json",
+            "paper/figures/",
         ],
     ),
     "submission": (

@@ -57,6 +57,12 @@ figures = [
   "seaborn>=0.13",
   "SciencePlots>=2.1",
 ]
+# Browser-rendered research figures (React/ECharts/Recharts/Vega/D3). The
+# browser binary remains an explicit project/environment choice: install
+# Playwright Chromium separately or pass the system Chrome channel.
+visual-web = [
+  "playwright>=1.50,<2",
+]
 # `argus-skill[signing]` — the Ed25519 result-provenance feature
 # (argus_skill/team/result_provenance.py) is off by default (inert unless
 # ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY is set) and

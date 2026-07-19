@@ -93,18 +93,12 @@ Score each dimension 1–5.
      anonymity policy, page/word limits, bibliography rules, and required
      sections?
    - Are references, tables, captions, and floats readable and internally valid?
-   - Data/metric/result plots may be generated from scripts.
-   - Every non-data paper-facing figure must use actual image-2/codex-image2
-     raster output in `paper/main.tex`. The prompt must come from
-     `argus-image2-paper-prompt-v1` and
-     `paper-framework-figure-studio-pro-v3.1.4a`, with 6–20 reviewed Figma-style
-     layout variants.
-   - Verify the image-2 context freeze is current. Do not request regeneration
-     for prose/caption/layout-only edits when six passing cached candidates
-     already exist under the same evidence/structure fingerprint.
-   - Hard reject self-drawn non-data substitutes from matplotlib,
-     FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvas, screenshots,
-     Inkscape/manual vectors, or cleaned PDFs.
+   - Judge the actual rendered figures for clarity, readability, coherence, and
+     whether they look good enough for the venue. Metadata is advisory only.
+   - Do not require image-2 when unavailable or when a deterministic renderer is
+     better. Do not demand repeated visual regeneration for minor preferences;
+     require repair only for unreadable, factually wrong, broken, or seriously
+     unattractive figures.
 
 8. **Strongest reviewer objection**
    - State the strongest short reason to reject.
@@ -137,7 +131,7 @@ and no hard blocker.
 - stale or untraceable generated artifacts;
 - unresolved citations or official-format violations;
 - fewer than 35 verified BibTeX entries or 30 unique cited keys;
-- self-drawn non-data figure where image-2 is required;
+- unreadable, factually wrong, or visibly broken required figure;
 - private infrastructure/secrets leaked into rendered prose;
 - paper value depends only on relabeling a weak result rather than a genuine
   insight.

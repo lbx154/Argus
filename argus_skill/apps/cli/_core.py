@@ -962,7 +962,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
             vertical = resolve_vertical(Path.cwd())
         except VerticalResolutionError:
             vertical = "research"
-    if vertical and vertical != "research":
+    if vertical:
         result = seed_builtin_skills_for_vertical(
             target, vertical, overwrite=bool(args.apply)
         )

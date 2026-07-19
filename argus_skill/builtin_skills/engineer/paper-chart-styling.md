@@ -15,9 +15,9 @@ blue/orange, rainbow/`jet` colormaps, wrong font sizes, no font embedding, and
 colours that collapse under colour-blind simulation. This skill gives every data
 plot ONE shared, journal-grade style via a small helper, `paper_chart_style.py`,
 and a short set of composition rules learned from open-access papers. Conceptual
-figures (teaser/pipeline/architecture) are NOT covered here — those go through
-image-2 (see the drafting skill). This skill is only for **data/metric/result
-plots that are legitimately scripted from local data**.
+figures (teaser/pipeline/architecture) are NOT covered here — route those through
+the research vertical's Research Visualization Router. This skill is only for
+**data/metric/result plots that are legitimately scripted from local data**.
 
 ## When to use
 - You are creating data-driven figures (curves, bars, scatter, heatmaps) for a
@@ -26,9 +26,8 @@ plots that are legitimately scripted from local data**.
   conference paper.
 
 ## When NOT to use
-- Conceptual/method/teaser/pipeline overview figures — those must be image-2
-  assets (see `research-results-analysis-and-figures` and the drafting skills),
-  not scripted plots.
+- Conceptual/method/teaser/pipeline overview figures — use the Research
+  Visualization Router rather than disguising them as data plots.
 - There is no local data to plot yet (run/analyze experiments first).
 
 ## How to solve
@@ -105,8 +104,8 @@ plots that are legitimately scripted from local data**.
 ## Notes
 - The helper is dependency-light and self-contained; the copy in `paper/analysis/`
   is what your scripts import. Re-copy it if you upgrade.
-- This skill styles data plots only. It does not authorize self-drawing
-  conceptual/method figures — those remain image-2 assets with provenance.
+- This skill styles data plots only. Conceptual/method figures use the
+  renderer-neutral Research Visualization Router and `FIGURE_PROVENANCE.json`.
 - Figure width must still agree with the LaTeX float type: teaser and the main
   pipeline/architecture overview are the full-width `figure*` floats; sub-module
   and detail plots stay single-column `figure` (the layout review flags an

@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from argus_skill.skills.pipeline_contracts import (
+    FIGURE_PROVENANCE_JSON_PATH,
+    IMAGE2_FIGURES_JSON_PATH,
     MANIFEST_CANONICAL_RESEARCH_PATHS,
+    _default_manifest_sources_for_generated_path,
     cli_command_handlers,
 )
 from argus_skill.skills.pipeline_contracts import (
@@ -48,6 +51,25 @@ def test_refresh_manifest_builds_artifact(tmp_path) -> None:
     )
     assert exit_code in {0, 1}
     assert (tmp_path / "paper" / "ARTIFACT_MANIFEST.json").exists()
+
+
+def test_figure_manifests_are_not_inferred_as_sources_of_each_other(
+    tmp_path: Path,
+) -> None:
+    manifests = {
+        IMAGE2_FIGURES_JSON_PATH.as_posix(),
+        FIGURE_PROVENANCE_JSON_PATH.as_posix(),
+    }
+    all_paths = {*manifests, "paper/figures/method.png"}
+
+    for generated_path in manifests:
+        sources = _default_manifest_sources_for_generated_path(
+            tmp_path,
+            generated_path,
+            all_paths,
+            (),
+        )
+        assert not (manifests & set(sources))
 
 
 def test_validate_subcommands_remain_retired_noops(tmp_path, capsys) -> None:

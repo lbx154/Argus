@@ -1093,10 +1093,10 @@ def _vision_prompt(
             "overflow defect from the Conclusion or References page number. Still report their "
             "actual pages and flag genuine clipping, overlap, unreadable typography, forced "
             "blank pages, detached captions, or poor visual flow.\n\n"
-            "Figure policy: data plots must be generated from canonical data. Every non-data "
-            "overview/method/conceptual figure must remain an actual image-2 raster recorded in "
-            "IMAGE2_FIGURES.json, fact-checked, captioned, and supplied with alt text; never "
-            "recommend a self-drawn substitute merely to satisfy the slot.\n\n"
+            "Figure policy: judge the actual visible figure for clarity and "
+            "good-enough aesthetics. Optional FIGURE_PROVENANCE.json may help locate "
+            "the source but is not a blocker. Do not request repeated regeneration "
+            "for minor stylistic preferences.\n\n"
             "Every blocking or major issue must name the page, target, visual evidence, root "
             "cause, concrete source edits, visual goal, and verification steps. Do not ask the "
             "author to pad the manuscript to resemble an exemplar or to move References to an "
@@ -1145,18 +1145,11 @@ def _vision_prompt(
         "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
         "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
         "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
-        "Figure repair policy: distinguish data/metric/result plots from non-data figures. "
-        "Data/metric/result plots may be regenerated from canonical data with local scripts or "
-        "vector exports when larger typography is needed; never require image-2 for benchmark-effect, "
-        "metric, result, or canonical-TSV plots merely because their labels are small. Every other paper-facing figure, "
-        "including Figure 1, teaser, overview, method/framework/system/pipeline schematics, "
-        "architecture diagrams, qualitative/example visuals, and explanatory conceptual figures, "
-        "must remain an actual image-2/codex-image2 raster recorded in IMAGE2_FIGURES.json. For "
-        "non-data figure defects, recommend LaTeX placement/size changes or regeneration through "
-        "the image-2 prompt/select/review route; never suggest vector PDF/SVG/TikZ/matplotlib/PIL/"
-        "manual redraws, local vectorization, screenshots, cropping, downsampling, resaving, or "
-        "overwriting the accepted raster. Treat Figure 1/overview/teaser/method figures as "
-        "non-data unless the screenshot and caption clearly identify a metric/result plot. "
+        "Figure repair policy: judge visible clarity and aesthetics, not provenance. "
+        "Pass a readable, coherent, factually correct, good-looking-enough figure. "
+        "Recommend at most one targeted aesthetic repair; a second regeneration needs "
+        "a concrete remaining defect such as unreadable text, wrong content, broken "
+        "rendering, or severe mismatch. Optional renderer metadata may help locate source. "
         f"Never repair the {bpl}-page body boundary by inserting `\\clearpage`, `\\newpage`, "
         f"`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page {cmax} "
         f"mostly blank and then push Conclusion to page {cmax + 1} after minor float changes. Use section "
@@ -1196,7 +1189,7 @@ def _vision_prompt(
         f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
-        "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
+        "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
         "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
         "criteria_scores object with typography/table_readability/float_balance/page_flow/"
@@ -1215,8 +1208,7 @@ def _vision_prompt(
 def _vision_prompt_emnlp_literal(
     *, deterministic: dict[str, Any], threshold: float
 ) -> str:
-    """The original EMNLP vision prompt, kept verbatim so EMNLP projects emit a
-    byte-identical model input and persisted prompt hash."""
+    """Build the EMNLP-specific visual-review prompt."""
     allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
     return (
         "Role: You are an independent visual reviewer for an EMNLP 2026 paper that is being "
@@ -1248,18 +1240,11 @@ def _vision_prompt_emnlp_literal(
         "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
         "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
         "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
-        "Figure repair policy: distinguish data/metric/result plots from non-data figures. "
-        "Data/metric/result plots may be regenerated from canonical data with local scripts or "
-        "vector exports when larger typography is needed; never require image-2 for benchmark-effect, "
-        "metric, result, or canonical-TSV plots merely because their labels are small. Every other paper-facing figure, "
-        "including Figure 1, teaser, overview, method/framework/system/pipeline schematics, "
-        "architecture diagrams, qualitative/example visuals, and explanatory conceptual figures, "
-        "must remain an actual image-2/codex-image2 raster recorded in IMAGE2_FIGURES.json. For "
-        "non-data figure defects, recommend LaTeX placement/size changes or regeneration through "
-        "the image-2 prompt/select/review route; never suggest vector PDF/SVG/TikZ/matplotlib/PIL/"
-        "manual redraws, local vectorization, screenshots, cropping, downsampling, resaving, or "
-        "overwriting the accepted raster. Treat Figure 1/overview/teaser/method figures as "
-        "non-data unless the screenshot and caption clearly identify a metric/result plot. "
+        "Figure repair policy: judge visible clarity and aesthetics, not provenance. "
+        "Pass a readable, coherent, factually correct, good-looking-enough figure. "
+        "Recommend at most one targeted aesthetic repair; a second regeneration needs "
+        "a concrete remaining defect such as unreadable text, wrong content, broken "
+        "rendering, or severe mismatch. Optional renderer metadata may help locate source. "
         "Never repair the eight-page body boundary by inserting `\\clearpage`, `\\newpage`, "
         "`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page 8 "
         "mostly blank and then push Conclusion to page 9 after minor float changes. Use section "
@@ -1299,7 +1284,7 @@ def _vision_prompt_emnlp_literal(
         f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
-        "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
+        "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
         "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
         "criteria_scores object with typography/table_readability/float_balance/page_flow/"
@@ -1392,10 +1377,9 @@ def _apply_non_data_figure_policy(guidance: Mapping[str, Any]) -> dict[str, Any]
     edits = _text_list(parsed.get("specific_edits"))
     sanitized_edits = [_sanitize_non_data_figure_text(edit) for edit in edits]
     policy_edit = (
-        "Non-data figure policy: for Figure 1/overview/method/system/pipeline/conceptual figures, "
-        "do not redraw, vectorize, crop, downsample, resave, or overwrite the accepted raster locally; "
-        "adjust LaTeX placement only, or regenerate/select/review a new image-2 raster and update "
-        "IMAGE2_FIGURES.json with matching sidecars and hashes."
+        "Figure review policy: pass the visible figure once it is readable, coherent, "
+        "factually correct, and good-looking enough. Optional provenance metadata is "
+        "not a blocker. Do not request repeated regeneration for preference-level polish."
     )
     if not any("Non-data figure policy:" in edit for edit in sanitized_edits):
         sanitized_edits.append(policy_edit)
@@ -1404,22 +1388,7 @@ def _apply_non_data_figure_policy(guidance: Mapping[str, Any]) -> dict[str, Any]
 
 
 def _sanitize_non_data_figure_text(text: str) -> str:
-    replacements = {
-        "Regenerate Figure 1 as a vector PDF": "Regenerate Figure 1 through image-2 as an accepted raster",
-        "regenerate Figure 1 as a vector PDF": "regenerate Figure 1 through image-2 as an accepted raster",
-        "maintain vector rendering": "preserve the accepted image-2 raster rendering unless regenerating through image-2",
-        "Maintain vector rendering": "Preserve the accepted image-2 raster rendering unless regenerating through image-2",
-        "keep vector rendering": "keep the accepted image-2 raster rendering unless regenerating through image-2",
-        "Keep vector rendering": "Keep the accepted image-2 raster rendering unless regenerating through image-2",
-        "vector PDF": "image-2 raster",
-        "Vector PDF": "Image-2 raster",
-        "manual vector": "manual local redraw",
-        "Manual vector": "Manual local redraw",
-    }
-    sanitized = text
-    for old, new in replacements.items():
-        sanitized = sanitized.replace(old, new)
-    return sanitized
+    return text
 
 
 def _sanitize_data_figure_text(text: str) -> str:
@@ -1429,8 +1398,7 @@ def _sanitize_data_figure_text(text: str) -> str:
         "Regenerate Figure 2 through image-2": "Regenerate Figure 2 from canonical data through its plotting script",
         "regenerate Figure 2 through image-2": "regenerate Figure 2 from canonical data through its plotting script",
         "Confirm the regenerated rasters are listed in IMAGE2_FIGURES.json.": (
-            "Confirm non-data figure rasters are listed in IMAGE2_FIGURES.json; "
-            "data/metric/result plots are instead traced to their canonical data and plotting script."
+            "Confirm the regenerated figure is visibly correct and readable in the PDF."
         ),
         "Both figures should read immediately": "The conceptual figure and any data/result figure should read immediately",
     }

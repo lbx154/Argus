@@ -241,6 +241,7 @@ def test_main_exports_builtin_skills(
     assert (target / "engineer/auto-research-pipeline.md").exists()
     assert (target / "engineer/emnlp-paper-drafting.md").exists()
     assert (target / "engineer/arxiv-paper-search.md").exists()
+    assert (target / "engineer/research-visualization-router.md").exists()
     assert "exported built-in skills" in out
     assert str(target) in out
 
