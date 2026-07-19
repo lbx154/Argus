@@ -287,6 +287,7 @@ __all__ = [
     "load_vertical",
     "vertical_checklist_stage_order",
     "vertical_checklist_items",
+    "vertical_checklist_optional_stages",
     "vertical_role_banner",
     "vertical_completion_gate",
     "vertical_research_target_levels",

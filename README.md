@@ -168,6 +168,9 @@ pip install -e .
 argus-skill --setup  # defaults to Copilot when it is the only supported CLI on PATH
 ```
 
+Install `pip install -e '.[quant]'` when using the quant analysis, backtest,
+or K-line chart helpers. Heavy engines such as qlib remain project-managed.
+
 The setup wizard creates a trusted baseline machine-policy prompt when none
 exists. It never overwrites operator-authored prompts. Customize the generated
 directive when the machine has additional house rules:

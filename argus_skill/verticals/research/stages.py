@@ -35,7 +35,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         ("Research brief exists", "test -f research/RESEARCH_BRIEF.md"),
         ("Literature grounding exists", "test -f research/LITERATURE_GROUNDING.json"),
-        ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
+        ("BibTeX file is non-empty", "test -s paper/refs.bib"),
         # Research quality and task-specific de-risk evidence are certified by
         # the L2 reviewer against the active Planner-authored checklist below.
         # Shell checks stay structural; they must not infer a domain validator
@@ -54,9 +54,8 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         #      mission is not expected to carry a full paper outline), and
         #      shell checks always count toward the exit code; findings
         #      flow through the M0.7 bounded downgrade.
-        #   2. calling the validator in-process avoids a `python3 -c`
-        #      subprocess that depends on `argus_skill` being importable by
-        #      whatever `python3` happens to resolve to on PATH.
+        #   2. calling the validator in-process avoids a subprocess import
+        #      dependency on whichever interpreter happens to resolve on PATH.
     ],
     "benchmark": [
         _PIPELINE_CHECK,
@@ -69,7 +68,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "run": [
         _PIPELINE_CHECK,
         ("Project venv exists", "test -d .venv && test -f .venv/bin/python"),
-        ("Results exist", "find experiments -name 'summary.tsv' -o -name 'eval_results.jsonl' 2>/dev/null | head -1 | grep -q ."),
+        (
+            "Results exist",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'experiments/**/summary.tsv' --glob 'experiments/**/eval_results.jsonl'",
+        ),
         ("Baseline reproduction recorded", "test -f research/BASELINE_REPRODUCTION.md"),
     ],
     "analysis": [
@@ -78,8 +81,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Results table exists", "test -f paper/artifacts/results_table.tsv"),
         (
             "Figures exist",
-            "ls paper/figures/*.png paper/figures/*.pdf paper/figures/*.svg "
-            "2>/dev/null | head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'paper/figures/*.png' --glob 'paper/figures/*.pdf' "
+            "--glob 'paper/figures/*.svg'",
         ),
     ],
     "draft": [
@@ -103,7 +107,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         # `done`, and engineer kept failing because reviewer wouldn't verdict.
         # `ready` here means upstream stages are done and the cursor is at
         # this stage; the verdict itself is what promotes to `done`.
-        ("Submission stage is ready or done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower() in ('ready','done') else 1)\""),
+        (
+            "Submission stage is ready or done",
+            "{python} -m argus_skill.verticals.stage_state --project-root . "
+            "--stage submission --allow ready --allow done",
+        ),
     ],
 }
 

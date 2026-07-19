@@ -71,8 +71,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Kernel leverage gate is valid", f"{_LEVERAGE} check --project-root ."),
         (
             "Hypothesis-driven attempt evidence exists",
-            "find attempts experiments -mindepth 2 -maxdepth 3 -type f "
-            "2>/dev/null | head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'attempts/*/*' --glob 'attempts/*/*/*' "
+            "--glob 'experiments/*/*' --glob 'experiments/*/*/*'",
         ),
         ("Attempt outcome taxonomy is valid", f"{_OUTCOME} check --project-root ."),
     ],

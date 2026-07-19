@@ -48,46 +48,42 @@ _PIPELINE_CHECK = ("Pipeline state present", "test -f research/PIPELINE_STATE.js
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     # Each check accepts EITHER the canonical speedrun scaffold (MISSION.md,
     # baseline/, reference/, mission/, attempts/) OR a flat task workspace
-    # (root train.py, TASK.md, experiments/, reference scores recorded in
-    # research/GROUND_TRUTH.md). The OR-branches keep scaffolded projects
-    # passing unchanged while a legitimately-set-up flat workspace no longer
-    # hard-blocks the setup gate just for missing rigid file names.
+    # (root train.py, TASK.md, experiments/). Flat workspaces persist reference
+    # metrics in research/REFERENCE_SCORES.json or research/GROUND_TRUTH.json;
+    # prose-only score mentions are deliberately not accepted as evidence.
     "setup": [
         _PIPELINE_CHECK,
         ("Mission file present",
          "test -f MISSION.md || test -f TASK.md"),
         ("Baseline scripts present",
-         "{ test -d baseline && ls baseline/*.py 2>/dev/null | head -1 | grep -q .; } "
-         "|| test -f train.py"),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'baseline/*.py' --glob 'train.py'"),
         ("Reference scores present",
-         "test -f reference/results/val_bpb.csv || test -f reference/scores.csv "
-         "|| test -f reference/results.csv "
-         "|| ls reference/*.csv 2>/dev/null | head -1 | grep -q . "
-         "|| grep -qs val_bpb research/GROUND_TRUTH.md"),
+         "{python} -m argus_skill.verticals.metric_evidence "
+         "speedrun-reference --project-root ."),
         ("Setup notes present",
-         "test -f mission/SETUP.md || test -f SETUP.md "
-         "|| ls *SETUP*.md 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
         ("GROUND_TRUTH.md exists with content",
          "test -s research/GROUND_TRUTH.md"),
     ],
     "optimize": [
         _PIPELINE_CHECK,
         ("At least one attempt scaffolded",
-         "ls attempts/*/train.py experiments/*/train*.py 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'attempts/*/train.py' --glob 'experiments/*/train*.py'"),
     ],
     "measure": [
         _PIPELINE_CHECK,
         ("At least one attempt has scored seed rows",
-         "find attempts experiments -name 'results.csv' -size +0c 2>/dev/null | head -1 | grep -q . "
-         "|| grep -rlsq MEAN_VAL_BPB experiments attempts 2>/dev/null"),
+         "{python} -m argus_skill.verticals.metric_evidence speedrun --project-root ."),
     ],
     "report": [
         _PIPELINE_CHECK,
         ("Project-root RESULTS.md present",
-         "test -f RESULTS.md || test -s research/GROUND_TRUTH.md"),
-        ("RESULTS.md cites at least one attempt",
-         "{ test -f RESULTS.md && grep -qE 'attempts/|experiments/' RESULTS.md; } "
-         "|| grep -rlsq MEAN_VAL_BPB experiments attempts 2>/dev/null"),
+         "test -s RESULTS.md"),
+        ("Structured scored rows remain available",
+         "{python} -m argus_skill.verticals.metric_evidence speedrun --project-root ."),
     ],
 }
 

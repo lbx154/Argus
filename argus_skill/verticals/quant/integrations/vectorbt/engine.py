@@ -23,11 +23,10 @@ nothing crypto/DEX is hardcoded.
 """
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from ...backtest import BacktestResult, BacktestSpec
+from ...backtest import BacktestResult, BacktestSpec, config_fingerprint
 
 #: Resolve a spec to ``(close, entries, exits)`` for the single asset it names.
 SignalProvider = Callable[
@@ -62,10 +61,16 @@ class VectorbtEngine:
     name: str = "vectorbt@skeleton"
 
     def _config_hash(self, spec: BacktestSpec) -> str:
-        h = hashlib.sha256()
-        for part in (self.name, self.freq, str(self.fees), str(self.slippage), *spec.factor_ids):
-            h.update(str(part).encode())
-        return h.hexdigest()[:16]
+        return config_fingerprint(
+            engine_name=self.name,
+            spec=spec,
+            engine_config={
+                "init_cash": self.init_cash,
+                "fees": self.fees,
+                "slippage": self.slippage,
+                "freq": self.freq,
+            },
+        )
 
     def run(self, spec: BacktestSpec) -> BacktestResult:
         """Run one single-asset signal backtest through vectorbt.

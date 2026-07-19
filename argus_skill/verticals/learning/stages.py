@@ -90,8 +90,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "ingest": [
         _PIPELINE_CHECK,
         ("Material registered as an immutable wiki source",
-         "ls .autors/*/wiki/sources/notes/*.md .autors/*/wiki/sources/papers/*.md "
-         "2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob '.autors/*/wiki/sources/notes/*.md' "
+         "--glob '.autors/*/wiki/sources/papers/*.md'"),
         ("Material manifest present",
          "test -s learning/MATERIAL_MANIFEST.json || test -s learning/MATERIAL_MANIFEST.md"),
     ],
@@ -108,8 +109,9 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "review": [
         _PIPELINE_CHECK,
         ("Wiki index rebuilt",
-         "ls .autors/*/wiki/queries/by-status.md 2>/dev/null | head -1 | grep -q . "
-         "|| test -s learning/LIBRARY_DELTA.json"),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob '.autors/*/wiki/queries/by-status.md' "
+         "--glob 'learning/LIBRARY_DELTA.json'"),
     ],
 }
 

@@ -15,6 +15,10 @@
 不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前
 项目 vertical 不一致时完全忽略。
 
+**Stage-check integrity:** `STAGE_CHECKS` 的 shell 只做结构存在性检查。禁止内嵌
+`grep/awk/sed/jq/cat/head/tail` 或 `python -c` 从内容关键词推断成功、分数或正确性；
+这类证据必须交给可单测的结构化 Python validator 解析 CSV/JSON/JSONL。
+
 **Math novelty trigger:** math 不增加固定 literature stage。仅当 solve 工作产生或实质改写
 新定理、算子、证明机制、障碍证书或渐近路线时，Planner 才派独立短 DAG 节点完成
 `research/MECHANISM_OVERLAP_AUDIT.md`（精确/同义词查询、最近 primary、前后向引用和

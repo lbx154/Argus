@@ -205,3 +205,30 @@ def test_verification_stage_rejects_failed_log_and_accepts_explicit_pass(tmp_pat
     log.write_text("PASS: reset and boundary scenarios\n", encoding="utf-8")
     passed = subprocess.run(command, check=False, capture_output=True, text=True)
     assert passed.returncode == 0, passed.stdout + passed.stderr
+
+
+def test_verification_result_does_not_count_as_verification_source(tmp_path) -> None:
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "digital_circuit", "current_stage": "verification"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "verification").mkdir()
+    (tmp_path / "verification" / "result.json").write_text(
+        json.dumps({"status": "pass"}),
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable,
+        "-m",
+        "argus_skill.tools.stage_check",
+        "--project-root",
+        str(tmp_path),
+        "--vertical",
+        "digital_circuit",
+        "--stage",
+        "verification",
+    ]
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "Verification source present" in result.stdout

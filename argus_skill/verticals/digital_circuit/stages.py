@@ -32,28 +32,28 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         (
             "Verilog or SystemVerilog RTL present",
-            "find rtl src -type f \\( -name '*.v' -o -name '*.sv' \\) "
-            "-size +0c 2>/dev/null | head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'rtl/**/*.v' --glob 'rtl/**/*.sv' "
+            "--glob 'src/**/*.v' --glob 'src/**/*.sv'",
         ),
     ],
     "verification": [
         _PIPELINE_CHECK,
         (
             "Verification source present",
-            "find tb testbench verification formal -type f "
-            "\\( -name '*.v' -o -name '*.sv' -o -name '*.py' -o -name '*.sby' \\) "
-            "-size +0c 2>/dev/null | head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'tb/**/*.v' --glob 'tb/**/*.sv' --glob 'tb/**/*.py' --glob 'tb/**/*.sby' "
+            "--glob 'testbench/**/*.v' --glob 'testbench/**/*.sv' "
+            "--glob 'testbench/**/*.py' --glob 'testbench/**/*.sby' "
+            "--glob 'verification/**/*.v' --glob 'verification/**/*.sv' "
+            "--glob 'verification/**/*.py' --glob 'verification/**/*.sby' "
+            "--glob 'formal/**/*.v' --glob 'formal/**/*.sv' "
+            "--glob 'formal/**/*.py' --glob 'formal/**/*.sby'",
         ),
         (
             "Verification results present",
-            "find reports verification -type f "
-            "\\( -iname '*.log' -o -iname '*.json' \\) -size +0c "
-            "-exec grep -lEi "
-            "'^(pass|passed|proved|unsat|success)(:|[[:space:]]|$)"
-            "|(^|[[:space:]])status:[[:space:]]*(pass|passed|proved|unsat|success)([[:space:]]|$)"
-            "|\"status\"[[:space:]]*:[[:space:]]*\"(pass|passed|proved|unsat|success)\"' "
-            "{} \\; 2>/dev/null "
-            "| head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.digital_circuit.evidence "
+            "verification --project-root .",
         ),
     ],
     "synthesis": [
@@ -61,9 +61,10 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         (
             "Synthesis evidence or justified non-applicability present",
             "test -s synthesis/REPORT.md || test -s synthesis/NOT_APPLICABLE.md "
-            "|| find reports synthesis -type f "
-            "\\( -iname '*synth*.log' -o -iname '*timing*.rpt' -o -iname '*utilization*.rpt' \\) "
-            "-size +0c 2>/dev/null | head -1 | grep -q .",
+            "|| {python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--iglob 'reports/**/*synth*.log' --iglob 'reports/**/*timing*.rpt' "
+            "--iglob 'reports/**/*utilization*.rpt' --iglob 'synthesis/**/*synth*.log' "
+            "--iglob 'synthesis/**/*timing*.rpt' --iglob 'synthesis/**/*utilization*.rpt'",
         ),
     ],
     "delivery": [

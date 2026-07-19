@@ -4,7 +4,6 @@ from __future__ import annotations
 from ....skills.stage_checklists import ChecklistItem
 from ..stages import role_banner as _digital_circuit_role_banner
 
-
 STAGE_ORDER = ("execute",)
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
 WORKFLOW_MODE = "direct"
@@ -20,20 +19,18 @@ STAGE_CHECKS = {
         _PIPELINE_CHECK,
         (
             "Benchmark interface manifest ready",
-            "test -s design/BENCHMARK_INTERFACE.json "
-            "&& grep -q '\"status\"[[:space:]]*:[[:space:]]*\"ready\"' "
-            "design/BENCHMARK_INTERFACE.json",
+            "{python} -m argus_skill.verticals.digital_circuit.evidence "
+            "benchmark-interface --project-root .",
         ),
         (
             "Non-empty generated RTL present",
-            "find rtl -maxdepth 1 -type f \\( -name '*.v' -o -name '*.sv' \\) "
-            "-size +0c | head -1 | grep -q .",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'rtl/*.v' --glob 'rtl/*.sv'",
         ),
         (
             "Pre-score interface/elaboration gate passed",
-            "test -s evidence/preflight.json "
-            "&& grep -q '\"status\"[[:space:]]*:[[:space:]]*\"pass\"' "
-            "evidence/preflight.json",
+            "{python} -m argus_skill.verticals.digital_circuit.evidence "
+            "preflight --project-root .",
         ),
         (
             "Benchmark delivery summary present",

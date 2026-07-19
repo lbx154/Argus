@@ -59,7 +59,7 @@ def _cmd_intake_validate(a) -> int:
 
 def _cmd_form_check(a) -> int:
     text = Path(a.poem).read_text(encoding="utf-8")
-    spec = _load_json(a.spec) if a.spec and Path(a.spec).is_file() else {}
+    spec = _load_json(a.spec) if a.spec else {}
     findings = check_form(text, spec)
     if findings:
         for f in findings:
@@ -111,21 +111,40 @@ def _cmd_check_usage(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="modern-poetry-checks")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("intake-validate"); p.add_argument("envelope"); p.set_defaults(func=_cmd_intake_validate)
-    p = sub.add_parser("form-check"); p.add_argument("poem"); p.add_argument("spec", nargs="?"); p.set_defaults(func=_cmd_form_check)
-    p = sub.add_parser("review-validate"); p.add_argument("review"); p.set_defaults(func=_cmd_review_validate)
-    p = sub.add_parser("check-plan"); p.add_argument("review"); p.add_argument("plan"); p.set_defaults(func=_cmd_check_plan)
-    p = sub.add_parser("manifest-validate"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_validate)
-    p = sub.add_parser("manifest-content"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_content)
-    p = sub.add_parser("source-registry"); p.set_defaults(func=_cmd_source_registry)
-    p = sub.add_parser("check-usage"); p.add_argument("usage"); p.set_defaults(func=_cmd_check_usage)
+    p = sub.add_parser("intake-validate")
+    p.add_argument("envelope")
+    p.set_defaults(func=_cmd_intake_validate)
+    p = sub.add_parser("form-check")
+    p.add_argument("poem")
+    p.add_argument("spec", nargs="?")
+    p.set_defaults(func=_cmd_form_check)
+    p = sub.add_parser("review-validate")
+    p.add_argument("review")
+    p.set_defaults(func=_cmd_review_validate)
+    p = sub.add_parser("check-plan")
+    p.add_argument("review")
+    p.add_argument("plan")
+    p.set_defaults(func=_cmd_check_plan)
+    p = sub.add_parser("manifest-validate")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_validate)
+    p = sub.add_parser("manifest-content")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_content)
+    p = sub.add_parser("source-registry")
+    p.set_defaults(func=_cmd_source_registry)
+    p = sub.add_parser("check-usage")
+    p.add_argument("usage")
+    p.set_defaults(func=_cmd_check_usage)
     args = parser.parse_args(argv)
     try:
         return args.func(args)
     except OSError as exc:
-        print(f"FAIL: {exc}", file=sys.stderr); return 1
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
     except _ERRORS as exc:
-        print(f"FAIL: {exc}", file=sys.stderr); return 1
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -161,21 +161,22 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Frozen solver + metric present",
          "test -f src/math_synth_bench/solver.py && test -f src/math_synth_bench/metrics.py"),
         ("Setup notes present",
-         "test -f mission/SETUP.md || test -f SETUP.md "
-         "|| ls *SETUP*.md 2>/dev/null | head -1 | grep -q ."),
-        ("GROUND_TRUTH.md has a measured score",
-         "grep -qsiE 'score|pass.?gap|pass@4' research/GROUND_TRUTH.md"),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
+        ("GROUND_TRUTH.md exists with content",
+         "test -s research/GROUND_TRUTH.md"),
     ],
     "optimize": [
         _PIPELINE_CHECK,
         ("At least one attempt scaffolded",
-         "ls attempts/*/baseline.py attempts/*/*.py attempts/*/CHANGES.md 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'attempts/*/baseline.py' --glob 'attempts/*/*.py' "
+         "--glob 'attempts/*/CHANGES.md'"),
     ],
     "measure": [
         _PIPELINE_CHECK,
         ("At least one scored run recorded (score)",
-         "find . -name 'summary.json' -path '*runs*' -size +0c 2>/dev/null | head -1 | grep -q . "
-         "|| grep -rlsq -iE 'score|pass_gap' runs attempts research 2>/dev/null"),
+         "{python} -m argus_skill.verticals.metric_evidence math-synth --project-root ."),
     ],
     "report": [
         _PIPELINE_CHECK,
