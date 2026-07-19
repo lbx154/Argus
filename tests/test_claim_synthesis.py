@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from argus_skill.core.claim_synthesis import build_claim_synthesis
 from argus_skill.core.models import ReviewDecision
 from argus_skill.engineer.runner import SupervisedEngineer

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
 
+from ..core.claim_synthesis import claim_synthesis_for_review
 from ..core.event_catalog import EventType
 from ..core.models import (
     LoopOutcome,
@@ -39,7 +40,6 @@ from ..core.models import (
     RunnerOptions,
     RunnerResult,
 )
-from ..core.claim_synthesis import claim_synthesis_for_review
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import (
@@ -67,13 +67,13 @@ from .background_subagents import (
     render_background_subagents_advisory,
     wait_for_subagent_cadence,
 )
-from .long_job_policy import find_unmanaged_long_jobs
 from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
 from .failure_signature import (
     FailureSignature,
     review_failure_signature,
     signature_similarity,
 )
+from .long_job_policy import find_unmanaged_long_jobs
 from .self_review import (
     EngineerCompletionDecision,
     EngineerSkillMaintenanceOutcome,

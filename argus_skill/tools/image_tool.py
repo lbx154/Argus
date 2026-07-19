@@ -22,8 +22,9 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 from argus_skill.skills.venue_profiles import VenueProfile, get_venue_profile
+
+from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"

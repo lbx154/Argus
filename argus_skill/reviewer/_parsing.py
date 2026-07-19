@@ -10,8 +10,8 @@ import json
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
-from .failure_taxonomy import normalize_failure_layer
 from ..core.research_contract import adapt_legacy_research_result_payload
+from .failure_taxonomy import normalize_failure_layer
 
 _BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
 _RESEARCH_PAUSE_STATUSES = {
