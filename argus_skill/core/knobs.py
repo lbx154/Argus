@@ -49,9 +49,9 @@ class BudgetCaps:
 
 
 BUDGET_KNOB_DEFAULTS: dict[str, str] = {
-    "ARGUS_SKILL_PER_MISSION_CAP_USD": "200.0",
-    "ARGUS_SKILL_DAILY_CAP_USD": "1200.0",
-    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "10000.0",
+    "ARGUS_SKILL_PER_MISSION_CAP_USD": "300.0",
+    "ARGUS_SKILL_DAILY_CAP_USD": "2000.0",
+    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "20000.0",
 }
 
 # Daemon count is not provider concurrency: every backend still obeys its own
@@ -267,6 +267,96 @@ def _parse_budget_value(name: str, raw: str) -> float:
     return value
 
 
+def _migrate_legacy_budget_into_config(
+    project_state_dir: object | None,
+    global_root: object | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """One-time: seed config.json from a pre-existing ``budget.json`` /
+    ``global_budget.json`` for any cap key config.json (or env) does not already
+    carry, so config.json becomes the single source WITHOUT silently resetting an
+    upgrading install's operator-set budget. Idempotent: a cheap no-op once
+    config.json holds all three cap keys (or the legacy files are absent).
+    """
+    from .knob_store import read_persisted_knobs, write_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    env_map = env if env is not None else os.environ
+
+    def _have(name: str) -> bool:
+        return bool(str(env_map.get(name, "") or "").strip()) or name in persisted
+
+    needed = [
+        name
+        for name in (
+            "ARGUS_SKILL_PER_MISSION_CAP_USD",
+            "ARGUS_SKILL_DAILY_CAP_USD",
+            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+        )
+        if not _have(name)
+    ]
+    if not needed:
+        return
+
+    import json as _json
+    from pathlib import Path
+
+    from .project_budget import (
+        DEFAULT_DAILY_CAP_USD,
+        DEFAULT_GLOBAL_DAILY_CAP_USD,
+        DEFAULT_PER_MISSION_CAP_USD,
+        budget_path,
+        global_budget_path,
+    )
+
+    def _load(path: object) -> dict | None:
+        try:
+            data = _json.loads(Path(str(path)).read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _fmt(value: float) -> str:
+        return repr(int(value)) if float(value).is_integer() else repr(float(value))
+
+    to_write: dict[str, str] = {}
+    if project_state_dir is not None:
+        pb = _load(budget_path(project_state_dir))
+        if pb is not None:
+            for name, field, default in (
+                (
+                    "ARGUS_SKILL_PER_MISSION_CAP_USD",
+                    "per_mission_cap_usd",
+                    DEFAULT_PER_MISSION_CAP_USD,
+                ),
+                ("ARGUS_SKILL_DAILY_CAP_USD", "daily_cap_usd", DEFAULT_DAILY_CAP_USD),
+            ):
+                if name in needed and field in pb:
+                    try:
+                        val = float(pb[field])
+                    except (TypeError, ValueError):
+                        continue
+                    if val != float(default):  # operator-customised → preserve
+                        to_write[name] = _fmt(val)
+    if "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD" in needed:
+        groot = global_root
+        if groot is None and project_state_dir is not None:
+            p = Path(str(project_state_dir)).expanduser()
+            groot = p.parent.parent if p.parent.name == "projects" else None
+        if groot is not None:
+            gb = _load(global_budget_path(groot))
+            if gb is not None and "global_daily_cap_usd" in gb:
+                try:
+                    gval = float(gb["global_daily_cap_usd"])
+                except (TypeError, ValueError):
+                    gval = None
+                if gval is not None and gval != float(DEFAULT_GLOBAL_DAILY_CAP_USD):
+                    to_write["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] = _fmt(gval)
+    if to_write:
+        write_persisted_knobs(to_write)
+
+
 def resolve_budget_caps(
     *,
     project_state_dir: object | None = None,
@@ -274,35 +364,16 @@ def resolve_budget_caps(
     env: Mapping[str, str] | None = None,
     persisted: Mapping[str, str] | None = None,
 ) -> BudgetCaps:
-    """Resolve budget caps once for CLI, daemon, and Web launch paths.
+    """Resolve budget caps from the knob layer — ``config.json`` is the single source.
 
-    Production callers pass ``project_state_dir`` and read ``budget.json``.
-    The env/persisted path remains only for compatibility and one-time migration.
+    Precedence is ``env`` > persisted ``config.json`` > default. The retired
+    ``budget.json``/``global_budget.json`` are read ONCE (via
+    ``_migrate_legacy_budget_into_config``) only to migrate a pre-existing
+    operator budget into config.json so an upgrade never silently resets caps;
+    ``project_state_dir``/``global_root`` are used solely to locate those files.
     """
-    if project_state_dir is not None:
-        from pathlib import Path
-
-        from .project_budget import read_global_budget, read_project_budget
-
-        budget = read_project_budget(project_state_dir, migrate_env=env)
-        if global_root is None:
-            project_path = Path(str(project_state_dir)).expanduser()
-            global_root = (
-                project_path.parent.parent
-                if project_path.parent.name == "projects"
-                else None
-            )
-        if global_root is None:
-            from .paths import global_root as default_global_root
-
-            global_root = default_global_root()
-        global_budget = read_global_budget(global_root, migrate_env=env)
-        return BudgetCaps(
-            per_mission_cap_usd=budget.per_mission_cap_usd,
-            daily_cap_usd=budget.daily_cap_usd,
-            global_daily_cap_usd=global_budget.global_daily_cap_usd,
-        )
     if persisted is None:
+        _migrate_legacy_budget_into_config(project_state_dir, global_root, env=env)
         from .knob_store import read_persisted_knobs
 
         persisted = read_persisted_knobs()
@@ -316,20 +387,10 @@ def resolve_budget_caps(
         )
         return _parse_budget_value(name, resolved.value)
 
-    caps = BudgetCaps(
+    return BudgetCaps(
         per_mission_cap_usd=_value("ARGUS_SKILL_PER_MISSION_CAP_USD"),
         daily_cap_usd=_value("ARGUS_SKILL_DAILY_CAP_USD"),
         global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
-    )
-    if global_root is None:
-        return caps
-    from .project_budget import read_global_budget
-
-    global_budget = read_global_budget(global_root, migrate_env=env)
-    return BudgetCaps(
-        per_mission_cap_usd=caps.per_mission_cap_usd,
-        daily_cap_usd=caps.daily_cap_usd,
-        global_daily_cap_usd=global_budget.global_daily_cap_usd,
     )
 
 

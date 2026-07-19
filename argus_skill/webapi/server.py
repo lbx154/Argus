@@ -1519,37 +1519,8 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
-    budget_fields = {
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": "per_mission_cap_usd",
-        "ARGUS_SKILL_DAILY_CAP_USD": "daily_cap_usd",
-    }
-    if env_name in budget_fields:
-        if project_state_dir is None:
-            raise ValueError("project budget requires a project state directory")
-        from ..core.project_budget import update_project_budget
-
-        update_project_budget(
-            project_state_dir,
-            **{budget_fields[env_name]: val},
-        )
-        return {
-            "name": env_name,
-            "value": val,
-            "source": "project:budget.json",
-            "restart_required": True,
-        }
-    if env_name == "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD":
-        if global_root is None:
-            raise ValueError("global budget requires a global root")
-        from ..core.project_budget import update_global_budget
-
-        update_global_budget(global_root, global_daily_cap_usd=val)
-        return {
-            "name": env_name,
-            "value": val,
-            "source": "global:global_budget.json",
-            "restart_required": True,
-        }
+    # Budget caps are ordinary config.json knobs now (budget.json retired) — they
+    # fall through to the generic knob_store write path below like any other knob.
     if not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
     os.environ[env_name] = val
@@ -1587,33 +1558,13 @@ def set_budget_config(
             env_name,
             str(values[alias]),
         )
-    from ..core.project_budget import write_project_budget
-
-    project_values = {
-        "per_mission_cap_usd": normalized.pop("ARGUS_SKILL_PER_MISSION_CAP_USD"),
-        "daily_cap_usd": normalized.pop("ARGUS_SKILL_DAILY_CAP_USD"),
-    }
-    global_value = normalized.pop("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD")
+    # Budget caps are ordinary config.json knobs now (budget.json retired) — write
+    # the whole normalized batch (caps + quota knobs) to the knob_store.
+    for key, value in normalized.items():
+        os.environ[key] = value
     if not write_persisted_knobs(normalized):
         raise RuntimeError("budget settings could not be persisted")
-    from ..core.project_budget import write_global_budget
-
-    global_budget = write_global_budget(
-        global_root,
-        {"global_daily_cap_usd": global_value},
-    )
-    project_budget = write_project_budget(project_state_dir, project_values)
-    return {
-        "values": {
-            **normalized,
-            "ARGUS_SKILL_PER_MISSION_CAP_USD": str(project_budget.per_mission_cap_usd),
-            "ARGUS_SKILL_DAILY_CAP_USD": str(project_budget.daily_cap_usd),
-            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": str(
-                global_budget.global_daily_cap_usd
-            ),
-        },
-        "restart_required": True,
-    }
+    return {"values": dict(normalized), "restart_required": True}
 
 
 def set_identity(
