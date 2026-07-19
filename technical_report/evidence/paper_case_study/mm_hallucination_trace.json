@@ -1,0 +1,47 @@
+{
+  "schema": "argus-representative-paper-trace/v1",
+  "project": "mm-hallucination",
+  "campaign_hours": 163.56,
+  "engineer_rounds": 174,
+  "reviewer_revisions": 94,
+  "session_rolls": 29,
+  "early_no_go_rollbacks": 7,
+  "submission_rollbacks": 2,
+  "canonical_methods": 5,
+  "canonical_benchmarks": 3,
+  "canonical_cells": 15,
+  "rows_per_cell": 300,
+  "canonical_scored_rows": 4500,
+  "final_pages": 10,
+  "final_format": "AAAI",
+  "no_go_branches": [
+    "strong-baseline coverage",
+    "conservative veto",
+    "bidirectional arbitration",
+    "contrastive decomposition",
+    "evidence-conflict taxonomy",
+    "forced-choice conflict slots",
+    "visual-delta decoding"
+  ],
+  "scope_pivot": {
+    "from": "positive mitigation method",
+    "to": "diagnostic negative-results audit"
+  },
+  "submission_repairs": [
+    "official-scorer provenance and canonical run selection",
+    "GPU saturation telemetry for HallusionBench replacements"
+  ],
+  "windows_hours": {
+    "no_go_start": 108.03,
+    "negative_scope_locked": 120.02,
+    "full_matrix_complete": 122.58,
+    "first_submission_stage": 127.62,
+    "submission_repair_start": 155.70,
+    "final_completion": 163.56
+  },
+  "notes": [
+    "The seven early rollback decisions precede the negative-results scope pivot.",
+    "The two late rollback decisions move from submission back to benchmark.",
+    "Role and Stage labels summarize structured runtime records; they do not expose private prompts or model reasoning."
+  ]
+}

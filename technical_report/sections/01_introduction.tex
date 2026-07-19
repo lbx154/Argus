@@ -67,12 +67,14 @@ repair, GPU kernels, language-model training, training speed, research-assistant
 tasks, and data synthesis. SWE-Bench Pro is one row in this benchmark suite; its
 731-task trajectory additionally enables analyses of Skill/Wiki evolution and
 Reviewer intervention. A de-duplicated inventory records 41 research artifacts
-across six programs as a separate breadth measure. We additionally freeze one
+across six programs as a separate breadth measure. We additionally report one
 mathematical campaign as a representative vertical trace, showing how the four
 roles hand off the same objective through recovery, route testing, proof
-production, revision, acceptance, and retained state.
+production, revision, acceptance, and retained state. Finally, we reconstruct six
+Argus paper-production campaigns from their structured Stage and role logs, linking
+runtime behavior to final AAAI- and ACL-formatted manuscripts.
 
-This report makes five contributions:
+This report makes six contributions:
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
   \item We formulate long-horizon reasoning as bounded missions over persistent
@@ -91,6 +93,13 @@ This report makes five contributions:
   \item We reconstruct one mathematical campaign as a role-resolved Agent trace,
     making the Manager, Planner, Engineer, and Reviewer actions visible across
     multiple bounded missions and six accepted theorem-frontier updates.
+  \item We present a six-project autonomous paper-production case study covering
+    \PaperCaseCampaignHours{} campaign-hours, \PaperCaseRounds{} Engineer rounds,
+    \PaperCaseContinues{} Reviewer revisions, and \PaperCaseRollbacks{} Stage
+    rollbacks, with all six canonical pipelines reaching submission completion. A
+    representative campaign uses seven no-go rollbacks to reframe a failed method
+    search as a 4,500-row negative-results study, then repairs two late submission
+    defects without resetting the research state.
 \end{enumerate}
 
 The remainder of the report follows a conventional research-paper organization.

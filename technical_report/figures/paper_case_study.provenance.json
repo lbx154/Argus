@@ -1,0 +1,22 @@
+{
+  "figure_id": "autonomous-paper-portfolio",
+  "reader_question": "What scientific work did Argus produce, and how does the recurrent runtime connect to those outputs?",
+  "claim": "Six canonical pipelines completed across six domains through repeated role handoffs, review, rollback, and session continuation.",
+  "evidence": [
+    "paper_trajectory_summary.json",
+    "paper_scientific_findings.json"
+  ],
+  "encoding": "A recurrent four-role state loop is paired with six paper cards that report task-native findings and process counts.",
+  "scope": "Observed Argus campaigns; paper-format completion is not venue acceptance or a human-quality comparison.",
+  "target_size": "12 x 7.15 inch source canvas; approximately 4.2 inches high at manuscript width",
+  "visual_style": "shared Argus paper palette, white background, compact panels, and fixed role colors",
+  "editable_source": [
+    "build_paper_case_study.py",
+    "paper_case_study.html"
+  ],
+  "export": [
+    "paper_case_study.pdf",
+    "paper_case_study.svg",
+    "paper_case_study.png"
+  ]
+}

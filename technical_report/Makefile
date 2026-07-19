@@ -12,6 +12,8 @@ SWEFIG   := figures/swebench_evolution.pdf
 REVIEWFIG := figures/reviewer_mechanism.pdf
 HORIZONFIG := figures/horizon_mountain.pdf
 ERDOSFIG := figures/erdos_vertical_trace.pdf
+PAPERCASEFIG := figures/paper_case_study.pdf
+PAPERTRACEFIG := figures/paper_case_trajectory.pdf
 
 .PHONY: all clean distclean
 
@@ -39,8 +41,24 @@ $(HORIZONFIG): figures/build_horizon_mountain_html.py figures/horizon_mountain.h
 $(ERDOSFIG): figures/erdos_agent_trace.html figures/render_html_figure.py \
 	evidence/erdos_trace/trace.csv
 	$(PYTHON) figures/render_html_figure.py figures/erdos_agent_trace.html $(ERDOSFIG)
+	pdftocairo -svg $(ERDOSFIG) figures/erdos_vertical_trace.svg
+	pdftoppm -singlefile -png -r 180 $(ERDOSFIG) figures/erdos_vertical_trace
 
-$(PDF): $(MAIN).tex references.bib $(TEASER) $(SWEFIG) $(REVIEWFIG) $(HORIZONFIG) $(ERDOSFIG) $(wildcard sections/*.tex) \
+$(PAPERCASEFIG) $(PAPERTRACEFIG) &: figures/build_paper_case_study.py \
+	figures/render_html_figure.py \
+	evidence/paper_case_study/paper_trajectory_summary.json \
+	evidence/paper_case_study/stage_transitions.csv \
+	evidence/paper_case_study/paper_scientific_findings.json \
+	evidence/paper_case_study/mm_hallucination_trace.json
+	$(PYTHON) figures/build_paper_case_study.py
+	$(PYTHON) figures/render_html_figure.py figures/paper_case_study.html $(PAPERCASEFIG)
+	$(PYTHON) figures/render_html_figure.py figures/paper_case_trajectory.html $(PAPERTRACEFIG)
+	pdftocairo -svg $(PAPERCASEFIG) figures/paper_case_study.svg
+	pdftocairo -svg $(PAPERTRACEFIG) figures/paper_case_trajectory.svg
+	pdftoppm -singlefile -png -r 180 $(PAPERCASEFIG) figures/paper_case_study
+	pdftoppm -singlefile -png -r 180 $(PAPERTRACEFIG) figures/paper_case_trajectory
+
+$(PDF): $(MAIN).tex references.bib $(TEASER) $(SWEFIG) $(REVIEWFIG) $(HORIZONFIG) $(ERDOSFIG) $(PAPERCASEFIG) $(PAPERTRACEFIG) $(wildcard sections/*.tex) \
 	$(wildcard figures/*.tex) $(wildcard figures/*.png) $(wildcard figures/*.pdf) \
 	$(wildcard assets/*.png)
 	$(LATEX) $(LFLAGS) $(MAIN).tex

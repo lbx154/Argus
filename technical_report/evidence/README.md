@@ -15,6 +15,8 @@ and empirical figures in the Argus technical report.
   role-efficiency measurements used in the vertical case study.
 - `process_theory/` contains the numerical substitutions and theory-to-measurement
   mapping used by the process-to-capability analysis.
+- `paper_case_study/` contains the public trajectory aggregates for six autonomous
+  paper-production campaigns.
 
 The report build uses only the fields required by the published tables and
 figures. Credentials, private model reasoning, and raw runtime event streams are
