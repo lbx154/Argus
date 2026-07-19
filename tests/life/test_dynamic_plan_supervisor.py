@@ -313,6 +313,37 @@ def test_stage_reconciliation_hold_keeps_plan_and_calls_manager_once(
     )
 
 
+def test_revision_wait_without_explicit_request_still_checks_reconciliation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    planner_response = _stage_reconciliation_waiting_verdict().replace(
+        '"stage_reconciliation_required": true',
+        '"stage_reconciliation_required": false',
+    )
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=planner_response,
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return ""
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert len(reconciliations) == 1
+
+
 def test_planning_cycle_drains_operator_input_while_waiting(
     tmp_path,
     monkeypatch,

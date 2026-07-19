@@ -800,14 +800,8 @@ class PlanningCycleMixin:
                 self._enter_idle_backoff()
                 return PLAN_ERROR
             if revision_request is not None:
-                contract = getattr(verdict, "waiting_contract", None)
-                reconciliation_required = bool(
-                    getattr(contract, "stage_reconciliation_required", False)
-                )
                 reconciliation_result = (
                     self._reconcile_open_ended_planner_waiting(verdict)
-                    if reconciliation_required
-                    else ""
                 )
                 if reconciliation_result == "rollback":
                     superseding_plan_id = (
