@@ -83,6 +83,13 @@ human cohort, or systems measurement.
 
 ## Execution loop
 
+0. **Build the project research platform.** The Engineer may create the
+   project-local environment, data/model bindings, evaluator, runner, telemetry,
+   and teardown tooling needed by the research question. Record faithful probes
+   in `research/PLATFORM_SPEC.json` and run
+   `python -m argus_skill.tools.research_platform doctor --project-root .`.
+   Platform failures route back to Engineer repair and are not evidence about
+   the scientific idea.
 1. **Smoke the real path.** Run the smallest faithful end-to-end public-data or
    official-evaluator check that catches wiring errors.
 2. **Execute the preregistered comparison.** Keep data, metric, compute, and
