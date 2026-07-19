@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from ...core.event_catalog import EventType
 from ..terminal_state import build_terminal_idle_signature
@@ -64,6 +65,33 @@ class IdleCycleMixin:
                 "messages": out,
             })
         return out
+
+    def _resolve_pending_question_from_inbox(self, pending_questions: list[Any]) -> bool:
+        """Route unconsumed operator input through Manager before deferring Planner."""
+        resolver = getattr(self.config, "pending_question_resolver", None)
+        if len(pending_questions) != 1 or not callable(resolver):
+            return False
+        messages = self._drain_user_inbox(max_messages=1)
+        if not messages:
+            return False
+        item = pending_questions[0]
+        for message in messages:
+            try:
+                result = resolver(item, message)
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "pending-question resolver failed for backlog item %s",
+                    getattr(item, "id", ""),
+                )
+                continue
+            if isinstance(result, dict) and bool(result.get("resolved")):
+                self._reset_idle_backoff()
+                self._emit_status(
+                    "operator inbox resolved pending question "
+                    f"for backlog item {getattr(item, 'id', '')}"
+                )
+                return True
+        return False
 
     def _maybe_stop(self) -> str:
         ev = self.config.stop_event

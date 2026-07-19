@@ -396,6 +396,96 @@ def test_pending_operator_question_defers_planner_without_calling_it(tmp_path) -
     assert deferred[-1]["item_ids"] == [blocked.id]
 
 
+def test_operator_inbox_resolves_single_pending_question_through_manager(
+    tmp_path,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    messages = iter(["GPU 6 is approved", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+
+    def resolve(item, message):
+        original, continuation = supervisor.memory.backlog.continue_with_operator_reply(
+            item.id,
+            message,
+            manager_decision="Use physical GPU 6 exclusively.",
+        )
+        return {
+            "resolved": original is not None and continuation is not None,
+            "item": continuation.to_jsonable() if continuation else None,
+        }
+
+    supervisor.config.pending_question_resolver = resolve
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is True
+    rows = supervisor.memory.backlog.all()
+    original = next(item for item in rows if item.id == blocked.id)
+    continuation = next(item for item in rows if item.id != blocked.id)
+    assert original.pending_question == ""
+    assert continuation.status == "pending"
+    assert "GPU 6 is approved" in continuation.objective
+    assert "Use physical GPU 6 exclusively." in continuation.objective
+    drained = [
+        event for event in sink.events if event["type"] == "life.inbox.drained"
+    ]
+    assert drained[-1]["messages"] == ["GPU 6 is approved"]
+
+
+def test_pending_question_resolution_drains_only_one_inbox_message(
+    tmp_path,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    messages = iter(["GPU 6 is approved", "Keep batch size unchanged", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+    supervisor.config.pending_question_resolver = lambda _item, _message: {
+        "resolved": True
+    }
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is True
+    assert next(messages) == "Keep batch size unchanged"
+
+
+def test_non_answer_inbox_message_is_still_routed_through_manager(
+    tmp_path,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    supervisor.config.user_inbox = lambda: "Show current status"
+    routed: list[str] = []
+
+    def route(_item, message):
+        routed.append(message)
+        return {"kind": "chat", "resolved": False}
+
+    supervisor.config.pending_question_resolver = route
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is False
+    assert routed == ["Show current status"]
+    current = next(
+        item for item in supervisor.memory.backlog.all() if item.id == blocked.id
+    )
+    assert current.pending_question == "Which GPU is approved?"
+
+
 def test_replan_planner_atomically_replaces_active_revision(
     tmp_path,
     monkeypatch,

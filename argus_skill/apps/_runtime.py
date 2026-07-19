@@ -1240,6 +1240,26 @@ def _inbox_drainer_for(
     return _drain_one
 
 
+def _pending_question_resolver_for(project_root: Path):
+    """Bind daemon inbox replies to the authoritative Manager answer path."""
+    state_root = Path(project_root)
+    if state_root.parent.name != "projects":
+        return None
+    sid = state_root.name
+    global_root = state_root.parent.parent
+
+    def _resolve(_item: Any, text: str) -> dict[str, Any] | None:
+        from ..webapi.manager_bridge import manager_message
+
+        return manager_message(
+            sid,
+            text,
+            global_root=global_root,
+        )
+
+    return _resolve
+
+
 def _resolve_runner_backend_name(
     args: argparse.Namespace, env: Mapping[str, str] | None = None,
 ) -> str | None:
@@ -1404,6 +1424,7 @@ def _build_supervisor_config(
             project_root,
             project_root=artifact_root or project_worktree or project_root,
         ),
+        pending_question_resolver=_pending_question_resolver_for(project_root),
         runtime_context=runtime_context,
         continuous=continuous,
         continuous_objective=continuous_objective,
