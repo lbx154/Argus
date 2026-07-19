@@ -1,9 +1,10 @@
 """Digital-circuit design and verification vertical.
 
 This vertical covers synthesizable Verilog/SystemVerilog RTL, testbenches,
-formal properties, FPGA/ASIC-oriented synthesis, and sign-off evidence. It is
-not a software-only delivery lane: completion requires an explicit hardware
-contract, independently checked RTL behavior, and reproducible tool output.
+formal properties, FPGA/ASIC-oriented synthesis, fixed-harness benchmarks, and
+sign-off evidence. It is not a software-only delivery lane: completion requires
+an explicit hardware contract, independently checked RTL behavior, and
+reproducible tool output.
 """
 from __future__ import annotations
 
@@ -114,9 +115,11 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Review synthesis and implementation evidence for synthesizable designs: "
         "tool/version, target device or library, clock and I/O constraints, warnings, "
         "latches/black boxes, timing, and area/resource utilization. For a verification-"
-        "only mission, accept synthesis/NOT_APPLICABLE.md only when it names the exact "
-        "reason synthesis is outside the task contract and the RTL claim is not "
-        "overstated.",
+        "only or fixed functional-benchmark mission, accept synthesis/NOT_APPLICABLE.md "
+        "only when it names the exact reason synthesis/PPA is outside the frozen scorer "
+        "contract and the RTL claim is not overstated. Missing host-PATH tools alone are "
+        "not a blocker until declared project-local and local container toolchains have "
+        "also been inspected.",
         ["synthesis/REPORT.md", "synthesis/NOT_APPLICABLE.md", "reports/"],
     ),
     "delivery": (
@@ -125,8 +128,19 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "the delivered RTL matches the reviewed source, all required tests pass, "
         "synthesis/formal claims trace to raw tool output, generated artifacts are not "
         "mistaken for source, known limitations are explicit, and no passing claim "
-        "depends on stale caches or an edited reference/testbench.",
-        ["RESULTS.md", "DELIVERY.md", "Makefile", "scripts/"],
+        "depends on stale caches or an edited reference/testbench. For an external "
+        "benchmark claim, require frozen selection/scorer provenance, a non-empty patch, "
+        "immutable first-attempt evidence, separately appended repair attempts, and "
+        "explicit golden/hidden-harness non-exposure.",
+        [
+            "RESULTS.md",
+            "DELIVERY.md",
+            "Makefile",
+            "scripts/",
+            "selection.json",
+            "controller.json",
+            "results.jsonl",
+        ],
     ),
 }
 
@@ -269,6 +283,20 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="final artifact manifest and repository status",
         ),
+        ChecklistItem(
+            id="delivery.benchmark-integrity",
+            statement=(
+                "When an external benchmark is claimed, task selection and scorer provenance "
+                "are frozen, the delivered patch is non-empty, first-attempt evidence is "
+                "immutable, repairs append separate records, and golden outputs or hidden "
+                "harness sources were not exposed; otherwise delivery explicitly records that "
+                "no external benchmark claim is being made."
+            ),
+            evidence_hint=(
+                "selection.json/controller.json plus append-only results.jsonl and per-attempt "
+                "raw score directories, or an explicit non-benchmark statement in DELIVERY.md"
+            ),
+        ),
     ),
 }
 
@@ -284,6 +312,10 @@ def role_banner(role: str) -> str:
         "synthesizability are first-class correctness conditions. Never claim PASS "
         "from compile success alone or invent simulator, formal, timing, coverage, "
         "or area results.\n"
+        "For a fixed external benchmark, freeze the prompt, evaluator, official "
+        "test inputs, tool versions, and score policy before editing. Keep the first "
+        "official attempt immutable, record repair attempts separately, and never "
+        "inspect or expose golden outputs or hidden harness sources.\n"
     )
     role_norm = (role or "").strip().lower()
     if role_norm == "planner":
@@ -291,21 +323,28 @@ def role_banner(role: str) -> str:
             "Plan from the hardware contract and highest-risk unknowns: interface "
             "ambiguity, reset/CDC/protocol behavior, tool availability, verification "
             "oracle, and synthesis constraints. Keep the reference/testbench frozen "
-            "once the acceptance contract is established."
+            "once the acceptance contract is established. When a fixed functional "
+            "benchmark does not score synthesis/PPA, use the shortest auditable path "
+            "and document synthesis as outside scorer scope instead of manufacturing "
+            "unscored implementation work."
         )
     if role_norm == "engineer":
         return common + (
             "Implement minimal synthesizable RTL, then run the real available tools "
             "(for example Verilator/iverilog, cocotb, Yosys, or SymbiYosys) through "
-            "project-local commands. Preserve failing seeds, logs, and waveforms; fix "
-            "RTL rather than weakening assertions or expected values."
+            "project-local commands. Inspect declared local containers after host PATH "
+            "before declaring a tool unavailable, and serialize shared container "
+            "runtimes. Preserve failing seeds, logs, and waveforms; fix RTL rather than "
+            "weakening assertions or expected values."
         )
     if role_norm == "reviewer":
         return common + (
             "Act as an independent hardware sign-off reviewer. Inspect the RTL and "
             "specification, rerun the declared commands, challenge the oracle, audit "
             "reset/clock/width/CDC/X behavior, and trace synthesis/timing claims to "
-            "fresh raw reports. Do not trust a summary or a single happy-path test."
+            "fresh raw reports. For benchmarks, audit workspace isolation, patch "
+            "non-emptiness, hidden-input non-exposure, and separate first-attempt and "
+            "post-repair records. Do not trust a summary or a single happy-path test."
         )
     return common
 

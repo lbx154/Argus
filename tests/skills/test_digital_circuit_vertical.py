@@ -60,6 +60,11 @@ def test_digital_circuit_persists_and_renders_own_checklists(tmp_path) -> None:
         "verify.no-xz-and-properties",
         "verify.reproducible-pass",
     }
+    delivery = resolve_stage_checklist_contract(
+        "delivery",
+        project_root=tmp_path,
+    )
+    assert "delivery.benchmark-integrity" in {item.id for item in delivery.items}
 
     for stage in ("specification", "rtl", "verification", "synthesis", "delivery"):
         rendered = format_stage_checklist(
@@ -90,9 +95,38 @@ def test_digital_circuit_skills_are_packaged() -> None:
     skills = dict(iter_vertical_skill_texts("digital_circuit"))
 
     assert "engineer/digital-circuit-rtl-verification.md" in skills
+    assert "engineer/digital-circuit-benchmark-execution.md" in skills
     assert "reviewer/digital-circuit-signoff-review.md" in skills
+    assert "reviewer/digital-circuit-benchmark-review.md" in skills
     assert "## Operating method" in skills["engineer/digital-circuit-rtl-verification.md"]
+    assert "immutable first-attempt evidence" in skills[
+        "engineer/digital-circuit-benchmark-execution.md"
+    ]
     assert "## Review protocol" in skills["reviewer/digital-circuit-signoff-review.md"]
+    assert "Do not divide attempt successes" in skills[
+        "reviewer/digital-circuit-benchmark-review.md"
+    ]
+    assert all(
+        "category: anti-cheat" in skills[path]
+        for path in (
+            "engineer/digital-circuit-benchmark-execution.md",
+            "reviewer/digital-circuit-benchmark-review.md",
+        )
+    )
+
+
+def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> None:
+    mod = load_vertical("digital_circuit")
+
+    planner = vertical_role_banner(mod, "planner")
+    engineer = vertical_role_banner(mod, "engineer")
+    reviewer = vertical_role_banner(mod, "reviewer")
+    for banner in (planner, engineer, reviewer):
+        assert "Keep the first official attempt immutable" in banner
+        assert "golden outputs or hidden harness sources" in banner
+    assert "shortest auditable path" in planner
+    assert "declared local containers" in engineer
+    assert "post-repair records" in reviewer
 
 
 def test_digital_circuit_uses_custom_staged_kind() -> None:
