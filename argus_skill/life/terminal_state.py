@@ -176,7 +176,7 @@ def _git_project_digest(
                 "status",
                 "--porcelain=v1",
                 "-z",
-                "--untracked-files=all",
+                "--untracked-files=normal",
             ],
             cwd=project_root,
             check=True,
@@ -252,6 +252,29 @@ def _fallback_project_digest(
     return digest.digest()
 
 
+def _review_files(artifact_root: Path) -> list[Path]:
+    """Find canonical review files without descending into environments/logs."""
+    found: list[Path] = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(artifact_root):
+            relative_dir = Path(dirpath).relative_to(artifact_root)
+            depth = len(relative_dir.parts)
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if name not in _IGNORED_TOP_LEVEL
+                and not name.endswith(".egg-info")
+                and depth < 4
+            ]
+            if "REVIEW.md" in filenames:
+                found.append(Path(dirpath) / "REVIEW.md")
+                if len(found) >= 100:
+                    break
+    except OSError:
+        return []
+    return sorted(found)
+
+
 def build_terminal_idle_signature(
     *,
     objective: str,
@@ -279,11 +302,7 @@ def build_terminal_idle_signature(
         digest.update(b"pipeline-state-unavailable")
     digest.update(b"\0")
 
-    try:
-        reviews = sorted(artifact_root.rglob("REVIEW.md"))
-    except OSError:
-        reviews = []
-    for path in reviews[:100]:
+    for path in _review_files(artifact_root):
         try:
             relative = path.relative_to(artifact_root).as_posix()
         except ValueError:

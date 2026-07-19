@@ -74,6 +74,9 @@ def test_restart_ignores_agent_bookkeeping_without_another_planner_call(
         "planner refresh\n",
         encoding="utf-8",
     )
+    ignored_review = project / ".venv" / "deep" / "package" / "REVIEW.md"
+    ignored_review.parent.mkdir(parents=True)
+    ignored_review.write_text("dependency metadata\n", encoding="utf-8")
 
     restarted = _supervisor(project, life)
     assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
