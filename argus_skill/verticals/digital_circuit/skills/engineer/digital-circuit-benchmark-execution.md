@@ -11,14 +11,15 @@ version: 1
 
 1. Freeze the dataset revision/hash, selected task IDs, selection rule, prompt/context, evaluator version, simulator image, score definition, model/backend, budget, and repair policy before seeing any result.
 2. Extract only allowed public prompt/context into a unique task workspace. Never read the golden patch/output, hidden harness source, other task solutions, or prior answers.
-3. Generate non-empty synthesizable RTL and task-local independent tests without changing visible inputs or scorer files.
-4. Prefer the shortest auditable path for a functional benchmark. Specification, RTL, and verification remain mandatory; synthesis/PPA may be explicitly out of scorer scope when no implementation metric is claimed.
-5. Discover tools in order: project-native command, host `PATH`, declared project environment, then declared already-local container. Record versions/digests and never pull tools from the network during a frozen run.
-6. Serialize official scoring and any shared container runtime with the campaign lock. Use a fresh output prefix for every attempt.
-7. Record the first official attempt immutably before any repair. Keep Pass@1 separate from post-repair success.
-8. On failure, expose only the allowed official failure/oracle log to a narrow repair mission. Do not expose hidden source or infer golden implementation details.
-9. Bound repair by the predeclared attempt, cost, or time limit. Preserve every failed attempt and stop honestly when the cap is reached.
-10. Report per-task status plus aggregate Pass@1, post-repair success, category/difficulty macro averages, compile/simulation failures, cost, elapsed time, and failure taxonomy.
+3. Before generation, audit every prompt reference to a pre-existing specification, RTL, testbench, or document. Each referenced file must exist in the frozen public context. If it is absent, stop with a benchmark-packaging defect; never guess the missing contract or learn it incrementally from official failures.
+4. Generate non-empty synthesizable RTL and task-local independent tests without changing visible inputs or scorer files.
+5. Prefer the shortest auditable path for a functional benchmark. Specification, RTL, and verification remain mandatory; synthesis/PPA may be explicitly out of scorer scope when no implementation metric is claimed.
+6. Discover tools in order: project-native command, host `PATH`, declared project environment, then declared already-local container. Record versions/digests and never pull tools from the network during a frozen run.
+7. Serialize official scoring and any shared container runtime with the campaign lock. Use a fresh output prefix for every attempt.
+8. Record the first official attempt immutably before any repair. Keep Pass@1 separate from post-repair success.
+9. On failure, expose only the allowed official failure/oracle log to a narrow repair mission. Do not expose hidden source or infer golden implementation details.
+10. Bound repair by the predeclared attempt, cost, or time limit. Preserve every failed attempt and stop honestly when the cap is reached.
+11. Report per-task status plus aggregate Pass@1, post-repair success, category/difficulty macro averages, compile/simulation failures, cost, elapsed time, and failure taxonomy.
 
 ## Required campaign artifacts
 

@@ -131,7 +131,10 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "depends on stale caches or an edited reference/testbench. For an external "
         "benchmark claim, require frozen selection/scorer provenance, a non-empty patch, "
         "immutable first-attempt evidence, separately appended repair attempts, and "
-        "explicit golden/hidden-harness non-exposure.",
+        "explicit golden/hidden-harness non-exposure. Require every prompt-referenced "
+        "pre-existing public file to be present before generation; missing referenced "
+        "context is a benchmark packaging defect, not an interface to infer from oracle "
+        "failures.",
         [
             "RESULTS.md",
             "DELIVERY.md",
@@ -290,7 +293,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "are frozen, the delivered patch is non-empty, first-attempt evidence is "
                 "immutable, repairs append separate records, and golden outputs or hidden "
                 "harness sources were not exposed; otherwise delivery explicitly records that "
-                "no external benchmark claim is being made."
+                "no external benchmark claim is being made. Every pre-existing public file "
+                "referenced by the prompt was present before generation; missing context "
+                "blocked the run rather than being reconstructed from evaluator feedback."
             ),
             evidence_hint=(
                 "selection.json/controller.json plus append-only results.jsonl and per-attempt "

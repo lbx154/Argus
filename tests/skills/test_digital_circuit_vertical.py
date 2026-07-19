@@ -106,6 +106,12 @@ def test_digital_circuit_skills_are_packaged() -> None:
     assert "Do not divide attempt successes" in skills[
         "reviewer/digital-circuit-benchmark-review.md"
     ]
+    assert "benchmark-packaging defect" in skills[
+        "engineer/digital-circuit-benchmark-execution.md"
+    ]
+    assert "prompt-referenced pre-existing public file" in skills[
+        "reviewer/digital-circuit-benchmark-review.md"
+    ]
     assert all(
         "category: anti-cheat" in skills[path]
         for path in (
