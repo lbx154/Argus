@@ -66,10 +66,13 @@ def _reserve(root: Path, project: Path, call_id: str, **overrides):
     )
 
 
-def test_global_file_cap_applies_to_call_without_project_context(tmp_path: Path) -> None:
-    from argus_skill.core.project_budget import GlobalBudget, write_global_budget
-
-    write_global_budget(tmp_path, GlobalBudget(1.25))
+def test_global_file_cap_applies_to_call_without_project_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # config.json (knob layer) is the single source for the global cap now;
+    # env > config.json > default. budget files are retired.
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1.25")
 
     reservation, reason = reserve_call_budget(
         call_id="global-only",

@@ -283,25 +283,13 @@ def _apply_config_intent(
         chat_state.pop("manager_runner", None)
         return True
 
-    if knob in ("per_mission_cap", "daily_cap"):
-        m = re.search(r"\d+(?:\.\d+)?", intent.value)
-        if m is None:
-            return False
-        project_state_dir = _project_state_dir()
-        if project_state_dir is None:
-            return False
-        from ..core.project_budget import update_project_budget
-
-        field = (
-            "per_mission_cap_usd"
-            if knob == "per_mission_cap"
-            else "daily_cap_usd"
-        )
-        update_project_budget(project_state_dir, **{field: m.group(0)})
-        _confirm(f"Set project {field} = {m.group(0)} in budget.json.")
-        return True
-
+    # Budget caps are ordinary config.json knobs now — config.json is the single
+    # source of truth for budget (budget.json is retired). They flow through the
+    # same knob_store write path as the other quota knobs below.
     quota_knobs = {
+        "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
+        "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
+        "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
         "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
         "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",

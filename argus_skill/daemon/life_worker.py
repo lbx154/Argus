@@ -488,28 +488,9 @@ class LifeWorker:
     """
 
     def __init__(self, config: LifeWorkerConfig) -> None:
-        # budget.json is authoritative even when a handoff payload carries stale
-        # in-memory caps from the previous process.
-        from ..core.project_budget import (
-            GlobalBudget,
-            ProjectBudget,
-            budget_path,
-            global_budget_path,
-            read_project_budget,
-            write_global_budget,
-            write_project_budget,
-        )
-
-        if budget_path(config.life_dir).exists():
-            read_project_budget(config.life_dir)
-        else:
-            write_project_budget(
-                config.life_dir,
-                ProjectBudget(
-                    per_mission_cap_usd=config.per_mission_cap_usd,
-                    daily_cap_usd=config.daily_cap_usd,
-                ),
-            )
+        # config.json (knob layer) is the single source of truth for budget caps;
+        # resolve_budget_caps reads it (and migrates any pre-existing budget.json
+        # once). budget.json/global_budget.json are retired — not seeded here.
         budget_global_root = (
             Path(config.global_root).expanduser()
             if config.global_root is not None
@@ -519,11 +500,6 @@ class LifeWorker:
                 else config.life_dir
             )
         )
-        if not global_budget_path(budget_global_root).exists():
-            write_global_budget(
-                budget_global_root,
-                GlobalBudget(config.global_daily_cap_usd),
-            )
         from ..core.knobs import resolve_budget_caps
 
         caps = resolve_budget_caps(

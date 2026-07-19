@@ -55,9 +55,9 @@
 | reasoning | `ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT` | `low` | default | `low` |
 | reasoning | `ARGUS_SKILL_ENGINEER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
 | reasoning | `ARGUS_SKILL_REVIEWER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| budget | `ARGUS_SKILL_PER_MISSION_CAP_USD` | `30.0` | legacy migration only | project `budget.json` |
-| budget | `ARGUS_SKILL_DAILY_CAP_USD` | `180.0` | legacy migration only | project `budget.json` |
-| budget | `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` | `10000.0` | legacy migration only | global `global_budget.json` |
+| budget | `ARGUS_SKILL_PER_MISSION_CAP_USD` | `300.0` | config.json (live, single source) | `config.json` |
+| budget | `ARGUS_SKILL_DAILY_CAP_USD` | `2000.0` | config.json (live, single source) | `config.json` |
+| budget | `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` | `20000.0` | config.json (live, single source) | `config.json` |
 | budget | `ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP` | `10000` | default | `10000` |
 | budget | `ARGUS_SKILL_COPILOT_DAILY_CALL_CAP` | `10000` | default | `10000` |
 | budget | `ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP` | `10000` | default | `10000` |
