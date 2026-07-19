@@ -178,17 +178,39 @@ def _write_state(root: Path, state: dict[str, Any], timestamp: float) -> None:
 
 
 @contextmanager
-def _locked(root: Path) -> Iterator[None]:
+def _locked(
+    root: Path,
+    *,
+    timeout_seconds: float | None = None,
+) -> Iterator[None]:
     root.mkdir(parents=True, exist_ok=True)
     path = root / COST_CONTROL_LOCK_FILE
     key = str(path.resolve())
     with _THREAD_LOCKS_GUARD:
         thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
-    with thread_lock:
+    if timeout_seconds is None:
+        thread_lock.acquire()
+    elif not thread_lock.acquire(timeout=max(0.0, timeout_seconds)):
+        raise CostControlStateError(f"cost control lock busy: {path}")
+    try:
         fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_EX)
+                if timeout_seconds is None:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                else:
+                    deadline = time.monotonic() + max(0.0, timeout_seconds)
+                    while True:
+                        try:
+                            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            break
+                        except BlockingIOError as exc:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                raise CostControlStateError(
+                                    f"cost control lock busy: {path}"
+                                ) from exc
+                            time.sleep(min(0.01, remaining))
             yield
         finally:
             if fcntl is not None:
@@ -197,6 +219,8 @@ def _locked(root: Path) -> Iterator[None]:
                 except OSError:
                     pass
             os.close(fd)
+    finally:
+        thread_lock.release()
 
 
 def _pid_alive(pid: int) -> bool:
@@ -218,7 +242,12 @@ def _prune_reservations(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
-    return UsageLedger(project_root).records(since=day_start)
+    # This reader runs while the global cost-control lock may already be held.
+    # Usage reconciliation takes the project usage lock, while provider-call
+    # finalization takes those locks in the opposite order (usage, then cost).
+    # Triggering reconciliation here can therefore deadlock the whole WebAPI.
+    # Budget accounting only needs the durable ledger rows already on disk.
+    return UsageLedger(project_root, migrate_legacy=False).records(since=day_start)
 
 
 def _known_cost(records: list[UsageRecord]) -> float:
@@ -834,10 +863,11 @@ def cost_control_snapshot(
     *,
     global_root: Path | str | None = None,
     now: float | None = None,
+    lock_timeout_seconds: float = 0.25,
 ) -> dict[str, Any]:
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
-    with _locked(root):
+    with _locked(root, timeout_seconds=lock_timeout_seconds):
         state = _read_state(root, timestamp)
         reservations = _prune_reservations(list(state["reservations"]))
         unresolved = _resolved_unpriced(

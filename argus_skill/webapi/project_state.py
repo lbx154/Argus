@@ -22,7 +22,7 @@ from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
-from ..core.usage import UsageSummary, project_usage_summary
+from ..core.usage import UsageLedger, UsageSummary
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
@@ -43,6 +43,11 @@ _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
+
+
+def project_usage_summary(project_root: Path | str) -> UsageSummary:
+    """Return settled rows without taking the writer/reconciliation lock."""
+    return UsageLedger(project_root, migrate_legacy=False).summary()
 
 
 def _project_index_text(value: Any, limit: int, *, single_line: bool = False) -> str:
@@ -276,6 +281,9 @@ def settled_spend(
         if cached is not None and cached[0] == signature:
             return cached[1]
     try:
+        # Snapshot reads must never wait behind provider finalization.  The
+        # durable JSONL is append-only, so reading settled rows without running
+        # migrations/reconciliation gives the cockpit a safe current view.
         total = project_usage_summary(life_dir)
     except Exception as exc:  # noqa: BLE001 - snapshot remains available
         total = _empty_usage_summary()

@@ -12,6 +12,8 @@ from argus_skill.core.codex_usage import TokenUsage
 from argus_skill.core.cost_control import (
     COST_CONTROL_AUDIT_FILE,
     COST_CONTROL_STATE_FILE,
+    CostControlStateError,
+    _locked,
     cost_control_snapshot,
     reserve_call_budget,
 )
@@ -102,6 +104,54 @@ def test_atomic_reservation_blocks_concurrent_use_of_same_budget(tmp_path: Path)
     second, reason = _reserve(tmp_path, project, "call-2")
     assert second is not None and reason == ""
     second.release(reason="test")
+
+
+def test_reservation_scan_never_reconciles_usage_under_cost_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+
+    def fail_reconcile(_self: UsageLedger) -> int:
+        raise AssertionError("usage reconciliation must not run under cost lock")
+
+    monkeypatch.setattr(UsageLedger, "ensure_legacy_migrated", fail_reconcile)
+    monkeypatch.setattr(UsageLedger, "ensure_copilot_usage_reconciled", fail_reconcile)
+
+    reservation, reason = _reserve(tmp_path, project, "lock-order")
+
+    assert reservation is not None
+    assert reason == ""
+    reservation.release(reason="test")
+
+
+def test_snapshot_times_out_instead_of_blocking_on_busy_cost_lock(
+    tmp_path: Path,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with _locked(tmp_path):
+            entered.set()
+            release.wait(timeout=2)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert entered.wait(timeout=1)
+    try:
+        started = time.monotonic()
+        with pytest.raises(CostControlStateError, match="cost control lock busy"):
+            cost_control_snapshot(
+                global_root=tmp_path,
+                lock_timeout_seconds=0.02,
+            )
+        assert time.monotonic() - started < 0.5
+    finally:
+        release.set()
+        holder.join(timeout=1)
+    assert not holder.is_alive()
 
 
 def test_priced_settlement_replaces_reservation_with_actual_ledger_cost(

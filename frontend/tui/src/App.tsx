@@ -26,7 +26,7 @@ import {
 } from './input/editor.js';
 import { EMPTY_HISTORY, newer, older, remember, type History } from './input/history.js';
 import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs, parseResumeTarget, slashCompletions } from './input/slash.js';
-import { StaticHeader } from './components/Header.js';
+import { Header } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
 import { SlashMenu, slashMenuVisibleRows } from './components/SlashMenu.js';
@@ -1116,7 +1116,7 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <StaticHeader width={terminal.columns} />
+      <Header width={terminal.columns} />
       {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
