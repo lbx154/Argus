@@ -344,6 +344,38 @@ def test_scrub_skips_comparator_worker_runtime_overlay(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
+def test_scrub_skips_immutable_acquisition_anchor_bodies(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    body = (
+        tmp_path
+        / "experiments"
+        / "runs"
+        / "frozen-run"
+        / "acquisition"
+        / "anchors"
+        / "publisher.body"
+    )
+    body.parent.mkdir(parents=True)
+    body.write_text(
+        "public documentation example client_secret=synthetic-page-value\n",
+        encoding="utf-8",
+    )
+    now = time.time()
+    body.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert body.read_text(encoding="utf-8") == (
+        "public documentation example client_secret=synthetic-page-value\n"
+    )
+    assert report.scanned_files == 1
+
+
 def test_artifact_scrub_preserves_synthetic_task_tokens(
     tmp_path: Path,
 ) -> None:

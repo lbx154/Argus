@@ -219,6 +219,16 @@ class ArtifactChangedDuringScrubError(OSError):
     pass
 
 
+def _is_non_artifact_tree(parts: tuple[str, ...]) -> bool:
+    if parts in _NON_ARTIFACT_TREE_PARTS:
+        return True
+    return (
+        len(parts) >= 5
+        and parts[:2] == ("experiments", "runs")
+        and parts[-2:] == ("acquisition", "anchors")
+    )
+
+
 def known_secret_values(
     env: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
@@ -455,7 +465,7 @@ def scrub_recent_text_artifacts(
             rel_dir_parts = Path(dirpath).relative_to(root).parts
         except ValueError:
             rel_dir_parts = ()
-        if rel_dir_parts in _NON_ARTIFACT_TREE_PARTS:
+        if _is_non_artifact_tree(rel_dir_parts):
             dirnames[:] = []
             continue
         for filename in filenames:
