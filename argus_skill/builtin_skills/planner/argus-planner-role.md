@@ -52,7 +52,7 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   step. SkillLoop already matches and task-adapts the relevant playbook before execution.
   State the required outcome and evidence instead. Name at most one exact skill only when
   a rare method-specific contract must be consulted beyond the injected guideline.
-- Set `waiting=true` only when a verified live, nonterminal external job is healthy, or
+- Set `waiting=true` only when a verified live, nonterminal external job is healthy, **and** you have exhausted useful independent current-stage work. Prefer platform/evaluator preparation, analysis scaffolding, claim-evidence organization, or placeholder-safe drafting while the job runs. The Supervisor may replace an avoidable wait with one bounded overlap mission.
   a non-local external capability blocker is documented by a written action artifact
   naming the required operator action, and no independent high-impact work remains.
   Put the job status path or blocker artifact path in `waiting_reason`; never queue a

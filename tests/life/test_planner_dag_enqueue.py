@@ -320,6 +320,43 @@ def test_planner_wait_stage_mismatch_rolls_back_before_idling(
     assert contract_state["active"] is False
 
 
+def test_live_background_job_wait_becomes_overlap_work(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import os
+
+    sup, _backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    registry = project / ".argus_subagents"
+    registry.mkdir()
+    (registry / "measure-live.json").write_text(json.dumps({
+        "task_id": "measure-live",
+        "description": "full measurement",
+        "mode": "supervised",
+        "state": "running",
+        "last_supervisor_health": "healthy",
+        "last_supervisor_decision": "continue",
+        "last_supervisor_concern": "",
+        "monitor_interval": 120,
+        "worker_pid": os.getpid(),
+    }))
+
+    assert sup._plan_next_work() is True
+    pending = sup.memory.backlog.pending()
+    assert len(pending) == 1
+    assert pending[0].title == "Advance independent work while background job runs"
+    assert "Do not poll" in pending[0].objective
+    assert any(
+        event.get("type") == "life.planner.wait_overridden"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
 def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
     tmp_path,
     monkeypatch,

@@ -123,6 +123,61 @@ def _research_project_done_issue(
 
 
 class PlanningCycleMixin:
+    def _independent_overlap_task(self, verdict: Any) -> Any | None:
+        """Turn a live-job wait into one useful, non-conflicting mission."""
+        if not bool(getattr(verdict, "waiting", False)):
+            return None
+        if bool(getattr(verdict, "project_done", False)):
+            return None
+        if list(getattr(verdict, "new_tasks", []) or []):
+            return None
+        contract = getattr(verdict, "waiting_contract", None)
+        if bool(getattr(contract, "operator_action_required", False)):
+            return None
+        root = self._artifact_root()
+        try:
+            from ...engineer.background_subagents import scan_inflight_subagents
+
+            watched = [job for job in scan_inflight_subagents(root) if job.self_watched]
+        except Exception:  # noqa: BLE001 - overlap is a throughput optimization
+            return None
+        if not watched:
+            return None
+        title = "Advance independent work while background job runs"
+        try:
+            if any(
+                item.status in {"pending", "running"} and item.title == title
+                for item in self.memory.backlog.all()
+            ):
+                return None
+        except Exception:  # noqa: BLE001
+            return None
+        from ...planner import TaskSpec
+        from ...skills.stage_checklists import current_stage
+
+        stage = current_stage(root)
+        job_ids = ", ".join(job.task_id for job in watched[:4])
+        objective = (
+            f"Bounded overlap mission while current_stage remains `{stage}` and "
+            f"healthy self-watched background job(s) `{job_ids}` continue. Do not "
+            "poll, restart, stop, or duplicate those jobs. Produce one concrete "
+            "current-stage deliverable that does not depend on their terminal "
+            "result: platform/evaluator repair, data or provenance preparation, "
+            "analysis code/scaffolding, claim-evidence organization, or manuscript "
+            "prose with explicit placeholders as applicable. Inspect the current "
+            "stage and existing artifacts first; preserve result-dependent claims "
+            "as placeholders. Do not edit Manager-owned stage state."
+        )
+        return TaskSpec(
+            title=title,
+            objective=objective,
+            impact_score=5,
+            impact_area="throughput",
+            evidence=f"live self-watched jobs: {job_ids}",
+            scope="bounded",
+            stage_closing=False,
+        )
+
     def _emit_planner_verdict(
         self,
         *,
@@ -663,6 +718,28 @@ class PlanningCycleMixin:
             return PLAN_ERROR
 
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)
+
+        overlap_task = self._independent_overlap_task(verdict)
+        if overlap_task is not None:
+            from dataclasses import replace
+
+            verdict = replace(
+                verdict,
+                waiting=False,
+                waiting_reason="",
+                waiting_contract=None,
+                reason=(
+                    "healthy background job continues; scheduling independent "
+                    "overlap work instead of idling"
+                ),
+                new_tasks=[overlap_task],
+            )
+            self._emit({
+                "type": "life.planner.wait_overridden",
+                "cycle": self._planning_cycles,
+                "task_title": overlap_task.title,
+                "reason": verdict.reason,
+            })
 
         # First-class await-external: the planner intentionally idled because
         # the project is blocked on a live, nonterminal external job and there
