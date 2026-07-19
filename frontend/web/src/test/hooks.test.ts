@@ -6,6 +6,7 @@ import {
   PROJECT_POLL_MS,
   SNAPSHOT_POLL_MS,
   artifactRefreshEventKey,
+  snapshotRefreshEventKey,
   streamReducer,
 } from '../hooks';
 import type { EventMsg } from '../api';
@@ -83,5 +84,17 @@ describe('project-scoped event stream', () => {
     expect(unchanged).toBe('');
     expect(manager).not.toBe('');
     expect(file).not.toBe('');
+  });
+
+  it('requests an immediate snapshot refresh for pending-question changes', () => {
+    expect(snapshotRefreshEventKey([
+      { type: 'life.operator_question.pending', item_id: 'blocked', ts: 4 } as EventMsg,
+    ])).not.toBe('');
+    expect(snapshotRefreshEventKey([
+      { type: 'life.operator_question.answered', item_id: 'blocked', ts: 5 } as EventMsg,
+    ])).not.toBe('');
+    expect(snapshotRefreshEventKey([
+      { type: 'engineer.progress', kind: 'assistant_message', ts: 6 } as EventMsg,
+    ])).toBe('');
   });
 });

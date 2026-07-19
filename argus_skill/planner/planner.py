@@ -971,6 +971,10 @@ class Planner:
             "## Dynamic host policy\n"
             f"- Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}`; "
             "the host rejects lower-impact tasks.\n"
+            "- A reversible project-local archive/quarantine with provenance is "
+            "ordinary Engineer work, not an external operator dependency. If both "
+            "archive and delete/overwrite would unblock progress, queue the safe "
+            "archive; require operator approval only for the destructive option.\n"
             "- The final output must match the provided planner schema and be JSON "
             "only, with no prose or Markdown fence.\n\n"
         )

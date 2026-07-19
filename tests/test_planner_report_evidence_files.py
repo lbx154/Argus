@@ -8,8 +8,8 @@ tests pin that contract end to end.
 """
 from __future__ import annotations
 
-from argus_skill.reviewer import _parse_planner_report
 from argus_skill.life.supervisor import LifeSupervisor
+from argus_skill.reviewer import _parse_planner_report, parse_decision_text
 
 
 def test_parse_planner_report_extracts_evidence_files() -> None:
@@ -111,6 +111,30 @@ def test_parse_planner_report_plan_signal_fails_soft() -> None:
     assert missing["plan_signal_reason"] == ""
     assert invalid["plan_signal"] == "continue"
     assert invalid["plan_signal_reason"] == ""
+
+
+def test_replan_requested_is_a_terminal_reviewer_control_status() -> None:
+    decision = parse_decision_text(
+        """{
+          "status": "replan_requested",
+          "reason": "The immutable run identity failed and plan must issue a new one.",
+          "next_action": "Create a fresh run identity.",
+          "round_summary_markdown": "# Replan required",
+          "completion_summary_markdown": "",
+          "planner_report": {
+            "forward_progress": false,
+            "headline": "immutable identity failed",
+            "blocker": "plan-stage run identity must be replaced",
+            "recommended_next": "roll back to plan",
+            "plan_signal": "reconsider",
+            "plan_signal_reason": "the current run identity is terminal and immutable",
+            "evidence_files": []
+          }
+        }"""
+    )
+
+    assert decision is not None
+    assert decision.status == "replan_requested"
 
 
 def test_render_planner_report_lists_evidence_files() -> None:

@@ -527,6 +527,25 @@ class LifeSupervisor(
             if outcome is None:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
+                    pending_questions = [
+                        item
+                        for item in self.memory.backlog.all()
+                        if str(getattr(item, "pending_question", "") or "").strip()
+                    ]
+                    if pending_questions:
+                        sleep_s = self._enter_pause_backoff()
+                        self._emit({
+                            "type": "life.planner.deferred",
+                            "reason": "waiting for operator answer",
+                            "item_ids": [item.id for item in pending_questions],
+                            "suggested_sleep_s": sleep_s,
+                            "agent_layer": "planner",
+                        })
+                        self._emit_status(
+                            "planner deferred: waiting for operator answer"
+                        )
+                        stopped_by = "pending_operator_question"
+                        break
                     manager_rollback = (
                         self._consume_manager_blocked_rollback_before_planner()
                     )

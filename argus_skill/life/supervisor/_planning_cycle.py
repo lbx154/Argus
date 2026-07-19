@@ -71,8 +71,12 @@ def _render_revision_request(
         lines.extend(f"  - {ref['ref']}: {ref['why']}" for ref in refs)
     lines.append(
         "Return a complete replacement batch for the remaining active nodes. "
-        "Completed nodes are immutable. Do not return project_done or waiting for "
-        "this revision request."
+        "Completed nodes are immutable. Do not return project_done. Exception: if "
+        "current_stage itself makes the prerequisite repair illegal, return "
+        "waiting=true with a waiting_contract whose "
+        "stage_reconciliation_required=true; emit no replacement tasks and let the "
+        "Manager decide HOLD versus ROLLBACK. Never use this exception for polling "
+        "or an ordinary implementation blocker."
     )
     return "\n".join(lines)
 
@@ -352,6 +356,33 @@ class PlanningCycleMixin:
                 MANAGER_RECONCILE_AFTER_IDLE_CYCLES
             )
 
+        if decision.diagnostic == "planner_wait_advance_rejected":
+            persisted = self._persist_manager_planner_feedback(
+                stage=stage,
+                reason=decision.reason,
+                diagnostic=decision.diagnostic,
+            )
+            if not persisted:
+                self._emit_status(
+                    "failed to persist Manager feedback for Planner; retry later"
+                )
+                return False
+            self._deactivate_planner_waiting_contract()
+            self._last_planner_wait_reconciliation_key = None
+            self._planner_waits_since_reconciliation = 0
+            self._last_open_ended_project_done_signature = ""
+            self._reset_idle_backoff()
+            self._emit({
+                "type": "life.manager.feedback.persisted",
+                "stage": stage,
+                "reason": decision.reason,
+                "diagnostic": decision.diagnostic,
+            })
+            self._emit_status(
+                f"Manager rejection returned to Planner for {stage} replanning"
+            )
+            return True
+
         if (
             decision.action == "hold"
             and decision.source == "manager_llm"
@@ -454,6 +485,12 @@ class PlanningCycleMixin:
         revision_request = (
             dict(revision_request) if isinstance(revision_request, dict) else None
         )
+        operator_messages = (
+            self._drain_user_inbox() if revision_request is None else []
+        )
+        if operator_messages:
+            self._deactivate_planner_waiting_contract()
+            self._reset_idle_backoff()
         revision_active_items: list[BacklogItem] = []
         expected_plan_id = ""
         expected_plan_version = 0
@@ -632,6 +669,12 @@ class PlanningCycleMixin:
         journal_tail = self._render_journal_for_planner()
 
         runtime_note = self._planner_runtime_with_idle_note()
+        operator_note = (
+            "LIVE OPERATOR GUIDANCE (supersedes stale blocker state):\n"
+            + "\n".join(f"- {message}" for message in operator_messages)
+            if operator_messages
+            else ""
+        )
         revision_note = (
             _render_revision_request(revision_request, revision_active_items)
             if revision_request is not None
@@ -659,6 +702,7 @@ class PlanningCycleMixin:
                     runtime_change_summary="\n\n".join(
                         part for part in (
                             self._manager_intent_prompt_block(manager_intent),
+                            operator_note,
                             stuck_families_note,
                             runtime_note,
                             revision_note,
@@ -745,7 +789,62 @@ class PlanningCycleMixin:
         # is no new high-impact work. NOT an error, NOT make-work — record a
         # lightweight waiting entry and back off (escalating) before re-checking.
         if verdict.waiting:
+            if self._load_manager_planner_feedback() is not None:
+                self._emit({
+                    "type": "life.manager.feedback.unresolved",
+                    "reason": "planner returned waiting instead of revision tasks",
+                })
+                self._emit_status(
+                    "planner ignored unresolved Manager feedback; retry later"
+                )
+                self._enter_idle_backoff()
+                return PLAN_ERROR
             if revision_request is not None:
+                contract = getattr(verdict, "waiting_contract", None)
+                if bool(
+                    getattr(contract, "stage_reconciliation_required", False)
+                ) and self._reconcile_open_ended_planner_waiting(verdict):
+                    superseding_plan_id = (
+                        f"manager-rollback-{BacklogItem.new_id()}"
+                    )
+                    try:
+                        result = self.memory.backlog.supersede_active_plan(
+                            expected_plan_id=expected_plan_id,
+                            expected_version=expected_plan_version,
+                            supersede_item_ids=[
+                                item.id for item in revision_active_items
+                            ],
+                            superseded_by_plan_id=superseding_plan_id,
+                            reason=verdict.waiting_reason or verdict.reason,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        self._emit({
+                            "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                            "reason": (
+                                "Manager rolled back stage but active plan could "
+                                f"not be retired: {type(exc).__name__}: {exc}"
+                            ),
+                            "expected_plan_id": expected_plan_id,
+                            "expected_plan_version": expected_plan_version,
+                        })
+                        return PLAN_ERROR
+                    for item_id in result.superseded_ids:
+                        self._emit({
+                            "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                            "item_id": item_id,
+                            "plan_id": expected_plan_id,
+                            "plan_version": expected_plan_version,
+                            "superseded_by_plan_id": superseding_plan_id,
+                            "reason": verdict.waiting_reason or verdict.reason,
+                        })
+                    self._emit({
+                        "type": "life.plan.revision.rolled_back",
+                        "old_plan_id": expected_plan_id,
+                        "old_plan_version": expected_plan_version,
+                        "superseded_item_ids": list(result.superseded_ids),
+                        "reason": verdict.waiting_reason or verdict.reason,
+                    })
+                    return PLAN_RETRY
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": "replacement planner returned waiting",
@@ -1303,6 +1402,7 @@ class PlanningCycleMixin:
                 "planner: all proposed tasks were filtered; retrying after backoff"
             )
             return PLAN_RETRY
+        self._clear_manager_planner_feedback()
         # Real new work was queued: clear the no-work backoff so the next cycle
         # runs promptly.
         self._reset_idle_backoff()

@@ -70,7 +70,7 @@ def add_backlog_item(
     priority: int = 100,
     iterate: bool = True,
     iteration_max_cycles: int = 6,
-    iteration_budget_usd: float = 30.0,
+    iteration_budget_usd: float = 200.0,
 ) -> BacklogItem:
     text = text.strip()
     title = text.splitlines()[0][:60].strip() or "(untitled)"
@@ -196,12 +196,12 @@ def render_run_command(
     parser.add_argument(
         "--per-mission-cap-usd",
         type=float,
-        default=float(cfg.get("per_mission_cap", 30.0)),
+        default=float(cfg.get("per_mission_cap", 200.0)),
     )
     parser.add_argument(
         "--daily-cap-usd",
         type=float,
-        default=float(cfg.get("daily_cap", 180.0)),
+        default=float(cfg.get("daily_cap", 1_200.0)),
     )
     parser.add_argument("--quiet", action="store_true")
     try:
@@ -253,9 +253,9 @@ def render_run_command(
 DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
     "cycles": 6,
-    "budget": 30.0,
-    "per_mission_cap": 30.0,
-    "daily_cap": 180.0,
+    "budget": 200.0,
+    "per_mission_cap": 200.0,
+    "daily_cap": 1_200.0,
     "continuous": False,
     "manager_effort": "xhigh",
     "planner_effort": "xhigh",

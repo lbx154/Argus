@@ -102,6 +102,13 @@ def test_global_budget_default_is_10000(tmp_path) -> None:
     assert read_global_budget(tmp_path) == GlobalBudget(10_000.0)
 
 
+def test_project_budget_defaults_support_long_running_missions(tmp_path) -> None:
+    assert read_project_budget(tmp_path, migrate_env={}) == ProjectBudget(
+        200.0,
+        1_200.0,
+    )
+
+
 def test_global_budget_migrates_once_and_ignores_later_env(tmp_path) -> None:
     first = read_global_budget(
         tmp_path,

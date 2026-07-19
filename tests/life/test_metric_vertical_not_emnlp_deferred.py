@@ -101,7 +101,11 @@ def test_non_paper_planner_task_normalizes_final_submission_scope(
     sup, _consulted = _supervisor(effective_gate=False, tmp_path=tmp_path)
     task = SimpleNamespace(scope="final_submission")
 
-    assert sup._planner_task_tags(task) == ["planner", "scope:bounded"]
+    assert sup._planner_task_tags(task) == [
+        "planner",
+        "scope:bounded",
+        "bounded_dag_node",
+    ]
 
 
 def test_paper_planner_task_preserves_final_submission_scope(

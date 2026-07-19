@@ -102,6 +102,8 @@ class EventType(StrEnum):
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
     LIFE_INBOX_QUEUED = "life.inbox.queued"
     LIFE_INBOX_DRAINED = "life.inbox.drained"
+    LIFE_OPERATOR_QUESTION_PENDING = "life.operator_question.pending"
+    LIFE_OPERATOR_QUESTION_ANSWERED = "life.operator_question.answered"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"

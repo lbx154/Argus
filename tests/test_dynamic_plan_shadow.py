@@ -58,6 +58,23 @@ def test_continue_signal_does_not_emit_shadow_event() -> None:
     assert runner._plan_signal_event(_review("continue")) is None
 
 
+def test_replan_requested_verdict_ends_round_immediately() -> None:
+    status, reason = SupervisedEngineer._classify(
+        review=ReviewDecision(
+            status="replan_requested",
+            reason="The immutable run identity requires a replacement plan.",
+            next_action="Create a fresh identity.",
+        ),
+        no_progress_streak=0,
+        no_progress_threshold=2,
+        round_index=1,
+        max_rounds=3,
+    )
+
+    assert status == "replan_requested"
+    assert "replacement plan" in reason
+
+
 def test_dynamic_plan_defaults_off_for_behavior_compatibility(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_DYNAMIC_PLAN_MODE", raising=False)
 

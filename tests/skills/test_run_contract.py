@@ -1,6 +1,7 @@
 """Tests for argus_skill.skills.run_contract (RUN_CONTRACT + feasibility packet)."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -9,9 +10,11 @@ from argus_skill.skills.run_contract import (
     LaunchKnobs,
     RunContract,
     build_feasibility_packet_from_run,
+    build_supervised_feasibility_packet_from_run,
     check_full_run_launch,
     compute_contract_hash,
     compute_curriculum_hash,
+    compute_extension_hash,
     diff_launch_against_contract,
     load_feasibility_packet,
     load_run_contract,
@@ -226,6 +229,24 @@ def test_check_launch_rejects_missing_packet(tmp_path):
     assert reject is True and "feasibility packet" in concern
 
 
+def test_check_launch_rejects_tampered_contract_extension(tmp_path):
+    cpath = _write_contract(tmp_path)
+    data = json.loads(cpath.read_text(encoding="utf-8"))
+    data["launcher"] = {"gradient_accumulation_steps": 4}
+    data["extension_hash"] = compute_extension_hash(data)
+    data["launcher"]["gradient_accumulation_steps"] = 8
+    cpath.write_text(json.dumps(data), encoding="utf-8")
+
+    reject, concern = check_full_run_launch(
+        contract_path=cpath,
+        packet_path=None,
+        knobs=LaunchKnobs(curriculum_hash="c" * 64),
+    )
+
+    assert reject is True
+    assert "extended contract fields" in concern
+
+
 def test_check_launch_rejects_lr_drift(tmp_path):
     cpath = _write_contract(tmp_path)
     ppath = tmp_path / "packet.json"
@@ -260,6 +281,190 @@ def test_build_packet_from_run(tmp_path):
     assert abs(packet.reward_mean - 0.4) < 1e-9
     assert abs(packet.advantage_span_max - 1.9) < 1e-9
     assert packet.max_repetition == 1.0
+
+
+def _write_supervised_probe(tmp_path: Path, contract: RunContract) -> Path:
+    run = tmp_path / "sft-probe"
+    run.mkdir()
+    rows_path = tmp_path / "structural-study-v1.jsonl"
+    unique_count = contract.total_steps * contract.batch_size
+    rows_path.write_text(
+        "".join(
+            json.dumps({"unique_example_id": f"example-{index}"}) + "\n"
+            for index in range(unique_count)
+        ),
+        encoding="utf-8",
+    )
+    rows_sha256 = hashlib.sha256(rows_path.read_bytes()).hexdigest()
+    (run / "stdout.log").write_text(
+        "\n".join(
+            repr({"loss": str(3.0 - step / 10), "grad_norm": str(step / 2)})
+            for step in range(1, 7)
+        ),
+        encoding="utf-8",
+    )
+    (run / "metrics.json").write_text(json.dumps({
+        "training_loss": 2.0,
+        "finite_update": True,
+        "initial_state_sha256": "a" * 64,
+        "final_state_sha256": "b" * 64,
+    }), encoding="utf-8")
+    (run / "manifest.json").write_text(json.dumps({
+        "contract_hash": contract.contract_hash,
+        "curriculum_hash": contract.curriculum_hash,
+        "steps": contract.total_steps,
+        "effective_batch_size": contract.batch_size,
+        "terminal_state": "completed",
+        "independent_task_family_count": contract.distinct_tasks,
+        "unique_example_count": unique_count,
+        "execution_example_count": unique_count,
+        "repeat_policy": "without-replacement",
+        "maximum_occurrences_per_unique_example": 1,
+        "materialized_rows_path": str(rows_path),
+        "materialized_rows_sha256": rows_sha256,
+    }), encoding="utf-8")
+    return run
+
+
+def test_supervised_packet_validates_hashed_sft_evidence(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    packet = build_supervised_feasibility_packet_from_run(run, contract=contract)
+    packet_path = tmp_path / "packet.json"
+    packet_path.write_text(json.dumps(packet.to_dict()), encoding="utf-8")
+    loaded, issues = load_feasibility_packet(packet_path)
+    assert loaded is not None and issues == []
+    assert validate_feasibility_packet(loaded, contract) == []
+    assert loaded.probe_steps == 6
+    assert loaded.finite_update is True
+
+
+def test_supervised_packet_rejects_non_numeric_manifest_facts(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    packet = build_supervised_feasibility_packet_from_run(run, contract=contract)
+    manifest_path = Path(packet.probe_manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["steps"] = None
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    packet.probe_manifest_sha256 = hashlib.sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+
+    issues = validate_feasibility_packet(packet, contract)
+
+    assert any(issue.code == "probe_manifest_malformed" for issue in issues)
+
+
+def test_supervised_packet_accepts_three_families_with_12288_unique_examples(
+    tmp_path,
+):
+    contract = _contract(
+        total_steps=256,
+        batch_size=64,
+        distinct_tasks=3,
+        curriculum_hash="f" * 64,
+    )
+    run = tmp_path / "sft-probe"
+    run.mkdir()
+    rows_path = tmp_path / "structural-study-v1.jsonl"
+    rows_path.write_text(
+        "".join(
+            json.dumps({"unique_example_id": f"example-{index % 12_288}"}) + "\n"
+            for index in range(16_384)
+        ),
+        encoding="utf-8",
+    )
+    import hashlib
+
+    rows_sha256 = hashlib.sha256(rows_path.read_bytes()).hexdigest()
+    (run / "stdout.log").write_text(
+        "\n".join(
+            repr({"loss": str(3.0 - step / 10), "grad_norm": str(step / 2)})
+            for step in range(1, 7)
+        ),
+        encoding="utf-8",
+    )
+    (run / "metrics.json").write_text(json.dumps({
+        "finite_update": True,
+        "initial_state_sha256": "a" * 64,
+        "final_state_sha256": "b" * 64,
+    }), encoding="utf-8")
+    (run / "manifest.json").write_text(json.dumps({
+        "contract_hash": contract.contract_hash,
+        "curriculum_hash": contract.curriculum_hash,
+        "steps": contract.total_steps,
+        "effective_batch_size": contract.batch_size,
+        "terminal_state": "completed",
+        "independent_task_family_count": 3,
+        "unique_example_count": 12_288,
+        "execution_example_count": 16_384,
+        "repeat_policy": "balanced-round-robin",
+        "maximum_occurrences_per_unique_example": 2,
+        "materialized_rows_path": str(rows_path),
+        "materialized_rows_sha256": rows_sha256,
+    }), encoding="utf-8")
+
+    packet = build_supervised_feasibility_packet_from_run(run, contract=contract)
+
+    assert packet.distinct_tasks == 3
+    assert packet.unique_example_count == 12_288
+    assert packet.max_repetition == 2
+    assert validate_feasibility_packet(packet, contract) == []
+
+
+def test_supervised_packet_rejects_missing_example_counts(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["unique_example_count"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    try:
+        build_supervised_feasibility_packet_from_run(run, contract=contract)
+    except ValueError as exc:
+        assert "unique_example_count" in str(exc)
+    else:
+        raise AssertionError("missing unique_example_count must fail closed")
+
+
+def test_supervised_packet_rejects_forged_example_count(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["unique_example_count"] += 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    try:
+        build_supervised_feasibility_packet_from_run(run, contract=contract)
+    except ValueError as exc:
+        assert "do not match materialized rows" in str(exc)
+    else:
+        raise AssertionError("forged unique_example_count must fail closed")
+
+
+def test_supervised_packet_rejects_tampered_trace(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    packet = build_supervised_feasibility_packet_from_run(run, contract=contract)
+    (run / "stdout.log").write_text(
+        "{'loss': '0.0', 'grad_norm': '0.0'}\n", encoding="utf-8")
+    codes = {issue.code for issue in validate_feasibility_packet(packet, contract)}
+    assert "probe_trace_hash_mismatch" in codes
+
+
+def test_supervised_packet_rejects_missing_parameter_update(tmp_path):
+    contract = _contract()
+    run = _write_supervised_probe(tmp_path, contract)
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
+    metrics["finite_update"] = False
+    metrics["final_state_sha256"] = metrics["initial_state_sha256"]
+    (run / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    packet = build_supervised_feasibility_packet_from_run(run, contract=contract)
+    codes = {issue.code for issue in validate_feasibility_packet(packet, contract)}
+    assert "probe_no_parameter_update" in codes
 
 
 # --- CLI --------------------------------------------------------------------

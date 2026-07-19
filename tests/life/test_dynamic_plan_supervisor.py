@@ -65,8 +65,10 @@ class _StageReplanRunner(_ReplanRunner):
 class _PlannerRunner:
     def __init__(self, response: str) -> None:
         self.response = response
+        self.last_prompt = ""
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.last_prompt = prompt
         return RunnerResult(exit_code=0, agent_messages=[self.response])
 
 
@@ -254,6 +256,58 @@ def test_stage_reconciled_replan_retires_invalid_current_item(tmp_path) -> None:
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows[current.id].status == "failed"
     assert "manager rollback to benchmark" in rows[current.id].last_error
+
+
+def test_planning_cycle_drains_operator_input_while_waiting(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    messages = iter(["GPU 1 is now allocated", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+    deactivated: list[bool] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_deactivate_planner_waiting_contract",
+        lambda: deactivated.append(True),
+    )
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work() is True
+
+    drained = [
+        event for event in sink.events if event["type"] == "life.inbox.drained"
+    ]
+    assert drained[-1]["messages"] == ["GPU 1 is now allocated"]
+    assert deactivated
+    assert "LIVE OPERATOR GUIDANCE" in supervisor.planner_runner.last_prompt
+    assert "GPU 1 is now allocated" in supervisor.planner_runner.last_prompt
+
+
+def test_pending_operator_question_defers_planner_without_calling_it(tmp_path) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+
+    summary = supervisor.run()
+
+    assert summary["stopped_by"] == "pending_operator_question"
+    assert supervisor.planner_runner.last_prompt == ""
+    deferred = [
+        event
+        for event in sink.events
+        if event["type"] == "life.planner.deferred"
+    ]
+    assert deferred[-1]["reason"] == "waiting for operator answer"
+    assert deferred[-1]["item_ids"] == [blocked.id]
 
 
 def test_replan_planner_atomically_replaces_active_revision(

@@ -805,7 +805,7 @@ def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
 
 
-def test_pending_answer_bypasses_manager_and_continues_blocked_task(
+def test_pending_answer_routes_through_manager_and_continues_blocked_task(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -820,6 +820,16 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     )
     blocked.pending_question = "Should the appendix be included?"
     mem.backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Include the appendix after the references.",
+            "reply": "I have sent that decision to the team.",
+        }),
+    )
     started: list[str] = []
     monkeypatch.setattr(
         server,
@@ -842,12 +852,21 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     original = next(item for item in items if item.id == blocked.id)
     continuation = next(item for item in items if item.id == payload["item"]["id"])
     assert original.pending_question == ""
-    assert "Operator reply to blocked question" in continuation.objective
+    assert "Operator response" in continuation.objective
     assert "include it after the references" in continuation.objective
+    assert "Manager interpretation and continuation decision" in continuation.objective
+    assert "Include the appendix after the references" in continuation.objective
     assert continuation.iterate is False
     assert continuation.iteration_budget_usd == 12.0
-    assert continuation.tags == ["paper", "operator-reply"]
-    assert not (life / "inbox.jsonl").exists()
+    assert continuation.tags == [
+        "paper", "operator-reply", "manager-approved",
+    ]
+    assert "MANAGER OPERATOR-ANSWER DECISION" in (
+        life / "inbox.jsonl"
+    ).read_text(encoding="utf-8")
+    assert "life.operator_question.answered" in (
+        life / "events.jsonl"
+    ).read_text(encoding="utf-8")
 
     duplicate = client.post(
         f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
@@ -857,11 +876,24 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     assert len(LifeMemory.open(life).backlog.all()) == 2
 
 
-def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> None:
+def test_concurrent_pending_answers_create_one_continuation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Blocked", objective="Original objective")
     blocked.pending_question = "Choose A or B?"
     LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Use the operator-selected option.",
+            "reply": "Decision delivered.",
+        }),
+    )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(
@@ -877,6 +909,105 @@ def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> N
     assert sum(bool(result and result.get("item")) for result in results) == 1
     assert sum(bool(result and result.get("error")) for result in results) == 1
     assert len(LifeMemory.open(life).backlog.all()) == 2
+
+
+def test_manager_message_resolves_single_pending_question(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Use GPU 1 through the project allocation contract.",
+            "reply": "GPU 1 is now authorized for the continuation.",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "Use GPU 1.",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "pending_question"
+    assert result["resolved"] is True
+    assert result["answered_item_id"] == blocked.id
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 2
+    assert next(row for row in rows if row.id == blocked.id).pending_question == ""
+
+
+def test_non_answer_message_falls_through_without_clearing_pending_question(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": False,
+            "resolved": False,
+            "decision": "",
+            "reply": "",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "What is the status?",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1
+    assert rows[0].pending_question == "Which GPU may I use?"
+
+
+def test_manager_keeps_pending_question_when_answer_is_insufficient(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": False,
+            "decision": "",
+            "reply": "Please provide the approved GPU number.",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "Use one of the free cards.",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "pending_question"
+    assert result["resolved"] is False
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1
+    assert rows[0].pending_question == "Which GPU may I use?"
 
 
 # ── streaming front-door: POST /message/stream (Server-Sent Events) ──────────

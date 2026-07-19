@@ -1546,6 +1546,7 @@ class Manager:
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
+            reject_certified_ground_truth_snapshot_rollback,
         )
 
         root = Path(project_root) if project_root is not None else self.project_root
@@ -1853,6 +1854,11 @@ class Manager:
                         })
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
+                )
+                decision = reject_certified_ground_truth_snapshot_rollback(
+                    decision,
+                    project_root=root,
+                    current_stage=cur,
                 )
             if not open_ended:
                 _completion_vertical = resolve_vertical(root)

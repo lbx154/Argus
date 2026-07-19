@@ -110,7 +110,12 @@ class IdleCycleMixin:
         BEFORE calling this; cycle 1 → base, doubling each cycle, capped.
         """
         n = max(1, int(self._consecutive_idle_planner_cycles))
-        return min(IDLE_BACKOFF_CAP_SECONDS, IDLE_BACKOFF_BASE_SECONDS * (2 ** (n - 1)))
+        delay = IDLE_BACKOFF_BASE_SECONDS
+        remaining_doublings = n - 1
+        while remaining_doublings > 0 and delay < IDLE_BACKOFF_CAP_SECONDS:
+            delay = min(IDLE_BACKOFF_CAP_SECONDS, delay * 2)
+            remaining_doublings -= 1
+        return delay
 
     def _reset_idle_backoff(self) -> None:
         self._consecutive_idle_planner_cycles = 0

@@ -39,6 +39,13 @@ def test_idle_backoff_is_exponential_and_capped() -> None:
     assert last == _IDLE_BACKOFF_CAP_SECONDS
 
 
+def test_idle_backoff_handles_an_extreme_persisted_cycle_count() -> None:
+    s = _BackoffStub()
+    s._consecutive_idle_planner_cycles = 10**6
+
+    assert s._idle_backoff_seconds() == _IDLE_BACKOFF_CAP_SECONDS
+
+
 def test_reset_clears_backoff() -> None:
     s = _BackoffStub()
     s._enter_idle_backoff()

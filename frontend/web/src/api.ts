@@ -392,7 +392,10 @@ export const api = {
   answerPending: (sid: string, itemId: string, text: string) =>
     postJson<{
       answered_item_id: string;
-      item: BacklogItem;
+      resolved: boolean;
+      reply?: string;
+      manager_decision?: string;
+      item?: BacklogItem;
       daemon?: { rc?: number; error?: string; admission_required?: boolean };
     }>(
       P(sid, `/backlog/${encodeURIComponent(itemId)}/answer`),
@@ -400,7 +403,7 @@ export const api = {
     ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (sid: string, text: string, signal?: AbortSignal) =>
-    postJson<{ kind: 'chat' | 'task' | 'error'; reply: string | null; item?: BacklogItem | null; daemon_alive?: boolean }>(
+    postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
       { text },
       signal,

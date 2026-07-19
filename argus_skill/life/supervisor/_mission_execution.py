@@ -39,6 +39,28 @@ def bounded_dag_node_max_rounds() -> int:
         return 3
 
 
+def is_progressive_experiment_matrix(item: BacklogItem) -> bool:
+    """Return whether a task is a progress-bearing experiment matrix."""
+    tags = {
+        str(tag).strip().lower()
+        for tag in getattr(item, "tags", [])
+    }
+    if "experiment_matrix" in tags:
+        return True
+    text = f"{item.title}\n{item.objective}".lower()
+    return "matrix" in text and any(
+        marker in text
+        for marker in (
+            "experiment",
+            "evaluation",
+            "benchmark",
+            "canonical",
+            "run-stage",
+            "e0",
+        )
+    )
+
+
 class MissionExecutionMixin:
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
         prelude = self.memory.render_prelude()
@@ -194,7 +216,15 @@ class MissionExecutionMixin:
                     str(tag).strip().lower()
                     for tag in getattr(item, "tags", [])
                 }
-                if "bounded_dag_node" in tags:
+                progressive_matrix = is_progressive_experiment_matrix(item)
+                if (
+                    "progressive_experiment_matrix" in params
+                    or _accepts_kw
+                ):
+                    execute_kwargs["progressive_experiment_matrix"] = (
+                        progressive_matrix
+                    )
+                if "bounded_dag_node" in tags and not progressive_matrix:
                     if "max_rounds_override" in params or _accepts_kw:
                         execute_kwargs["max_rounds_override"] = (
                             bounded_dag_node_max_rounds()
@@ -545,6 +575,13 @@ class MissionExecutionMixin:
                     self.memory.backlog.update(
                         item.id, pending_question=operator_question,
                     )
+                    self._emit({
+                        "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+                        "item_id": item.id,
+                        "title": item.title,
+                        "question": operator_question,
+                        "agent_layer": "manager",
+                    })
                 except Exception:  # noqa: BLE001
                     log.exception(
                         "life supervisor: failed to persist pending_question"

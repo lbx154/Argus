@@ -347,6 +347,24 @@ export interface LifeInboxDrainedEvent extends EventMsg {
   "messages": Array<string>;
 }
 
+export interface LifeOperatorQuestionPendingEvent extends EventMsg {
+  type: "life.operator_question.pending";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "title"?: string;
+  "question": string;
+  "agent_layer"?: string;
+}
+
+export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
+  type: "life.operator_question.answered";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "continuation_item_id": string;
+  "question": string;
+  "manager_decision": string;
+}
+
 export interface EngineerProgressEvent extends EventMsg {
   type: "engineer.progress";
   payload_schema_version?: 1;
@@ -892,6 +910,8 @@ export interface EventPayloadByType {
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
   "life.inbox.drained": LifeInboxDrainedEvent;
+  "life.operator_question.pending": LifeOperatorQuestionPendingEvent;
+  "life.operator_question.answered": LifeOperatorQuestionAnsweredEvent;
   "engineer.progress": EngineerProgressEvent;
   "skill.created": SkillCreatedEvent;
   "skill.updated": SkillUpdatedEvent;

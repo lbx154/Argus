@@ -466,6 +466,26 @@
         "messages": {"type": "array", "items": {"type": "string"}}
       }
     },
+    "life.operator_question.pending": {
+      "version": 1,
+      "required": ["item_id", "question"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "question": {"type": "string", "minLength": 1},
+        "agent_layer": {"type": "string"}
+      }
+    },
+    "life.operator_question.answered": {
+      "version": 1,
+      "required": ["item_id", "continuation_item_id", "question", "manager_decision"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "continuation_item_id": {"type": "string", "minLength": 1},
+        "question": {"type": "string", "minLength": 1},
+        "manager_decision": {"type": "string", "minLength": 1}
+      }
+    },
     "engineer.progress": {
       "version": 1,
       "required": ["kind"],

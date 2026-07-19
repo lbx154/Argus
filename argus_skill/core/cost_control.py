@@ -727,6 +727,12 @@ def _close_reservation(
                 )
             ):
                 bounded_interrupt = _intentional_interrupt_reason(record.error)
+                bounded_copilot_partial = (
+                    str(record.provider or "").strip().casefold() == "copilot"
+                    and record.pricing_status == "partial"
+                    and reservation.amount_usd > 0
+                )
+                bounded_unpriced = bounded_interrupt or bounded_copilot_partial
                 unresolved.append({
                     "call_id": record.call_id,
                     "project_root": (
@@ -740,9 +746,9 @@ def _close_reservation(
                     "model": record.model,
                     "pricing_status": record.pricing_status,
                     "reason": record.error or "provider usage is not fully priced",
-                    "blocking": not bounded_interrupt,
+                    "blocking": not bounded_unpriced,
                     "held_usd": (
-                        reservation.amount_usd if bounded_interrupt else 0.0
+                        reservation.amount_usd if bounded_unpriced else 0.0
                     ),
                     "created_at": timestamp,
                 })

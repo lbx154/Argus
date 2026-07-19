@@ -862,14 +862,24 @@ def _set_stage(
     if not isinstance(history, list):
         history = []
         payload["stage_history"] = history
-    history.append({
+    history_entry = {
         "at": now_iso,
         "from_stage": previous,
         "to_stage": target,
         "direction": direction,
         "reason": reason,
         "by": by,
-    })
+    }
+    ground_truth_path = root / "research" / "GROUND_TRUTH.md"
+    if direction == "advance" and ground_truth_path.is_file():
+        import hashlib as _hashlib
+
+        history_entry["ground_truth_snapshot"] = {
+            "sha256": _hashlib.sha256(ground_truth_path.read_bytes()).hexdigest(),
+            "observed_pipeline_stage": previous,
+            "pipeline_revision": len(history),
+        }
+    history.append(history_entry)
 
     if legacy_rollback_history:
         rb_history = payload.get("rollback_history")

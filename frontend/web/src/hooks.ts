@@ -212,6 +212,22 @@ export function artifactRefreshEventKey(events: EventMsg[]): string {
   return '';
 }
 
+const SNAPSHOT_REFRESH_EVENT_TYPES = new Set([
+  'life.operator_question.pending',
+  'life.operator_question.answered',
+]);
+
+/** Return a stable key when live state changed in a way the snapshot owns. */
+export function snapshotRefreshEventKey(events: EventMsg[]): string {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (SNAPSHOT_REFRESH_EVENT_TYPES.has(String(event.type ?? ''))) {
+      return eventKey(event, i);
+    }
+  }
+  return '';
+}
+
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
