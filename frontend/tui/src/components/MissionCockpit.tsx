@@ -110,9 +110,9 @@ export function MissionCockpit({
           </Text>
           <Text dimColor>{` · ${requestSummary(requestUsage)}`}</Text>
         </Text>
-        <Box>
-          <Text dimColor>TEAM </Text>
-          {ROLE_ORDER.map((name, index) => {
+        <Box flexDirection="column">
+          <Text dimColor>AI RESEARCH TEAM</Text>
+          {ROLE_ORDER.map((name) => {
             const role = roleByName.get(name);
             const status = role?.status ?? 'waiting';
             const glyph = status === 'active'
@@ -130,9 +130,15 @@ export function MissionCockpit({
               ? theme.role[name] ?? theme.info
               : 'gray';
             return (
-              <Text key={name} color={color}>
-                {`${index ? ' · ' : ''}${name[0].toUpperCase()}${glyph}`}
-              </Text>
+              <Box key={name}>
+                <Box width={11}>
+                  <Text color={theme.role[name] ?? 'white'} bold>{name.toUpperCase()}</Text>
+                </Box>
+                <Text color={color}>{glyph} </Text>
+                <Text color={status === 'waiting' ? 'gray' : undefined} dimColor={status === 'waiting'}>
+                  {compact(role?.label || (status === 'waiting' ? 'Waiting' : cap(status)), Math.max(20, width - 16))}
+                </Text>
+              </Box>
             );
           })}
         </Box>

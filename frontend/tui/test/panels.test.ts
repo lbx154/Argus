@@ -478,7 +478,11 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
   assert.ok(finalFrame.trimEnd().split('\n').length < 19);
   assert.match(finalFrame, /MISSION/);
-  assert.match(finalFrame, /TEAM/);
+  assert.match(finalFrame, /AI RESEARCH TEAM/);
+  assert.match(finalFrame, /MANAGER.*Waiting/);
+  assert.match(finalFrame, /PLANNER.*Waiting/);
+  assert.match(finalFrame, /ENGINEER.*Waiting/);
+  assert.match(finalFrame, /REVIEWER.*Waiting/);
   assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
 });
 
