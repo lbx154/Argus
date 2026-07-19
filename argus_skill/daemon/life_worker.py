@@ -546,11 +546,71 @@ class LifeWorker:
             # missing. Ignoring is a no-op on Windows anyway.
             pass
 
-    def _seed_project_agents_and_venv(self, project_root: Path) -> None:
-        """Seed ``AGENTS.md`` and a per-project ``.venv`` for a continuous-mode
-        bootstrap, matching the standalone launcher. Idempotent: skips each
-        artifact that already exists so a re-bootstrap never clobbers operator
-        or engineer edits.
+    @staticmethod
+    def _active_manager_objective(memory: Any) -> str:
+        """Return the highest-priority active Manager objective, if one exists.
+
+        Bounded work lives in the backlog rather than ``continuous.json``.  The
+        old bootstrap read only ``LifeWorkerConfig.continuous_objective``, so a
+        real bounded Manager handoff was invisible and ``AGENTS.md`` silently
+        fell back to the generic EMNLP demo objective.  Manager-created backlog
+        items preserve the authoritative handoff in ``original_objective``;
+        prefer that value and ignore the bootstrap task itself.
+        """
+        try:
+            items = list(memory.backlog.all())
+        except Exception:  # noqa: BLE001 — bootstrap remains best-effort
+            log.exception("daemon: failed to inspect backlog for Manager objective")
+            return ""
+        active = [
+            item
+            for item in items
+            if str(getattr(item, "status", "")) in {"pending", "running"}
+            and str(getattr(item, "title", "")) != "bootstrap empty project root"
+        ]
+        active.sort(
+            key=lambda item: (
+                int(getattr(item, "priority", 100)),
+                float(getattr(item, "ts", 0.0) or 0.0),
+            )
+        )
+        for item in active:
+            objective = str(
+                getattr(item, "original_objective", "")
+                or getattr(item, "objective", "")
+            ).strip()
+            if objective:
+                return objective
+        return ""
+
+    @staticmethod
+    def _manager_owned_goal_text(objective: str) -> str:
+        """Render a bootstrap goal without freezing stale runtime authority."""
+        snapshot = " ".join(str(objective or "").split())
+        authority = (
+            "The latest Manager-authored execution objective supplied with the "
+            "current mission is authoritative. This generated bootstrap file is "
+            "workflow guidance only: do not reinterpret, broaden, or replace that "
+            "objective, and do not treat this bootstrap-time snapshot as newer "
+            "than a later Manager instruction."
+        )
+        if snapshot:
+            return f"{authority} Bootstrap-time Manager objective: {snapshot}"
+        return (
+            f"{authority} No Manager-authored objective was active at bootstrap; "
+            "wait for the Manager objective instead of inventing a default paper, "
+            "benchmark, theorem, or optimization target."
+        )
+
+    def _seed_project_agents_and_venv(
+        self,
+        project_root: Path,
+        *,
+        objective: str | None = None,
+    ) -> None:
+        """Seed ``AGENTS.md`` and a per-project ``.venv`` for a daemon-managed
+        bootstrap. Existing AGENTS content is preserved except for the small
+        Argus-managed runtime block; other artifacts remain create-once.
 
         The AGENTS contract is chosen by vertical: optimize-family verticals
         (kernelbench / speedrun / nanochat / nanogpt_speedrun) get the lean
@@ -567,10 +627,17 @@ class LifeWorker:
         from ..tools.new_auto_research_project import (
             init_project_venv,
             load_template_text,
+            refresh_agents_runtime_contract,
             render_agents_md,
         )
 
-        objective = (self.config.continuous_objective or "").strip()
+        manager_objective = (
+            self.config.continuous_objective
+            if objective is None
+            else objective
+        )
+        manager_objective = str(manager_objective or "")
+        rendered_objective = self._manager_owned_goal_text(manager_objective)
         # The Manager is the sole vertical authority. Before it persists a
         # decision, bootstrap deliberately has no vertical classification.
         vertical = _persisted_vertical(project_root)
@@ -609,7 +676,6 @@ class LifeWorker:
 
         agents_path = project_root / "AGENTS.md"
         if not agents_path.exists():
-            objective_arg = objective or None
             if not is_research:
                 template_path = (
                     builtin_skill_source_path()
@@ -619,7 +685,7 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    objective=objective_arg,
+                    objective=rendered_objective,
                     non_goals=(
                         "Do not produce a paper, venue submission, literature "
                         "review, or LaTeX draft. Do not fabricate, hand-edit, or "
@@ -640,9 +706,14 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    objective=objective_arg,
+                    objective=rendered_objective,
                 )
             agents_path.write_text(agents_md, encoding="utf-8")
+        refresh_agents_runtime_contract(
+            project_root,
+            objective=manager_objective,
+            vertical=vertical or "",
+        )
 
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)
@@ -708,7 +779,7 @@ class LifeWorker:
             return False
 
         # Seed the reusable GPU/experiment scaffolds into ``code/`` so a
-        # continuous-mode project bootstraps with the same starter helpers
+        # daemon-managed project bootstraps with the same starter helpers
         # the standalone launcher provides. overwrite=False never clobbers
         # files the engineer has already written on a re-bootstrap.
         try:
@@ -717,13 +788,21 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed starter code during bootstrap")
 
-        # Every continuous-mode project must also get an ``AGENTS.md`` (the
+        # Every daemon-managed project must also get an ``AGENTS.md`` (the
         # engineer prompt instructs the agent to read it — without it the agent
         # burns rounds on ``sed: can't read AGENTS.md``) and a per-project
         # ``.venv`` (so the agent pip-installs experiment deps into an overlay
         # rather than the framework venv). Both are no-ops when already present.
         try:
-            self._seed_project_agents_and_venv(Path(preflight.project_root))
+            manager_objective = self._active_manager_objective(memory)
+            if not manager_objective:
+                manager_objective = str(
+                    self.config.continuous_objective or ""
+                ).strip()
+            self._seed_project_agents_and_venv(
+                Path(preflight.project_root),
+                objective=manager_objective,
+            )
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed AGENTS.md / venv during bootstrap")
 
@@ -1064,9 +1143,25 @@ class LifeWorker:
                         manager_session_root=runtime_root,
                     )
                 from ..manager.front_door import require_manager_execution_task
+                from ..skills.vertical_select import _persisted_vertical
 
                 decision = mgr.decide_vertical(source_objective)
                 execution_task = require_manager_execution_task(decision)
+                prior_vertical = _persisted_vertical(
+                    cfg.project_workdir or runtime_root
+                )
+                prior_handoff = _read_manager_handoff_identity(runtime_root)
+                if prior_handoff is None and prior_vertical:
+                    prior_handoff = _legacy_manager_handoff_identity(
+                        runtime_root,
+                        objective=expected_state.objective,
+                        vertical=prior_vertical,
+                    )
+                replacement_intent = bool(
+                    prior_handoff
+                    and prior_handoff.get("objective_sha256")
+                    != _objective_sha256(execution_task)
+                )
                 if self._operator_stop_requested:
                     raise RuntimeError("operator stop requested during Manager handoff")
                 target_enabled = True if cfg.continuous else expected_state.enabled
@@ -1077,8 +1172,22 @@ class LifeWorker:
                         source_objective,
                         decision,
                         ask_on_new_domain=False,
+                        force_stage_reset=replacement_intent,
                         _lock_held=True,
                     )
+                    if replacement_intent:
+                        supersede = getattr(
+                            mem.backlog,
+                            "supersede_pending_for_replacement",
+                            None,
+                        )
+                        if callable(supersede):
+                            committed["superseded_ids"] = supersede(
+                                reason=(
+                                    "operator replaced the standing Manager objective"
+                                ),
+                                replacement_id=intent_id,
+                            )
 
                 lock_factory = getattr(mgr, "pipeline_lock", None)
                 pipeline_lock = (
@@ -1116,6 +1225,16 @@ class LifeWorker:
                         "stages": list(getattr(division, "stages", []) or []),
                         "text": "manager completed daemon objective handoff",
                     })
+                    for item_id in committed.get("superseded_ids", ()):
+                        sink.append({
+                            "type": "life.plan.node.superseded",
+                            "item_id": item_id,
+                            "superseded_by_plan_id": intent_id,
+                            "reason": (
+                                "operator replaced the standing Manager objective"
+                            ),
+                            "source": "manager_intent_replacement",
+                        })
                     _write_manager_handoff_identity(
                         runtime_root,
                         objective=execution_task,
@@ -1190,6 +1309,24 @@ class LifeWorker:
             )
         ):
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
+
+        # Existing projects may already have a generated AGENTS.md. Refresh only
+        # its managed runtime block on every daemon boot/resume; operator and
+        # Engineer edits outside the markers remain untouched.
+        if cfg.project_workdir is not None:
+            try:
+                from ..skills.vertical_select import _persisted_vertical
+                from ..tools.new_auto_research_project import (
+                    refresh_agents_runtime_contract,
+                )
+
+                refresh_agents_runtime_contract(
+                    cfg.project_workdir,
+                    objective=str(init_objective or ""),
+                    vertical=_persisted_vertical(cfg.project_workdir) or "",
+                )
+            except Exception:  # noqa: BLE001 — runtime refresh is best-effort
+                log.exception("daemon: failed to refresh AGENTS.md runtime contract")
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the
         # vertical.  Mission typing is fail-safe (non-paper until a

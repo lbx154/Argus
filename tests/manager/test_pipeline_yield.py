@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 from argus_skill.daemon.state import read_continuous_state, write_continuous_config
+from argus_skill.life.memory import Backlog, BacklogItem
 from argus_skill.manager import front_door
 from argus_skill.manager._core import (
     clear_manager_pipeline_yield,
@@ -38,7 +39,20 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     life_dir.mkdir()
     workdir.mkdir()
     write_continuous_config(life_dir, enabled=True, objective="old objective")
-    memory = SimpleNamespace(root=life_dir, project_root=life_dir)
+    backlog = Backlog(life_dir / "backlog.jsonl")
+    old_item = backlog.add(BacklogItem.new(title="old work", objective="old"))
+    bootstrap = backlog.add(
+        BacklogItem.new(
+            title="bootstrap empty project root",
+            objective="seed",
+            tags=["bootstrap", "project"],
+        )
+    )
+    memory = SimpleNamespace(
+        root=life_dir,
+        project_root=life_dir,
+        backlog=backlog,
+    )
 
     class Manager:
         project_root = workdir
@@ -51,12 +65,14 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     class Prepared:
         mem = memory
         body = "new objective"
+        intent_id = "intent-new-objective"
         manager = Manager()
         execution_task = "manager-authored theorem objective"
 
         @staticmethod
-        def commit(*, acquire_lock=True):
+        def commit(*, acquire_lock=True, force_stage_reset=False):
             assert acquire_lock is False
+            assert force_stage_reset is True
             return SimpleNamespace(
                 vertical="math",
                 kind="research",
@@ -94,3 +110,6 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     assert state.enabled is True
     assert state.objective == "manager-authored theorem objective"
     assert not (life_dir / ".manager_pipeline_yield.json").exists()
+    rows = {item.id: item for item in backlog.all()}
+    assert rows[old_item.id].status == "superseded"
+    assert rows[bootstrap.id].status == "pending"

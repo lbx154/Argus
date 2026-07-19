@@ -267,12 +267,18 @@ class PreparedManagerHandoff:
     def execution_task(self) -> str:
         return require_manager_execution_task(self.decision)
 
-    def commit(self, *, acquire_lock: bool = True) -> Any:
+    def commit(
+        self,
+        *,
+        acquire_lock: bool = True,
+        force_stage_reset: bool = False,
+    ) -> Any:
         kwargs = {} if acquire_lock else {"_lock_held": True}
         division = self.manager.commit_vertical_decision(
             self.body,
             self.decision,
             ask_on_new_domain=False,
+            force_stage_reset=force_stage_reset,
             **kwargs,
         )
         require_manager_execution_task(division)
@@ -549,11 +555,31 @@ def manager_continuous_handoff(
         ensure_runner=ensure_runner,
     )
     committed: dict[str, Any] = {}
+    replacement_intent = bool(
+        expected.objective.strip()
+        and requested_objective.strip()
+        and expected.objective.strip() != body
+    )
 
     def _commit() -> None:
         if callable(cancelled) and cancelled():
             raise ManagerHandoffError("Manager request cancelled before commit")
-        committed["division"] = prepared.commit(acquire_lock=False)
+        committed["division"] = prepared.commit(
+            acquire_lock=False,
+            force_stage_reset=replacement_intent,
+        )
+        if replacement_intent:
+            backlog = getattr(mem, "backlog", None)
+            supersede = getattr(
+                backlog,
+                "supersede_pending_for_replacement",
+                None,
+            )
+            if callable(supersede):
+                committed["superseded_ids"] = supersede(
+                    reason="operator replaced the standing Manager objective",
+                    replacement_id=prepared.intent_id,
+                )
 
     from ._core import (
         clear_manager_pipeline_yield,
@@ -593,6 +619,14 @@ def manager_continuous_handoff(
         committed["division"],
         continuous_generation=expected.generation + 1,
     )
+    for item_id in committed.get("superseded_ids", ()):
+        _emit_manager_event(mem, {
+            "type": "life.plan.node.superseded",
+            "item_id": item_id,
+            "superseded_by_plan_id": prepared.intent_id,
+            "reason": "operator replaced the standing Manager objective",
+            "source": "manager_intent_replacement",
+        })
     return prepared.execution_task
 
 

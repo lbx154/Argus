@@ -1057,6 +1057,40 @@ class Backlog:
             self._save(items)
         return batch
 
+    def supersede_pending_for_replacement(
+        self,
+        *,
+        reason: str,
+        replacement_id: str,
+    ) -> tuple[str, ...]:
+        """Atomically retire pending work owned by a superseded objective.
+
+        Project bootstrap work is objective-independent and is preserved. A
+        running mission is also left untouched; Manager pipeline-yield ensures
+        replacement commits happen at a mission boundary in normal operation.
+        """
+        reason = str(reason).strip()
+        replacement_id = str(replacement_id).strip()
+        if not reason or not replacement_id:
+            raise ValueError("replacement supersession requires reason and id")
+        superseded: list[str] = []
+        with self._locked():
+            items = self._load()
+            now = time.time()
+            for item in items:
+                if item.status != "pending" or "bootstrap" in {
+                    str(tag).strip().lower() for tag in item.tags
+                }:
+                    continue
+                item.status = "superseded"
+                item.finished_ts = now
+                item.superseded_by_plan_id = replacement_id
+                item.superseded_reason = reason
+                superseded.append(item.id)
+            if superseded:
+                self._save(items)
+        return tuple(superseded)
+
     def apply_plan_revision(
         self,
         *,

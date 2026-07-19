@@ -42,7 +42,9 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "one fresh Engineer session" in call["prompt"]
     assert "Do not initialize Git" in call["prompt"]
     assert "Never create standalone inspect/audit/planning" in call["prompt"]
-    assert "Every node pays for a full Engineer + Reviewer cycle" in call["prompt"]
+    assert "The Engineer decides" in call["prompt"]
+    assert "framework-required gates may still force review" in call["prompt"]
+    assert "Every node pays for a full Engineer + Reviewer cycle" not in call["prompt"]
 
 
 def test_bounded_planner_rejects_cycle(tmp_path) -> None:

@@ -1691,14 +1691,20 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         "argus_skill.manager.Manager.decide_vertical",
         decide_vertical,
     )
-    monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
-        lambda self, task, decision, **kwargs: SimpleNamespace(
+    commit_kwargs: list[dict[str, object]] = []
+
+    def commit_vertical_decision(self, task, decision, **kwargs):
+        commit_kwargs.append(dict(kwargs))
+        return SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
             kind="research",
             stages=[],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        commit_vertical_decision,
     )
     seen: dict[str, object] = {}
 
@@ -1724,6 +1730,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
 
     assert worker.run_forever() == 0
     assert calls == ["new raw objective"]
+    assert commit_kwargs[0]["force_stage_reset"] is True
     assert seen["objective"] == "new manager-clean objective"
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"
 

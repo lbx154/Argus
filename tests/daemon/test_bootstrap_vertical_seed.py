@@ -14,6 +14,7 @@ import pytest
 
 from argus_skill.core.bootstrap import structured_research_bootstrap_requested
 from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
+from argus_skill.life.memory import BacklogItem
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -100,15 +101,24 @@ def test_env_forced_vertical_seeds_optimize_contract_on_a_fresh_project(
     assert "## Argus harness modification map" not in agents
 
 
-def test_bootstrap_is_idempotent_on_existing_agents(tmp_path: Path) -> None:
-    """An existing AGENTS.md is never clobbered on a re-bootstrap."""
+def test_bootstrap_refreshes_only_managed_block_on_existing_agents(tmp_path: Path) -> None:
+    """Runtime refresh changes authority state without clobbering user text."""
     sentinel = "# AGENTS.md\n\noperator-authored contract — do not overwrite\n"
     (tmp_path / "AGENTS.md").write_text(sentinel, encoding="utf-8")
 
     worker = _worker("maximize the KernelBench SOL score on B200")
     worker._seed_project_agents_and_venv(tmp_path)
+    first = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "operator-authored contract — do not overwrite" in first
+    assert "maximize the KernelBench SOL score on B200" in first
 
-    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == sentinel
+    worker.config.continuous_objective = "new Manager objective"
+    worker._seed_project_agents_and_venv(tmp_path)
+    second = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "operator-authored contract — do not overwrite" in second
+    assert "new Manager objective" in second
+    assert "maximize the KernelBench SOL score on B200" not in second
+    assert second.count("<!-- argus-managed:runtime-contract:start -->") == 1
 
 
 def test_fresh_undecided_mission_does_not_default_to_paper(
@@ -180,12 +190,20 @@ def test_research_profile_env_seeds_paper_contract_without_persisted_vertical(
 
 
 class _StubBacklog:
+    def __init__(self, items: list[BacklogItem] | None = None) -> None:
+        self.items = list(items or [])
+
     def all(self) -> list:
-        return []
+        return list(self.items)
+
+    def add(self, item: BacklogItem) -> BacklogItem:
+        self.items.append(item)
+        return item
 
 
 class _StubMemory:
-    backlog = _StubBacklog()
+    def __init__(self, items: list[BacklogItem] | None = None) -> None:
+        self.backlog = _StubBacklog(items)
 
 
 class _StubSink:
@@ -276,6 +294,65 @@ def test_bootstrap_seed_before_divide_reproduces_the_closed_race(
 
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert "EMNLP" not in agents  # sealed onto LEAN — this is the bug, pre-fix
+
+
+def test_bounded_manager_objective_drives_bootstrap_agents_contract(
+    tmp_path: Path,
+) -> None:
+    """A bounded Manager handoff must not fall back to the demo paper goal."""
+    from argus_skill.core.bootstrap import inspect_project_bootstrap
+
+    preflight = inspect_project_bootstrap(
+        tmp_path,
+        research_requested=True,
+    )
+    persist_vertical(tmp_path, "research")
+    item = BacklogItem.new(
+        title="Prove one simple Erdos conjecture",
+        objective="Planner-local implementation step",
+        priority=-1,
+        tags=["manager", "planner", "bounded_dag_node", "scope:bounded"],
+    )
+    item.original_objective = "找一个简单的 Erdős 猜想并尝试证明"
+    memory = _StubMemory([item])
+
+    worker = _worker("")
+    assert worker._seed_bootstrap_task(memory, _StubSink(), preflight)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Bootstrap-time Manager objective: 找一个简单的 Erdős 猜想并尝试证明" in agents
+    assert "Start " + tmp_path.name + " as a clean-slate EMNLP/ACL" not in agents
+
+
+def test_empty_bootstrap_objective_waits_for_manager_instead_of_demo_goal(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research")
+    worker = _worker("")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "No Manager-authored objective was active at bootstrap" in agents
+    assert "Start " + tmp_path.name + " as a clean-slate EMNLP/ACL" not in agents
+
+
+def test_bootstrap_prefers_highest_priority_active_manager_objective() -> None:
+    older = BacklogItem.new(
+        title="Older task",
+        objective="older planner step",
+        priority=0,
+    )
+    older.original_objective = "older operator objective"
+    newer = BacklogItem.new(
+        title="Newer task",
+        objective="newer planner step",
+        priority=-1,
+    )
+    newer.original_objective = "newer operator objective"
+
+    assert LifeWorker._active_manager_objective(_StubMemory([older, newer])) == (
+        "newer operator objective"
+    )
 
 
 def test_bootstrap_gate_rejects_custom_vertical_and_accepts_research_kind(

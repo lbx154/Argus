@@ -753,6 +753,8 @@ def _set_stage(
             f"rollback target {target!r} must be strictly earlier than current "
             f"stage {previous!r}"
         )
+    # ``reset`` is reserved for a Manager-confirmed replacement objective. It
+    # may legally land on the same first stage to clear stale completion state.
 
     payload["current_stage"] = target
 
@@ -792,7 +794,12 @@ def _set_stage(
     # ``done`` in place (project reads as complete) and must NOT be reopened.
     if direction != "complete":
         target_record = stages.get(target)
-        if (
+        if direction == "reset":
+            if not isinstance(target_record, dict):
+                target_record = {}
+                stages[target] = target_record
+            target_record["status"] = "in_progress"
+        elif (
             isinstance(target_record, dict)
             and str(target_record.get("status") or "").lower() == "done"
         ):
@@ -926,6 +933,30 @@ def rollback_stage(
         reason=reason,
         by=rolled_back_by,
         direction="rollback",
+        downgrade_downstream=True,
+        legacy_rollback_history=True,
+    )
+
+
+def reset_stage_for_replacement_intent(
+    project_root: Path | str,
+    *,
+    target_stage: str,
+    reason: str,
+    reset_by: str = "manager",
+) -> str:
+    """Restart a staged pipeline for a Manager-confirmed replacement objective.
+
+    Unlike an evidence rollback, this may target the current stage itself. The
+    superseded objective's downstream statuses are downgraded and the target is
+    made actionable immediately.
+    """
+    return _set_stage(
+        project_root,
+        target_stage=target_stage,
+        reason=reason,
+        by=reset_by,
+        direction="reset",
         downgrade_downstream=True,
         legacy_rollback_history=True,
     )

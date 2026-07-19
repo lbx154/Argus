@@ -1078,6 +1078,7 @@ class Manager:
         decision: VerticalDecision,
         *,
         ask_on_new_domain: bool = False,
+        force_stage_reset: bool = False,
         _lock_held: bool = False,
     ) -> Division:
         """Commit a previously computed decision without another model call."""
@@ -1087,7 +1088,28 @@ class Manager:
                 task,
                 decision,
                 ask_on_new_domain=ask_on_new_domain,
+                force_stage_reset=force_stage_reset,
             )
+
+    def _refresh_agents_runtime_contract(
+        self,
+        *,
+        objective: str,
+        vertical: str,
+    ) -> None:
+        """Refresh only the Manager-owned block of an existing AGENTS.md."""
+        try:
+            from ..tools.new_auto_research_project import (
+                refresh_agents_runtime_contract,
+            )
+
+            refresh_agents_runtime_contract(
+                self.project_root,
+                objective=objective,
+                vertical=vertical,
+            )
+        except Exception:  # noqa: BLE001 — Manager commit remains authoritative
+            log.exception("manager: failed to refresh AGENTS.md runtime contract")
 
     def _commit_vertical_decision_locked(
         self,
@@ -1095,6 +1117,7 @@ class Manager:
         decision: VerticalDecision,
         *,
         ask_on_new_domain: bool,
+        force_stage_reset: bool = False,
     ) -> Division:
         old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
@@ -1116,6 +1139,17 @@ class Manager:
                 execution_task=decision.execution_task,
                 workflow_mode=decision.workflow_mode,
             )
+            if force_stage_reset:
+                vertical_select.reset_stage_for_new_intent(
+                    self.project_root,
+                    old_vertical=old_vertical,
+                    new_vertical=division.vertical,
+                    force_replacement=True,
+                )
+            self._refresh_agents_runtime_contract(
+                objective=division.execution_task or task,
+                vertical=division.vertical,
+            )
             self._apply_vertical_decision_rendering(decision)
             return division
         vertical = decision.vertical
@@ -1133,6 +1167,7 @@ class Manager:
                 self.project_root,
                 old_vertical=old_vertical,
                 new_vertical=vertical,
+                force_replacement=force_stage_reset,
             )
         division = Division(
             task=task,
@@ -1142,6 +1177,10 @@ class Manager:
             stages=stages,
             workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
+        )
+        self._refresh_agents_runtime_contract(
+            objective=division.execution_task or task,
+            vertical=division.vertical,
         )
         self._apply_vertical_decision_rendering(decision)
         return division

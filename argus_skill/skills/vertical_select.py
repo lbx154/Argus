@@ -544,10 +544,15 @@ def reset_stage_for_new_intent(
     *,
     old_vertical: str | None,
     new_vertical: str,
+    force_replacement: bool = False,
 ) -> bool:
     """Reset ``current_stage`` to ``new_vertical``'s first stage when a
     genuinely NEW, operator-issued intent supersedes an already-finished prior
-    run, whether the newly selected vertical is different or the same.
+    run, whether the newly selected vertical is different or the same. A
+    Manager-confirmed standing-objective replacement may pass
+    ``force_replacement=True`` to reset immediately even when the old pipeline
+    was still in progress; ordinary bounded/reclassification calls retain the
+    conservative completed-run-only behavior.
 
     Call this AFTER ``persist_vertical(project_root, new_vertical)`` has
     already run, so the stage machinery (``current_stage`` /
@@ -573,17 +578,20 @@ def reset_stage_for_new_intent(
     ``stage_checklists.rollback_stage`` (audited, ``rolled_back_by="manager"``),
     without touching ``persist_vertical``'s own never-reset contract.
 
-    Returns ``True`` iff a reset was actually applied. No-op (returns
-    ``False``) when: there is no prior vertical, the prior vertical was not
-    actually finished, or the rollback primitive rejects the target stage
+    Returns ``True`` iff a reset was actually applied. Without forced
+    replacement, no-op (returns ``False``) when: there is no prior vertical,
+    the prior vertical was not actually finished, or the rollback primitive rejects the target stage
     (e.g. the stale stage was never even a member of the new vertical's
     order, in which case ``current_stage()`` already falls back safely on its
     own). Fail-open: any error is treated as "nothing to reset" so a probe or
     rollback hiccup never blocks the Manager's division.
     """
-    if not old_vertical:
+    if not old_vertical and not force_replacement:
         return False
-    if not vertical_reached_own_terminal_stage(project_root, old_vertical):
+    if (
+        not force_replacement
+        and not vertical_reached_own_terminal_stage(project_root, old_vertical)
+    ):
         return False
 
     try:
@@ -598,20 +606,34 @@ def reset_stage_for_new_intent(
         return False
 
     try:
-        from .stage_checklists import rollback_stage  # late (cycle)
+        if force_replacement:
+            from .stage_checklists import reset_stage_for_replacement_intent
 
-        rollback_stage(
-            project_root,
-            target_stage=new_order[0],
-            reason=(
-                f"prior vertical {old_vertical!r} had already reached its own "
-                f"terminal stage (done); a genuinely new operator-issued "
-                f"intent assigned vertical {new_vertical!r} — "
-                f"resetting current_stage to its first stage rather than "
-                f"silently inheriting the completed prior run's stale stage."
-            ),
-            rolled_back_by="manager",
-        )
+            reset_stage_for_replacement_intent(
+                project_root,
+                target_stage=new_order[0],
+                reason=(
+                    "operator replaced the standing Manager objective; resetting "
+                    f"the superseded {old_vertical!r} pipeline to the first stage "
+                    f"of {new_vertical!r} instead of preserving incompatible progress."
+                ),
+                reset_by="manager",
+            )
+        else:
+            from .stage_checklists import rollback_stage  # late (cycle)
+
+            rollback_stage(
+                project_root,
+                target_stage=new_order[0],
+                reason=(
+                    f"prior vertical {old_vertical!r} had already reached its own "
+                    f"terminal stage (done); a genuinely new operator-issued "
+                    f"intent assigned vertical {new_vertical!r} — "
+                    f"resetting current_stage to its first stage rather than "
+                    f"silently inheriting the completed prior run's stale stage."
+                ),
+                rolled_back_by="manager",
+            )
     except ValueError:
         log.debug(
             "reset_stage_for_new_intent: rollback rejected for %r -> %r "

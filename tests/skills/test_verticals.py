@@ -260,6 +260,36 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     assert payload["current_stage"] == "run"  # preserved, untouched
 
 
+def test_force_replacement_resets_inprogress_pipeline_immediately(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, "research", current="review")
+    state_path = root / "research" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text())
+    payload["stages"] = {
+        "research": {"status": "done"},
+        "plan": {"status": "done"},
+        "review": {"status": "in_progress"},
+    }
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    persist_vertical(root, "research")
+    applied = reset_stage_for_new_intent(
+        root,
+        old_vertical="research",
+        new_vertical="research",
+        force_replacement=True,
+    )
+
+    assert applied is True
+    payload = json.loads(state_path.read_text())
+    assert payload["current_stage"] == "research"
+    assert payload["stages"]["research"]["status"] == "in_progress"
+    assert payload["stages"]["plan"]["status"] == "pending"
+    assert payload["stages"]["review"]["status"] == "pending"
+    assert payload["stage_history"][-1]["direction"] == "reset"
+
+
 def test_vertical_reached_own_terminal_stage_true_and_false(tmp_path: Path) -> None:
     # False: mid-project, not on the vertical's own last stage.
     root = _project(tmp_path, "research", current="run")

@@ -245,6 +245,10 @@ def test_vertical_commit_persists_generic_research_target_contract(
 
 def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_path):
     mgr = Manager(project_root=tmp_path, runner=_existing("research"))
+    (tmp_path / "AGENTS.md").write_text(
+        "# AGENTS.md\n\noperator-owned text\n",
+        encoding="utf-8",
+    )
 
     decision = mgr.decide_vertical("draft the paper")
 
@@ -253,6 +257,45 @@ def test_vertical_decision_can_be_committed_after_external_revision_check(tmp_pa
     assert division.execution_task == "draft the paper"
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "operator-owned text" in agents
+    assert "Active vertical: `research`" in agents
+    assert "Current Manager objective: draft the paper" in agents
+
+
+def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps({
+            "vertical": "math",
+            "current_stage": "review",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "done"},
+                "review": {"status": "in_progress"},
+            },
+        }),
+        encoding="utf-8",
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="research",
+        execution_task="select a real open Erdos problem",
+    )
+
+    manager.commit_vertical_decision(
+        "replace the old closed theorem target",
+        decision,
+        force_stage_reset=True,
+    )
+
+    state = json.loads(state_path.read_text())
+    assert state["vertical"] == "research"
+    assert state["current_stage"] == "research"
+    assert state["stages"]["review"]["status"] == "pending"
+    assert state["stage_history"][-1]["direction"] == "reset"
 
 
 def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
