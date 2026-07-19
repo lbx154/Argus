@@ -41,6 +41,17 @@ def test_parser_has_only_wiki_subcommand():
     assert args.project == "demo"
 
 
+def test_parser_accepts_stage_targeted_notify() -> None:
+    args = build_parser().parse_args([
+        "--notify",
+        "profile after certification",
+        "--notify-stage",
+        "optimize",
+    ])
+    assert args.notify == "profile after certification"
+    assert args.notify_stage == "optimize"
+
+
 def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):
     p = build_parser()
     wiki = tmp_path / ".autors" / "demo" / "wiki"

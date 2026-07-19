@@ -201,6 +201,13 @@ def build_parser() -> argparse.ArgumentParser:
              "engineer round picks it up as operator guidance)",
     )
     cockpit_grp.add_argument(
+        "--notify-stage",
+        default="",
+        metavar="STAGE",
+        help="deliver --notify only when the active pipeline reaches this stage "
+             "(vertical aliases such as profiling→optimize are canonicalized)",
+    )
+    cockpit_grp.add_argument(
         "--follow",
         action="store_true",
         help="stream daemon events to terminal in real-time "

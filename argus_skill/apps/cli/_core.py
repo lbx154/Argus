@@ -277,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.lifecycle_archive)
         + bool(getattr(args, "command", None))
     )
+    if getattr(args, "notify_stage", "") and not args.notify:
+        sys.stderr.write("argus-skill: --notify-stage requires --notify MSG\n")
+        return 2
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
@@ -658,9 +661,36 @@ def _cmd_notify(args: argparse.Namespace) -> int:
         return 2
     bundle = _resolve_project_bundle(args)
     bundle.project.root.mkdir(parents=True, exist_ok=True)
-    inbox = bundle.project.root / "inbox.jsonl"
-    queue_inbox_message(bundle.project.root, msg, source="cli.notify")
-    print(f"argus-skill: queued nudge ({len(msg)} chars) → {inbox}")
+    target_stage = str(getattr(args, "notify_stage", "") or "").strip()
+    if target_stage:
+        from ...daemon.state import read_daemon_status
+        from ...skills.stage_checklists import normalize_stage_for_project
+
+        status = read_daemon_status(bundle.project.root)
+        stage_root = (
+            Path(status.project_workdir)
+            if status.project_workdir
+            else Path.cwd()
+        )
+        target_stage = normalize_stage_for_project(
+            stage_root,
+            target_stage,
+            require_known=True,
+        )
+        if not target_stage:
+            sys.stderr.write("argus-skill: --notify-stage is not valid for the active vertical\n")
+            return 2
+    queue_inbox_message(
+        bundle.project.root,
+        msg,
+        source="cli.notify",
+        stage=target_stage,
+    )
+    from .._inbox import inbox_path
+
+    inbox = inbox_path(bundle.project.root, target_stage)
+    suffix = f" (stage={target_stage})" if target_stage else ""
+    print(f"argus-skill: queued nudge ({len(msg)} chars){suffix} → {inbox}")
     return 0
 
 

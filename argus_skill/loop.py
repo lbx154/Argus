@@ -1183,8 +1183,11 @@ class SkillLoop:
             return (
                 prompt
                 + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
-                + "These directives supersede stale plans, checklists, and prior "
-                "review guidance. Act on them in this round before lower-priority work.\n"
+                + "These directives may stop, narrow, or correct the current mission. "
+                + "They do not silently broaden a structured bounded task or cross its "
+                + "pipeline stage. If a directive materially replaces the current "
+                + "bounded objective, preserve state, update CHECKPOINT.md, and request "
+                + "Reviewer/Planner replanning instead of executing the new scope here.\n"
                 + "\n".join(f"- {item}" for item in guidance)
             )
 

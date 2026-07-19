@@ -1904,7 +1904,10 @@ def _build_supervisor_config(
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,
-        user_inbox=_inbox_drainer_for(runtime_root),
+        user_inbox=_inbox_drainer_for(
+            runtime_root,
+            project_root=cfg.project_workdir or runtime_root,
+        ),
         runtime_context=_worker_runtime_context(cfg, paper_mission=paper_mission),
         continuous=init_continuous,
         continuous_objective=init_objective,

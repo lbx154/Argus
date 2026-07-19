@@ -22,6 +22,13 @@ STAGE_ORDER = [
     "report",
 ]
 
+# Profiling is the first phase inside optimize, not a standalone pipeline stage.
+# Older/project-authored state may still use this descriptive phase name.
+STAGE_ALIASES = {
+    "profiling": "optimize",
+    "optimization": "optimize",
+}
+
 WORKFLOW_MODE = "staged"
 completion_gate = "metric"
 

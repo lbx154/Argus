@@ -652,6 +652,44 @@ def _normalize_stage(stage: str | None) -> str:
     return str(stage).strip().lower()
 
 
+def _active_vertical_stage_aliases(project_root) -> dict[str, str]:
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import load_vertical, vertical_stage_aliases
+        from .vertical_select import resolve_checklist_vertical
+
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return {}
+        return vertical_stage_aliases(load_vertical(vertical, project_root=project_root))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def normalize_stage_for_project(
+    project_root: Path | str,
+    stage: str | None,
+    *,
+    require_known: bool = False,
+) -> str:
+    """Canonicalize a stage name using the active vertical's aliases."""
+    normalized = _normalize_stage(stage)
+    aliases = _active_vertical_stage_aliases(project_root)
+    seen: set[str] = set()
+    while normalized in aliases and normalized not in seen:
+        seen.add(normalized)
+        normalized = _normalize_stage(aliases[normalized])
+    if require_known:
+        order, _items = _active_vertical_checklist_defs(project_root)
+        known = {_normalize_stage(item) for item in order}
+        if normalized not in known:
+            return ""
+    return normalized
+
+
 def current_stage(project_root: Path | str = ".") -> str:
     """Read ``research/PIPELINE_STATE.json`` and return the current stage.
 
@@ -671,7 +709,10 @@ def current_stage(project_root: Path | str = ".") -> str:
         payload = None
     order, items = _active_vertical_checklist_defs(project_root)
     fallback = _normalize_stage(order[0]) if order else "research"
-    stage = _normalize_stage(payload.get("current_stage") if isinstance(payload, dict) else None)
+    stage = normalize_stage_for_project(
+        project_root,
+        payload.get("current_stage") if isinstance(payload, dict) else None,
+    )
     if stage in {_normalize_stage(s) for s in order}:
         return stage
     return fallback
@@ -719,7 +760,7 @@ def _set_stage(
     state_path = root / "research" / "PIPELINE_STATE.json"
     raw_order, items = _active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
-    target = _normalize_stage(target_stage)
+    target = normalize_stage_for_project(project_root, target_stage)
     # Stage EXISTENCE is governed by STAGE_ORDER, not CHECKLIST_ITEMS: a
     # Manager-authored data domain has a full stage `order` but an EMPTY items dict
     # (the Planner authors per-stage items into research/CHECKLISTS.json, which is
@@ -737,7 +778,10 @@ def _set_stage(
         payload = {}
 
     fallback_prev = order[0] if order else "research"
-    previous = _normalize_stage(payload.get("current_stage") or fallback_prev)
+    previous = normalize_stage_for_project(
+        project_root,
+        payload.get("current_stage") or fallback_prev,
+    )
     if previous not in order:
         previous = fallback_prev
 
@@ -869,7 +913,7 @@ def advance_stage(
     """
     raw_order, _items = _active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
-    target = _normalize_stage(target_stage)
+    target = normalize_stage_for_project(project_root, target_stage)
     if target not in order:
         raise ValueError(f"unknown stage {target_stage!r}")
     cur_norm = _normalize_stage(current_stage(project_root))

@@ -159,6 +159,20 @@ def vertical_checklist_optional_stages(
     )
 
 
+def vertical_stage_aliases(mod: VerticalDefinition) -> dict[str, str]:
+    """Return non-canonical stage names mapped to canonical stage names."""
+    raw = getattr(mod, "STAGE_ALIASES", {})
+    if not isinstance(raw, dict):
+        return {}
+    aliases: dict[str, str] = {}
+    for key, value in raw.items():
+        source = str(key or "").strip().lower()
+        target = str(value or "").strip().lower()
+        if source and target and source != target:
+            aliases[source] = target
+    return aliases
+
+
 def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
     """Return ``mod.role_banner(role)`` or ``""``.
 

@@ -770,8 +770,13 @@ class _SkillLoopRunner(SelfReplyMixin):
             msgs: list[str] = []
             if inbox_life_dir is not None:
                 try:
+                    from ..skills.stage_checklists import current_stage
                     from ._inbox import drain_inbox_messages
-                    msgs.extend(drain_inbox_messages(inbox_life_dir))
+
+                    msgs.extend(drain_inbox_messages(
+                        inbox_life_dir,
+                        current_stage=current_stage(workdir),
+                    ))
                 except Exception:  # noqa: BLE001 — never break a mission
                     pass
             return msgs
@@ -1166,7 +1171,11 @@ def _codex_preflight_warning() -> str | None:
     return None
 
 
-def _inbox_drainer_for(life_dir: Path):
+def _inbox_drainer_for(
+    life_dir: Path,
+    *,
+    project_root: Path | None = None,
+):
     """Return a `user_inbox` callable that drains pending messages from
     ``<life_dir>/inbox.jsonl``.
 
@@ -1179,7 +1188,13 @@ def _inbox_drainer_for(life_dir: Path):
 
     def _drain_one() -> str | None:
         try:
-            messages = drain_inbox_messages(life_dir, limit=1)
+            from ..skills.stage_checklists import current_stage
+
+            messages = drain_inbox_messages(
+                life_dir,
+                limit=1,
+                current_stage=current_stage(project_root or life_dir),
+            )
         except Exception:  # noqa: BLE001
             return None
         return messages[0] if messages else None
@@ -1347,7 +1362,10 @@ def _build_supervisor_config(
             else None
         ),
         stop_event=stop_event,
-        user_inbox=_inbox_drainer_for(project_root),
+        user_inbox=_inbox_drainer_for(
+            project_root,
+            project_root=artifact_root or project_worktree or project_root,
+        ),
         runtime_context=runtime_context,
         continuous=continuous,
         continuous_objective=continuous_objective,

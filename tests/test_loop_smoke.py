@@ -305,6 +305,30 @@ def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path
     assert "invent a mathematical tool" in prompt
 
 
+def test_live_guidance_cannot_silently_broaden_bounded_task(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        extra_guidance_provider=lambda: ["start profiling instead"],
+    )
+    loop.run("certify baseline only", workdir=tmp_path, scope="bounded")
+
+    prompt = next(
+        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
+    )
+    assert "do not silently broaden a structured bounded task" in prompt
+    assert "request Reviewer/Planner replanning" in prompt
+
+
 def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
