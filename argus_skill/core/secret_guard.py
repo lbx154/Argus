@@ -179,6 +179,7 @@ _MAX_SCANNED_FILES = 10_000
 # credential-like keys such as ``token``.
 _NON_ARTIFACT_TREE_PARTS = {
     ("code", "references"),
+    ("experiments", "comparator_worker_env"),
     ("models", "huggingface"),
     ("third_party", "reference_sources"),
     ("third_party", "runtime_deps"),

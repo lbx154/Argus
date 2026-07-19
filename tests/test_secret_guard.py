@@ -313,6 +313,37 @@ def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
+def test_scrub_skips_comparator_worker_runtime_overlay(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    metadata = (
+        tmp_path
+        / "experiments"
+        / "comparator_worker_env"
+        / "site"
+        / "huggingface_hub-0.36.0.dist-info"
+        / "METADATA"
+    )
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text(
+        "Description: example client_secret: synthetic-package-text\n",
+        encoding="utf-8",
+    )
+    now = time.time()
+    metadata.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert metadata.read_text(encoding="utf-8") == (
+        "Description: example client_secret: synthetic-package-text\n"
+    )
+    assert report.scanned_files == 1
+
+
 def test_artifact_scrub_preserves_synthetic_task_tokens(
     tmp_path: Path,
 ) -> None:
