@@ -54,6 +54,10 @@ from ..core.stop_kinds import (
     pause_status_for_stop_kind,
 )
 from ..reviewer import Reviewer, ReviewerConfig
+from ..reviewer.failure_taxonomy import (
+    REPAIRABLE_FAILURE_LAYERS,
+    resolve_failure_layer,
+)
 from .background_subagents import (
     emit_subagent_cost_events,
     find_waitable_subagent,
@@ -2544,6 +2548,21 @@ class SupervisedEngineer:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
+            failure_layer = resolve_failure_layer(
+                failure_layer=getattr(review, "failure_layer", ""),
+                failure_cause=getattr(review, "failure_cause", ""),
+            )
+            if (
+                failure_layer in REPAIRABLE_FAILURE_LAYERS
+                and not review.operator_question
+            ):
+                return (
+                    "replan_requested",
+                    f"Repairable {failure_layer} failure; scientific state is "
+                    "unchanged. Replan to repair the failed layer, validate it, "
+                    "and resume the scientific experiment. "
+                    + (review.reason or ""),
+                )
             if review.failure_cause == "environmental" and not review.operator_question:
                 return "infra_blocked", review.reason or "Research infrastructure blocked progress."
             return "blocked", review.reason or "Reviewer blocked progress."

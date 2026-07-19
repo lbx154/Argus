@@ -186,6 +186,9 @@ class ReviewDecision:
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
     failure_cause: str = ""
+    # Orthogonal failure layer. Infrastructure/program/evaluator/packaging
+    # failures must repair their own layer and never become scientific evidence.
+    failure_layer: str = ""
     # Compact reviewer-authored decision-progress classification. The harness
     # counts it but never infers it from filenames, keywords, or tool activity.
     progress_class: str = ""
@@ -355,6 +358,7 @@ class ReviewDecision:
             "round_summary_markdown": self.round_summary_markdown or "",
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
+            "failure_layer": self.failure_layer or "",
             "progress_class": self.progress_class or "",
             "control_action": self.control_action or "",
             "control_task_id": self.control_task_id or "",

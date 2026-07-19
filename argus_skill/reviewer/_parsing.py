@@ -10,6 +10,7 @@ import json
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
+from .failure_taxonomy import normalize_failure_layer
 from ..core.research_contract import adapt_legacy_research_result_payload
 
 _BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
@@ -115,6 +116,7 @@ def parse_decision_text(
         planner_report=planner_report,
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
+        failure_layer=normalize_failure_layer(parsed.get("failure_layer")),
         # Legacy replay compatibility only. Current Reviewer schemas no longer
         # expose these fields; live Reviewers edit the injected paths directly.
         skill_ops=_parse_skill_ops(parsed),

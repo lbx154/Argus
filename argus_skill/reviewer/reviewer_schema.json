@@ -104,6 +104,20 @@
         null
       ]
     },
+    "failure_layer": {
+      "type": ["string", "null"],
+      "enum": [
+        "platform",
+        "orchestration",
+        "evaluator",
+        "evidence_packaging",
+        "scientific",
+        "operator",
+        "unknown",
+        "",
+        null
+      ]
+    },
     "progress_class": {
       "type": "string",
       "enum": [
@@ -376,6 +390,7 @@
     "completion_summary_markdown",
     "achievement",
     "failure_cause",
+    "failure_layer",
     "progress_class",
     "control",
     "scope",
