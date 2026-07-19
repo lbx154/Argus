@@ -488,9 +488,7 @@ class LifeWorker:
     """
 
     def __init__(self, config: LifeWorkerConfig) -> None:
-        # config.json (knob layer) is the single source of truth for budget caps;
-        # resolve_budget_caps reads it (and migrates any pre-existing budget.json
-        # once). budget.json/global_budget.json are retired — not seeded here.
+        # The host-global daily cap is the only monetary budget.
         budget_global_root = (
             Path(config.global_root).expanduser()
             if config.global_root is not None
@@ -506,8 +504,6 @@ class LifeWorker:
             project_state_dir=config.life_dir,
             global_root=budget_global_root,
         )
-        config.per_mission_cap_usd = caps.per_mission_cap_usd
-        config.daily_cap_usd = caps.daily_cap_usd
         config.global_daily_cap_usd = caps.global_daily_cap_usd
         self.config = config
         self._stop = threading.Event()
@@ -817,12 +813,10 @@ class LifeWorker:
                 title=title,
                 objective=preflight.bootstrap_objective,
                 priority=0,
-                max_cost_usd=5.0,
                 tags=["bootstrap", "project"],
                 notes=preflight.event_text,
                 iterate=False,
                 iteration_max_cycles=1,
-                iteration_budget_usd=5.0,
             )
             memory.backlog.add(item)
             return True
@@ -1892,8 +1886,7 @@ def _worker_runtime_context(
         "## Runtime info\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
-        f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day, "
-        f"${cfg.global_daily_cap_usd:.0f}/day global\n"
+        f"- Host-global daily budget: ${cfg.global_daily_cap_usd:.0f}\n"
         "\n"
         "## Python environments (CRITICAL)\n"
         f"- argus-skill commands: `{argus_python}`\n"
@@ -1950,13 +1943,10 @@ def _build_supervisor_config(
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
-            per_mission_cap_usd=cfg.per_mission_cap_usd,
-            daily_cap_usd=cfg.daily_cap_usd,
             global_daily_cap_usd=cfg.global_daily_cap_usd,
             max_missions=64,
         ),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
-        planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
         subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
         subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,
         poll_interval_seconds=2.0,

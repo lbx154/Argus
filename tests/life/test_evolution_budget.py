@@ -19,14 +19,9 @@ class _Outcome:
 class _Runner:
     def __init__(self) -> None:
         self.usage_contexts = []
-        self.guards = []
 
     def _set_usage_context(self, mission_id):
         self.usage_contexts.append(mission_id)
-
-    def _set_budget_guard(self, provider):
-        self.guards.append(provider)
-        return []
 
     def execute(self, **kwargs):
         return _Outcome()
@@ -40,7 +35,7 @@ class _Sink:
         self.events.append(event)
 
 
-def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
+def test_source_promotion_is_included_in_global_usage_ledger(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -54,8 +49,7 @@ def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
         sink=sink,
         config=LifeSupervisorConfig(
             budget=LifeBudget(
-                per_mission_cap_usd=2.5,
-                daily_cap_usd=10.0,
+                global_daily_cap_usd=0.0,
                 max_missions=1,
             ),
             project_worktree=tmp_path,
@@ -65,7 +59,6 @@ def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
         BacklogItem.new(
             title="evolve",
             objective="promote one runtime skill",
-            max_cost_usd=2.5,
         )
     )
 
@@ -106,5 +99,3 @@ def test_source_promotion_is_budgeted_and_included_in_mission_aggregate(
     assert completed["usage_record_count"] == 1
     assert completed["known_cost_usd"] == 0.25
     assert runner.usage_contexts == [f"{item.id}:attempt:1", None]
-    assert runner.guards[0].cap_usd == 2.5
-    assert runner.guards[-1] is None

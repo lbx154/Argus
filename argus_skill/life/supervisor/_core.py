@@ -54,7 +54,6 @@ from ._config import (
     LifeSupervisorConfig,
     _MemoryView,
     _MissionRunner,
-    reserve_global_daily_budget,
 )
 from ._constants import (
     FULL_PAPER_GATE_DESCRIPTION as _FULL_PAPER_GATE_DESCRIPTION,  # noqa: F401
@@ -621,7 +620,6 @@ class LifeSupervisor(
             if outcome.get("status") in {
                 "paused_budget",
                 "paused_provider_cooldown",
-                "paused_provider_fence",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
@@ -695,7 +693,6 @@ class LifeSupervisor(
             if outcome.get("status") in {
                 "paused_budget",
                 "paused_provider_cooldown",
-                "paused_provider_fence",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
@@ -793,13 +790,8 @@ class LifeSupervisor(
         if obsolete_final_submission is not None:
             return obsolete_final_submission
 
-        memory_global_root = getattr(self.memory, "global_root", None)
-        budget_global_root = (
-            Path(memory_global_root) if memory_global_root is not None else None
-        )
+        budget_global_root = self._budget_global_root()
         ok, reason = self.config.budget.can_start(
-            item=item,
-            journal=self.memory.journal,
             global_root=budget_global_root,
         )
         if not ok:
@@ -847,31 +839,14 @@ class LifeSupervisor(
         if lifecycle_block is not None:
             return lifecycle_block
 
-        reservation, reserve_reason = reserve_global_daily_budget(
-            cap_usd=self.config.budget.global_daily_cap_usd,
-            amount_usd=self._effective_per_mission_cap(item),
-            global_root=budget_global_root,
-            owner=item.id,
-        )
-        if reservation is None:
-            self._emit_status(f"budget block: {reserve_reason}")
-            self._emit({
-                "type": EventType.LIFE_BUDGET_PAUSE,
-                "item_id": item.id,
-                "title": item.title,
-                "reason": reserve_reason,
-                "agent_layer": "supervisor",
-            })
-            return {
-                "status": "paused_budget",
-                "item_id": item.id,
-                "reason": reserve_reason,
-                "recoverable": True,
-            }
-        try:
-            return self._run_one(item)
-        finally:
-            reservation.release()
+        return self._run_one(item)
+
+    def _budget_global_root(self) -> Path:
+        configured = getattr(self.memory, "global_root", None)
+        if configured is not None:
+            return Path(configured).expanduser()
+        root = Path(getattr(self.memory, "root", ".")).expanduser()
+        return root.parent.parent if root.parent.name == "projects" else root
 
     def _maybe_skip_inapplicable_final_submission_item(
         self,
@@ -915,12 +890,6 @@ class LifeSupervisor(
     # ------------------------------------------------------------------
     # One mission
     # ------------------------------------------------------------------
-
-    def _effective_per_mission_cap(self, item: BacklogItem) -> float:
-        """The cap enforced for ``item`` (min of operator per-item budget and the
-        global per-mission cap). Delegates to ``LifeBudget`` so the preflight
-        ``can_start`` check and the mid-mission breaker use one number (F3)."""
-        return self.config.budget.effective_per_mission_cap(item)
 
     def _planner_verdict_metadata(self) -> dict[str, Any]:
         project = getattr(self.memory, "project", None)

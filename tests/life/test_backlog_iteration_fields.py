@@ -11,7 +11,6 @@ def test_backlog_item_new_sets_iteration_defaults():
     it = BacklogItem.new(title="t", objective="ship a calculator")
     assert it.iterate is True
     assert it.iteration_max_cycles == 6
-    assert it.iteration_budget_usd == 200.0
     assert it.iteration_cycles_done == 0
     assert it.iteration_cost_usd == 0.0
     assert it.original_objective == "ship a calculator"
@@ -29,7 +28,6 @@ def test_backlog_item_roundtrip_preserves_iteration_fields():
         objective="o",
         iterate=True,
         iteration_max_cycles=5,
-        iteration_budget_usd=4.5,
     )
     it.iteration_cycles_done = 2
     it.iteration_cost_usd = 1.23
@@ -37,7 +35,6 @@ def test_backlog_item_roundtrip_preserves_iteration_fields():
     restored = BacklogItem.from_jsonable(json.loads(blob))
     assert restored.iterate is True
     assert restored.iteration_max_cycles == 5
-    assert restored.iteration_budget_usd == 4.5
     assert restored.iteration_cycles_done == 2
     assert restored.iteration_cost_usd == 1.23
     assert restored.original_objective == "o"
@@ -51,7 +48,6 @@ def test_legacy_row_without_iteration_fields_loads_as_non_iterating():
         "objective": "old objective",
         "status": "done",
         "priority": 100,
-        "max_cost_usd": 1.0,
         "tags": [],
         "notes": "",
     }

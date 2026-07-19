@@ -21,7 +21,7 @@ def format_backlog_list(mem: Any, *, include_all: bool) -> str:
     lines = [
         (
             f"  {it.status:<8}  {it.id}  "
-            f"p={it.priority:<4}  cap=${it.max_cost_usd:.2f}  "
+            f"p={it.priority:<4}  "
             f"{it.title}"
         )
         for it in items
@@ -33,11 +33,10 @@ def parse_add_flags(
     text: str,
     *,
     defaults: Mapping[str, Any],
-) -> tuple[bool, int, float, str]:
-    """Strip ``--once`` / ``--cycles=N`` / ``--budget=$X`` from an /add body."""
+) -> tuple[bool, int, str]:
+    """Strip ``--once`` / ``--cycles=N`` from an /add body."""
     iterate = bool(defaults.get("iterate", DEFAULT_LIFE_CONFIG["iterate"]))
     max_cycles = int(defaults.get("cycles", DEFAULT_LIFE_CONFIG["cycles"]))
-    budget = float(defaults.get("budget", DEFAULT_LIFE_CONFIG["budget"]))
     tokens = text.split()
     keep: list[str] = []
     for tok in tokens:
@@ -51,15 +50,8 @@ def parse_add_flags(
             except ValueError:
                 pass
             continue
-        if low.startswith("--budget="):
-            raw = low.split("=", 1)[1].lstrip("$")
-            try:
-                budget = max(0.0, float(raw))
-            except ValueError:
-                pass
-            continue
         keep.append(tok)
-    return iterate, max_cycles, budget, " ".join(keep).strip()
+    return iterate, max_cycles, " ".join(keep).strip()
 
 
 def add_backlog_item(
@@ -70,7 +62,6 @@ def add_backlog_item(
     priority: int = 100,
     iterate: bool = True,
     iteration_max_cycles: int = 6,
-    iteration_budget_usd: float = 200.0,
 ) -> BacklogItem:
     text = text.strip()
     title = text.splitlines()[0][:60].strip() or "(untitled)"
@@ -79,32 +70,20 @@ def add_backlog_item(
         title=title,
         objective=text,
         priority=priority,
-        # BUG FIX: this used to be hardcoded to 30.0, silently ignoring the
-        # operator's `/add ... --budget=$X`. `max_cost_usd` (not
-        # `iteration_budget_usd`) is what `LifeBudget.effective_per_mission_cap`
-        # actually enforces (see life/supervisor/_config.py) as the real
-        # per-mission spend gate, so a custom --budget was cosmetically
-        # threaded into `iteration_budget_usd` (only used to size a future
-        # continuation cycle) while the mission's REAL cap silently stayed at
-        # the $30 default. Confirmed live: `/add ... --budget=1` printed
-        # "max_cost=$30.00" back at the operator. Use the same operator-
-        # supplied value for both fields so what's typed is what's enforced.
-        max_cost_usd=iteration_budget_usd,
         tags=[],
         iterate=iterate,
         iteration_max_cycles=iteration_max_cycles,
-        iteration_budget_usd=iteration_budget_usd,
     ))
 
 
 def format_added_item(item: BacklogItem) -> str:
     iter_blurb = (
-        f", iter≤{item.iteration_max_cycles} ${item.iteration_budget_usd:.1f}"
+        f", iter≤{item.iteration_max_cycles}"
         if item.iterate else ", once"
     )
     return (
         f"added {item.id}: {item.title}  "
-        f"(priority={item.priority}, max_cost=${item.max_cost_usd:.2f}{iter_blurb})"
+        f"(priority={item.priority}{iter_blurb})"
     )
 
 
@@ -181,6 +160,9 @@ def render_run_command(
     from ._runtime import _invoke_supervisor
 
     cfg = chat_state.get("config", {})
+    from ..core.knobs import resolve_budget_caps
+
+    global_budget = resolve_budget_caps().global_daily_cap_usd
     parser = argparse.ArgumentParser(prog="/run", add_help=False)
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
@@ -194,14 +176,9 @@ def render_run_command(
         default=int(cfg.get("cycles", 6)),
     )
     parser.add_argument(
-        "--per-mission-cap-usd",
+        "--global-daily-cap-usd",
         type=float,
-        default=float(cfg.get("per_mission_cap", 200.0)),
-    )
-    parser.add_argument(
-        "--daily-cap-usd",
-        type=float,
-        default=float(cfg.get("daily_cap", 1_200.0)),
+        default=global_budget,
     )
     parser.add_argument("--quiet", action="store_true")
     try:
@@ -213,8 +190,7 @@ def render_run_command(
         (
             f"/run: backend={args.backend}  "
             f"max_missions={'1 (once)' if args.once else args.max_missions}  "
-            f"per_mission_cap=${args.per_mission_cap_usd:.2f}  "
-            f"daily_cap=${args.daily_cap_usd:.2f}"
+            f"global_daily_cap=${args.global_daily_cap_usd:.2f}"
         ),
         "       (foreground; Ctrl-C requests graceful stop)",
     ]
@@ -226,9 +202,7 @@ def render_run_command(
         backend=args.backend,
         once=args.once,
         max_missions=args.max_missions,
-        per_mission_cap_usd=args.per_mission_cap_usd,
-        daily_cap_usd=args.daily_cap_usd,
-        global_daily_cap_usd=0.0,
+        global_daily_cap_usd=args.global_daily_cap_usd,
         quiet=args.quiet,
         seed_thread_id=seed,
     )
@@ -253,9 +227,6 @@ def render_run_command(
 DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
     "cycles": 6,
-    "budget": 200.0,
-    "per_mission_cap": 200.0,
-    "daily_cap": 1_200.0,
     "continuous": False,
     "manager_effort": "xhigh",
     "planner_effort": "xhigh",

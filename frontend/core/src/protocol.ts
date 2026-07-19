@@ -8,7 +8,7 @@ export const API_PROTOCOL = {
   major: 1,
   minServerMinor: 10,
 } as const;
-export const SNAPSHOT_SCHEMA_VERSION = 5;
+export const SNAPSHOT_SCHEMA_VERSION = 6;
 export const REQUIRED_API_CAPABILITIES = [
   'daemon.admission.v1',
   'daemon.status.protocol.v1',
@@ -182,8 +182,6 @@ export function requireSnapshotContract(value: unknown): Snapshot {
   }
   if (!daemon) throw new Error('invalid snapshot: daemon section is missing');
   const requiredDaemonFields = [
-    'per_mission_cap_usd',
-    'daily_cap_usd',
     'global_daily_cap_usd',
     'read_status',
     'read_error',

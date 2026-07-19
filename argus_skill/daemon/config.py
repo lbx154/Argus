@@ -26,11 +26,8 @@ class LifeWorkerConfig:
     reviewer_model: str = "gpt-5.5"
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
-    per_mission_cap_usd: float = 200.0
-    daily_cap_usd: float = 1_200.0
     global_daily_cap_usd: float = 0.0
     planner_task_iteration_max_cycles: int = 6
-    planner_task_iteration_budget_usd: float = 200.0
     # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
     # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
     # this configures.
@@ -70,11 +67,8 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "reviewer_model": config.reviewer_model,
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "per_mission_cap_usd": config.per_mission_cap_usd,
-        "daily_cap_usd": config.daily_cap_usd,
         "global_daily_cap_usd": config.global_daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
-        "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
         "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
         "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
         "poll_interval": config.poll_interval,
@@ -118,14 +112,9 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
         ),
-        per_mission_cap_usd=_number("per_mission_cap_usd", 200.0),
-        daily_cap_usd=_number("daily_cap_usd", 1_200.0),
         global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
         planner_task_iteration_max_cycles=int(
             data.get("planner_task_iteration_max_cycles") or 6
-        ),
-        planner_task_iteration_budget_usd=_number(
-            "planner_task_iteration_budget_usd", 200.0
         ),
         subagent_family_failure_streak_limit=int(
             data.get("subagent_family_failure_streak_limit") or 3

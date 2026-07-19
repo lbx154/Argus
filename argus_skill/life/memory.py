@@ -601,7 +601,6 @@ class EventJournal(Journal):
             etype == EventType.LIFE_MISSION_COMPLETED
             and str(row.get("status") or "") in {
                 "paused_provider_cooldown",
-                "paused_provider_fence",
             }
         ):
             kind = "provider_pause"
@@ -716,7 +715,6 @@ _BACKLOG_STATUSES = {
     "paused",
     "paused_budget",
     "paused_provider_cooldown",
-    "paused_provider_fence",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
@@ -731,7 +729,6 @@ _RECOVERABLE_PAUSE_STATUSES = {
     "paused",
     "paused_budget",
     "paused_provider_cooldown",
-    "paused_provider_fence",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
@@ -764,7 +761,6 @@ class BacklogItem:
     objective: str  # full instruction handed to the engineer
     status: str = "pending"
     priority: int = 100  # smaller = higher priority
-    max_cost_usd: float = 200.0
     tags: list[str] = field(default_factory=list)
     notes: str = ""
     started_ts: float | None = None
@@ -784,13 +780,12 @@ class BacklogItem:
     # When ``iterate`` is True the supervisor, after a successful
     # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
     # there is no separate critic polish layer any more.
-    # for another mission cycle until either the cost budget or the
-    # cycle ceiling is hit. ``original_objective`` preserves the
+    # for another mission cycle until the cycle ceiling is hit.
+    # ``original_objective`` preserves the
     # operator's first-cycle instruction so subsequent cycles can be
     # framed as "polish what you already built".
     iterate: bool = True
     iteration_max_cycles: int = 6
-    iteration_budget_usd: float = 200.0
     iteration_cycles_done: int = 0
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
@@ -833,12 +828,10 @@ class BacklogItem:
         objective: str,
         item_id: str | None = None,
         priority: int = 100,
-        max_cost_usd: float = 200.0,
         tags: list[str] | None = None,
         notes: str = "",
         iterate: bool = True,
         iteration_max_cycles: int = 6,
-        iteration_budget_usd: float = 200.0,
         deps: list[str] | None = None,
         plan_id: str = "",
         plan_version: int = 0,
@@ -854,12 +847,10 @@ class BacklogItem:
             title=title.strip(),
             objective=objective,
             priority=int(priority),
-            max_cost_usd=float(max_cost_usd),
             tags=list(tags or []),
             notes=notes.strip(),
             iterate=bool(iterate),
             iteration_max_cycles=int(iteration_max_cycles),
-            iteration_budget_usd=float(iteration_budget_usd),
             original_objective=objective,
             deps=list(deps or []),
             plan_id=str(plan_id),
@@ -894,7 +885,6 @@ class BacklogItem:
             objective=objective,
             status=status,
             priority=int(row.get("priority", 100)),
-            max_cost_usd=float(row.get("max_cost_usd", 200.0)),
             tags=list(row.get("tags", [])),
             notes=str(row.get("notes", "")),
             started_ts=row.get("started_ts"),
@@ -903,7 +893,6 @@ class BacklogItem:
             pending_question=str(row.get("pending_question", "")),
             iterate=bool(row.get("iterate", False)),
             iteration_max_cycles=int(row.get("iteration_max_cycles", 6)),
-            iteration_budget_usd=float(row.get("iteration_budget_usd", 200.0)),
             iteration_cycles_done=int(row.get("iteration_cycles_done", 0)),
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
@@ -1314,12 +1303,10 @@ class Backlog:
                     f"{guidance}"
                 ),
                 priority=blocked.priority,
-                max_cost_usd=blocked.max_cost_usd,
                 tags=[*blocked.tags, "operator-reply", "manager-approved"],
                 notes=f"Continues blocked item {blocked.id}.",
                 iterate=blocked.iterate,
                 iteration_max_cycles=blocked.iteration_max_cycles,
-                iteration_budget_usd=blocked.iteration_budget_usd,
                 deps=list(blocked.deps),
                 plan_id=blocked.plan_id,
                 plan_version=blocked.plan_version,

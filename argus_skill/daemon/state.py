@@ -339,8 +339,6 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
             if getattr(config, "project_workdir", None) is not None
             else ""
         ),
-        "per_mission_cap_usd": config.per_mission_cap_usd,
-        "daily_cap_usd": config.daily_cap_usd,
         "global_daily_cap_usd": config.global_daily_cap_usd,
         **daemon_protocol_metadata(),
     }
@@ -355,8 +353,6 @@ class DaemonStatus:
     life_dir: Path
     project_workdir: str = ""
     backend: str | None = None
-    per_mission_cap_usd: float | None = None
-    daily_cap_usd: float | None = None
     global_daily_cap_usd: float | None = None
     protocol_name: str = ""
     protocol_major: int | None = None
@@ -379,8 +375,6 @@ def _daemon_budget_from_project(
     )
 
     return LifeBudget(
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
         global_daily_cap_usd=budget.global_daily_cap_usd,
     )
 
@@ -393,14 +387,10 @@ def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
     stopped-daemon status command shows what the next launch will enforce.
     """
     alive = bool(getattr(status, "alive", False))
-    per_mission = getattr(status, "per_mission_cap_usd", None)
-    daily = getattr(status, "daily_cap_usd", None)
     global_daily = getattr(status, "global_daily_cap_usd", None)
     try:
-        if alive and per_mission is not None and daily is not None:
+        if alive and global_daily is not None:
             return LifeBudget(
-                per_mission_cap_usd=float(per_mission),
-                daily_cap_usd=float(daily),
                 global_daily_cap_usd=float(global_daily or 0.0),
             )
     except (TypeError, ValueError):
@@ -432,7 +422,6 @@ def format_budget_status(
     global_spend_fn: Any = None,
 ) -> str:
     budget = resolve_effective_budget(status)
-    remaining = budget.remaining_today(journal)
     global_root = _status_global_root(status)
     spend_fn = global_spend_fn or global_daily_spend
     if spend_fn is _GLOBAL_DAILY_SPEND_IMPL:
@@ -440,15 +429,17 @@ def format_budget_status(
             global_root=global_root,
             now=time.time(),
         )
+        global_spend = global_usage.known_cost_usd
         global_cost_text = format_usage_cost(global_usage)
     else:
         global_spend = spend_fn(global_root=global_root, now=time.time())
         global_cost_text = f"${global_spend:.2f}"
+    if budget.global_daily_cap_usd <= 0:
+        return f"budget   : global daily disabled (spent {global_cost_text})"
+    remaining = max(0.0, budget.global_daily_cap_usd - global_spend)
     tail = " (paused)" if remaining <= 0 else ""
     return (
         "budget   : "
-        f"per-mission ${budget.per_mission_cap_usd:.2f} · "
-        f"daily ${budget.daily_cap_usd:.2f} · "
         f"global daily ${budget.global_daily_cap_usd:.2f} "
         f"(spent {global_cost_text}) · "
         f"remaining ${remaining:.2f}{tail}"
@@ -486,8 +477,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     started_iso: str | None = None
     backend: str | None = None
     project_workdir = ""
-    per_mission_cap_usd: float | None = None
-    daily_cap_usd: float | None = None
     global_daily_cap_usd: float | None = None
     protocol_name = ""
     protocol_major: int | None = None
@@ -508,13 +497,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
             started_iso = data.get("started_at_iso")
             backend = data.get("backend")
             project_workdir = str(data.get("project_workdir") or "")
-            raw_per_mission = data.get("per_mission_cap_usd")
-            raw_daily = data.get("daily_cap_usd")
             raw_global_daily = data.get("global_daily_cap_usd")
-            if raw_per_mission is not None:
-                per_mission_cap_usd = float(raw_per_mission)
-            if raw_daily is not None:
-                daily_cap_usd = float(raw_daily)
             if raw_global_daily is not None:
                 global_daily_cap_usd = float(raw_global_daily)
             protocol = data.get("protocol")
@@ -545,8 +528,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         life_dir=life_dir,
         project_workdir=project_workdir,
         backend=backend,
-        per_mission_cap_usd=per_mission_cap_usd,
-        daily_cap_usd=daily_cap_usd,
         global_daily_cap_usd=global_daily_cap_usd,
         protocol_name=protocol_name,
         protocol_major=protocol_major,

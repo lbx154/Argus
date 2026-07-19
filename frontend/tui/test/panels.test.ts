@@ -170,14 +170,14 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: true, pid: 42, uptime_seconds: 600, backend: 'copilot', backend_label: 'Copilot',
-      per_mission_cap_usd: 30, daily_cap_usd: 50, global_daily_cap_usd: 200,
+      global_daily_cap_usd: 200,
       protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: [{
       role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.6-sol',
       effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
     }],
-    backlog: [], recent_events: [], spend_usd: 12.5, spend_status: 'priced',
+    backlog: [], recent_events: [], global_spend_usd: 12.5, global_spend_status: 'priced',
     request_usage: {
       day: '2026-07-11',
       codex: { provider: 'codex', day: '2026-07-11', daily_calls: 9, daily_cap: 300, remaining: 291 },
@@ -189,7 +189,7 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
-  assert.match(output, /cumulative cost/);
+  assert.match(output, /host-global cost/);
   assert.match(output, /403\/1000/);
   assert.match(output, /self-evolution storage/);
   assert.match(output, /\/state\/project\/skills/);
@@ -235,7 +235,6 @@ test('daemon replacement picker shows running work and state-preservation promis
 test('request quotas render alongside monetary spend', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      spend: { total: 0, missions: 0, last: 0 },
       daemon: undefined,
       width: 120,
       requestUsage: {
@@ -261,7 +260,6 @@ test('request quotas render alongside monetary spend', async () => {
 test('cost control exposes in-flight reservations and unresolved pricing', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      spend: { total: 0.2, missions: 1, last: 0.2 },
       settledUsd: 0.2,
       spendStatus: 'partial',
       daemon: undefined,
@@ -272,11 +270,7 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
         reserved_usd: 4.5,
         unresolved_calls: 1,
         unresolved: [],
-        fence_breach_calls: 1,
-        fence_breaches: [],
-        fence_breach_remaining_seconds: 600,
         policy: 'block',
-        fence_breach_policy: 'block',
       },
     }),
     120,
@@ -284,14 +278,11 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
   assert.match(output, /reserved \$4\.50/);
   assert.match(output, /in-flight 2/);
   assert.match(output, /unresolved 1/);
-  assert.match(output, /fence breaches 1/);
-  assert.match(output, /retry in 10m/);
 });
 
 test('partial usage never renders as a zero-dollar cumulative cost', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      spend: { total: 0, missions: 0, last: 0 },
       settledUsd: null,
       spendStatus: 'partial',
       daemon: undefined,
@@ -299,14 +290,13 @@ test('partial usage never renders as a zero-dollar cumulative cost', async () =>
     }),
     120,
   );
-  assert.match(output, /cumulative cost partial/);
+  assert.match(output, /host-global cost partial/);
   assert.doesNotMatch(output, /\$0\.00/);
 });
 
-test('fresh project renders zero cumulative cost and configured daily budget', async () => {
+test('fresh project renders zero global cost and configured global budget', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      spend: { total: 0, missions: 0, last: 0 },
       settledUsd: null,
       spendStatus: 'empty',
       daemon: {
@@ -314,22 +304,19 @@ test('fresh project renders zero cumulative cost and configured daily budget', a
         pid: null,
         uptime_seconds: null,
         backend: 'copilot',
-        per_mission_cap_usd: 7.5,
-        daily_cap_usd: 19.25,
         global_daily_cap_usd: 55,
       },
       width: 120,
     }),
     120,
   );
-  assert.match(output, /cumulative cost \$0\.00/);
-  assert.match(output, /daily cap \$19/);
+  assert.match(output, /host-global cost \$0\.00/);
+  assert.match(output, /cap \$55\/d/);
 });
 
-test('usage gauge shows the token inputs behind cumulative cost', async () => {
+test('usage gauge shows token inputs behind host-global cost', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      spend: { total: 0, missions: 0, last: 0 },
       settledUsd: 0.31624875,
       spendStatus: 'priced',
       usageSummary: {
@@ -355,7 +342,7 @@ test('usage gauge shows the token inputs behind cumulative cost', async () => {
     }),
     120,
   );
-  assert.match(output, /cumulative cost \$0\.32/);
+  assert.match(output, /host-global cost \$0\.32/);
   assert.match(output, /tokens · input 50505/);
   assert.match(output, /output 20/);
 });
@@ -491,7 +478,7 @@ test('24-row operations panel stays below Ink full-screen clear threshold', asyn
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: false, pid: null, uptime_seconds: null, backend: 'copilot', backend_label: 'Copilot',
-      per_mission_cap_usd: 30, daily_cap_usd: 180, global_daily_cap_usd: 10_000,
+      global_daily_cap_usd: 10_000,
       protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: ['manager', 'planner', 'engineer', 'reviewer'].map((role) => ({
@@ -506,7 +493,6 @@ test('24-row operations panel stays below Ink full-screen clear threshold', asyn
     },
     cost_control: {
       reserved_usd: 5, active_reservations: 1, unresolved_calls: 108,
-      fence_breach_calls: 0, fence_breach_remaining_seconds: 0,
     },
     usage_summary: {
       input_tokens: 16_296, cached_input_tokens: 14_848, cache_write_tokens: 0,
@@ -644,7 +630,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
 
   const item = {
     id: 'task-123', title: 'Reproduce benchmark', objective: 'Run five seeds and verify there is no benchmark leakage.',
-    status: 'running', priority: 10, max_cost_usd: 12, iterate: true,
+    status: 'running', priority: 10, iterate: true,
     iteration_cycles_done: 2, iteration_max_cycles: 6, iteration_cost_usd: 3.5,
   };
   const task = await renderPanel({ kind: 'task', data: item }, 60);
@@ -653,7 +639,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
 
   const snap = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', per_mission_cap_usd: 1, daily_cap_usd: 1, global_daily_cap_usd: 0 },
+    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 0 },
     roles: [], recent_events: [],
     backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
   } as Snapshot;

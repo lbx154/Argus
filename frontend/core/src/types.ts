@@ -30,8 +30,6 @@ export interface Daemon {
   uptime_seconds: number | null;
   backend: string | null;
   backend_label?: string | null;
-  per_mission_cap_usd: number | null;
-  daily_cap_usd: number | null;
   global_daily_cap_usd: number | null;
   read_status?: 'ok' | 'error';
   read_error?: string;
@@ -48,7 +46,6 @@ export interface BacklogItem {
   objective: string;
   status: string;
   priority: number;
-  max_cost_usd: number;
   iterate?: boolean;
   pending_question?: string;
   ts?: number;
@@ -58,7 +55,6 @@ export interface BacklogItem {
   finished_ts?: number | null;
   last_error?: string;
   iteration_max_cycles?: number;
-  iteration_budget_usd?: number;
   iteration_cycles_done?: number;
   iteration_cost_usd?: number;
   original_objective?: string;
@@ -102,13 +98,7 @@ export interface CostControlSnapshot {
   unresolved_calls: number;
   blocking_unresolved_calls?: number;
   unresolved: Array<Record<string, unknown>>;
-  fence_breach_calls?: number;
-  fence_breaches?: Array<Record<string, unknown>>;
-  fence_breach_cooldown_seconds?: number;
-  fence_breach_next_recovery_at?: number | null;
-  fence_breach_remaining_seconds?: number;
   policy: 'block' | 'allow';
-  fence_breach_policy?: 'block' | 'allow';
 }
 
 export interface DaemonCommandReceipt {
@@ -314,6 +304,9 @@ export interface Snapshot {
   spend_usd?: number | null;
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   usage_summary?: UsageSummary;
+  global_spend_usd?: number | null;
+  global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  global_usage_summary?: UsageSummary;
   request_usage?: RequestUsage | null;
   cost_control?: CostControlSnapshot | null;
   daemon_commands?: DaemonCommandState | null;

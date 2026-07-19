@@ -26,13 +26,11 @@ class SkillScientist:
         model: str = "",
         reasoning_effort: str = "high",
         role_banner: str = "",
-        max_budget_usd: float | None = None,
     ) -> None:
         self.runner = runner
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.role_banner = str(role_banner or "").strip()
-        self.max_budget_usd = max_budget_usd
         self.last_result: Any = None
 
     def distill(self, task: str) -> str:
@@ -72,7 +70,6 @@ class SkillScientist:
                     skip_git_repo_check=True,
                     full_auto=True,
                     live_search=True,
-                    max_budget_usd=self.max_budget_usd,
                 ),
                 run_label="scientist.skill_distill",
                 resume_thread_id=None,

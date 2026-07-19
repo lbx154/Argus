@@ -6,7 +6,6 @@ from typing import Any, Literal, TypeAlias, cast
 StopKind: TypeAlias = Literal[
     "budget_exhausted",
     "provider_cooldown",
-    "provider_fence",
     "backend_unavailable",
     "transient_error",
     "permanent_error",
@@ -15,7 +14,6 @@ StopKind: TypeAlias = Literal[
 STOP_KINDS = frozenset({
     "budget_exhausted",
     "provider_cooldown",
-    "provider_fence",
     "backend_unavailable",
     "transient_error",
     "permanent_error",
@@ -23,14 +21,12 @@ STOP_KINDS = frozenset({
 RECOVERABLE_STOP_KINDS = frozenset({
     "budget_exhausted",
     "provider_cooldown",
-    "provider_fence",
     "backend_unavailable",
     "transient_error",
 })
 NON_FAILURE_STOP_KINDS = frozenset({
     "budget_exhausted",
     "provider_cooldown",
-    "provider_fence",
 })
 
 
@@ -46,7 +42,6 @@ def pause_status_for_stop_kind(value: Any) -> str:
     return {
         "budget_exhausted": "paused_budget",
         "provider_cooldown": "paused_provider_cooldown",
-        "provider_fence": "paused_provider_fence",
     }.get(kind, "")
 
 

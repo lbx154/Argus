@@ -42,8 +42,6 @@ class ArgusRunnerOptions:
     reasoning_effort: str = "medium"
     dangerous_yolo: bool = False
     full_auto: bool = False
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     skip_git_repo_check: bool = False
     sandbox_mode: str | None = None
     extra_args: list[str] | None = None
@@ -369,8 +367,6 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "1")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "2")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
@@ -421,7 +417,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     assert provider_metric["fields"]["call_id"] == result.call_id
 
 
-def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
+def test_single_call_overrun_is_recorded_in_usd(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -430,8 +426,6 @@ def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.01")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.01")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.01")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-overrun")
@@ -458,73 +452,19 @@ def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
         run_label="engineer-r1",
     )
 
-    assert captured["options"].max_budget_usd is None
-    assert captured["options"].max_ai_credits is None
     assert result.cost_usd == pytest.approx(0.03)
     rows = [
         json.loads(line)
         for line in (project / "events.jsonl").read_text().splitlines()
     ]
-    created = next(row for row in rows if row["type"] == "budget.reservation.created")
     settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
-    assert created["fence_enforcement"] == "unsupported"
-    assert "no per-call token or dollar limit" in created["fence_reason"]
     assert settled["overrun_usd"] == pytest.approx(0.02)
-    assert settled["fence_breached"] is True
     metrics = [
         json.loads(line)
         for line in (root / "metrics.jsonl").read_text().splitlines()
     ]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
     assert provider_metric["fields"]["overrun_usd"] == pytest.approx(0.02)
-    assert provider_metric["fields"]["fence_enforcement"] == "unsupported"
-
-
-def test_claude_reservation_is_forwarded_as_cli_dollar_fence(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "home"
-    project = root / "projects" / "p1"
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.25")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.25")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.25")
-    backend = AgentCliBackend(backend="claude")
-    backend.set_usage_context(project_root=project, mission_id="mission-claude")
-    captured: dict[str, Any] = {}
-
-    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        captured["options"] = kwargs["options"]
-        return _make_argus_result(
-            json_events=[{
-                "type": "token_count",
-                "input_tokens": 1_000,
-                "output_tokens": 100,
-            }],
-            thread_id="claude-fence-thread",
-        )
-
-    monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
-
-    backend.run_exec(
-        prompt="bounded claude call",
-        options=RunnerOptions(model="gpt-5.6-sol"),
-        run_label="reviewer",
-    )
-
-    assert captured["options"].max_budget_usd == pytest.approx(0.25)
-    assert captured["options"].max_ai_credits is None
-    rows = [
-        json.loads(line)
-        for line in (project / "events.jsonl").read_text().splitlines()
-    ]
-    created = next(row for row in rows if row["type"] == "budget.reservation.created")
-    assert created["fence_enforcement"] == "hard"
-    assert created["fence_limit_usd"] == pytest.approx(0.25)
 
 
 def test_unpriced_call_blocks_next_provider_spawn(

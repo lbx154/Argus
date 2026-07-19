@@ -17,12 +17,6 @@ export interface ConnectionTopology {
 
 const ESSENTIAL_KNOBS: EssentialKnob[] = [
   {
-    name: 'ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD',
-    group: 'Limits',
-    label: 'Manager call cap',
-    description: 'Maximum USD reserved for one Manager, router, or inline reply.',
-  },
-  {
     name: 'ARGUS_SKILL_MAX_ACTIVE_DAEMONS',
     group: 'Limits',
     label: 'Active daemon limit',

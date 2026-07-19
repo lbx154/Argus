@@ -35,7 +35,6 @@ LoopStatus = Literal[
     "budget_exhausted",
     "paused_budget",
     "paused_provider_cooldown",
-    "paused_provider_fence",
     "infra_blocked",
     "replan_requested",
     "research_incomplete",
@@ -70,10 +69,6 @@ class RunnerOptions:
     sandbox_mode: str | None = None
     full_auto: bool = False
     dangerous_yolo: bool = False
-    # Internal provider-side spend fences. These are populated from the atomic
-    # call reservation by AgentCliBackend, not by ordinary role configuration.
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     # Watchdog hooks — propagated to the codex subprocess so an outer
     # supervisor (e.g. ArgusBot's LoopEngine, the MissionDaemon) can
     # interrupt a long-running engineer turn promptly.

@@ -669,8 +669,6 @@ def scrape_project_detail(life_dir: Path) -> dict:
     detail = {
         **base,
         "caps": {
-            "per_mission": (_read_json(life_dir / "daemon.status.json") or {}).get("per_mission_cap_usd"),
-            "daily": (_read_json(life_dir / "daemon.status.json") or {}).get("daily_cap_usd"),
             "global_daily": (_read_json(life_dir / "daemon.status.json") or {}).get("global_daily_cap_usd"),
             "global_daily_spend": global_daily_spend(global_root=global_root),
         },

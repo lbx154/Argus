@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.runner import (
     EngineerConfig,
@@ -66,7 +65,6 @@ def _run_engineer(
     [
         ("budget_exhausted", "paused_budget"),
         ("provider_cooldown", "paused_provider_cooldown"),
-        ("provider_fence", "paused_provider_fence"),
     ],
 )
 def test_external_stops_do_not_enter_backend_failure_retry(
@@ -90,13 +88,6 @@ def test_backend_unavailable_keeps_existing_retry_policy(tmp_path: Path) -> None
 
     assert status == "error"
     assert backend.calls == 2
-
-
-def test_provider_max_budget_is_a_fence_not_backend_failure() -> None:
-    assert _raw_backend_stop_kind(
-        fatal_error="Claude runner reported error_max_budget_usd.",
-        exit_code=1,
-    ) == "provider_fence"
 
 
 def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> None:

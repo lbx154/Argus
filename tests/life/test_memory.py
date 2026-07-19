@@ -256,7 +256,7 @@ def test_backlog_unknown_status_normalised(tmp_path: Path) -> None:
         json.dumps(
             {
                 "id": "x", "ts": 0.0, "title": "t", "objective": "o",
-                "status": "garbage", "priority": 1, "max_cost_usd": 1.0,
+                "status": "garbage", "priority": 1,
             }
         ) + "\n"
     )

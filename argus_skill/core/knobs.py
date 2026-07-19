@@ -41,16 +41,12 @@ class ResolvedKnob:
 
 @dataclass(frozen=True)
 class BudgetCaps:
-    """The three runtime budget caps shared by every launch surface."""
+    """The sole host-global runtime budget cap."""
 
-    per_mission_cap_usd: float
-    daily_cap_usd: float
     global_daily_cap_usd: float
 
 
 BUDGET_KNOB_DEFAULTS: dict[str, str] = {
-    "ARGUS_SKILL_PER_MISSION_CAP_USD": "300.0",
-    "ARGUS_SKILL_DAILY_CAP_USD": "2000.0",
     "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "20000.0",
 }
 
@@ -116,15 +112,9 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "low", "matched-skill adaptation reasoning effort", "reasoning"),
     Knob("ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low", "post-task skill-maintenance reasoning effort", "reasoning"),
     # --- budget ---
-    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "legacy migration value; global_budget.json is authoritative", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
-    Knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0", "maximum USD envelope reserved for one provider call (0 uses all remaining)", "budget"),
-    Knob("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "1.0", "maximum USD envelope for one Manager/router/simple control-plane call", "budget", cockpit=True),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_FENCE_BREACH_POLICY", "block", "handling after a provider exceeds its reserved fence: block | allow", "budget"),
-    Knob("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900", "seconds to block that provider after a priced fence overrun", "budget"),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
@@ -218,7 +208,6 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
     }
 )
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({
-    "ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD",
     "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
 })
 _SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
@@ -273,12 +262,7 @@ def _migrate_legacy_budget_into_config(
     *,
     env: Mapping[str, str] | None = None,
 ) -> None:
-    """One-time: seed config.json from a pre-existing ``budget.json`` /
-    ``global_budget.json`` for any cap key config.json (or env) does not already
-    carry, so config.json becomes the single source WITHOUT silently resetting an
-    upgrading install's operator-set budget. Idempotent: a cheap no-op once
-    config.json holds all three cap keys (or the legacy files are absent).
-    """
+    """One-time: preserve a pre-existing host-global budget in config.json."""
     from .knob_store import read_persisted_knobs, write_persisted_knobs
 
     persisted = read_persisted_knobs()
@@ -287,28 +271,12 @@ def _migrate_legacy_budget_into_config(
     def _have(name: str) -> bool:
         return bool(str(env_map.get(name, "") or "").strip()) or name in persisted
 
-    needed = [
-        name
-        for name in (
-            "ARGUS_SKILL_PER_MISSION_CAP_USD",
-            "ARGUS_SKILL_DAILY_CAP_USD",
-            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
-        )
-        if not _have(name)
-    ]
-    if not needed:
+    name = "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
+    if _have(name):
         return
 
     import json as _json
     from pathlib import Path
-
-    from .project_budget import (
-        DEFAULT_DAILY_CAP_USD,
-        DEFAULT_GLOBAL_DAILY_CAP_USD,
-        DEFAULT_PER_MISSION_CAP_USD,
-        budget_path,
-        global_budget_path,
-    )
 
     def _load(path: object) -> dict | None:
         try:
@@ -320,41 +288,21 @@ def _migrate_legacy_budget_into_config(
     def _fmt(value: float) -> str:
         return repr(int(value)) if float(value).is_integer() else repr(float(value))
 
-    to_write: dict[str, str] = {}
-    if project_state_dir is not None:
-        pb = _load(budget_path(project_state_dir))
-        if pb is not None:
-            for name, field, default in (
-                (
-                    "ARGUS_SKILL_PER_MISSION_CAP_USD",
-                    "per_mission_cap_usd",
-                    DEFAULT_PER_MISSION_CAP_USD,
-                ),
-                ("ARGUS_SKILL_DAILY_CAP_USD", "daily_cap_usd", DEFAULT_DAILY_CAP_USD),
-            ):
-                if name in needed and field in pb:
-                    try:
-                        val = float(pb[field])
-                    except (TypeError, ValueError):
-                        continue
-                    if val != float(default):  # operator-customised → preserve
-                        to_write[name] = _fmt(val)
-    if "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD" in needed:
-        groot = global_root
-        if groot is None and project_state_dir is not None:
-            p = Path(str(project_state_dir)).expanduser()
-            groot = p.parent.parent if p.parent.name == "projects" else None
-        if groot is not None:
-            gb = _load(global_budget_path(groot))
-            if gb is not None and "global_daily_cap_usd" in gb:
-                try:
-                    gval = float(gb["global_daily_cap_usd"])
-                except (TypeError, ValueError):
-                    gval = None
-                if gval is not None and gval != float(DEFAULT_GLOBAL_DAILY_CAP_USD):
-                    to_write["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] = _fmt(gval)
-    if to_write:
-        write_persisted_knobs(to_write)
+    groot = global_root
+    if groot is None and project_state_dir is not None:
+        p = Path(str(project_state_dir)).expanduser()
+        groot = p.parent.parent if p.parent.name == "projects" else None
+    if groot is None:
+        return
+    payload = _load(Path(str(groot)).expanduser() / "global_budget.json")
+    if payload is None or "global_daily_cap_usd" not in payload:
+        return
+    try:
+        value = float(payload["global_daily_cap_usd"])
+    except (TypeError, ValueError):
+        return
+    if value != float(BUDGET_KNOB_DEFAULTS[name]):
+        write_persisted_knobs({name: _fmt(value)})
 
 
 def resolve_budget_caps(
@@ -367,10 +315,10 @@ def resolve_budget_caps(
     """Resolve budget caps from the knob layer — ``config.json`` is the single source.
 
     Precedence is ``env`` > persisted ``config.json`` > default. The retired
-    ``budget.json``/``global_budget.json`` are read ONCE (via
+    ``global_budget.json`` is read ONCE (via
     ``_migrate_legacy_budget_into_config``) only to migrate a pre-existing
     operator budget into config.json so an upgrade never silently resets caps;
-    ``project_state_dir``/``global_root`` are used solely to locate those files.
+    ``project_state_dir``/``global_root`` are used solely to locate that file.
     """
     if persisted is None:
         _migrate_legacy_budget_into_config(project_state_dir, global_root, env=env)
@@ -388,8 +336,6 @@ def resolve_budget_caps(
         return _parse_budget_value(name, resolved.value)
 
     return BudgetCaps(
-        per_mission_cap_usd=_value("ARGUS_SKILL_PER_MISSION_CAP_USD"),
-        daily_cap_usd=_value("ARGUS_SKILL_DAILY_CAP_USD"),
         global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
     )
 

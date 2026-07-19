@@ -76,8 +76,6 @@ def test_status_separates_active_queue_from_history(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
             global_daily_cap_usd=0.0,
         ),
     )
@@ -98,8 +96,7 @@ def test_status_separates_active_queue_from_history(
     assert "continuous: off" in out
     assert "current  :" not in out
     assert (
-        "budget   : per-mission $9.00 · daily $50.00 · "
-        "global daily $0.00 (spent $0.00) · remaining $50.00"
+        "budget   : global daily disabled (spent $0.00)"
     ) in out
 
 
@@ -150,8 +147,6 @@ def test_status_shows_active_work_when_present(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
             global_daily_cap_usd=0.0,
         ),
     )
@@ -174,8 +169,7 @@ def test_status_shows_active_work_when_present(
     assert "pending" in out
     assert "running" in out
     assert (
-        "budget   : per-mission $9.00 · daily $50.00 · "
-        "global daily $0.00 (spent $0.00) · remaining $50.00"
+        "budget   : global daily disabled (spent $0.00)"
     ) in out
 
 
@@ -192,8 +186,6 @@ def test_status_shows_latest_mission_telemetry(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
         ),
     )
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
@@ -255,8 +247,6 @@ def test_status_shows_planner_activity_when_backlog_and_telemetry_are_idle(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
         ),
     )
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
@@ -330,8 +320,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
         }) + "\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "2.5")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "5.0")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "30.0")
     monkeypatch.setattr(
         "argus_skill.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
@@ -339,8 +328,6 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
             pid=None,
             uptime_seconds=None,
             backend=None,
-            per_mission_cap_usd=99.0,
-            daily_cap_usd=99.0,
             global_daily_cap_usd=0.0,
         ),
     )
@@ -352,8 +339,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
 
     assert rc == 0
     assert (
-        "budget   : per-mission $2.50 · daily $5.00 · "
-        "global daily $30.00 (spent $5.00) · remaining $0.00 (paused)"
+        "budget   : global daily $30.00 (spent $5.00) · remaining $25.00"
     ) in out
 
 
@@ -381,8 +367,6 @@ def test_status_prefers_latest_running_item_and_works_offline(
             pid=None,
             uptime_seconds=None,
             backend=None,
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
         ),
     )
     monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
@@ -492,8 +476,6 @@ def test_status_survival_line_follows_probe_result(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
         ),
     )
     monkeypatch.setattr(

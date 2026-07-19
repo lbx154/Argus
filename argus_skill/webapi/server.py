@@ -254,7 +254,7 @@ def _enqueue_task_unlocked(
         return None
     from ..apps._life_actions import DEFAULT_LIFE_CONFIG
 
-    iterate, cycles, budget, cleaned = parse_add_flags(
+    iterate, cycles, cleaned = parse_add_flags(
         text,
         defaults=DEFAULT_LIFE_CONFIG,
     )
@@ -271,7 +271,6 @@ def _enqueue_task_unlocked(
             item_id=item_id,
             iterate=iterate,
             iteration_max_cycles=cycles,
-            iteration_budget_usd=budget,
         )
 
     item = manager_bounded_handoff(
@@ -359,7 +358,7 @@ def answer_pending_question(
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
-    """Minimal daemon config from the current env caps/backend — mirrors what a
+    """Minimal daemon config from the current global cap/backend — mirrors what a
     fresh CLI launch would enforce. Resolve role models/efforts through the
     SAME persisted/env/vault precedence used by /config and the CLI; leaving
     these fields at ``LifeWorkerConfig``'s dataclass defaults silently launched
@@ -406,14 +405,9 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
         global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(
             os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")
-        ),
-        planner_task_iteration_budget_usd=float(
-            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")
         ),
     )
 
@@ -1426,7 +1420,7 @@ def get_config(
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Runtime settings snapshot with project-file-backed USD budgets."""
+    """Runtime settings snapshot with the host-global USD budget."""
     snapshot = build_config_snapshot(env=os.environ)
     if project_state_dir is None:
         return snapshot
@@ -1437,17 +1431,9 @@ def get_config(
         global_root=global_root,
     )
     values = {
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": (
-            budget.per_mission_cap_usd,
-            "project:budget.json",
-        ),
-        "ARGUS_SKILL_DAILY_CAP_USD": (
-            budget.daily_cap_usd,
-            "project:budget.json",
-        ),
         "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": (
             budget.global_daily_cap_usd,
-            "global:global_budget.json",
+            "global:config.json",
         ),
     }
     for row in snapshot.get("operator_knobs", []):
@@ -1489,8 +1475,6 @@ _CONFIG_ALIASES = {
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
-    "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
-    "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
     "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
     "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "daemon_limit": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
@@ -1528,8 +1512,6 @@ def set_operator_config(
 
 
 _BUDGET_BATCH_ALIASES = frozenset({
-    "per_mission_cap",
-    "daily_cap",
     "global_daily_cap",
     "codex_daily_requests",
     "copilot_daily_requests",

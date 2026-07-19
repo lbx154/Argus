@@ -47,7 +47,6 @@ def test_planner_verdict_builder_produces_complete_valid_event() -> None:
         (PlannerVerdictStatus.PAUSED_NO_BREAKTHROUGH, False, True),
         (PlannerVerdictStatus.EXHAUSTED_CURRENT_METHODS, False, True),
         (PlannerVerdictStatus.PROVIDER_COOLDOWN, False, True),
-        (PlannerVerdictStatus.PROVIDER_FENCE, False, True),
         (PlannerVerdictStatus.INFRA_BLOCKED, False, True),
         (PlannerVerdictStatus.ERROR, False, False),
     ],

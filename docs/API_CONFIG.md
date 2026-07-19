@@ -44,14 +44,11 @@ copilot --output-format json --stream on --no-auto-update --no-ask-user \
 `gpt-5.4-mini`, and the `claude-*` family (`claude-opus-4.8`, `claude-sonnet-4.6`,
 …). argus passes each role's model straight through; `auto` lets Copilot choose.
 
-**Cost / control.** Copilot bills in **premium requests**, not tokens (it reports
-no input tokens). A single `gpt-5.5` turn measured at **7.5 premium requests**, so
-copilot is not free — argus meters each request's delta and prices it into the same
-`total_usd()` the per-mission breaker and daily cap already enforce, at
-`ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST` (default GitHub's `$0.04`). Lower the
-model (`gpt-5.4-mini`) or the per-mission cap to bound spend. 中文：copilot 按「高级请求
-数」计费，单次 gpt-5.5 约 7.5 个高级请求；argus 会计量并按每请求单价折算进 `total_usd()`，
-纳入已有的每 mission 熔断与日额度，故 copilot 花费同样可控。
+**Cost / control.** Argus normalizes provider usage into USD and writes every call
+to the same settled ledger. The only monetary limit is
+`ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`, shared by every project; concurrent calls use
+atomic USD reservations against that global remainder. Argus does not translate
+USD reservations into Copilot AI credits or provider-specific budget fences.
 
 ## Route model
 

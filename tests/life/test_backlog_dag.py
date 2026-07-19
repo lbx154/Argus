@@ -45,7 +45,6 @@ def test_legacy_row_without_deps_loads_as_no_deps() -> None:
         "objective": "old objective",
         "status": "pending",
         "priority": 100,
-        "max_cost_usd": 1.0,
         "tags": [],
         "notes": "",
     }

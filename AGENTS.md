@@ -26,9 +26,9 @@ unverified，publishable/doctoral 与最终 review 不得完成。
 premise/lemma graph；形式化采用 informal→formal→back-translation/fidelity 闭环。生成与
 验证必须分离，不得把这些方法全量注入每个数学任务。
 
-**Budget ownership:** per-mission / project-daily USD 预算唯一来源是 project-state
-`budget.json`；host-global daily cap 在全局配置文件。启动代码只在文件缺失时做一次旧
-配置迁移，禁止用环境变量或默认值覆盖已有文件。
+**Budget ownership:** 唯一货币预算是全机 daily USD cap
+`ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`。所有项目共享全机 `usage.jsonl` 汇总与调用级原子预留；
+没有 per-mission/project budget，也不把 USD 转换成 provider credits/fence。
 
 主链路：
 
@@ -465,7 +465,7 @@ ARGUS_SKILL_SKILL_OPS=0|1
 ARGUS_SKILL_MAX_ACTIVE_DAEMONS=64
 ```
 
-项目 USD budget 不属于 env；读写 project-state `budget.json`。
+USD 预算只读全局配置；项目没有独立预算文件。
 
 ## 事件和观测
 

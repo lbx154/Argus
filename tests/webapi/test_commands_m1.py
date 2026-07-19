@@ -163,15 +163,14 @@ def test_post_task_preserves_active_continuous_campaign_governance(
     assert pipeline["research_target_level"] == "doctoral"
 
 
-def test_post_task_honours_inline_flags(ctx) -> None:
+def test_post_task_honours_once_flag(ctx) -> None:
     root, sid, life = ctx
     client = TestClient(server.create_app(global_root=root))
     r = client.post(f"/api/projects/{sid}/tasks",
-                    json={"text": "tune it --once --budget=$7", "autostart_daemon": False})
+                    json={"text": "tune it --once", "autostart_daemon": False})
     item = r.json()["item"]
     assert item["objective"] == "tune it"           # flags stripped
     assert item["iterate"] is False                  # --once
-    assert item["max_cost_usd"] == 7.0               # --budget enforced (not the $30 default)
 
 
 def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> None:
@@ -1101,34 +1100,30 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
 
     ok = client.post(
         f"/api/projects/{sid}/config/set",
-        json={"name": "daily_cap", "value": "$12.50"},
+        json={"name": "global_daily_cap", "value": "$12.50"},
     )
     assert ok.status_code == 200
     assert ok.json()["value"] == "12.5"
-    assert json.loads((life / "budget.json").read_text())["daily_cap_usd"] == 12.5
+    assert json.loads((root / "config.json").read_text())[
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
+    ] == "12.5"
 
     invalid = client.post(
         f"/api/projects/{sid}/config/set",
-        json={"name": "daily_cap", "value": "unlimited-ish"},
+        json={"name": "global_daily_cap", "value": "unlimited-ish"},
     )
     assert invalid.status_code == 400
     assert "finite non-negative" in invalid.json()["detail"]
 
 
-def test_config_get_reads_budget_files_not_changed_environment(ctx, monkeypatch) -> None:
-    from argus_skill.core.project_budget import (
-        GlobalBudget,
-        ProjectBudget,
-        write_global_budget,
-        write_project_budget,
-    )
-
+def test_config_get_reads_host_global_budget(ctx, monkeypatch) -> None:
     root, sid, life = ctx
-    write_project_budget(life, ProjectBudget(11, 22))
-    write_global_budget(root, GlobalBudget(33))
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "111")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "222")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "333")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
+    (root / "config.json").write_text(
+        json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "33"}),
+        encoding="utf-8",
+    )
 
     response = TestClient(server.create_app(global_root=root)).get(
         f"/api/projects/{sid}/config"
@@ -1136,16 +1131,10 @@ def test_config_get_reads_budget_files_not_changed_environment(ctx, monkeypatch)
 
     assert response.status_code == 200
     knobs = {row["name"]: row for row in response.json()["operator_knobs"]}
-    assert knobs["ARGUS_SKILL_PER_MISSION_CAP_USD"]["value"] == "11.0"
-    assert (
-        knobs["ARGUS_SKILL_PER_MISSION_CAP_USD"]["source"]
-        == "project:budget.json"
-    )
-    assert knobs["ARGUS_SKILL_DAILY_CAP_USD"]["value"] == "22.0"
     assert knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["value"] == "33.0"
     assert (
         knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["source"]
-        == "global:global_budget.json"
+        == "global:config.json"
     )
 
 
@@ -1154,8 +1143,6 @@ def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     client = TestClient(server.create_app(global_root=root))
     values = {
-        "per_mission_cap": "20",
-        "daily_cap": "60",
         "global_daily_cap": "120",
         "codex_daily_requests": "400",
         "copilot_daily_requests": "800",
@@ -1175,11 +1162,7 @@ def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
     )
     assert saved.status_code == 200
     persisted = json.loads((root / "config.json").read_text())
-    project_budget = json.loads((life / "budget.json").read_text())
-    global_budget = json.loads((root / "global_budget.json").read_text())
-    assert project_budget["per_mission_cap_usd"] == 20
-    assert project_budget["daily_cap_usd"] == 60
-    assert global_budget["global_daily_cap_usd"] == 120
+    assert persisted["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "120"
     assert persisted["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP"] == "300"
 
 
@@ -1191,8 +1174,6 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
     monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda values: False)
     with pytest.raises(RuntimeError, match="could not be persisted"):
         server.set_budget_config({
-            "per_mission_cap": "20",
-            "daily_cap": "60",
             "global_daily_cap": "120",
             "codex_daily_requests": "400",
             "copilot_daily_requests": "800",

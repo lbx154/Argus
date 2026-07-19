@@ -14,9 +14,8 @@ This module is the persisted layer for non-project operator switches: a flat
 other cross-project file — never a hard-coded path). Every existing resolver
 (``core.knobs.resolve_role_model``, ``cli.roles_status``'s backend/model
 display resolution, the raw ``ARGUS_SKILL_RUNNER_BACKEND`` reads in
-``apps._runtime``) is wired to check it as ONE MORE precedence layer. Project
-USD budgets are not stored here; they live in each project's ``budget.json``
-and do not use process-environment precedence.
+``apps._runtime``) is wired to check it as ONE MORE precedence layer. The sole
+host-global USD budget is stored here too; projects have no separate budgets.
 
 For the remaining knobs the precedence is:
 

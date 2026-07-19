@@ -166,7 +166,6 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
         paper_mission=False,
         full_paper_gate=False,
         open_ended=False,
-        planner_task_iteration_budget_usd=123.0,
     )
     sink = _NullSink()
     sup = LifeSupervisor(
@@ -188,7 +187,6 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
     # Budget always plentiful.
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
     return sup
 
 
@@ -249,7 +247,6 @@ def _make_waiting_supervisor(
     monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
     return sup, backend, project
 
 
@@ -562,8 +559,6 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert all(item.plan_id.startswith("plan-") for item in items.values())
     assert {item.plan_version for item in items.values()} == {1}
     assert {item.node_key for item in items.values()} == {"a", "b", "c"}
-    assert all(item.max_cost_usd == 123.0 for item in items.values())
-    assert all(item.iteration_budget_usd == 123.0 for item in items.values())
 
     # And the DAG actually schedules: a/b are ready, c is gated until both done.
     ready_titles = {it.title for it in sup.memory.backlog.ready()}

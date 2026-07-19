@@ -203,13 +203,6 @@ class MissionExecutionMixin:
             original_objective = (
                 getattr(item, "original_objective", "") or item.objective
             )
-            # F3: a LIVE per-mission budget probe — the engine reads cost_sink each
-            # round and hard-stops if the effective cap is reached mid-mission.
-            from ._config import MissionBudget
-            mission_budget = MissionBudget(
-                cap_usd=self._effective_per_mission_cap(item),
-                spent=cost_sink.total_usd,
-            )
             try:
                 from inspect import Parameter, signature
 
@@ -219,8 +212,6 @@ class MissionExecutionMixin:
                 )
                 if "original_objective" in params or _accepts_kw:
                     execute_kwargs["original_objective"] = original_objective
-                if "per_mission_budget" in params or _accepts_kw:
-                    execute_kwargs["per_mission_budget"] = mission_budget
                 if "preplanned" in params or _accepts_kw:
                     execute_kwargs["preplanned"] = any(
                         str(tag).strip().lower() == "planner"
@@ -257,7 +248,6 @@ class MissionExecutionMixin:
                         )
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
-                execute_kwargs["per_mission_budget"] = mission_budget
                 execute_kwargs["mission_id"] = item.id
                 execute_kwargs["usage_mission_id"] = usage_attempt_id
                 execute_kwargs["require_independent_review"] = (
@@ -288,7 +278,6 @@ class MissionExecutionMixin:
         self._evolve_runtime_skills_after_mission(
             success=success,
             usage_mission_id=usage_attempt_id,
-            mission_budget=mission_budget,
         )
         usage_summary = cost_sink.usage_summary()
         usd = usage_summary.cost_usd
@@ -347,16 +336,11 @@ class MissionExecutionMixin:
         # schema back-compat. / 事后 critic/迭代循环已移除；下方 journal/event 的
         # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
 
-        # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
-        # Roll the item back to PENDING (next tick re-runs from its checkpoint).
-        # Anti-cheat: a budget-stopped mission is NEVER marked done/success —
-        # the reviewer stays the sole done-ness authority.
         pause_status = pause_status_for_stop_kind(stop_kind)
         if status == "budget_exhausted":
             status = "paused_budget"
             pause_status = status
         if pause_status:
-            cap = self._effective_per_mission_cap(item)
             self.memory.backlog.update(
                 item.id,
                 status=pause_status,
@@ -377,7 +361,6 @@ class MissionExecutionMixin:
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
-                "cap_usd": cap,
                 "spent_usd": known_usd,
                 "context_packet": (
                     str(context_packet_path.parent / "latest.json")

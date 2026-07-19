@@ -18,11 +18,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.project_budget import (
-    GlobalBudget,
-    read_global_budget,
-    write_global_budget,
-)
 from argus_skill.core.session import (
     SessionMeta,
     read_session_meta,
@@ -820,7 +815,6 @@ def test_pending_answer_routes_through_manager_and_continues_blocked_task(
         objective="Write the camera-ready paper",
         tags=["paper"],
         iterate=False,
-        iteration_budget_usd=12.0,
     )
     blocked.pending_question = "Should the appendix be included?"
     mem.backlog.add(blocked)
@@ -861,7 +855,6 @@ def test_pending_answer_routes_through_manager_and_continues_blocked_task(
     assert "Manager interpretation and continuation decision" in continuation.objective
     assert "Include the appendix after the references" in continuation.objective
     assert continuation.iterate is False
-    assert continuation.iteration_budget_usd == 12.0
     assert continuation.tags == [
         "paper", "operator-reply", "manager-approved",
     ]
@@ -1305,12 +1298,20 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     assert not (tmp_path / "projects" / sid / "continuous.json").exists()  # no campaign armed
 
 
-def test_create_daemon_never_overwrites_global_budget(tmp_path: Path) -> None:
-    write_global_budget(tmp_path, GlobalBudget(global_daily_cap_usd=4321.0))
+def test_create_daemon_never_overwrites_global_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "4321"}),
+        encoding="utf-8",
+    )
 
     server.create_daemon(global_root=tmp_path)
 
-    assert read_global_budget(tmp_path).global_daily_cap_usd == 4321.0
+    assert json.loads(config.read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "4321"
 
 
 def test_create_daemon_at_cap_returns_replacement_candidates(
@@ -1373,7 +1374,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
-    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "1234")
     life_dir = tmp_path / "life"
     life_dir.mkdir()
     write_session_meta(
@@ -1387,7 +1387,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.engineer_reasoning_effort == "high"
     assert cfg.reviewer_reasoning_effort == "xhigh"
     assert cfg.planner_task_iteration_max_cycles == 9
-    assert cfg.planner_task_iteration_budget_usd == 1234.0
 
 
 def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> None:

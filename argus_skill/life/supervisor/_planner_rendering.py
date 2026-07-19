@@ -11,13 +11,6 @@ class PlannerRenderingMixin:
         except (TypeError, ValueError):
             return 6
 
-    def _item_iteration_budget(self) -> float:
-        """Default iteration budget for planner-generated tasks."""
-        try:
-            return max(0.0, float(self.config.planner_task_iteration_budget_usd))
-        except (TypeError, ValueError):
-            return 30.0
-
     def _render_journal_for_planner(self) -> str:
         """Render recent event-backed history for the planner's context."""
         try:

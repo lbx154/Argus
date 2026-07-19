@@ -42,8 +42,7 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     for must in (
         "ARGUS_SKILL_LIFE_BACKEND",
         "ARGUS_SKILL_MODEL",
-        "ARGUS_SKILL_PER_MISSION_CAP_USD",
-        "ARGUS_SKILL_DAILY_CAP_USD",
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         "ARGUS_SKILL_MAX_ROUNDS",
         "ARGUS_SKILL_DAEMON_AUTO_RESTART",
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
@@ -88,7 +87,7 @@ def test_format_shows_default_when_unset() -> None:
 
 
 def test_format_shows_current_value_when_set() -> None:
-    out = format_config_help(env={"ARGUS_SKILL_PER_MISSION_CAP_USD": "50"})
+    out = format_config_help(env={"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "50"})
     assert "= 50" in out  # current effective value surfaced
 
 
@@ -101,33 +100,33 @@ def test_format_redacts_sensitive_current_values() -> None:
 def test_format_shows_persisted_value_when_env_is_unset() -> None:
     from argus_skill.core import knob_store
 
-    knob_store.write_persisted_knob("ARGUS_SKILL_DAILY_CAP_USD", "75")
+    knob_store.write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "75")
 
     out = format_config_help(env={})
 
-    assert "ARGUS_SKILL_DAILY_CAP_USD" in out
+    assert "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD" in out
     assert "= 75 (persisted)" in out
 
 
 def test_budget_caps_share_env_persisted_default_precedence() -> None:
     from argus_skill.core import knob_store
 
-    knob_store.write_persisted_knob("ARGUS_SKILL_PER_MISSION_CAP_USD", "12.5")
-    caps = resolve_budget_caps(env={"ARGUS_SKILL_DAILY_CAP_USD": "90"})
+    knob_store.write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "12.5")
+    persisted = resolve_budget_caps(env={})
+    overridden = resolve_budget_caps(env={"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "90"})
 
-    assert caps.per_mission_cap_usd == 12.5
-    assert caps.daily_cap_usd == 90.0
-    assert caps.global_daily_cap_usd == 20_000.0
+    assert persisted.global_daily_cap_usd == 12.5
+    assert overridden.global_daily_cap_usd == 90.0
 
 
 @pytest.mark.parametrize("value", ["nope", "-1", "nan", "inf"])
 def test_budget_caps_reject_invalid_values(value: str) -> None:
     with pytest.raises(ValueError, match="finite non-negative"):
-        resolve_budget_caps(env={"ARGUS_SKILL_PER_MISSION_CAP_USD": value})
+        resolve_budget_caps(env={"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": value})
 
 
 def test_cockpit_value_normalization_is_typed() -> None:
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_DAILY_CAP_USD", "$12.50") == "12.5"
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "$12.50") == "12.5"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "4") == "4"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "250") == "250"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "12.5") == "12.5"

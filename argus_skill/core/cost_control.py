@@ -20,7 +20,6 @@ from typing import Any, Iterator
 
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
-from .provider_fencing import ProviderSpendFence, provider_spend_fence
 from .usage import UsageLedger, UsageRecord
 
 try:  # pragma: no cover - production daemons are POSIX
@@ -40,34 +39,12 @@ _CONTROL_PLANE_RUN_LABELS = frozenset({
     "router-classify",
     "simple-1",
 })
-_CONTROL_PLANE_CALL_CAP_USD = 1.0
+_CALL_RESERVATION_USD = 5.0
+_CONTROL_PLANE_RESERVATION_USD = 1.0
 
 
 def _is_control_plane_call(run_label: str) -> bool:
     return str(run_label or "").strip().lower() in _CONTROL_PLANE_RUN_LABELS
-
-
-def _breach_blocks_call(
-    breach: dict[str, Any],
-    *,
-    provider: str,
-    project_id: str,
-    control_plane: bool,
-) -> bool:
-    if str(breach.get("provider") or "") != str(provider or ""):
-        return False
-    breach_project_id = str(breach.get("project_id") or "")
-    if not breach_project_id:
-        return True
-    if breach_project_id != project_id:
-        return False
-    breach_is_control_plane = bool(breach.get("control_plane")) or (
-        _is_control_plane_call(str(breach.get("run_label") or ""))
-    )
-    # A bounded Manager/front-door overrun must not stop an independent mission.
-    # Mission-call overruns remain provider-wide because they can exhaust the
-    # substantive workload's budget directly.
-    return control_plane if breach_is_control_plane else True
 
 
 class CostControlStateError(RuntimeError):
@@ -100,7 +77,6 @@ def _default_state(timestamp: float) -> dict[str, Any]:
         "day": _local_day(timestamp),
         "reservations": [],
         "unresolved": [],
-        "breaches": [],
         "updated_at": timestamp,
     }
 
@@ -133,21 +109,15 @@ def _read_state(root: Path, timestamp: float) -> dict[str, Any]:
         return _default_state(timestamp)
     reservations = payload.get("reservations")
     unresolved = payload.get("unresolved")
-    breaches = payload.get("breaches", [])
-    if (
-        not isinstance(reservations, list)
-        or not isinstance(unresolved, list)
-        or not isinstance(breaches, list)
-    ):
+    if not isinstance(reservations, list) or not isinstance(unresolved, list):
         raise CostControlStateError(
-            f"invalid {path}: reservations, unresolved, and breaches must be arrays"
+            f"invalid {path}: reservations and unresolved must be arrays"
         )
     return {
         "version": _STATE_VERSION,
         "day": payload["day"],
         "reservations": [row for row in reservations if isinstance(row, dict)],
         "unresolved": [row for row in unresolved if isinstance(row, dict)],
-        "breaches": [row for row in breaches if isinstance(row, dict)],
         "updated_at": float(payload.get("updated_at") or timestamp),
     }
 
@@ -336,38 +306,11 @@ def _unresolved_hold_usd(row: dict[str, Any]) -> float:
         return 0.0
     raw = row.get("held_usd")
     if raw is None:
-        raw = resolve_knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0").value
+        raw = _CALL_RESERVATION_USD
     try:
         return max(0.0, float(raw or 0.0))
     except (TypeError, ValueError):
         return 0.0
-
-
-def _fence_breach_policy() -> str:
-    value = resolve_knob(
-        "ARGUS_SKILL_FENCE_BREACH_POLICY",
-        "block",
-    ).value.strip().lower()
-    return "allow" if value == "allow" else "block"
-
-
-def _fence_breach_cooldown_seconds() -> float:
-    raw = resolve_knob("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900").value
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return 900.0
-
-
-def _active_breaches(rows: list[dict[str, Any]], *, now: float) -> list[dict[str, Any]]:
-    cooldown = _fence_breach_cooldown_seconds()
-    if cooldown <= 0:
-        return []
-    return [
-        row
-        for row in rows
-        if now - float(row.get("created_at") or 0.0) < cooldown
-    ]
 
 
 def cost_control_enabled() -> bool:
@@ -380,24 +323,13 @@ def cost_control_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
-def per_call_budget_cap_usd() -> float:
-    """Configured provider-call envelope; ``0`` keeps legacy all-remaining mode."""
-    raw = resolve_knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0").value
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return 5.0
-
-
-def _control_plane_call_cap_usd() -> float:
-    raw = resolve_knob(
-        "ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD",
-        str(_CONTROL_PLANE_CALL_CAP_USD),
-    ).value
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return _CONTROL_PLANE_CALL_CAP_USD
+def call_reservation_usd(run_label: str) -> float:
+    """Concurrency hold for one call against the sole host-global budget."""
+    return (
+        _CONTROL_PLANE_RESERVATION_USD
+        if _is_control_plane_call(run_label)
+        else _CALL_RESERVATION_USD
+    )
 
 
 @dataclass
@@ -411,7 +343,6 @@ class CallBudgetReservation:
     provider: str = ""
     model: str = ""
     run_label: str = ""
-    provider_fence: ProviderSpendFence = ProviderSpendFence(enforcement="none")
     _closed: bool = False
 
     def release(self, *, reason: str = "not_started") -> bool:
@@ -445,26 +376,16 @@ def reserve_call_budget(
     model: str,
     run_label: str,
     global_root: Path | str | None = None,
-    per_mission_cap_usd: float | None = None,
-    project_daily_cap_usd: float | None = None,
     global_daily_cap_usd: float | None = None,
-    per_call_cap_usd: float | None = None,
+    reservation_usd: float | None = None,
     now: float | None = None,
     pid: int | None = None,
 ) -> tuple[CallBudgetReservation | None, str]:
-    """Atomically reserve the maximum currently available amount for one call."""
+    """Atomically reserve one call against the host-global daily budget."""
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
     project = Path(project_root).expanduser() if project_root is not None else None
     caps = resolve_budget_caps(project_state_dir=project, global_root=root)
-    mission_cap = max(
-        0.0,
-        float(caps.per_mission_cap_usd if per_mission_cap_usd is None else per_mission_cap_usd),
-    )
-    project_cap = max(
-        0.0,
-        float(caps.daily_cap_usd if project_daily_cap_usd is None else project_daily_cap_usd),
-    )
     global_cap = max(
         0.0,
         float(
@@ -487,10 +408,8 @@ def reserve_call_budget(
                 list(state["unresolved"]),
                 day_start=day_start,
             )
-            breaches = _active_breaches(list(state["breaches"]), now=timestamp)
             state["reservations"] = reservations
             state["unresolved"] = unresolved
-            state["breaches"] = breaches
             blocking_unresolved = [
                 row for row in unresolved if not _bounded_unresolved(row)
             ]
@@ -519,41 +438,6 @@ def reserve_call_budget(
                 )
                 return None, reason
 
-            breach = next(
-                (
-                    row
-                    for row in breaches
-                    if _breach_blocks_call(
-                        row,
-                        provider=provider,
-                        project_id=project.name if project is not None else "",
-                        control_plane=control_plane,
-                    )
-                ),
-                None,
-            )
-            if breach is not None and _fence_breach_policy() == "block":
-                reason = (
-                    f"provider {provider} is cooling down after budget fence breach "
-                    f"(call_id={breach.get('call_id')}, "
-                    f"overrun=${float(breach.get('overrun_usd') or 0.0):.6f})"
-                )
-                _write_state(root, state, timestamp)
-                _append_audit(
-                    root,
-                    EventType.BUDGET_FENCE_BREACH_BLOCKED,
-                    call_id=call_id,
-                    project_id=project.name if project is not None else "",
-                    mission_id=mission_key or None,
-                    provider=provider,
-                    model=model,
-                    run_label=run_label,
-                    breach_call_id=str(breach.get("call_id") or ""),
-                    overrun_usd=max(0.0, float(breach.get("overrun_usd") or 0.0)),
-                    reason=reason,
-                )
-                return None, reason
-
             project_records = _project_records(project, day_start) if project else []
             global_records = _global_records(root, day_start)
             if project is not None:
@@ -565,59 +449,14 @@ def reserve_call_budget(
                 if not inside_global:
                     global_records.extend(project_records)
 
-            project_spend = _known_cost(project_records)
             global_spend = _known_cost(global_records)
-            mission_spend = _known_cost([
-                record
-                for record in project_records
-                if mission_key and record.mission_id == mission_key
-            ])
-            project_reserved = sum(
-                max(0.0, float(row.get("amount_usd") or 0.0))
-                for row in reservations
-                if str(row.get("project_root") or "") == project_key
-            ) + sum(
-                _unresolved_hold_usd(row)
-                for row in unresolved
-                if str(row.get("project_root") or "") == project_key
-            )
             global_reserved = sum(
                 max(0.0, float(row.get("amount_usd") or 0.0))
                 for row in reservations
             ) + sum(_unresolved_hold_usd(row) for row in unresolved)
-            mission_reserved = sum(
-                max(0.0, float(row.get("amount_usd") or 0.0))
-                for row in reservations
-                if mission_key
-                and str(row.get("project_root") or "") == project_key
-                and str(row.get("mission_id") or "") == mission_key
-            ) + sum(
-                _unresolved_hold_usd(row)
-                for row in unresolved
-                if mission_key
-                and str(row.get("project_root") or "") == project_key
-                and str(row.get("mission_id") or "") == mission_key
-            )
-
-            available: list[tuple[str, float]] = []
-            if mission_key and mission_cap > 0:
-                available.append(
-                    ("mission", mission_cap - mission_spend - mission_reserved)
-                )
-            if project is not None and project_cap > 0:
-                available.append(
-                    ("project daily", project_cap - project_spend - project_reserved)
-                )
-            if global_cap > 0:
-                available.append(
-                    ("global daily", global_cap - global_spend - global_reserved)
-                )
-            exhausted = [(name, amount) for name, amount in available if amount <= 0]
-            if exhausted:
-                reason = "; ".join(
-                    f"{name} budget exhausted (${amount:.6f} available)"
-                    for name, amount in exhausted
-                )
+            available = global_cap - global_spend - global_reserved
+            if global_cap > 0 and available <= 0:
+                reason = f"global daily budget exhausted (${available:.6f} available)"
                 state["reservations"] = reservations
                 _write_state(root, state, timestamp)
                 _append_audit(
@@ -630,24 +469,19 @@ def reserve_call_budget(
                     model=model,
                     run_label=run_label,
                     reason=reason,
-                    project_spend_usd=project_spend,
                     global_spend_usd=global_spend,
                 )
                 return None, reason
 
-            ceiling = mission_cap if mission_cap > 0 else float("inf")
-            if available:
-                ceiling = min(ceiling, *(amount for _name, amount in available))
-            if per_call_cap_usd is not None:
-                call_cap = max(0.0, float(per_call_cap_usd))
-                if call_cap > 0:
-                    ceiling = min(ceiling, call_cap)
-            if control_plane:
-                control_plane_cap = _control_plane_call_cap_usd()
-                if control_plane_cap > 0:
-                    ceiling = min(ceiling, control_plane_cap)
-            amount = 0.0 if ceiling == float("inf") else max(0.0, ceiling)
-            fence = provider_spend_fence(provider, amount)
+            requested = max(
+                0.0,
+                float(
+                    call_reservation_usd(run_label)
+                    if reservation_usd is None
+                    else reservation_usd
+                ),
+            )
+            amount = min(requested, max(0.0, available)) if global_cap > 0 else requested
             reservation_id = uuid.uuid4().hex
             row = {
                 "id": reservation_id,
@@ -660,7 +494,6 @@ def reserve_call_budget(
                 "model": str(model or ""),
                 "run_label": str(run_label or ""),
                 "amount_usd": amount,
-                **fence.event_fields(),
                 "created_at": timestamp,
             }
             reservations.append(row)
@@ -692,7 +525,6 @@ def reserve_call_budget(
         model=model,
         run_label=run_label,
         amount_usd=amount,
-        **fence.event_fields(),
     )
     return (
         CallBudgetReservation(
@@ -705,7 +537,6 @@ def reserve_call_budget(
             provider=str(provider or ""),
             model=str(model or ""),
             run_label=str(run_label or ""),
-            provider_fence=fence,
         ),
         "",
     )
@@ -734,11 +565,6 @@ def _close_reservation(
         unresolved = [
             row
             for row in state["unresolved"]
-            if str(row.get("call_id") or "") != reservation.call_id
-        ]
-        breaches = [
-            row
-            for row in _active_breaches(list(state.get("breaches") or []), now=timestamp)
             if str(row.get("call_id") or "") != reservation.call_id
         ]
         pricing_status = "unknown"
@@ -781,22 +607,6 @@ def _close_reservation(
                     ),
                     "created_at": timestamp,
                 })
-            if record.cost_usd is not None:
-                overrun = max(0.0, float(record.cost_usd) - reservation.amount_usd)
-                if overrun > 1e-6:
-                    breaches.append({
-                        "call_id": record.call_id,
-                        "project_id": record.project_id,
-                        "mission_id": record.mission_id,
-                        "provider": record.provider,
-                        "model": record.model,
-                        "run_label": record.run_label,
-                        "control_plane": _is_control_plane_call(record.run_label),
-                        "amount_usd": reservation.amount_usd,
-                        "cost_usd": record.cost_usd,
-                        "overrun_usd": overrun,
-                        "created_at": timestamp,
-                    })
         elif unknown_reason:
             error = unknown_reason
             bounded_interrupt = _intentional_interrupt_reason(unknown_reason)
@@ -825,7 +635,6 @@ def _close_reservation(
                 "created_at": timestamp,
             })
         state["unresolved"] = unresolved
-        state["breaches"] = breaches
         _write_state(reservation.root, state, timestamp)
 
     if release_reason:
@@ -835,7 +644,6 @@ def _close_reservation(
             reservation_id=reservation.reservation_id,
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
-            **reservation.provider_fence.event_fields(),
             reason=release_reason,
         )
     else:
@@ -846,7 +654,6 @@ def _close_reservation(
             reservation_id=reservation.reservation_id,
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
-            **reservation.provider_fence.event_fields(),
             cost_usd=actual,
             overrun_usd=(
                 max(0.0, actual - reservation.amount_usd)
@@ -874,16 +681,9 @@ def cost_control_snapshot(
             list(state["unresolved"]),
             day_start=_local_day_start(timestamp),
         )
-        breaches = _active_breaches(list(state["breaches"]), now=timestamp)
         state["reservations"] = reservations
         state["unresolved"] = unresolved
-        state["breaches"] = breaches
         _write_state(root, state, timestamp)
-    cooldown = _fence_breach_cooldown_seconds()
-    recovery_times = [
-        float(row.get("created_at") or 0.0) + cooldown for row in breaches
-    ]
-    next_recovery = min(recovery_times) if recovery_times else None
     unresolved_held_usd = sum(_unresolved_hold_usd(row) for row in unresolved)
     blocking_unresolved = [
         row for row in unresolved if not _bounded_unresolved(row)
@@ -916,33 +716,7 @@ def cost_control_snapshot(
             }
             for row in unresolved
         ],
-        "fence_breach_calls": len(breaches),
-        "fence_breach_cooldown_seconds": cooldown,
-        "fence_breach_next_recovery_at": next_recovery,
-        "fence_breach_remaining_seconds": (
-            max(0.0, next_recovery - timestamp) if next_recovery is not None else 0.0
-        ),
-        "fence_breaches": [
-            {
-                key: row.get(key)
-                for key in (
-                    "call_id",
-                    "project_id",
-                    "mission_id",
-                    "provider",
-                    "model",
-                    "run_label",
-                    "control_plane",
-                    "amount_usd",
-                    "cost_usd",
-                    "overrun_usd",
-                    "created_at",
-                )
-            }
-            for row in breaches
-        ],
         "policy": _unpriced_policy(),
-        "fence_breach_policy": _fence_breach_policy(),
     }
 
 
@@ -952,8 +726,8 @@ __all__ = [
     "COST_CONTROL_STATE_FILE",
     "CallBudgetReservation",
     "CostControlStateError",
+    "call_reservation_usd",
     "cost_control_enabled",
-    "per_call_budget_cap_usd",
     "cost_control_snapshot",
     "reserve_call_budget",
 ]

@@ -20,7 +20,6 @@ class PlannerVerdictStatus(str, Enum):
     PAUSED_NO_BREAKTHROUGH = "paused_no_breakthrough"
     EXHAUSTED_CURRENT_METHODS = "exhausted_current_methods"
     PROVIDER_COOLDOWN = "provider_cooldown"
-    PROVIDER_FENCE = "provider_fence"
     INFRA_BLOCKED = "infra_blocked"
     ERROR = "error"
 
@@ -33,7 +32,6 @@ _STATUS_POLICY: dict[PlannerVerdictStatus, tuple[bool, bool]] = {
     PlannerVerdictStatus.PAUSED_NO_BREAKTHROUGH: (False, True),
     PlannerVerdictStatus.EXHAUSTED_CURRENT_METHODS: (False, True),
     PlannerVerdictStatus.PROVIDER_COOLDOWN: (False, True),
-    PlannerVerdictStatus.PROVIDER_FENCE: (False, True),
     PlannerVerdictStatus.INFRA_BLOCKED: (False, True),
     PlannerVerdictStatus.ERROR: (False, False),
 }
@@ -41,7 +39,6 @@ _STATUS_POLICY: dict[PlannerVerdictStatus, tuple[bool, bool]] = {
 _LEGACY_STATUS_ALIASES = {
     "done": PlannerVerdictStatus.COMPLETED,
     "paused_provider_cooldown": PlannerVerdictStatus.PROVIDER_COOLDOWN,
-    "paused_provider_fence": PlannerVerdictStatus.PROVIDER_FENCE,
 }
 
 _PROTECTED_FIELDS = frozenset({
@@ -128,8 +125,6 @@ def _legacy_status(
         return PlannerVerdictStatus.PAUSED_BUDGET
     if stop_kind == "provider_cooldown":
         return PlannerVerdictStatus.PROVIDER_COOLDOWN
-    if stop_kind == "provider_fence":
-        return PlannerVerdictStatus.PROVIDER_FENCE
     if stop_kind in {"backend_unavailable", "transient_error"}:
         return PlannerVerdictStatus.INFRA_BLOCKED
     if stop_kind == "permanent_error" or payload.get("error"):

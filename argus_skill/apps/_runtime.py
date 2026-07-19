@@ -33,9 +33,6 @@ from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
 from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
-from ..core.mission_budget import (
-    build_mission_budget_guard as _budget_reason_provider,
-)
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -551,8 +548,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         return gateway_run_exec(backend, **kwargs)
 
     def _distinct_backends(self) -> list:
-        """The distinct role AgentCliBackend instances this runner drives (each
-        appears once), that support the source-level budget guard."""
+        """The distinct role AgentCliBackend instances this runner drives."""
         seen: set[int] = set()
         out: list = []
         for be in (
@@ -563,22 +559,10 @@ class _SkillLoopRunner(SelfReplyMixin):
             getattr(self, "curator_backend", None),
             getattr(self, "manager_backend", None),
         ):
-            if be is not None and id(be) not in seen and hasattr(be, "set_budget_reason_provider"):
+            if be is not None and id(be) not in seen:
                 seen.add(id(be))
                 out.append(be)
         return out
-
-    def _set_budget_guard(self, provider) -> list:
-        """Install ``provider`` (or clear with ``None``) as the per-mission budget
-        guard on every role backend; returns the backends it touched so the caller
-        can clear them in a ``finally``."""
-        backends = self._distinct_backends()
-        for be in backends:
-            try:
-                be.set_budget_reason_provider(provider)
-            except Exception:  # noqa: BLE001 — a guard-set fault must never fail the mission
-                pass
-        return backends
 
     def _set_usage_context(self, mission_id: str | None) -> list:
         """Point every role backend at this project's call ledger."""
@@ -629,7 +613,6 @@ class _SkillLoopRunner(SelfReplyMixin):
         prelude_context: str = "",
         seed_thread_id: str | None = None,
         scope: str = "",
-        per_mission_budget: Any | None = None,
         preplanned: bool = False,
         mission_id: str | None = None,
         usage_mission_id: str | None = None,
@@ -858,12 +841,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # We no longer re-parse it out of the objective prose — the harness
         # should consume the structured field, not sniff the rendered text.
         mission_scope = (scope or "").strip().lower()
-        # SOURCE-LEVEL budget cap: gate EVERY LLM call this mission makes on the
-        # live per-mission spend. Set the guard on the role backends for the
-        # duration of the mission and clear it in the finally so it can never leak
-        # into a later mission. ``None`` budget → no guard (cap unenforced, as before).
         self._set_usage_context(usage_mission_id or mission_id)
-        _guarded = self._set_budget_guard(_budget_reason_provider(per_mission_budget))
         try:
             # User-authored bounded work now follows the full team chain:
             # Manager → Planner → Engineer → Reviewer. Planner-authored backlog
@@ -936,16 +914,10 @@ class _SkillLoopRunner(SelfReplyMixin):
                 objective_for_skill=objective,
                 original_objective=original_objective or objective,
                 scope=mission_scope,
-                per_mission_budget=per_mission_budget,
             )
         finally:
             self._current_sink = None
             self._current_failure_ledger = None
-            for _be in _guarded:
-                try:
-                    _be.set_budget_reason_provider(None)
-                except Exception:  # noqa: BLE001 — clearing the guard must never fail the mission
-                    pass
             self._set_usage_context(None)
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
@@ -1026,41 +998,23 @@ class _SkillLoopRunner(SelfReplyMixin):
                 review_source=review_source,
             )
         ):
-            stage_budget_exhausted = bool(
-                per_mission_budget is not None
-                and per_mission_budget.exceeded()
-            )
-            if not stage_budget_exhausted:
-                self._current_sink = sink
-                self._set_usage_context(usage_mission_id or mission_id)
-                stage_guarded = self._set_budget_guard(
-                    _budget_reason_provider(per_mission_budget)
+            self._current_sink = sink
+            self._set_usage_context(usage_mission_id or mission_id)
+            try:
+                stage_transition = self._decide_stage_transition(
+                    rounds_list=rounds_list,
+                    workdir=workdir,
+                    sink=sink,
+                    root_task_id=usage_mission_id or mission_id,
+                    mission_scope=mission_scope,
+                    open_ended=bool(getattr(config, "open_ended", False)),
+                    continuous_objective=str(
+                        getattr(config, "continuous_objective", "") or ""
+                    ),
                 )
-                try:
-                    stage_transition = self._decide_stage_transition(
-                        rounds_list=rounds_list,
-                        workdir=workdir,
-                        sink=sink,
-                        root_task_id=usage_mission_id or mission_id,
-                        mission_scope=mission_scope,
-                        open_ended=bool(getattr(config, "open_ended", False)),
-                        continuous_objective=str(
-                            getattr(config, "continuous_objective", "") or ""
-                        ),
-                    )
-                finally:
-                    self._current_sink = None
-                    for backend in stage_guarded:
-                        try:
-                            backend.set_budget_reason_provider(None)
-                        except Exception:  # noqa: BLE001
-                            pass
-                    self._set_usage_context(None)
-            else:
-                effective_status = "paused_budget"
-                effective_stop_kind = "budget_exhausted"
-                effective_recoverable = True
-                effective_reason = "per-mission budget exhausted before Manager stage decision"
+            finally:
+                self._current_sink = None
+                self._set_usage_context(None)
         return _Outcome(
             success=bool(outcome.successful and effective_status == "done"),
             status=effective_status,
@@ -1392,8 +1346,6 @@ def _workflow_mode_for_project_root(project_root: Path | str) -> str:
 
 def _build_supervisor_config(
     *,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     once: bool,
     max_missions: int,
@@ -1415,8 +1367,6 @@ def _build_supervisor_config(
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
             global_daily_cap_usd=global_daily_cap_usd,
             max_missions=1 if once else max_missions,
         ),
@@ -1452,8 +1402,6 @@ def run_life_supervisor(
     reviewer_model: str,
     once: bool,
     max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     project_worktree: Path | None = None,
     artifact_root: Path | None = None,
@@ -1542,8 +1490,6 @@ def run_life_supervisor(
                 continuous = False
                 continuous_objective = ""
         cfg = _build_supervisor_config(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
             global_daily_cap_usd=global_daily_cap_usd,
             once=once,
             max_missions=max_missions,
@@ -1578,8 +1524,6 @@ def _invoke_supervisor(
     backend: str,
     once: bool,
     max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     quiet: bool = False,
     seed_thread_id: str | None = None,
@@ -1636,9 +1580,7 @@ def _invoke_supervisor(
         f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
         f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
-        f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
-        f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
-        f"- Global daily budget cap: ${global_daily_cap_usd:.2f}\n"
+        f"- Host-global daily budget cap: ${global_daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
         f"- Command workdir: {Path.cwd()}\n"
         f"- Harness artifact root: {_memory_project_root(mem)}\n"
@@ -1664,8 +1606,6 @@ def _invoke_supervisor(
         reviewer_model=ns.reviewer_model,
         once=once,
         max_missions=max_missions,
-        per_mission_cap_usd=per_mission_cap_usd,
-        daily_cap_usd=daily_cap_usd,
         global_daily_cap_usd=global_daily_cap_usd,
         project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
         artifact_root=_memory_project_root(mem),

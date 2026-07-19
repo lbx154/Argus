@@ -31,16 +31,13 @@ function timelineColor(item: MissionTimelineItem): string | undefined {
 export function budgetSummary(
   spentUsd?: number | null,
   spendStatus?: string,
-  dailyCapUsd?: number | null,
   globalDailyCapUsd?: number | null,
-  wide = true,
 ): string {
   const spent = spentUsd == null
     ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 spent'
     : `$${spentUsd.toFixed(2)} spent`;
-  const daily = dailyCapUsd ? ` / $${dailyCapUsd.toFixed(0)} daily` : '';
-  const global = globalDailyCapUsd && wide ? ` · $${globalDailyCapUsd.toFixed(0)} global` : '';
-  return spent + daily + global;
+  const global = globalDailyCapUsd ? ` / $${globalDailyCapUsd.toFixed(0)} global daily` : '';
+  return spent + global;
 }
 
 export function requestSummary(requestUsage?: RequestUsage | null): string {
@@ -59,7 +56,6 @@ export function MissionCockpit({
   height,
   spentUsd,
   spendStatus,
-  dailyCapUsd,
   globalDailyCapUsd,
   requestUsage,
 }: {
@@ -68,7 +64,6 @@ export function MissionCockpit({
   height?: number;
   spentUsd?: number | null;
   spendStatus?: string;
-  dailyCapUsd?: number | null;
   globalDailyCapUsd?: number | null;
   requestUsage?: RequestUsage | null;
 }) {
@@ -106,7 +101,7 @@ export function MissionCockpit({
         <Text wrap="truncate-end">
           <Text dimColor>BUDGET </Text>
           <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
-            {budgetSummary(spentUsd, spendStatus, dailyCapUsd, globalDailyCapUsd, false)}
+            {budgetSummary(spentUsd, spendStatus, globalDailyCapUsd)}
           </Text>
           <Text dimColor>{` · ${requestSummary(requestUsage)}`}</Text>
         </Text>
@@ -181,9 +176,7 @@ export function MissionCockpit({
           {budgetSummary(
             spentUsd,
             spendStatus,
-            dailyCapUsd,
             globalDailyCapUsd,
-            width >= 90,
           )}
         </Text>
       </Box>

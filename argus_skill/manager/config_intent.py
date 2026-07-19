@@ -198,16 +198,11 @@ def _apply_config_intent(
 ) -> bool:
     """Apply a parsed ConfigIntent and persist it to its authoritative file.
 
-    Backend/model/effort switches use knob_store; project USD budgets use the
-    project's budget.json and never mutate process environment.
+    Backend/model/effort and the host-global budget use knob_store.
     """
     from ..core.knob_store import write_persisted_knobs
 
     theme = chat_state.get("theme")
-
-    def _project_state_dir() -> Any:
-        project = getattr(mem, "project", None)
-        return getattr(project, "root", None) or getattr(mem, "root", None)
 
     def _confirm(line: str) -> None:
         if callable(on_confirm):
@@ -283,12 +278,8 @@ def _apply_config_intent(
         chat_state.pop("manager_runner", None)
         return True
 
-    # Budget caps are ordinary config.json knobs now — config.json is the single
-    # source of truth for budget (budget.json is retired). They flow through the
-    # same knob_store write path as the other quota knobs below.
+    # The host-global cap and provider quotas share the knob_store write path.
     quota_knobs = {
-        "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
-        "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
         "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
         "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",

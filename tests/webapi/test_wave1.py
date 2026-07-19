@@ -31,7 +31,7 @@ def _make_project(root: Path, sid: str = "s-w1000001") -> Path:
     (life / "backlog.jsonl").write_text(
         json.dumps({"id": "item1", "title": "tune kernel", "objective": "tune the kernel",
                     "status": "pending", "priority": 100, "iterate": True,
-                    "max_cost_usd": 30.0, "ts": time.time()}) + "\n",
+                    "ts": time.time()}) + "\n",
         encoding="utf-8",
     )
     (life / "journal.jsonl").write_text(
@@ -886,7 +886,7 @@ def test_backlog_dispose_done_and_skip(ctx) -> None:
     LifeMemory.open(life).backlog  # ensure store readable
     (life / "backlog.jsonl").open("a").write(
         json.dumps({"id": "item2", "title": "x", "objective": "x", "status": "pending",
-                    "priority": 100, "max_cost_usd": 30.0, "ts": time.time()}) + "\n"
+                    "priority": 100, "ts": time.time()}) + "\n"
     )
     r2 = client.post(f"/api/projects/{sid}/backlog/item2/dispose", json={"op": "skip"})
     assert r2.json()["item"]["status"] == "skipped"

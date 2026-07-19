@@ -138,8 +138,8 @@ items, atomically claimed, executed through Engineer–Reviewer rounds, and retu
 as complete, blocked, paused, or ready for more planning — and after a controlled
 restart the daemon resumes the same campaign only when its persisted identity
 matches the current objective, vertical, and lineage. The runtime treats
-reliability as a first-class concern: bounded per-mission, daily, provider-call,
-and host-concurrency budgets; bounded retry and backoff for backend failures
+reliability as a first-class concern: one host-global daily USD cap with atomic
+call reservations, plus host-concurrency limits; bounded retry and backoff for backend failures
 instead of success-looking fallbacks; a Reviewer-authored, hard-capped
 `checkpoint.json` that carries curated working memory across bounded session
 rolls; and credential redaction before events and artifacts enter review.

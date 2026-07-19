@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
-from ...core.usage import project_usage_summary
 from ..memory import BacklogItem
 from ..project_lifecycle import (
     LifecycleEvent,
@@ -232,23 +231,8 @@ class LifecycleMixin:
         return None
 
     def _lifecycle_budget_snapshot(self) -> tuple[float, float]:
-        """Return best-effort project spend and a 30-day lifecycle budget."""
-        try:
-            budget = getattr(self.config, "budget", None)
-            if budget is None:
-                return (0.0, 0.0)
-            daily = float(getattr(budget, "daily_cap_usd", 0.0) or 0.0)
-            total = daily * 30.0
-            spent = project_usage_summary(
-                Path(
-                    getattr(self.memory, "project_root", None)
-                    or getattr(self.memory, "root", None)
-                    or self._artifact_root()
-                )
-            ).known_cost_usd
-            return (spent, total)
-        except Exception:  # noqa: BLE001
-            return (0.0, 0.0)
+        """Project lifecycle no longer owns a monetary budget."""
+        return (0.0, 0.0)
 
 
 __all__ = ["LifecycleMixin"]

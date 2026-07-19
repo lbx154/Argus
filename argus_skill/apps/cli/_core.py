@@ -463,11 +463,8 @@ def _build_worker_config(args: argparse.Namespace):
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
         global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
-        planner_task_iteration_budget_usd=float(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),

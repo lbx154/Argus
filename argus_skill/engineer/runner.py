@@ -26,10 +26,7 @@ import time
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
-
-if TYPE_CHECKING:
-    from ..life.supervisor._config import MissionBudget
+from typing import Any, Callable, cast
 
 from ..core.claim_synthesis import claim_synthesis_for_review
 from ..core.event_catalog import EventType
@@ -1349,7 +1346,6 @@ class SupervisedEngineer:
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
-        per_mission_budget: "MissionBudget | None" = None,
         prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
@@ -1399,38 +1395,6 @@ class SupervisedEngineer:
         checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
 
         for round_index in range(1, supervised_config.max_rounds + 1):
-            # F3: mid-mission cost circuit-breaker. Before doing any work this
-            # round, stop if the live per-mission spend has reached the cap.
-            # ``round_index > 1`` guarantees round 1 always runs (spend is 0 at
-            # entry); a misconfigured cap<=0 is a no-op via ``exceeded()``. This is
-            # a hard STOP, NOT a completion — the supervisor leaves the item pending
-            # and journals a budget_pause. CHECKPOINT.md stays on disk for the next
-            # fresh mission attempt.
-            if (
-                per_mission_budget is not None
-                and round_index > 1
-                and per_mission_budget.exceeded()
-            ):
-                _spent = per_mission_budget.spent()
-                _cap = per_mission_budget.cap_usd
-                if on_event:
-                    on_event({
-                        "type": "round.budget_exhausted",
-                        "round_index": round_index,
-                        "spent_usd": _spent,
-                        "cap_usd": _cap,
-                        "text": (
-                            f"per-mission cap ${_cap:.2f} reached "
-                            f"(spent ${_spent:.2f}) — pausing mission"
-                        ),
-                    })
-                return (
-                    "paused_budget",
-                    rounds,
-                    last_engineer_message,
-                    f"per-mission cap ${_cap:.2f} reached (spent ${_spent:.2f})",
-                    None,
-                )
             if on_event:
                 try:
                     emit_subagent_cost_events(workdir, on_event)

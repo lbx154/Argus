@@ -18,7 +18,6 @@ import { visibleBacklogItems } from '../../../core/src/backlog.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
 import { roleColor, toneColor } from '../eventRender.js';
-import { computeSpend } from '../cost.js';
 import { activityHistory } from '../../../core/src/activity.js';
 import { CostGauge } from './CostGauge.js';
 
@@ -199,10 +198,9 @@ function OperationsPanel({
       {!veryCompact ? <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} /> : null}
       {!compact ? <Text> </Text> : null}
       <CostGauge
-        spend={computeSpend(events)}
-        settledUsd={snap.spend_usd}
-        spendStatus={snap.spend_status}
-        usageSummary={snap.usage_summary}
+        settledUsd={snap.global_spend_usd}
+        spendStatus={snap.global_spend_status}
+        usageSummary={snap.global_usage_summary}
         daemon={snap.daemon}
         requestUsage={snap.request_usage}
         costControl={snap.cost_control}
@@ -369,7 +367,6 @@ function BacklogPanel({ items, all, selected, pageSize }: { items: BacklogItem[]
             <Text color={focused ? theme.accent : 'gray'}>{focused ? '› ' : '  '}</Text>
             <Text color={color(it.status)}>{it.status.padEnd(10)}</Text>
             <Text dimColor>{`${it.id.slice(0, 8)}  `}</Text>
-            <Text dimColor>{`$${it.max_cost_usd.toFixed(0)}  `}</Text>
             <Text bold={focused}>{it.title || it.objective}</Text>
           </Box>
           );
@@ -427,8 +424,7 @@ function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: n
   const lines = [
     `status      ${item.status}`,
     `priority    p${item.priority}`,
-    `budget      $${item.max_cost_usd.toFixed(2)}`,
-    ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),
+    ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · cost $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),
     ...(item.pending_question ? ['', 'WAITING ON YOU', ...wrapDetail(item.pending_question, width)] : []),
     '',
     'OBJECTIVE',

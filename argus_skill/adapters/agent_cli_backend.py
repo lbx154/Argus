@@ -54,7 +54,6 @@ from ..core.copilot_usage import (
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
-from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.runner_errors import result_has_pre_provider_refusal
 from ..core.secret_guard import (
@@ -123,12 +122,6 @@ _PROVIDER_COOLDOWN_PATTERNS = (
     "429",
     "circuit open",
     "cooldown",
-)
-_PROVIDER_FENCE_PATTERNS = (
-    "error_max_budget_usd",
-    "max budget usd",
-    "max-budget-usd",
-    "provider budget limit",
 )
 _TRANSIENT_ERROR_PATTERNS = (
     "timed out",
@@ -219,8 +212,8 @@ def _command_metadata(command: Any) -> list[str]:
 
 def _reservation_denial_stop_kind(reason: str) -> StopKind:
     low = str(reason or "").casefold()
-    if "budget fence breach" in low or "unresolved provider cost" in low:
-        return "provider_fence"
+    if "unresolved provider cost" in low:
+        return "budget_exhausted"
     if "cost control unavailable" in low:
         return "backend_unavailable"
     return "budget_exhausted"
@@ -237,8 +230,6 @@ def _raw_backend_stop_kind(
     low = fatal.casefold()
     if low.startswith("external interrupt:"):
         return None
-    if any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
-        return "provider_fence"
     if any(pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS):
         return "provider_cooldown"
     if any(pattern in low for pattern in _AUTH_FAILURE_PATTERNS):
@@ -627,14 +618,6 @@ class AgentCliBackend:
         self._is_codex = chosen == deps["BACKEND_CODEX"]
         self._is_copilot = chosen == deps["BACKEND_COPILOT"]
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
-        # SOURCE-LEVEL per-mission budget cap. A live provider set per-mission
-        # (see ``set_budget_reason_provider``): it returns a non-empty reason once
-        # the mission's spend hits its cap, which is composed into the interrupt
-        # chain above so ``AgentCliRunner.run_exec`` refuses to spawn a NEW LLM
-        # call — enforcing the cap at the finest granularity (no round can
-        # overspend past it before the between-rounds breaker checks). ``None`` =
-        # no cap (default; every existing caller unchanged).
-        self._budget_reason_provider = None
         self._default_watchdog_soft_idle_seconds = max(
             0, int(default_watchdog_soft_idle_seconds or 0)
         )
@@ -685,16 +668,6 @@ class AgentCliBackend:
         close = getattr(self._argus_runner, "close_acp_clients", None)
         if callable(close):
             close()
-
-    def set_budget_reason_provider(self, provider) -> None:
-        """Install (or clear with ``None``) the per-mission budget guard.
-
-        ``provider() -> str | None`` is polled live: a non-empty string means the
-        mission has hit its cap. It is composed into the interrupt chain so a new
-        LLM call through this backend is refused at the source once the cap trips.
-        The mission entry (``_SkillLoopRunner.execute``) sets this for the mission
-        and clears it in a ``finally`` so it never leaks to a later mission."""
-        self._budget_reason_provider = provider
 
     def set_usage_context(
         self,
@@ -979,11 +952,6 @@ class AgentCliBackend:
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": usage_record.cost_usd,
                             "overrun_usd": reservation_overrun_usd,
-                            "fence_breached": bool(
-                                reservation_overrun_usd
-                                and reservation_overrun_usd > 0
-                            ),
-                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
@@ -996,8 +964,6 @@ class AgentCliBackend:
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": None,
                             "overrun_usd": None,
-                            "fence_breached": False,
-                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": "unknown",
                             "error": reason,
                         })
@@ -1026,11 +992,6 @@ class AgentCliBackend:
                                 if cost_reservation is not None
                                 else None
                             ),
-                            "fence_enforcement": (
-                                cost_reservation.provider_fence.enforcement
-                                if cost_reservation is not None
-                                else "none"
-                            ),
                             "overrun_usd": reservation_overrun_usd,
                         },
                     )
@@ -1038,24 +999,6 @@ class AgentCliBackend:
                     log.exception("failed to record provider metric for %s", call_id)
             self._close_io_context(call_id)
             return result
-
-        budget_reason = ""
-        if self._budget_reason_provider is not None:
-            try:
-                budget_reason = str(self._budget_reason_provider() or "").strip()
-            except Exception:  # noqa: BLE001 - budget probes remain fail-open
-                budget_reason = ""
-        if budget_reason:
-            return _finalize_result(
-                RunnerResult(
-                    exit_code=-1,
-                    thread_id=resume_thread_id,
-                    fatal_error=f"refused before start: {budget_reason}",
-                    stop_kind="budget_exhausted",
-                ),
-                status="denied",
-                error=budget_reason,
-            )
 
         # Reservation happens before the provider responds, so there is no
         # response model yet — attribute it to the request model, falling back to
@@ -1066,8 +1009,8 @@ class AgentCliBackend:
         )[0]
         try:
             from ..core.cost_control import (
+                call_reservation_usd,
                 cost_control_enabled,
-                per_call_budget_cap_usd,
                 reserve_call_budget,
             )
 
@@ -1080,10 +1023,7 @@ class AgentCliBackend:
                     model=reservation_model,
                     run_label=run_label,
                     global_root=usage_global_root,
-                    per_mission_cap_usd=mission_cap_from_guard(
-                        self._budget_reason_provider
-                    ),
-                    per_call_cap_usd=per_call_budget_cap_usd(),
+                    reservation_usd=call_reservation_usd(run_label),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {
@@ -1112,7 +1052,6 @@ class AgentCliBackend:
                     "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
-                    **cost_reservation.provider_fence.event_fields(),
                 })
         except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
             reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
@@ -1135,17 +1074,6 @@ class AgentCliBackend:
                 error=reason,
             )
 
-        if cost_reservation is not None:
-            fence = cost_reservation.provider_fence
-            options = replace(
-                options,
-                max_budget_usd=(
-                    fence.limit_usd if fence.enforcement == "hard" else None
-                ),
-                max_ai_credits=(
-                    fence.max_ai_credits if fence.enforcement == "soft" else None
-                ),
-            )
         try:
             argus_options = self._translate_options(options)
         except Exception as exc:  # noqa: BLE001 - release reservation on setup failure
@@ -1694,7 +1622,6 @@ class AgentCliBackend:
         # outer supervisor can interrupt the codex subprocess.
         interrupt_provider = _compose_interrupt_providers(
             self._default_interrupt_reason_provider,
-            self._budget_reason_provider,
             options.external_interrupt_reason_provider,
         )
         soft_idle = (
@@ -1731,10 +1658,6 @@ class AgentCliBackend:
         # field degrades to no streaming rather than crashing.
         if "on_agent_message" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
-        if "max_budget_usd" in getattr(argus_cls, "__dataclass_fields__", {}):
-            kwargs["max_budget_usd"] = getattr(options, "max_budget_usd", None)
-        if "max_ai_credits" in getattr(argus_cls, "__dataclass_fields__", {}):
-            kwargs["max_ai_credits"] = getattr(options, "max_ai_credits", None)
         return argus_cls(**kwargs)
 
     def _translate_result(

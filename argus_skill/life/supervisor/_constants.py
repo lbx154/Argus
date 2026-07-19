@@ -17,7 +17,6 @@ PLANNER_DEDUP_STATUSES = frozenset({
     "paused",
     "paused_budget",
     "paused_provider_cooldown",
-    "paused_provider_fence",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",

@@ -1219,18 +1219,15 @@ class PlanningCycleMixin:
                     ),
                 })
                 continue
-            item_budget = self._item_iteration_budget()
             item_id = BacklogItem.new_id()
             item = BacklogItem.new(
                 item_id=item_id,
                 title=task.title,
                 objective=task.objective,
                 priority=100,
-                max_cost_usd=item_budget,
                 tags=self._planner_task_tags(task),
                 iterate=True,
                 iteration_max_cycles=self._item_iteration_cycles(),
-                iteration_budget_usd=item_budget,
                 plan_id=new_plan_id,
                 plan_version=new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),

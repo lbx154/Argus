@@ -192,8 +192,6 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     dangerous_yolo: bool = False
     full_auto: bool = False
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     # Codex sandbox policy. When set (e.g. "workspace-write"), the codex command
     # is built with ``-s <mode> -C <working_dir> --add-dir <add_dirs>`` so writes
     # are confined to the workspace + add_dirs, and the child env is scrubbed of
@@ -307,7 +305,7 @@ class AgentCliRunner:
         # Warm-copilot fast path: Manager front-door classify + direct replies go
         # through a persistent ``copilot --acp`` process.  The ACP client keeps
         # the classifier and conversation in separate logical sessions.
-        if self._acp_enabled(run_label, options) and options.max_ai_credits is None:
+        if self._acp_enabled(run_label, options):
             _acp = self._run_exec_acp(
                 prompt=prompt,
                 resume_thread_id=resume_thread_id,
@@ -824,8 +822,6 @@ class AgentCliRunner:
                 else options.reasoning_effort
             )
             command.extend(["--effort", effort])
-        if options.max_budget_usd is not None and options.max_budget_usd > 0:
-            command.extend(["--max-budget-usd", format(options.max_budget_usd, ".12g")])
         if options.sandbox_mode == "read-only":
             command.extend(["--tools", "Read,Glob,Grep"])
         elif options.dangerous_yolo:
@@ -888,8 +884,6 @@ class AgentCliRunner:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
             command.extend(["--reasoning-effort", options.reasoning_effort])
-        if options.max_ai_credits is not None and options.max_ai_credits >= 30:
-            command.extend(["--max-ai-credits", str(options.max_ai_credits)])
         if options.sandbox_mode == "read-only":
             command.extend([
                 "--available-tools", "view,rg,glob",

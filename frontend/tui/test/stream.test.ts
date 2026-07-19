@@ -187,7 +187,7 @@ test('task dispatch reports executor admission failures instead of claiming work
       kind: 'task',
       item: {
         id: 'x', title: 'run benchmark', objective: '', status: 'pending',
-        priority: 1, max_cost_usd: 5,
+        priority: 1,
       },
       daemon: { rc: 2, error: 'background executor limit 2 reached' },
     }),
@@ -198,7 +198,7 @@ test('task dispatch reports executor admission failures instead of claiming work
       kind: 'task',
       item: {
         id: 'y', title: 'new experiment', objective: '', status: 'pending',
-        priority: 1, max_cost_usd: 5,
+        priority: 1,
       },
       daemon: {
         rc: 2,

@@ -53,7 +53,6 @@ class EventType(StrEnum):
     BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
     BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
     BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
-    BUDGET_FENCE_BREACH_BLOCKED = "budget.fence_breach.blocked"
     LOOP_START = "loop.start"
     LOOP_DONE = "loop.done"
     ROUND_START = "round.start"
@@ -245,7 +244,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,
-    EventType.BUDGET_FENCE_BREACH_BLOCKED,
     EventType.LIFE_LIFECYCLE_BLOCK,
     EventType.LIFE_LIFECYCLE_TRANSITION,
     EventType.PROVIDER_REQUEST_STARTED,

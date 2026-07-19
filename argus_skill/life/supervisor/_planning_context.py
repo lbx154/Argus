@@ -1037,7 +1037,6 @@ class PlanningContextMixin:
             or getattr(verdict, "reason", "")
             or "an external dependency"
         )
-        item_budget = self._item_iteration_budget()
         item = BacklogItem.new(
             title="verification probe: re-test the recorded external blocker",
             objective=(
@@ -1055,11 +1054,9 @@ class PlanningContextMixin:
                 "current state."
             ),
             priority=50,
-            max_cost_usd=item_budget,
             tags=["planner", "scope:bounded", "life", "verification_probe"],
             iterate=True,
             iteration_max_cycles=1,
-            iteration_budget_usd=min(item_budget, 5.0),
         )
         try:
             contract_state_before_probe = None
@@ -1173,7 +1170,7 @@ class PlanningContextMixin:
                     f"{project_name}/wiki/sources/`, and update "
                     "`data/bot_state.json`. This mission is allowed while the "
                     "project is externally blocked because it is train-free and "
-                    "uses the shared per-mission budget. Do not run GPU work."
+                    "uses the host-global budget. Do not run GPU work."
                 ),
                 impact_score=4,
                 impact_area="discovery",
@@ -1190,7 +1187,6 @@ class PlanningContextMixin:
             tags=[*self._planner_task_tags(task), "wiki_collect"],
             iterate=True,
             iteration_max_cycles=1,
-            iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
         )
         self.memory.backlog.add(item)
         self._emit({

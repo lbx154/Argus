@@ -160,7 +160,7 @@ def _fast_forward(token: str, life_dir: Path) -> int | None:
 
 _HELP_TEXT = """🤖 <b>argus-skill 命令列表</b>
 
-/add <code>&lt;text&gt;</code> [--once] [--cycles=N] [--budget=$X] — 添加任务
+/add <code>&lt;text&gt;</code> [--once] [--cycles=N] — 添加任务
 /status — 查看守护进程、持续模式、当前任务、backlog/history、收件箱和预算/花费
 /config [key=val ...] — 调整会话默认值
 /identity — 查看身份卡
@@ -290,7 +290,7 @@ class _CommandRouter:
 
     def _queue_task(self, arg: str) -> _QueuedTask | None:
         cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
-        iterate, cycles, budget, body = parse_add_flags(
+        iterate, cycles, body = parse_add_flags(
             arg,
             defaults=cfg,
         )
@@ -323,7 +323,6 @@ class _CommandRouter:
                 item_id=item_id,
                 iterate=iterate,
                 iteration_max_cycles=cycles,
-                iteration_budget_usd=budget,
             ),
             root_task_id=item_id,
         )

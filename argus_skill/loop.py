@@ -255,7 +255,6 @@ class SkillLoopConfig:
     # strategy generation.
     adaptive_rejection_threshold: int = 2
     adaptive_skill_max_triggers: int = 2
-    adaptive_skill_max_cost_usd: float = 5.0
     # Legacy proposal compatibility only. Current Reviewers edit the injected
     # project skill path directly and their output schema has no skill_ops.
     skill_ops_enabled: bool = False
@@ -475,7 +474,7 @@ class SkillLoop:
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
             objective_for_skill: str | None = None,
             original_objective: str | None = None,
-            scope: str = "", per_mission_budget: Any | None = None) -> LoopOutcome:
+            scope: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -904,25 +903,7 @@ class SkillLoop:
                     0,
                     int(self.config.adaptive_skill_max_triggers or 0),
                 )
-                max_cost = max(
-                    0.0,
-                    float(self.config.adaptive_skill_max_cost_usd or 0.0),
-                )
                 if adaptation_triggers >= max_triggers:
-                    rejection_streak.clear()
-                    persist_adaptation_state()
-                    return ""
-                remaining_cost = max_cost - adaptation_spent
-                if max_cost > 0 and remaining_cost <= 0:
-                    append_method_ledger(
-                        workdir,
-                        {
-                            "status": "cost_cap_reached",
-                            "trigger_index": adaptation_triggers,
-                            "review_rounds": review_rounds,
-                            "failure_reasons": failure_reasons,
-                        },
-                    )
                     rejection_streak.clear()
                     persist_adaptation_state()
                     return ""
@@ -936,7 +917,6 @@ class SkillLoop:
                 if skill is None or interval == 0 or len(rounds) % interval:
                     return ""
                 recent = rounds[-interval:]
-                remaining_cost = None
                 review_rounds = [rec.round_index for rec in recent]
                 failure_reasons = [rec.review.reason for rec in recent]
                 evidence = "\n".join(
@@ -951,14 +931,9 @@ class SkillLoop:
                 parse_mechanism_change,
             )
 
-            spent_before_call = adaptation_spent
             if persistent_adaptation:
                 adaptation_triggers += 1
                 rejection_streak.clear()
-                if max_cost > 0:
-                    # Reserve the full remaining allowance before provider spawn.
-                    # A crash may waste budget, but can never reset and overspend it.
-                    adaptation_spent = max_cost
                 persist_adaptation_state()
             self._emit({
                 "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
@@ -972,7 +947,6 @@ class SkillLoop:
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
                 role_banner=scientist_adaptation_banner,
-                max_budget_usd=remaining_cost,
             )
             raw_skill = scientist.distill_alternative(
                 skill_task,
@@ -993,9 +967,8 @@ class SkillLoop:
                 if math.isfinite(settled_cost) and settled_cost >= 0
                 else None
             )
-            if persistent_adaptation and max_cost > 0:
-                if result_cost is not None:
-                    adaptation_spent = spent_before_call + settled_cost
+            if persistent_adaptation and result_cost is not None:
+                adaptation_spent += settled_cost
                 persist_adaptation_state()
             if not raw_skill:
                 if persistent_adaptation:
@@ -1449,7 +1422,6 @@ class SkillLoop:
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
             scope=scope,
-            per_mission_budget=per_mission_budget,
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
