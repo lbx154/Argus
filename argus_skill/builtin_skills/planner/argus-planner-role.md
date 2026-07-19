@@ -53,7 +53,9 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Every task must fill `acceptance_check`, `non_goals`, and `context_refs`. Reference
   exact artifacts (with hashes when already frozen) rather than asking a fresh session
   to rediscover project history. `evidence` explains why the task matters;
-  `acceptance_check` alone defines when it may finish.
+  `acceptance_check` alone defines when it may finish. Limit one task to at most four
+  primary output artifacts and eight context references; split larger packages into a
+  dependency DAG with explicit artifact handoffs.
 - Do not tell the Engineer to export, open, or read built-in skill files as a setup
   step. SkillLoop already matches and task-adapts the relevant playbook before execution.
   State the required outcome and evidence instead. Name at most one exact skill only when

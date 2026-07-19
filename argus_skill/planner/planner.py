@@ -97,6 +97,12 @@ _TASK_PHASE_MARKERS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+_TASK_ARTIFACT_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+"
+    r"\.(?:jsonl?|md|tsv|csv|py|tex|ya?ml)(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
+
 
 def _task_granularity_issue(task: TaskSpec) -> str:
     """Reject a whole-stage monolith that cannot fit one fresh session."""
@@ -110,12 +116,24 @@ def _task_granularity_issue(task: TaskSpec) -> str:
         any(marker in task.title.casefold() for marker in ("review", "certif", "audit", "审查", "认证", "审计"))
         and any(marker in text for marker in ("reuse", "do not rerun", "without rerun", "复用", "不重跑"))
     )
+    if len(task.context_refs) > 8:
+        return f"carries {len(task.context_refs)} context refs; maximum is 8"
+    output_artifacts = set(
+        _TASK_ARTIFACT_RE.findall(
+            f"{task.objective}\n{task.acceptance_check}"
+        )
+    )
+    if len(output_artifacts) > 4 and not certification_only:
+        return (
+            f"owns {len(output_artifacts)} named artifacts; split the work at "
+            "an artifact boundary (maximum 4)"
+        )
     if len(phases) >= 4 and not certification_only:
         return (
             "combines too many decision phases in one Engineer session: "
             + ", ".join(sorted(phases))
         )
-    if len(task.objective) > 1800 and len(phases) >= 3 and not certification_only:
+    if len(task.objective) > 1400 and not certification_only:
         return "objective is too broad for one fresh Engineer session"
     return ""
 

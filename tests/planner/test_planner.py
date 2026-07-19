@@ -154,6 +154,41 @@ def test_plan_next_rejects_whole_stage_research_monolith() -> None:
     assert "one fresh Engineer session" in verdict.reason
 
 
+def test_plan_next_rejects_large_multi_artifact_package() -> None:
+    task = {
+        "title": "Rewrite the full plan package",
+        "impact_score": 5,
+        "impact_area": "reliability",
+        "evidence": "Six planning surfaces are stale.",
+        "acceptance_check": (
+            "EXPERIMENT_PLAN.md, BASELINE_PLAN.md, CODE_REUSE_PLAN.md, "
+            "INFRA_CHOICE.md, BENCHMARK_PROVENANCE.json, and RUN_CONTRACT.json "
+            "are all rewritten"
+        ),
+        "non_goals": ["do not execute experiments"],
+        "context_refs": [
+            {"kind": "artifact", "ref": f"research/input-{i}.json", "why": "input", "content_hash": ""}
+            for i in range(6)
+        ],
+        "scope": "bounded",
+        "stage_closing": False,
+        "objective": (
+            "Rewrite EXPERIMENT_PLAN.md, BASELINE_PLAN.md, CODE_REUSE_PLAN.md, "
+            "INFRA_CHOICE.md, BENCHMARK_PROVENANCE.json, and RUN_CONTRACT.json."
+        ),
+        "key": "all-plan",
+        "deps": [],
+    }
+    verdict = Planner(_FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "repair all plan files",
+        "new_tasks": [task],
+    }))).plan_next(continuous_objective="Develop a strong paper.")
+
+    assert verdict.new_tasks == []
+    assert "artifact boundary" in verdict.error
+
+
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
     placeholder = json.dumps({
         "project_done": False,
