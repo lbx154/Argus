@@ -96,8 +96,11 @@ def test_digital_circuit_skills_are_packaged() -> None:
 
     assert "engineer/digital-circuit-rtl-verification.md" in skills
     assert "engineer/digital-circuit-benchmark-execution.md" in skills
+    assert "engineer/digital-circuit-error-guided-repair.md" in skills
+    assert "engineer/digital-circuit-spec-guidance-registry.md" in skills
     assert "reviewer/digital-circuit-signoff-review.md" in skills
     assert "reviewer/digital-circuit-benchmark-review.md" in skills
+    assert "reviewer/digital-circuit-guidance-promotion-review.md" in skills
     assert "## Operating method" in skills["engineer/digital-circuit-rtl-verification.md"]
     assert "immutable first-attempt evidence" in skills[
         "engineer/digital-circuit-benchmark-execution.md"
@@ -111,6 +114,15 @@ def test_digital_circuit_skills_are_packaged() -> None:
     ]
     assert "prompt-referenced pre-existing public file" in skills[
         "reviewer/digital-circuit-benchmark-review.md"
+    ]
+    assert "`cdc-transfer`" in skills[
+        "engineer/digital-circuit-error-guided-repair.md"
+    ]
+    assert "Pure combinational truth table" in skills[
+        "engineer/digital-circuit-spec-guidance-registry.md"
+    ]
+    assert "at least two independent tasks" in skills[
+        "reviewer/digital-circuit-guidance-promotion-review.md"
     ]
     assert all(
         "category: anti-cheat" in skills[path]
@@ -131,8 +143,11 @@ def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> 
         assert "Keep the first official attempt immutable" in banner
         assert "golden outputs or hidden harness sources" in banner
     assert "shortest auditable path" in planner
+    assert "route repair work" in planner
     assert "declared local containers" in engineer
+    assert "failure-taxonomy class" in engineer
     assert "post-repair records" in reviewer
+    assert "cross-task evidence" in reviewer
 
 
 def test_digital_circuit_uses_custom_staged_kind() -> None:

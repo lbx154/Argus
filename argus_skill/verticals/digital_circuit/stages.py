@@ -331,7 +331,9 @@ def role_banner(role: str) -> str:
             "once the acceptance contract is established. When a fixed functional "
             "benchmark does not score synthesis/PPA, use the shortest auditable path "
             "and document synthesis as outside scorer scope instead of manufacturing "
-            "unscored implementation work."
+            "unscored implementation work. Select only visible-evidence-supported "
+            "spec-guidance detectors, and route repair work only after the Engineer or "
+            "Reviewer records an evidence-backed failure-taxonomy class."
         )
     if role_norm == "engineer":
         return common + (
@@ -340,7 +342,8 @@ def role_banner(role: str) -> str:
             "project-local commands. Inspect declared local containers after host PATH "
             "before declaring a tool unavailable, and serialize shared container "
             "runtimes. Preserve failing seeds, logs, and waveforms; fix RTL rather than "
-            "weakening assertions or expected values."
+            "weakening assertions or expected values. For each failed attempt, name one "
+            "failure-taxonomy class, one root-cause hypothesis, and one regression."
         )
     if role_norm == "reviewer":
         return common + (
@@ -349,7 +352,9 @@ def role_banner(role: str) -> str:
             "reset/clock/width/CDC/X behavior, and trace synthesis/timing claims to "
             "fresh raw reports. For benchmarks, audit workspace isolation, patch "
             "non-emptiness, hidden-input non-exposure, and separate first-attempt and "
-            "post-repair records. Do not trust a summary or a single happy-path test."
+            "post-repair records. Promote guidance only from cross-task evidence, never "
+            "from task-specific hidden-oracle behavior. Do not trust a summary or a "
+            "single happy-path test."
         )
     return common
 
