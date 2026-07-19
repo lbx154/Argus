@@ -404,8 +404,18 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             "objective": objective,
             "status": "framed",
         })
+        current_stage = _text(event, "current_stage")
         stages = event.get("stages")
-        if isinstance(stages, list) and stages and not _text(view.get("stage", {}), "id"):
+        if current_stage:
+            view["stage"] = {
+                "id": current_stage,
+                "label": current_stage.replace("_", " ").title(),
+            }
+        elif (
+            isinstance(stages, list)
+            and stages
+            and not _text(view.get("stage", {}), "id")
+        ):
             stage = str(stages[0] or "").strip()
             view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
         _set_role(view, "manager", "done", "Goal framed", ts)

@@ -1177,7 +1177,10 @@ class LifeWorker:
                         or getattr(runner, "backend", None),
                         manager_session_root=runtime_root,
                     )
-                from ..manager.front_door import require_manager_execution_task
+                from ..manager.front_door import (
+                    objective_update_requires_stage_reset,
+                    require_manager_execution_task,
+                )
                 from ..skills.vertical_select import _persisted_vertical
 
                 decision = mgr.decide_vertical(source_objective)
@@ -1192,10 +1195,32 @@ class LifeWorker:
                         objective=expected_state.objective,
                         vertical=prior_vertical,
                     )
-                replacement_intent = bool(
+                prior_vertical_name = str(prior_vertical or "").strip()
+                next_vertical_name = str(
+                    getattr(decision, "vertical", "") or ""
+                ).strip()
+                objective_changed = bool(
                     prior_handoff
                     and prior_handoff.get("objective_sha256")
                     != _objective_sha256(execution_task)
+                )
+                replacement_intent = bool(
+                    prior_handoff
+                    and (
+                        bool(
+                            prior_vertical_name
+                            and next_vertical_name
+                            and prior_vertical_name != next_vertical_name
+                        )
+                        or (
+                            objective_changed
+                            and objective_update_requires_stage_reset(
+                                expected_state.objective,
+                                source_objective,
+                                execution_task,
+                            )
+                        )
+                    )
                 )
                 if self._operator_stop_requested:
                     raise RuntimeError("operator stop requested during Manager handoff")
@@ -1246,7 +1271,7 @@ class LifeWorker:
                             if target_enabled
                             else None
                         )
-                    sink.append({
+                    completed_event = {
                         "type": "life.manager.intent.completed",
                         "agent_layer": "manager",
                         "intent_id": intent_id,
@@ -1259,7 +1284,14 @@ class LifeWorker:
                         "kind": getattr(division, "kind", ""),
                         "stages": list(getattr(division, "stages", []) or []),
                         "text": "manager completed daemon objective handoff",
-                    })
+                    }
+                    try:
+                        live_stage = str(mgr.current_stage() or "").strip()
+                    except Exception:  # noqa: BLE001 - event enrichment is best effort
+                        live_stage = ""
+                    if live_stage:
+                        completed_event["current_stage"] = live_stage
+                    sink.append(completed_event)
                     for item_id in committed.get("superseded_ids", ()):
                         sink.append({
                             "type": "life.plan.node.superseded",

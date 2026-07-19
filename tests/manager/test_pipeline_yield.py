@@ -113,3 +113,87 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     rows = {item.id: item for item in backlog.all()}
     assert rows[old_item.id].status == "superseded"
     assert rows[bootstrap.id].status == "pending"
+
+
+def test_continuous_handoff_additive_authority_preserves_stage_and_backlog(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    life_dir = tmp_path / "life"
+    workdir = tmp_path / "work"
+    life_dir.mkdir()
+    workdir.mkdir()
+    original = "Develop a submission-quality paper."
+    extended = (
+        original
+        + "\n\nOperator standing research authority: continue autonomously "
+        "until the strongest supportable paper package is complete."
+    )
+    write_continuous_config(life_dir, enabled=True, objective=original)
+    backlog = Backlog(life_dir / "backlog.jsonl")
+    existing = backlog.add(BacklogItem.new(title="run experiments", objective="run"))
+    memory = SimpleNamespace(
+        root=life_dir,
+        project_root=life_dir,
+        backlog=backlog,
+    )
+
+    class Manager:
+        project_root = workdir
+
+        @contextmanager
+        def pipeline_lock(self):
+            yield
+
+    class Prepared:
+        mem = memory
+        body = extended
+        intent_id = "intent-additive-authority"
+        manager = Manager()
+        execution_task = extended
+
+        @staticmethod
+        def commit(*, acquire_lock=True, force_stage_reset=False):
+            assert acquire_lock is False
+            assert force_stage_reset is False
+            return SimpleNamespace(
+                vertical="research",
+                kind="research",
+                stages=["research", "plan", "benchmark", "run"],
+                workflow_mode="staged",
+                headline=lambda: "extended paper authority",
+            )
+
+        @staticmethod
+        def completed(_division, *, continuous_generation=None):
+            assert continuous_generation == 2
+
+        @staticmethod
+        def failed(_exc):
+            raise AssertionError("handoff should not fail")
+
+        @staticmethod
+        def superseded():
+            raise AssertionError("handoff should not be superseded")
+
+    monkeypatch.setattr(
+        front_door,
+        "prepare_manager_execution_task",
+        lambda *_args, **_kwargs: Prepared(),
+    )
+
+    assert front_door.manager_continuous_handoff(memory, extended, {}) == extended
+    state = read_continuous_state(life_dir)
+    assert state.objective == extended
+    assert {item.id: item for item in backlog.all()}[existing.id].status == "pending"
+
+
+def test_objective_update_requires_reset_for_real_replacement() -> None:
+    assert front_door.objective_update_requires_stage_reset(
+        "Develop a long-context paper.",
+        "Develop a protein-folding paper.",
+    ) is True
+    assert front_door.objective_update_requires_stage_reset(
+        "Develop a long-context paper.",
+        "Develop a long-context paper.\n\nAdditional authorization: use two GPUs.",
+    ) is False

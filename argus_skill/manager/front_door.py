@@ -24,6 +24,33 @@ class ManagerHandoffSupersededError(ManagerHandoffError):
     """A newer continuous command superseded an in-flight Manager handoff."""
 
 
+def objective_update_requires_stage_reset(
+    previous_objective: str,
+    *updated_objectives: str,
+) -> bool:
+    """Return whether a continuous-objective update replaces prior work.
+
+    Continuous objectives are commonly extended with operator clarifications,
+    authorizations, or constraints.  Those monotonic additions must update the
+    standing objective without resetting a certified pipeline back to its first
+    stage.  A genuinely different objective still requires the replacement
+    reset.  Whitespace-only rewrites are treated as the same objective.
+
+    Callers may provide both the raw operator objective and the Manager-clean
+    execution task; an additive relationship in either representation is
+    sufficient to preserve the current stage.
+    """
+
+    previous = " ".join(str(previous_objective or "").split())
+    if not previous:
+        return False
+    for candidate in updated_objectives:
+        current = " ".join(str(candidate or "").split())
+        if current == previous or current.startswith(f"{previous} "):
+            return False
+    return True
+
+
 def require_manager_execution_task(division: Any) -> str:
     execution_task = str(
         getattr(division, "execution_task", "") or ""
@@ -243,6 +270,16 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         pass
 
 
+def _manager_current_stage(manager: Any) -> str:
+    resolver = getattr(manager, "current_stage", None)
+    if not callable(resolver):
+        return ""
+    try:
+        return str(resolver() or "").strip()
+    except Exception:  # noqa: BLE001 - event enrichment must never break handoff
+        return ""
+
+
 def _accepts_keyword(fn: Any, name: str) -> bool:
     try:
         parameters = signature(fn).parameters.values()
@@ -311,6 +348,9 @@ class PreparedManagerHandoff:
         }
         if continuous_generation is not None:
             event["continuous_generation"] = continuous_generation
+        current_stage = _manager_current_stage(self.manager)
+        if current_stage:
+            event["current_stage"] = current_stage
         _emit_manager_event(self.mem, event)
 
     def failed(self, exc: Exception) -> None:
@@ -558,7 +598,11 @@ def manager_continuous_handoff(
     replacement_intent = bool(
         expected.objective.strip()
         and requested_objective.strip()
-        and expected.objective.strip() != body
+        and objective_update_requires_stage_reset(
+            expected.objective,
+            body,
+            prepared.execution_task,
+        )
     )
 
     def _commit() -> None:

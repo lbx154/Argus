@@ -1776,6 +1776,85 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"
 
 
+def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    original = "Develop a submission-quality long-context paper."
+    extended = (
+        original
+        + "\n\nOperator standing research authority: continue autonomously "
+        "and preserve all prior evidence."
+    )
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective=original,
+    )
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.manager.intent.completed",
+            "intent_id": "intent-old",
+            "continuous_generation": 1,
+            "execution_task": original,
+            "vertical": "research",
+        }) + "\n")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.decide_vertical",
+        lambda _self, _task, **_kwargs: SimpleNamespace(
+            execution_task=extended,
+            choice="existing",
+            vertical="research",
+        ),
+    )
+    commit_kwargs: list[dict[str, object]] = []
+
+    def commit_vertical_decision(self, task, decision, **kwargs):
+        commit_kwargs.append(dict(kwargs))
+        return SimpleNamespace(
+            execution_task=decision.execution_task,
+            vertical=decision.vertical,
+            kind="research",
+            stages=[],
+        )
+
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager.commit_vertical_decision",
+        commit_vertical_decision,
+    )
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.01,
+        continuous=True,
+        continuous_objective=extended,
+        resume_continuous=True,
+    ))
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert commit_kwargs[0]["force_stage_reset"] is False
+    assert read_continuous_state(tmp_path).objective == extended
+
+
 def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

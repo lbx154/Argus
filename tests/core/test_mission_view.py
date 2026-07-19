@@ -15,6 +15,28 @@ def emit(root: Path, event_type: str, ts: float, **payload) -> dict:
     return update_mission_view_event(root, {"type": event_type, "ts": ts, **payload})
 
 
+def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.manager.stage_decision",
+        1,
+        action="advance",
+        target_stage="run",
+    )
+    view = emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        2,
+        intent_id="intent-updated",
+        objective="Extended standing objective",
+        vertical="research",
+        stages=["research", "plan", "benchmark", "run"],
+        current_stage="research",
+    )
+
+    assert view["stage"] == {"id": "research", "label": "Research"}
+
+
 def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
     view = emit(tmp_path, "life.planner.start", 1)
     assert view["active_role"] == "planner"
