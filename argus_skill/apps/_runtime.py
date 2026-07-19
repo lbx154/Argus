@@ -220,18 +220,25 @@ class LifeStderrSink:
 def _should_run_stage_transition(
     status: object,
     planner_report: dict | None = None,
+    *,
+    mission_scope: str = "",
+    require_independent_review: bool = False,
+    review_source: str = "",
 ) -> bool:
     normalized = str(status or "")
     stage_reconciliation = bool(
         isinstance(planner_report, dict)
         and planner_report.get("stage_reconciliation_required") is True
     )
-    return (
+    if normalized == "replan_requested" and not stage_reconciliation:
+        return False
+    if normalized.startswith("paused_"):
+        return False
+    return bool(
         stage_reconciliation
-        or (
-            normalized != "replan_requested"
-            and not normalized.startswith("paused_")
-        )
+        or require_independent_review
+        or str(mission_scope or "").strip().lower() == "final_submission"
+        or str(review_source or "").strip().lower() == "engineer_self_review"
     )
 
 
@@ -950,10 +957,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         step_back: dict | None = None
         operator_question = ""
         research_result: dict = {}
+        review_source = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
             if _final_review is not None:
+                review_source = str(
+                    getattr(_final_review, "review_source", "") or ""
+                ).strip()
                 report = getattr(_final_review, "planner_report", None)
                 if isinstance(report, dict):
                     planner_report = report
@@ -992,7 +1003,13 @@ class _SkillLoopRunner(SelfReplyMixin):
         stage_transition: dict = {}
         if (
             getattr(config, "workflow_mode", "staged") != "direct"
-            and _should_run_stage_transition(effective_status, planner_report)
+            and _should_run_stage_transition(
+                effective_status,
+                planner_report,
+                mission_scope=mission_scope,
+                require_independent_review=require_independent_review,
+                review_source=review_source,
+            )
         ):
             stage_budget_exhausted = bool(
                 per_mission_budget is not None

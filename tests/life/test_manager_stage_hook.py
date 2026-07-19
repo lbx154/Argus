@@ -313,11 +313,28 @@ def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
         {"stage_reconciliation_required": True},
     ) is True
     assert _runtime._should_run_stage_transition("paused_budget") is False
-    assert _runtime._should_run_stage_transition("done") is True
+    assert _runtime._should_run_stage_transition("done") is False
+    assert _runtime._should_run_stage_transition(
+        "done", require_independent_review=True
+    ) is True
+    assert _runtime._should_run_stage_transition(
+        "done", mission_scope="final_submission"
+    ) is True
 
 
 def test_engineer_self_review_done_still_runs_manager_stage_transition() -> None:
-    assert _runtime._should_run_stage_transition("done") is True
+    assert _runtime._should_run_stage_transition(
+        "done", review_source="engineer_self_review"
+    ) is True
+
+
+def test_ordinary_reviewed_intermediate_task_skips_manager_stage_call() -> None:
+    assert _runtime._should_run_stage_transition(
+        "done",
+        review_source="reviewer",
+        require_independent_review=False,
+        mission_scope="bounded",
+    ) is False
 
 
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(
