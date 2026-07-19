@@ -683,32 +683,34 @@ def test_run_exec_writes_full_agent_io_log(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    raw_rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     assert all(row["event_schema_version"] == 1 for row in rows)
     assert all("event_validation" not in row for row in rows)
     assert [row["type"] for row in rows] == [
         "agent.io.start",
-        "agent.io.stream",
-        "agent.io.stream",
         "agent.io.complete",
         "usage.recorded",
     ]
-    assert [row["io_kind"] for row in rows[:-1]] == [
-        "start",
-        "stream",
-        "stream",
-        "complete",
+    assert [row["type"] for row in raw_rows] == [
+        "agent.io.stream",
+        "agent.io.stream",
     ]
+    assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
+    assert [row["io_kind"] for row in raw_rows] == ["stream", "stream"]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
-    assert [row["stream"] for row in rows if row["type"] == "agent.io.stream"] == [
+    assert [row["stream"] for row in raw_rows] == [
         "stdout",
         "stderr",
     ]
-    assert rows[1]["stream"] == "stdout"
-    assert rows[1]["model"] == "gpt-5.5"
-    assert rows[1]["line"].startswith('{"type"')
-    assert rows[2]["stream"] == "stderr"
-    assert rows[2]["model"] == "gpt-5.5"
+    assert raw_rows[0]["stream"] == "stdout"
+    assert raw_rows[0]["model"] == "gpt-5.5"
+    assert raw_rows[0]["line"].startswith('{"type"')
+    assert raw_rows[1]["stream"] == "stderr"
+    assert raw_rows[1]["model"] == "gpt-5.5"
     assert "agent_messages" not in rows[-2]
     assert "stdout_lines" not in rows[-2]
     assert "stderr_lines" not in rows[-2]
@@ -781,12 +783,16 @@ def test_full_agent_io_batches_raw_stream_writes(
         run_label="engineer-r1",
     )
 
-    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     assert sum(batch_sizes) == 1_000
     assert len(batch_sizes) < 10
     assert sum(row["type"] == "agent.io.stream" for row in rows) == 1_000
+    control_rows = [json.loads(line) for line in log_path.read_text().splitlines()]
     assert "json_events" not in next(
-        row for row in rows if row["type"] == "agent.io.complete"
+        row for row in control_rows if row["type"] == "agent.io.complete"
     )
 
 
@@ -833,8 +839,12 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    raw_rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     start = next(row for row in rows if row["type"] == "agent.io.start")
-    streams = [row for row in rows if row["type"] == "agent.io.stream"]
+    streams = [row for row in raw_rows if row["type"] == "agent.io.stream"]
     assert start["prompt"] == prompt
     assert len(streams) == 1
     assert "assistant.message_delta" in streams[0]["line"]

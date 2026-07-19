@@ -241,6 +241,33 @@ def known_secret_values(
         and len(str(value)) >= 8
         and "\n" not in str(value)
     }
+    vault_candidates = [
+        Path(str(source.get("ARGUS_SKILL_CAPABILITY_VAULT") or "")).expanduser(),
+        Path.home() / ".argus-skill" / "capabilities" / "model_api.json",
+    ]
+    for path in vault_candidates:
+        if not str(path) or not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        def collect(obj: Any, key: str = "") -> None:
+            if isinstance(obj, dict):
+                for name, value in obj.items():
+                    collect(value, str(name))
+            elif isinstance(obj, list):
+                for value in obj:
+                    collect(value, key)
+            elif (
+                isinstance(obj, str)
+                and len(obj) >= 8
+                and _SENSITIVE_ENV_NAME.search(key)
+            ):
+                values.add(obj)
+
+        collect(payload)
     return tuple(sorted(values, key=len, reverse=True))
 
 

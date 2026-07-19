@@ -804,6 +804,11 @@ class AgentCliBackend:
             "call_id": call_id,
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
+            "raw_log_path": (
+                str(log_path.with_name("agent_io.jsonl"))
+                if log_path is not None and io_mode == "full"
+                else ""
+            ),
             "model": options.model,
             "mode": io_mode,
             "prompt_sha256": _text_sha256(prompt),
@@ -1624,7 +1629,7 @@ class AgentCliBackend:
             context = self._io_context
             if context is None or str(context.get("call_id") or "") != call_id:
                 return
-            raw_path = str(context.get("log_path") or "")
+            raw_path = str(context.get("raw_log_path") or "")
             if raw_path:
                 path = Path(raw_path)
             lines = list(context.get("buffer") or [])
@@ -1636,7 +1641,7 @@ class AgentCliBackend:
         with self._io_context_lock:
             context = self._io_context
         ctx = context or {}
-        log_path = str(ctx.get("log_path") or "")
+        log_path = str(ctx.get("raw_log_path") or "")
         io_mode = str(ctx.get("mode") or "compact")
         prompt_echo = (
             _user_message_content(line)

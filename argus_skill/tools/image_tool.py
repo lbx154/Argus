@@ -17,6 +17,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 from argus_skill.skills.venue_profiles import VenueProfile, get_venue_profile
 
@@ -24,6 +29,7 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS = 500.0
 _DEFAULT_MAX_RETRIES = 4
+_DEFAULT_IMAGE_DAILY_CALL_CAP = 200
 _MAX_RETRY_DELAY_SECONDS = 45.0
 _TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
@@ -164,6 +170,8 @@ def _json_request(
     raw = ""
     attempts = max(1, int(max_retries))
     for attempt_index in range(attempts):
+        if endpoint == "/images/generations":
+            _reserve_image_call(grant, payload, attempt_index=attempt_index)
         req = urllib.request.Request(
             url,
             data=body,
@@ -201,6 +209,76 @@ def _json_request(
     if not isinstance(data, dict):
         raise ImageToolError(f"unexpected response from {endpoint}: {type(data).__name__}")
     return data
+
+
+def _image_usage_path() -> Path:
+    raw = os.environ.get("ARGUS_SKILL_IMAGE_USAGE_LEDGER", "").strip()
+    return (
+        Path(raw).expanduser()
+        if raw
+        else Path.home() / ".argus-skill" / "capabilities" / "image_usage.jsonl"
+    )
+
+
+def _image_daily_cap() -> int:
+    raw = os.environ.get("ARGUS_SKILL_IMAGE_DAILY_CALL_CAP", "").strip()
+    if not raw:
+        return _DEFAULT_IMAGE_DAILY_CALL_CAP
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_IMAGE_DAILY_CALL_CAP
+
+
+def _reserve_image_call(
+    route: ModelApiGrant | ModelApiRoute,
+    payload: Mapping[str, Any],
+    *,
+    attempt_index: int,
+) -> None:
+    """Atomically meter every Azure image request attempt before it is sent."""
+    if str(route.provider or "").strip().lower() != "azure_openai":
+        return
+    cap = _image_daily_cap()
+    path = _image_usage_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(UTC).date().isoformat()
+    prompt_hash = hashlib.sha256(
+        str(payload.get("prompt") or "").encode("utf-8")
+    ).hexdigest()
+    with path.open("a+", encoding="utf-8") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        used = 0
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("date_utc") == today:
+                used += 1
+        if cap and used >= cap:
+            raise ImageToolError(
+                f"daily image API call cap reached ({used}/{cap}); inspect "
+                f"{path} before increasing ARGUS_SKILL_IMAGE_DAILY_CALL_CAP"
+            )
+        record = {
+            "schema_version": 1,
+            "date_utc": today,
+            "reserved_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "provider": route.provider,
+            "model": route.model,
+            "attempt_index": int(attempt_index),
+            "prompt_sha256": prompt_hash,
+            "project_root": str(Path.cwd().resolve()),
+        }
+        handle.seek(0, 2)
+        handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _read_prompt(prompt: str | None, prompt_file: Path | None) -> str:
@@ -807,6 +885,11 @@ def review_image(
     max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     grant = _require_route("image_review", env)
+    if "image" in grant.model.lower():
+        raise ImageToolError(
+            "image_review route points to an image-generation model; configure "
+            "a vision-capable text/review model instead"
+        )
     original_prompt = prompt.strip() or _load_sidecar_prompt(image)
     text = _review_prompt(
         original_prompt=original_prompt,
