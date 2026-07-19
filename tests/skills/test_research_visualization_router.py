@@ -34,13 +34,15 @@ def test_router_makes_image2_capability_conditional() -> None:
     assert "never fake image-2 provenance" in content
 
 
-def test_results_figures_require_data_derived_claims_and_rendered_review() -> None:
+def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
     content = (
         ROOT / "engineer" / "research-results-analysis-and-figures.md"
     ).read_text(encoding="utf-8").lower()
 
     assert "never hard-code an expected" in content
-    assert "counterfactual regression fixture" in content
-    assert "ordering of at least one compared method reverses" in content
-    assert "render and inspect the actual figure" in content
+    assert "prefer a small counterfactual regression" in content
+    assert "not a required project artifact or\ncompletion gate" in content
+    assert "reviewer decides" in content
+    assert "reviewer should inspect the actual rendered figure" in content
+    assert "rather than creating a separate mandatory review artifact" in content
     assert "not merely lists the output path" in content
