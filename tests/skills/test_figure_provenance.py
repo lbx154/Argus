@@ -126,6 +126,7 @@ def test_concurrent_registration_preserves_every_entry(tmp_path: Path) -> None:
     output = tmp_path / "figure.svg"
     source.write_text("source\n", encoding="utf-8")
     output.write_text("<svg viewBox='0 0 1 1'/>\n", encoding="utf-8")
+    support = _supporting_records(tmp_path)
 
     def register(index: int) -> None:
         register_figure(
@@ -135,7 +136,7 @@ def test_concurrent_registration_preserves_every_entry(tmp_path: Path) -> None:
             renderer="svg",
             source_path=source,
             output_path=output,
-            **_supporting_records(tmp_path),
+            **support,
         )
 
     with ThreadPoolExecutor(max_workers=8) as executor:

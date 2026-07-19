@@ -37,8 +37,18 @@ pipeline. It must:
 - read canonical raw artifacts rather than hard-coded paper numbers;
 - normalize schemas and reject rows with missing/extra declared fields;
 - compute aggregates, uncertainty, significance tests, and failure slices;
+- derive ranking/winner names, caption values, and figure claim text from the
+  same analysis objects as the plotted marks; never hard-code an expected
+  method, ordering, or conclusion in a figure spec;
 - write deterministic tables and figure-source bundles;
 - regenerate every downstream result from a clean shell.
+
+Add a small counterfactual regression fixture for each result generator: change
+the copied fixture so the ordering of at least one compared method reverses,
+then confirm the regenerated caption, claim metadata, table, and visual all
+reverse consistently. The normal verifier must reject stale pre-mutation
+artifacts. This is a generator-correctness test, not permission to alter or
+exclude real experiment rows.
 
 Use `Paper Chart Styling` for ordinary matplotlib charts. For each other figure,
 load the research-only `Research Visualization Router`; do not select a renderer
@@ -92,6 +102,12 @@ may additionally retain `IMAGE2_FIGURES.json`.
 Each figure needs a stable ID/filename, claim binding, source/input hashes,
 renderer, regeneration command, dimensions, review artifact, caption plan,
 LaTeX label, and in-text reference plan.
+
+Before handoff, render and inspect the actual figure at its final physical size;
+reading SVG/HTML/TikZ source alone is not a visual review. Integration means the
+current paper or bounded report actually embeds/references the accepted figure
+with its caption and body callout, not merely lists the output path in an
+inventory table.
 
 ## 5. Statistical and visual discipline
 

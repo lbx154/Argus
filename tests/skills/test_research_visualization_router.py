@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from argus_skill.skills.builtins import iter_vertical_skill_texts
 from argus_skill.skills.store import Skill
+
+ROOT = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
 
 
 def test_research_vertical_bundles_one_visual_router_and_renderer() -> None:
@@ -28,3 +32,15 @@ def test_router_makes_image2_capability_conditional() -> None:
     assert "when configured" in content
     assert "unavailable image route is\nnot a project blocker" in content
     assert "never fake image-2 provenance" in content
+
+
+def test_results_figures_require_data_derived_claims_and_rendered_review() -> None:
+    content = (
+        ROOT / "engineer" / "research-results-analysis-and-figures.md"
+    ).read_text(encoding="utf-8").lower()
+
+    assert "never hard-code an expected" in content
+    assert "counterfactual regression fixture" in content
+    assert "ordering of at least one compared method reverses" in content
+    assert "render and inspect the actual figure" in content
+    assert "not merely lists the output path" in content
