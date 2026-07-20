@@ -112,6 +112,8 @@ _TASK_ARTIFACT_RE = re.compile(
     r"\.(?:jsonl?|md|tsv|csv|py|tex|ya?ml)(?![A-Za-z0-9_.-])",
     re.IGNORECASE,
 )
+_TASK_ARTIFACT_LIMIT = 4
+_STAGE_CLOSING_TASK_ARTIFACT_LIMIT = 6
 
 
 def _task_granularity_issue(task: TaskSpec) -> str:
@@ -133,10 +135,15 @@ def _task_granularity_issue(task: TaskSpec) -> str:
             f"{task.objective}\n{task.acceptance_check}"
         )
     )
-    if len(output_artifacts) > 4 and not certification_only:
+    artifact_limit = (
+        _STAGE_CLOSING_TASK_ARTIFACT_LIMIT
+        if task.stage_closing
+        else _TASK_ARTIFACT_LIMIT
+    )
+    if len(output_artifacts) > artifact_limit and not certification_only:
         return (
             f"owns {len(output_artifacts)} named artifacts; split the work at "
-            "an artifact boundary (maximum 4)"
+            f"an artifact boundary (maximum {artifact_limit})"
         )
     if len(phases) >= 4 and not certification_only:
         return (
@@ -817,12 +824,13 @@ class Planner:
                 "Revise the decision once. Preserve the scientific judgment, "
                 "active stage, intended work, project_done state, and waiting "
                 "state. Change only task decomposition or artifact ownership so "
-                "each task fits one fresh Engineer session: at most 4 named output "
-                "artifacts, at most 8 context_refs, fewer than 4 decision phases, "
-                "and an objective no longer than 1400 characters. Split tasks and "
-                "connect them with DAG deps when necessary. Do not inspect files, "
-                "call tools, change checklist_ops, or add unrelated work. Return "
-                "only the complete repaired structured response. "
+                "each task fits one fresh Engineer session and respects the exact "
+                "limits in the rejection above, including at most 8 context_refs, "
+                "fewer than 4 decision phases, and an objective no longer than "
+                "1400 characters. Split tasks and connect them with DAG deps when "
+                "necessary. Do not inspect files, call tools, change checklist_ops, "
+                "or add unrelated work. Return only the complete repaired "
+                "structured response. "
                 f"Original response SHA-256: {original_sha256}"
             )
             repair_error = ""

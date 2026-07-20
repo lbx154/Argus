@@ -205,6 +205,33 @@ def test_plan_next_rejects_large_multi_artifact_package() -> None:
     assert "artifact boundary" in verdict.error
 
 
+def test_plan_next_allows_six_artifacts_for_stage_closing_package() -> None:
+    task = {
+        "title": "Close the scope package",
+        "impact_score": 5,
+        "impact_area": "reliability",
+        "evidence": "The coherent scope package is stale.",
+        "acceptance_check": (
+            "A.md, B.md, C.md, D.md, E.md, and F.json are current"
+        ),
+        "non_goals": ["do not execute experiments"],
+        "context_refs": [],
+        "scope": "bounded",
+        "stage_closing": True,
+        "objective": "Refresh A.md, B.md, C.md, D.md, E.md, and F.json.",
+        "key": "close-scope",
+        "deps": [],
+    }
+    verdict = Planner(_FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "close the current stage",
+        "new_tasks": [task],
+    }))).plan_next(continuous_objective="Keep improving.")
+
+    assert not verdict.error
+    assert [spec.key for spec in verdict.new_tasks] == ["close-scope"]
+
+
 def test_plan_next_repairs_task_granularity_once_in_same_session() -> None:
     broad = {
         "title": "Refresh the complete scope package",
@@ -218,7 +245,7 @@ def test_plan_next_repairs_task_granularity_once_in_same_session() -> None:
         "non_goals": ["do not run benchmarks"],
         "context_refs": [],
         "scope": "bounded",
-        "stage_closing": True,
+        "stage_closing": False,
         "objective": (
             "Refresh GROUND_TRUTH.md, KERNEL_SCOPE.md, PROJECT_NATIVE_SETUP.md, "
             "frontier/scope.json, and FRONTIER_WATCH.jsonl."
@@ -299,7 +326,7 @@ def test_plan_next_repairs_task_granularity_once_in_same_session() -> None:
         "planner.cycle3.task-contract-repair"
     )
     assert runner.calls[1]["options"].sandbox_mode == "read-only"
-    assert "at most 4 named output artifacts" in runner.calls[1]["prompt"]
+    assert "maximum 4" in runner.calls[1]["prompt"]
     assert verdict.input_tokens == 13
     assert verdict.cached_input_tokens == 2
     assert verdict.output_tokens == 10
