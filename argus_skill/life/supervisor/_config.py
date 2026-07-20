@@ -82,7 +82,7 @@ class LifeBudget:
         now: float | None = None,
         global_root: Path | None = None,
     ) -> tuple[bool, str]:
-        """Cheap preflight; the atomic call reservation is authoritative."""
+        """Cheap preflight; call admission rechecks settled global spend."""
         global_cap = float(self.global_daily_cap_usd or 0.0)
         if global_cap > 0:
             spent = global_daily_spend(global_root=global_root, now=now)

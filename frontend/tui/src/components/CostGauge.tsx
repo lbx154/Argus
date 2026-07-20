@@ -30,7 +30,7 @@ export function CostGauge({
     && !incomplete
     && !globalCap
     && !requestUsage
-    && !costControl?.reserved_usd
+    && !costControl?.active_reservations
     && !costControl?.unresolved_calls
   ) return null;
   const frac = fraction(total, globalCap);
@@ -58,9 +58,9 @@ export function CostGauge({
             : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
         </Text>
       ) : null}
-      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
+      {costControl && (costControl.active_reservations > 0 || costControl.unresolved_calls > 0) ? (
         <Text color={costControl.unresolved_calls > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0}>
-          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
+          {`cost control · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (

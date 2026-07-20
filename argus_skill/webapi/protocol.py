@@ -9,18 +9,18 @@ from ..core.runtime_identity import runtime_identity
 API_SERVICE = "argus-skill-webapi"
 API_PROTOCOL_NAME = "argus.webapi"
 API_PROTOCOL_MAJOR = 1
-API_PROTOCOL_MINOR = 11
-SNAPSHOT_SCHEMA_VERSION = 6
+API_PROTOCOL_MINOR = 12
+SNAPSHOT_SCHEMA_VERSION = 7
 API_CAPABILITIES = (
     "daemon.admission.v1",
     "daemon.status.protocol.v1",
     "daemon.command.v1",
     "daemon.upgrade-schedule.v1",
-    "cost.reservation.v1",
+    "cost.admission.v1",
     "event.catalog.v1",
     "event.payload-schema.v1",
     "manager.sse.v1",
-    "metrics.slo.v1",
+    "metrics.slo.v2",
     "mission.view.v1",
     "mission.abort.v1",
     "project.git-diff.v1",

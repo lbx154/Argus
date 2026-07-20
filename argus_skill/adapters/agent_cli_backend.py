@@ -861,7 +861,6 @@ class AgentCliBackend:
             ]
             completed_at = time.time()
             usage_record = None
-            reservation_overrun_usd: float | None = None
             result.call_id = call_id
             result.call_id_log_correlated = True
             result.stop_kind = normalize_stop_kind(result.stop_kind)
@@ -976,14 +975,6 @@ class AgentCliBackend:
                             "reason": persisted_error or "not_started",
                         })
                     elif usage_record is not None:
-                        reservation_overrun_usd = (
-                            max(
-                                0.0,
-                                usage_record.cost_usd - cost_reservation.amount_usd,
-                            )
-                            if usage_record.cost_usd is not None
-                            else None
-                        )
                         cost_reservation.settle(usage_record)
                         self._log_agent_io(log_path, {
                             "type": EventType.BUDGET_RESERVATION_SETTLED,
@@ -991,7 +982,6 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": usage_record.cost_usd,
-                            "overrun_usd": reservation_overrun_usd,
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
@@ -1003,12 +993,11 @@ class AgentCliBackend:
                             "call_id": call_id,
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": None,
-                            "overrun_usd": None,
                             "pricing_status": "unknown",
                             "error": reason,
                         })
                 except Exception:  # noqa: BLE001 — metering must not break work
-                    log.exception("failed to settle cost reservation for %s", call_id)
+                    log.exception("failed to settle cost admission for %s", call_id)
             if usage_project_root is not None:
                 try:
                     record_metric(
@@ -1027,12 +1016,6 @@ class AgentCliBackend:
                             "cost_usd": result.cost_usd,
                             "input_tokens": result.input_tokens,
                             "output_tokens": result.output_tokens,
-                            "reservation_usd": (
-                                cost_reservation.amount_usd
-                                if cost_reservation is not None
-                                else None
-                            ),
-                            "overrun_usd": reservation_overrun_usd,
                         },
                     )
                 except Exception:  # noqa: BLE001
@@ -1040,7 +1023,7 @@ class AgentCliBackend:
             self._close_io_context(call_id)
             return result
 
-        # Reservation happens before the provider responds, so there is no
+        # Cost admission happens before the provider responds, so there is no
         # response model yet — attribute it to the request model, falling back to
         # the configured default (same rule as the settled usage record) so the
         # reservation ledger and its events never carry an empty codex model.
@@ -1049,7 +1032,6 @@ class AgentCliBackend:
         )[0]
         try:
             from ..core.cost_control import (
-                call_reservation_usd,
                 cost_control_enabled,
                 reserve_call_budget,
             )
@@ -1063,7 +1045,6 @@ class AgentCliBackend:
                     model=reservation_model,
                     run_label=run_label,
                     global_root=usage_global_root,
-                    reservation_usd=call_reservation_usd(run_label),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {

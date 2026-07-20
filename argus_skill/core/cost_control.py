@@ -1,8 +1,8 @@
-"""Atomic call-level cost reservation and settlement.
+"""Host-global settled-cost admission and reconciliation.
 
 ``usage.jsonl`` remains the authoritative settled ledger. This module protects
-the interval between starting a provider call and persisting its final usage so
-concurrent daemons cannot all spend the same remaining budget.
+the global admission check and unresolved-price policy across concurrent
+daemons. Calls do not receive or consume a fixed per-call USD hold.
 """
 
 from __future__ import annotations
@@ -34,19 +34,6 @@ COST_CONTROL_AUDIT_FILE = "cost-control.jsonl"
 _STATE_VERSION = 1
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
-_CONTROL_PLANE_RUN_LABELS = frozenset({
-    "manager-frontdoor-classify",
-    "router-classify",
-    "simple-1",
-})
-_CALL_RESERVATION_USD = 5.0
-_CONTROL_PLANE_RESERVATION_USD = 1.0
-
-
-def _is_control_plane_call(run_label: str) -> bool:
-    return str(run_label or "").strip().lower() in _CONTROL_PLANE_RUN_LABELS
-
-
 class CostControlStateError(RuntimeError):
     pass
 
@@ -212,7 +199,11 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _prune_reservations(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [row for row in rows if _pid_alive(int(row.get("pid") or 0))]
+    return [
+        {**row, "amount_usd": 0.0}
+        for row in rows
+        if _pid_alive(int(row.get("pid") or 0))
+    ]
 
 
 def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
@@ -291,32 +282,6 @@ def _unpriced_policy() -> str:
     return "allow" if value == "allow" else "block"
 
 
-def _intentional_interrupt_reason(reason: object) -> bool:
-    low = str(reason or "").strip().casefold()
-    return low.startswith(
-        (
-            "external interrupt: operator abort requested",
-            "external interrupt: daemon stop requested",
-        )
-    )
-
-
-def _bounded_unresolved(row: dict[str, Any]) -> bool:
-    return "blocking" in row and row.get("blocking") is False
-
-
-def _unresolved_hold_usd(row: dict[str, Any]) -> float:
-    if not _bounded_unresolved(row):
-        return 0.0
-    raw = row.get("held_usd")
-    if raw is None:
-        raw = _CALL_RESERVATION_USD
-    try:
-        return max(0.0, float(raw or 0.0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def cost_control_enabled() -> bool:
     explicit = str(os.environ.get("ARGUS_SKILL_COST_CONTROL", "") or "").strip()
     if explicit:
@@ -325,15 +290,6 @@ def cost_control_enabled() -> bool:
         return False
     value = resolve_knob("ARGUS_SKILL_COST_CONTROL", "on").value.strip().lower()
     return value in {"1", "true", "yes", "on"}
-
-
-def call_reservation_usd(run_label: str) -> float:
-    """Concurrency hold for one call against the sole host-global budget."""
-    return (
-        _CONTROL_PLANE_RESERVATION_USD
-        if _is_control_plane_call(run_label)
-        else _CALL_RESERVATION_USD
-    )
 
 
 @dataclass
@@ -381,11 +337,10 @@ def reserve_call_budget(
     run_label: str,
     global_root: Path | str | None = None,
     global_daily_cap_usd: float | None = None,
-    reservation_usd: float | None = None,
     now: float | None = None,
     pid: int | None = None,
 ) -> tuple[CallBudgetReservation | None, str]:
-    """Atomically reserve one call against the host-global daily budget."""
+    """Atomically admit one call against settled host-global daily spend."""
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
     project = Path(project_root).expanduser() if project_root is not None else None
@@ -402,8 +357,6 @@ def reserve_call_budget(
     owner_pid = os.getpid() if pid is None else int(pid)
     project_key = str(project.resolve()) if project is not None else ""
     mission_key = str(mission_id or "")
-    control_plane = _is_control_plane_call(run_label)
-
     try:
         with _locked(root):
             state = _read_state(root, timestamp)
@@ -414,13 +367,10 @@ def reserve_call_budget(
             )
             state["reservations"] = reservations
             state["unresolved"] = unresolved
-            blocking_unresolved = [
-                row for row in unresolved if not _bounded_unresolved(row)
-            ]
+            blocking_unresolved = list(unresolved)
             if (
                 blocking_unresolved
                 and _unpriced_policy() == "block"
-                and not control_plane
             ):
                 first = blocking_unresolved[0]
                 reason = (
@@ -454,11 +404,7 @@ def reserve_call_budget(
                     global_records.extend(project_records)
 
             global_spend = _known_cost(global_records)
-            global_reserved = sum(
-                max(0.0, float(row.get("amount_usd") or 0.0))
-                for row in reservations
-            ) + sum(_unresolved_hold_usd(row) for row in unresolved)
-            available = global_cap - global_spend - global_reserved
+            available = global_cap - global_spend
             if global_cap > 0 and available <= 0:
                 reason = f"global daily budget exhausted (${available:.6f} available)"
                 state["reservations"] = reservations
@@ -477,15 +423,7 @@ def reserve_call_budget(
                 )
                 return None, reason
 
-            requested = max(
-                0.0,
-                float(
-                    call_reservation_usd(run_label)
-                    if reservation_usd is None
-                    else reservation_usd
-                ),
-            )
-            amount = min(requested, max(0.0, available)) if global_cap > 0 else requested
+            amount = 0.0
             reservation_id = uuid.uuid4().hex
             row = {
                 "id": reservation_id,
@@ -585,13 +523,6 @@ def _close_reservation(
                     or record.pricing_status in {"partial", "unpriced"}
                 )
             ):
-                bounded_interrupt = _intentional_interrupt_reason(record.error)
-                bounded_copilot_partial = (
-                    str(record.provider or "").strip().casefold() == "copilot"
-                    and record.pricing_status == "partial"
-                    and reservation.amount_usd > 0
-                )
-                bounded_unpriced = bounded_interrupt or bounded_copilot_partial
                 unresolved.append({
                     "call_id": record.call_id,
                     "project_root": (
@@ -605,15 +536,11 @@ def _close_reservation(
                     "model": record.model,
                     "pricing_status": record.pricing_status,
                     "reason": record.error or "provider usage is not fully priced",
-                    "blocking": not bounded_unpriced,
-                    "held_usd": (
-                        reservation.amount_usd if bounded_unpriced else 0.0
-                    ),
+                    "blocking": True,
                     "created_at": timestamp,
                 })
         elif unknown_reason:
             error = unknown_reason
-            bounded_interrupt = _intentional_interrupt_reason(unknown_reason)
             unresolved.append({
                 "call_id": reservation.call_id,
                 "project_root": (
@@ -632,10 +559,7 @@ def _close_reservation(
                 "run_label": reservation.run_label,
                 "pricing_status": "unknown",
                 "reason": unknown_reason,
-                "blocking": not bounded_interrupt,
-                "held_usd": (
-                    reservation.amount_usd if bounded_interrupt else 0.0
-                ),
+                "blocking": True,
                 "created_at": timestamp,
             })
         state["unresolved"] = unresolved
@@ -659,11 +583,6 @@ def _close_reservation(
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
             cost_usd=actual,
-            overrun_usd=(
-                max(0.0, actual - reservation.amount_usd)
-                if actual is not None
-                else None
-            ),
             pricing_status=pricing_status,
             error=error,
         )
@@ -688,18 +607,10 @@ def cost_control_snapshot(
         state["reservations"] = reservations
         state["unresolved"] = unresolved
         _write_state(root, state, timestamp)
-    unresolved_held_usd = sum(_unresolved_hold_usd(row) for row in unresolved)
-    blocking_unresolved = [
-        row for row in unresolved if not _bounded_unresolved(row)
-    ]
+    blocking_unresolved = list(unresolved)
     return {
         "day": state["day"],
         "active_reservations": len(reservations),
-        "reserved_usd": sum(
-            max(0.0, float(row.get("amount_usd") or 0.0))
-            for row in reservations
-        ) + unresolved_held_usd,
-        "unresolved_held_usd": unresolved_held_usd,
         "unresolved_calls": len(unresolved),
         "blocking_unresolved_calls": len(blocking_unresolved),
         "unresolved": [
@@ -714,7 +625,6 @@ def cost_control_snapshot(
                     "pricing_status",
                     "reason",
                     "blocking",
-                    "held_usd",
                     "created_at",
                 )
             }
@@ -731,7 +641,6 @@ __all__ = [
     "CallBudgetReservation",
     "CostControlLockBusyError",
     "CostControlStateError",
-    "call_reservation_usd",
     "cost_control_enabled",
     "cost_control_snapshot",
     "reserve_call_budget",

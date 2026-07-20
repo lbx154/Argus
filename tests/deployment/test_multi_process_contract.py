@@ -30,7 +30,6 @@ def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str)
         run_label="engineer-r1",
         global_root=Path(root),
         global_daily_cap_usd=10,
-        reservation_usd=10,
     )
     queue.put((reservation is not None, reason))
     if reservation is not None:
@@ -72,7 +71,7 @@ def _get_json(url: str) -> tuple[dict, object]:
         return json.loads(response.read()), response.headers
 
 
-def test_processes_cannot_reserve_the_same_budget(tmp_path: Path) -> None:
+def test_processes_have_no_fixed_per_call_budget_hold(tmp_path: Path) -> None:
     context = mp.get_context("fork")
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
@@ -94,8 +93,8 @@ def test_processes_cannot_reserve_the_same_budget(tmp_path: Path) -> None:
     for process in processes:
         process.join(timeout=10)
         assert process.exitcode == 0
-    assert sum(allowed for allowed, _reason in results) == 1
-    assert any("budget exhausted" in reason for allowed, reason in results if not allowed)
+    assert all(allowed for allowed, _reason in results)
+    assert all(reason == "" for _allowed, reason in results)
 
 
 def test_processes_claim_duplicate_daemon_command_once(tmp_path: Path) -> None:

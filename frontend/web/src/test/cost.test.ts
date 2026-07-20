@@ -58,7 +58,6 @@ describe('CostGauge', () => {
         costControl: {
           day: '2026-07-11',
           active_reservations: 0,
-          reserved_usd: 0,
           unresolved_calls: 1,
           unresolved: [],
           policy: 'block',

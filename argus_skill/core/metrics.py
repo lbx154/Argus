@@ -313,13 +313,6 @@ def metrics_snapshot(
         ),
         0.95,
     )
-    provider_overruns = [
-        max(0.0, float(row.get("fields", {}).get("overrun_usd") or 0.0))
-        for row in provider
-    ]
-    provider_overrun_calls = sum(value > 0.0 for value in provider_overruns)
-    provider_overrun_usd = sum(provider_overruns)
-
     commands = _metric_rows(rows, "daemon.command")
     command_applied = sum(
         row.get("labels", {}).get("status") == "applied" for row in commands
@@ -350,7 +343,6 @@ def metrics_snapshot(
     except Exception as exc:  # noqa: BLE001
         cost = {
             "active_reservations": 0,
-            "reserved_usd": 0.0,
             "unresolved_calls": -1,
             "policy": "unknown",
             "error": f"{type(exc).__name__}: {exc}",
@@ -369,11 +361,6 @@ def metrics_snapshot(
         violations.append(f"WebAPI 5xx rate {web_5xx_rate:.1%} > 1%")
     if validation_failures > 0:
         violations.append(f"event validation failures: {validation_failures}")
-    if provider_overrun_calls:
-        violations.append(
-            f"provider budget overruns: {provider_overrun_calls} "
-            f"(${provider_overrun_usd:.6f})"
-        )
     if int(cost.get("unresolved_calls") or 0) != 0:
         violations.append(
             f"unresolved cost calls: {cost.get('unresolved_calls')}"
@@ -388,8 +375,6 @@ def metrics_snapshot(
             "denied": provider_denied,
             "success_rate": provider_success_rate,
             "p95_duration_ms": provider_p95_ms,
-            "overrun_calls": provider_overrun_calls,
-            "overrun_usd": provider_overrun_usd,
         },
         "daemon_commands": {
             "applied": command_applied,
@@ -427,10 +412,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         f'argus_provider_calls_total{{status="denied"}} {provider["denied"]}',
         "# TYPE argus_provider_success_ratio gauge",
         f'argus_provider_success_ratio {provider["success_rate"]}',
-        "# TYPE argus_provider_budget_overrun_calls gauge",
-        f'argus_provider_budget_overrun_calls {provider["overrun_calls"]}',
-        "# TYPE argus_provider_budget_overrun_usd gauge",
-        f'argus_provider_budget_overrun_usd {provider["overrun_usd"]}',
         "# TYPE argus_daemon_commands_total gauge",
         f'argus_daemon_commands_total{{status="applied"}} {commands["applied"]}',
         f'argus_daemon_commands_total{{status="failed"}} {commands["failed"]}',
@@ -439,8 +420,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         f'argus_web_requests_total {web["requests"]}',
         "# TYPE argus_web_5xx_total gauge",
         f'argus_web_5xx_total {web["errors_5xx"]}',
-        "# TYPE argus_cost_reserved_usd gauge",
-        f'argus_cost_reserved_usd {cost.get("reserved_usd", 0.0)}',
         "# TYPE argus_cost_unresolved_calls gauge",
         f'argus_cost_unresolved_calls {cost.get("unresolved_calls", 0)}',
         "# TYPE argus_event_validation_failures_total gauge",

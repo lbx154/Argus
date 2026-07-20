@@ -13,7 +13,6 @@ from argus_skill.core.cost_control import (
     COST_CONTROL_STATE_FILE,
     CostControlStateError,
     _locked,
-    call_reservation_usd,
     cost_control_snapshot,
     reserve_call_budget,
 )
@@ -50,7 +49,7 @@ def _reserve(
     project: Path | None,
     call_id: str,
     *,
-    reservation_usd: float = 5.0,
+    global_daily_cap_usd: float = 10.0,
     pid: int | None = None,
 ):
     return reserve_call_budget(
@@ -61,18 +60,12 @@ def _reserve(
         model="gpt-5.6-sol",
         run_label="engineer-r1",
         global_root=root,
-        global_daily_cap_usd=10.0,
-        reservation_usd=reservation_usd,
+        global_daily_cap_usd=global_daily_cap_usd,
         pid=pid,
     )
 
 
-def test_reservation_sizes_are_internal_accounting_holds() -> None:
-    assert call_reservation_usd("engineer-r1") == 5.0
-    assert call_reservation_usd("manager-frontdoor-classify") == 1.0
-
-
-def test_global_cap_clamps_call_without_project_context(tmp_path: Path) -> None:
+def test_calls_have_zero_dollar_admission_records(tmp_path: Path) -> None:
     reservation, reason = reserve_call_budget(
         call_id="global-only",
         project_root=None,
@@ -82,16 +75,15 @@ def test_global_cap_clamps_call_without_project_context(tmp_path: Path) -> None:
         run_label="engineer-r1",
         global_root=tmp_path,
         global_daily_cap_usd=1.25,
-        reservation_usd=5.0,
     )
 
     assert reason == ""
     assert reservation is not None
-    assert reservation.amount_usd == pytest.approx(1.25)
+    assert reservation.amount_usd == 0.0
     reservation.release(reason="test")
 
 
-def test_concurrent_projects_share_one_global_reservation_pool(tmp_path: Path) -> None:
+def test_concurrent_projects_do_not_take_fixed_call_holds(tmp_path: Path) -> None:
     first_project = tmp_path / "projects" / "p1"
     second_project = tmp_path / "projects" / "p2"
     first_project.mkdir(parents=True)
@@ -102,12 +94,31 @@ def test_concurrent_projects_share_one_global_reservation_pool(tmp_path: Path) -
     second, reason = _reserve(tmp_path, second_project, "call-2")
     assert second is not None and reason == ""
 
-    blocked, reason = _reserve(tmp_path, first_project, "call-3")
-    assert blocked is None
-    assert "global daily budget exhausted" in reason
+    third, reason = _reserve(tmp_path, first_project, "call-3")
+    assert third is not None and reason == ""
+    assert first.amount_usd == second.amount_usd == third.amount_usd == 0.0
 
     first.release(reason="test")
     second.release(reason="test")
+    third.release(reason="test")
+
+
+def test_settled_global_spend_enforces_the_daily_cap(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    record = _record(project, "settled-call")
+    assert record.cost_usd is not None
+    UsageLedger(project, migrate_legacy=False).append(record)
+
+    blocked, reason = _reserve(
+        tmp_path,
+        project,
+        "next-call",
+        global_daily_cap_usd=record.cost_usd,
+    )
+
+    assert blocked is None
+    assert "global daily budget exhausted" in reason
 
 
 def test_priced_settlement_replaces_hold_with_global_ledger_cost(
@@ -126,14 +137,9 @@ def test_priced_settlement_replaces_hold_with_global_ledger_cost(
     assert snapshot["active_reservations"] == 0
     assert snapshot["unresolved_calls"] == 0
 
-    next_reservation, reason = _reserve(
-        tmp_path,
-        project,
-        "call-2",
-        reservation_usd=10.0,
-    )
+    next_reservation, reason = _reserve(tmp_path, project, "call-2")
     assert next_reservation is not None and reason == ""
-    assert next_reservation.amount_usd == pytest.approx(10.0 - record.cost_usd)
+    assert next_reservation.amount_usd == 0.0
     next_reservation.release(reason="test")
 
     audit = [
@@ -174,10 +180,67 @@ def test_unpriced_cost_blocks_global_pool_until_reconciled(
         run_label="manager-frontdoor-classify",
         global_root=tmp_path,
         global_daily_cap_usd=10.0,
-        reservation_usd=1.0,
     )
-    assert control is not None and reason == ""
-    control.release(reason="test")
+    assert control is None
+    assert "unresolved provider cost" in reason
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "",
+        "External interrupt: operator abort requested: stop now",
+    ],
+)
+def test_partial_copilot_cost_blocks_all_later_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: str,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    admission, reason = reserve_call_budget(
+        call_id="partial-copilot",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        global_root=tmp_path,
+        global_daily_cap_usd=10.0,
+    )
+    assert admission is not None and reason == ""
+    record = build_usage_record(
+        call_id="partial-copilot",
+        project_root=project,
+        mission_id="mission-1",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="planner",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        error=error,
+    )
+    assert record.pricing_status == "partial"
+    UsageLedger(project, migrate_legacy=False).append(record)
+    admission.settle(record)
+
+    blocked, reason = reserve_call_budget(
+        call_id="control-after-partial",
+        project_root=project,
+        mission_id="manager-turn",
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager-frontdoor-classify",
+        global_root=tmp_path,
+        global_daily_cap_usd=10.0,
+    )
+
+    assert blocked is None
+    assert "unresolved provider cost" in reason
 
 
 def test_dead_process_hold_is_pruned(tmp_path: Path) -> None:
@@ -186,14 +249,9 @@ def test_dead_process_hold_is_pruned(tmp_path: Path) -> None:
     stale, reason = _reserve(tmp_path, project, "stale", pid=999_999_999)
     assert stale is not None and reason == ""
 
-    current, reason = _reserve(
-        tmp_path,
-        project,
-        "current",
-        reservation_usd=10.0,
-    )
+    current, reason = _reserve(tmp_path, project, "current")
     assert current is not None and reason == ""
-    assert current.amount_usd == 10.0
+    assert current.amount_usd == 0.0
     current.release(reason="test")
 
 

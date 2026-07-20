@@ -196,7 +196,7 @@ def test_multiprocess_metric_writes_remain_complete_json_lines(tmp_path: Path) -
     assert all(row["name"] == "provider.call" for row in rows)
 
 
-def test_provider_budget_overrun_degrades_slo_and_exports_metrics(tmp_path: Path) -> None:
+def test_legacy_provider_overrun_metric_is_ignored(tmp_path: Path) -> None:
     record_metric(
         tmp_path,
         "provider.call",
@@ -208,8 +208,8 @@ def test_provider_budget_overrun_degrades_slo_and_exports_metrics(tmp_path: Path
         fields={"overrun_usd": 0.02},
     )
     snapshot = metrics_snapshot(root=tmp_path)
-    assert snapshot["provider"]["overrun_calls"] == 1
-    assert snapshot["provider"]["overrun_usd"] == 0.02
-    assert snapshot["slo"]["status"] == "degraded"
+    assert "overrun_calls" not in snapshot["provider"]
+    assert "overrun_usd" not in snapshot["provider"]
+    assert snapshot["slo"]["status"] == "healthy"
     prometheus = render_prometheus(snapshot)
-    assert "argus_provider_budget_overrun_calls 1" in prometheus
+    assert "budget_overrun" not in prometheus

@@ -451,7 +451,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
         "usage.recorded",
         "budget.reservation.settled",
     ]
-    assert rows[0]["amount_usd"] == pytest.approx(1.0)
+    assert rows[0]["amount_usd"] == 0.0
     assert rows[-1]["cost_usd"] == pytest.approx(0.008)
     metrics = [
         json.loads(line)
@@ -462,7 +462,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     assert provider_metric["fields"]["call_id"] == result.call_id
 
 
-def test_single_call_overrun_is_recorded_in_usd(
+def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -503,13 +503,23 @@ def test_single_call_overrun_is_recorded_in_usd(
         for line in (project / "events.jsonl").read_text().splitlines()
     ]
     settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
-    assert settled["overrun_usd"] == pytest.approx(0.02)
+    assert settled["amount_usd"] == 0.0
+    assert "overrun_usd" not in settled
     metrics = [
         json.loads(line)
         for line in (root / "metrics.jsonl").read_text().splitlines()
     ]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
-    assert provider_metric["fields"]["overrun_usd"] == pytest.approx(0.02)
+    assert "reservation_usd" not in provider_metric["fields"]
+    assert "overrun_usd" not in provider_metric["fields"]
+
+    denied = backend.run_exec(
+        prompt="next response",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="engineer-r1",
+    )
+    assert denied.stop_kind == "budget_exhausted"
+    assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
 def test_unpriced_call_blocks_next_provider_spawn(

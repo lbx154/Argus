@@ -105,8 +105,6 @@ export interface RequestUsage {
 export interface CostControlSnapshot {
   day: string;
   active_reservations: number;
-  reserved_usd: number;
-  unresolved_held_usd?: number;
   unresolved_calls: number;
   blocking_unresolved_calls?: number;
   unresolved: Array<Record<string, unknown>>;

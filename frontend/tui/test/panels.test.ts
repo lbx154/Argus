@@ -267,7 +267,6 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
       costControl: {
         day: '2026-07-11',
         active_reservations: 2,
-        reserved_usd: 4.5,
         unresolved_calls: 1,
         unresolved: [],
         policy: 'block',
@@ -275,7 +274,6 @@ test('cost control exposes in-flight reservations and unresolved pricing', async
     }),
     120,
   );
-  assert.match(output, /reserved \$4\.50/);
   assert.match(output, /in-flight 2/);
   assert.match(output, /unresolved 1/);
 });
@@ -517,7 +515,7 @@ test('24-row operations panel stays below Ink full-screen clear threshold', asyn
       copilot: { provider: 'copilot', day: '2026-07-19', daily_calls: 476, daily_cap: 10_000, remaining: 9_524, premium_requests: 109, premium_cap: 10_000 },
     },
     cost_control: {
-      reserved_usd: 5, active_reservations: 1, unresolved_calls: 108,
+      active_reservations: 1, unresolved_calls: 108,
     },
     usage_summary: {
       input_tokens: 16_296, cached_input_tokens: 14_848, cache_write_tokens: 0,

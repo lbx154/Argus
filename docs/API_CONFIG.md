@@ -47,8 +47,8 @@ copilot --output-format json --stream on --no-auto-update --no-ask-user \
 **Cost / control.** Argus normalizes provider usage into USD and writes every call
 to the same settled ledger. The only monetary limit is
 `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`, shared by every project; concurrent calls use
-atomic USD reservations against that global remainder. Argus does not translate
-USD reservations into Copilot AI credits or provider-specific budget fences.
+one atomic settled-spend admission check with no fixed per-call USD hold. Argus
+does not translate USD into Copilot AI credits or provider-specific fences.
 
 ## Route model
 

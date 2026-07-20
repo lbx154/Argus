@@ -198,7 +198,6 @@ def test_snapshot_reuses_cost_control_cache_during_transient_lock_contention(
     fresh = {
         "day": "2026-07-20",
         "active_reservations": 1,
-        "reserved_usd": 2.5,
         "unresolved_calls": 0,
     }
     calls = 0
