@@ -387,15 +387,28 @@ def _preflight_route_on_codex(route: str) -> bool:
     交互 shell 里的 copilot 选择在这里就看不见，daemon 会误探并崩在 codex 金库上；
     持久化的 ``/backend`` 切换正是为这种情况兜底。未知值回退 codex 保留安全探测。
     """
-    from ..agent_cli.runner_backend import BACKEND_CODEX, normalize_runner_backend
+    from ..agent_cli.runner_backend import (
+        BACKEND_CODEX,
+        resolve_available_runner,
+    )
     from ..core.knobs import resolve_role_backend
 
     role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
     chosen = resolve_role_backend(role)
     if not chosen:
-        return True  # nothing resolved → codex default → probe it
+        chosen = BACKEND_CODEX
+    role_bin = (
+        os.environ.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "").strip()
+        if role
+        else ""
+    )
+    configured = role_bin or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
     try:
-        return normalize_runner_backend(chosen) == BACKEND_CODEX
+        effective, _runner_bin = resolve_available_runner(
+            chosen,
+            configured or None,
+        )
+        return effective == BACKEND_CODEX
     except Exception:  # noqa: BLE001 — unknown value: keep the safety probe
         return True
 

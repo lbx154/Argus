@@ -112,7 +112,21 @@ def _normalize_backend(raw: str) -> str:
 def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
     from ..core.knobs import resolve_role_backend
 
-    return _normalize_backend(resolve_role_backend(role, env=env))
+    requested = resolve_role_backend(role, env=env)
+    normalized = _normalize_backend(requested)
+    if normalized == "memory":
+        return normalized
+    from ..agent_cli.runner_backend import resolve_available_runner
+
+    configured = (
+        str(env.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "") or "").strip()
+        or str(env.get("ARGUS_SKILL_RUNNER_BIN", "") or "").strip()
+    )
+    effective, _runner_bin = resolve_available_runner(
+        requested,
+        configured or None,
+    )
+    return effective
 
 
 def runner_backend_label(env: Mapping[str, str] | None = None) -> str:

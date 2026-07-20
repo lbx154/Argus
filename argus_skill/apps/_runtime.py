@@ -298,6 +298,23 @@ class _SkillLoopRunner(SelfReplyMixin):
         # the in-process Manager front-door — see ``_resolve_runner_backend_name``.
         backend_name = _resolve_runner_backend_name(args)
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
+        from ..agent_cli.runner_backend import (
+            normalize_runner_backend,
+            resolve_available_runner,
+        )
+
+        requested_backend = normalize_runner_backend(backend_name)
+        backend_name, runner_bin = resolve_available_runner(
+            backend_name,
+            runner_bin,
+        )
+        if backend_name != requested_backend:
+            log.warning(
+                "%s runner is unavailable; using %s at %s",
+                requested_backend,
+                backend_name,
+                runner_bin,
+            )
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
         extra = _strip_legacy_codex_profile_args(
             shlex.split(raw_extra) if raw_extra else None
@@ -369,17 +386,32 @@ class _SkillLoopRunner(SelfReplyMixin):
                 f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", ""
             ).strip()
             from ..agent_cli.runner_backend import (
-                default_runner_bin,
                 normalize_runner_backend,
+                resolve_available_runner,
             )
 
-            chosen = normalize_runner_backend(role_backend_name)
-            same_type = normalize_runner_backend(backend_name) == chosen
+            requested = normalize_runner_backend(role_backend_name)
+            same_type = normalize_runner_backend(backend_name) == requested
             if same_type and not bin_env:
                 return self._backend
-            role_bin = bin_env or (
-                runner_bin if same_type else default_runner_bin(chosen)
+            chosen, role_bin = resolve_available_runner(
+                role_backend_name,
+                bin_env or None,
             )
+            if chosen != requested:
+                log.warning(
+                    "%s %s runner is unavailable; using %s at %s",
+                    role,
+                    requested,
+                    chosen,
+                    role_bin,
+                )
+            if (
+                chosen == normalize_runner_backend(backend_name)
+                and not bin_env
+                and role_bin == runner_bin
+            ):
+                return self._backend
             return AgentCliBackend(
                 backend=chosen,
                 runner_bin=role_bin,

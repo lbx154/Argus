@@ -132,7 +132,7 @@ def test_parse_planner_text_preserves_context_packet_fields() -> None:
     assert spec.context_refs[0]["ref"] == "research/IDEA_CANDIDATES.md"
 
 
-def test_plan_next_rejects_whole_stage_research_monolith() -> None:
+def test_plan_next_does_not_machine_reject_whole_stage_task() -> None:
     broad = json.dumps({
         "project_done": False,
         "reason": "close research in one mission",
@@ -165,12 +165,11 @@ def test_plan_next_rejects_whole_stage_research_monolith() -> None:
         continuous_objective="Develop a strong paper.",
     )
 
-    assert verdict.new_tasks == []
-    assert "granularity" in verdict.error
-    assert "one fresh Engineer session" in verdict.reason
+    assert not verdict.error
+    assert [task.key for task in verdict.new_tasks] == ["all-research"]
 
 
-def test_plan_next_rejects_large_multi_artifact_package() -> None:
+def test_plan_next_does_not_limit_context_refs_or_artifact_count() -> None:
     task = {
         "title": "Rewrite the full plan package",
         "impact_score": 5,
@@ -184,7 +183,7 @@ def test_plan_next_rejects_large_multi_artifact_package() -> None:
         "non_goals": ["do not execute experiments"],
         "context_refs": [
             {"kind": "artifact", "ref": f"research/input-{i}.json", "why": "input", "content_hash": ""}
-            for i in range(6)
+            for i in range(12)
         ],
         "scope": "bounded",
         "stage_closing": False,
@@ -201,322 +200,9 @@ def test_plan_next_rejects_large_multi_artifact_package() -> None:
         "new_tasks": [task],
     }))).plan_next(continuous_objective="Develop a strong paper.")
 
-    assert verdict.new_tasks == []
-    assert "artifact boundary" in verdict.error
-
-
-def test_plan_next_allows_six_artifacts_for_stage_closing_package() -> None:
-    task = {
-        "title": "Close the scope package",
-        "impact_score": 5,
-        "impact_area": "reliability",
-        "evidence": "The coherent scope package is stale.",
-        "acceptance_check": (
-            "A.md, B.md, C.md, D.md, E.md, and F.json are current"
-        ),
-        "non_goals": ["do not execute experiments"],
-        "context_refs": [],
-        "scope": "bounded",
-        "stage_closing": True,
-        "objective": "Refresh A.md, B.md, C.md, D.md, E.md, and F.json.",
-        "key": "close-scope",
-        "deps": [],
-    }
-    verdict = Planner(_FakeRunner(json.dumps({
-        "project_done": False,
-        "reason": "close the current stage",
-        "new_tasks": [task],
-    }))).plan_next(continuous_objective="Keep improving.")
-
     assert not verdict.error
-    assert [spec.key for spec in verdict.new_tasks] == ["close-scope"]
-
-
-def test_plan_next_repairs_task_granularity_once_in_same_session() -> None:
-    broad = {
-        "title": "Refresh the complete scope package",
-        "impact_score": 5,
-        "impact_area": "reliability",
-        "evidence": "Five scope artifacts are stale.",
-        "acceptance_check": (
-            "GROUND_TRUTH.md, KERNEL_SCOPE.md, PROJECT_NATIVE_SETUP.md, "
-            "frontier/scope.json, and FRONTIER_WATCH.jsonl are current"
-        ),
-        "non_goals": ["do not run benchmarks"],
-        "context_refs": [],
-        "scope": "bounded",
-        "stage_closing": False,
-        "objective": (
-            "Refresh GROUND_TRUTH.md, KERNEL_SCOPE.md, PROJECT_NATIVE_SETUP.md, "
-            "frontier/scope.json, and FRONTIER_WATCH.jsonl."
-        ),
-        "key": "scope",
-        "deps": [],
-    }
-    first = json.dumps({
-        "project_done": False,
-        "reason": "close scope",
-        "new_tasks": [broad],
-        "checklist_ops": [],
-    })
-    repaired = json.dumps({
-        "project_done": False,
-        "reason": "close scope in two bounded nodes",
-        "new_tasks": [
-            {
-                **broad,
-                "title": "Refresh scope ground truth",
-                "acceptance_check": (
-                    "GROUND_TRUTH.md, KERNEL_SCOPE.md, and "
-                    "PROJECT_NATIVE_SETUP.md are current"
-                ),
-                "objective": (
-                    "Refresh GROUND_TRUTH.md, KERNEL_SCOPE.md, and "
-                    "PROJECT_NATIVE_SETUP.md."
-                ),
-                "key": "scope-ground-truth",
-                "stage_closing": False,
-            },
-            {
-                **broad,
-                "title": "Refresh scope frontier",
-                "acceptance_check": (
-                    "frontier/scope.json and FRONTIER_WATCH.jsonl are current"
-                ),
-                "objective": (
-                    "Refresh frontier/scope.json and FRONTIER_WATCH.jsonl."
-                ),
-                "key": "scope-frontier",
-                "deps": ["scope-ground-truth"],
-            },
-        ],
-        "checklist_ops": [],
-    })
-    runner = _SequencedRunner(
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[first],
-            thread_id="planner-thread",
-            input_tokens=10,
-            output_tokens=4,
-        ),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[repaired],
-            thread_id="planner-thread",
-            input_tokens=3,
-            cached_input_tokens=2,
-            output_tokens=6,
-        ),
-    )
-
-    verdict = Planner(runner).plan_next(
-        continuous_objective="Improve the scoped kernel.",
-        planning_cycle=3,
-    )
-
-    assert not verdict.error
-    assert [task.key for task in verdict.new_tasks] == [
-        "scope-ground-truth",
-        "scope-frontier",
-    ]
-    assert len(runner.calls) == 2
-    assert runner.calls[1]["resume_thread_id"] == "planner-thread"
-    assert runner.calls[1]["run_label"] == (
-        "planner.cycle3.task-contract-repair"
-    )
-    assert runner.calls[1]["options"].sandbox_mode == "read-only"
-    assert "maximum 4" in runner.calls[1]["prompt"]
-    assert verdict.input_tokens == 13
-    assert verdict.cached_input_tokens == 2
-    assert verdict.output_tokens == 10
-    assert verdict.task_contract_repair_attempted is True
-    assert verdict.task_contract_repair_succeeded is True
-    assert verdict.task_contract_repair_error == ""
-    assert verdict.repair_event_payload()[
-        "task_contract_repair_original_sha256"
-    ] == hashlib.sha256(first.encode("utf-8")).hexdigest()
-
-
-def test_plan_next_rejects_still_broad_task_contract_repair() -> None:
-    broad = json.dumps({
-        "project_done": False,
-        "reason": "close scope",
-        "new_tasks": [{
-            "title": "Refresh the complete scope package",
-            "impact_score": 5,
-            "impact_area": "reliability",
-            "evidence": "Five scope artifacts are stale.",
-            "acceptance_check": (
-                "A.md, B.md, C.md, D.md, and E.md are current"
-            ),
-            "scope": "bounded",
-            "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
-        }],
-    })
-    runner = _SequencedRunner(
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[broad],
-            thread_id="planner-thread",
-        ),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[broad],
-            thread_id="planner-thread",
-        ),
-    )
-
-    verdict = Planner(runner).plan_next(continuous_objective="Keep working.")
-
-    assert verdict.new_tasks == []
-    assert "task granularity violation" in verdict.error
-    assert verdict.task_contract_repair_attempted is True
-    assert verdict.task_contract_repair_succeeded is False
-    assert "task granularity violation" in verdict.task_contract_repair_error
-    assert len(runner.calls) == 2
-
-
-def test_plan_next_rejects_task_repair_that_changes_control_state() -> None:
-    broad_task = {
-        "title": "Refresh the complete scope package",
-        "impact_score": 5,
-        "impact_area": "reliability",
-        "evidence": "Five scope artifacts are stale.",
-        "acceptance_check": "A.md, B.md, C.md, D.md, and E.md are current",
-        "scope": "bounded",
-        "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
-    }
-    first = json.dumps({
-        "project_done": False,
-        "reason": "close scope",
-        "waiting": False,
-        "new_tasks": [broad_task],
-        "checklist_ops": [],
-    })
-    improper = json.dumps({
-        "project_done": True,
-        "reason": "avoid the oversized task",
-        "waiting": False,
-        "new_tasks": [],
-        "checklist_ops": [],
-    })
-    runner = _SequencedRunner(
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[first],
-            thread_id="planner-thread",
-        ),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[improper],
-            thread_id="planner-thread",
-        ),
-    )
-
-    verdict = Planner(runner).plan_next(continuous_objective="Keep working.")
-
-    assert verdict.project_done is False
-    assert verdict.new_tasks == []
-    assert "task granularity violation" in verdict.error
-    assert "project_done" in verdict.task_contract_repair_error
-    assert "same-session repair failed" in verdict.error
-
-
-def test_plan_next_preserves_schema_repair_telemetry_through_task_repair() -> None:
-    malformed = "I will refresh the package, but this is not JSON."
-    broad = json.dumps({
-        "project_done": False,
-        "reason": "refresh the package",
-        "new_tasks": [{
-            "title": "Refresh the complete package",
-            "impact_score": 5,
-            "impact_area": "reliability",
-            "evidence": "Five artifacts are stale.",
-            "acceptance_check": "A.md, B.md, C.md, D.md, and E.md are current",
-            "scope": "bounded",
-            "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
-            "key": "all",
-            "deps": [],
-        }],
-        "checklist_ops": [],
-    })
-    repaired = json.dumps({
-        "project_done": False,
-        "reason": "refresh the package in two nodes",
-        "new_tasks": [
-            {
-                "title": "Refresh the first package",
-                "impact_score": 5,
-                "impact_area": "reliability",
-                "evidence": "A through C are stale.",
-                "acceptance_check": "A.md, B.md, and C.md are current",
-                "scope": "bounded",
-                "objective": "Refresh A.md, B.md, and C.md.",
-                "key": "first",
-                "deps": [],
-            },
-            {
-                "title": "Refresh the remaining package",
-                "impact_score": 5,
-                "impact_area": "reliability",
-                "evidence": "D and E are stale.",
-                "acceptance_check": "D.md and E.md are current",
-                "scope": "bounded",
-                "objective": "Refresh D.md and E.md.",
-                "key": "second",
-                "deps": ["first"],
-            },
-        ],
-        "checklist_ops": [],
-    })
-    runner = _SequencedRunner(
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[malformed],
-            thread_id="planner-thread",
-            input_tokens=10,
-            output_tokens=1,
-        ),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[broad],
-            thread_id="planner-thread",
-            input_tokens=4,
-            cached_input_tokens=2,
-            output_tokens=3,
-        ),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[repaired],
-            thread_id="planner-thread",
-            input_tokens=5,
-            cached_input_tokens=3,
-            output_tokens=6,
-        ),
-    )
-
-    verdict = Planner(runner).plan_next(
-        continuous_objective="Keep working.",
-        planning_cycle=9,
-    )
-
-    assert not verdict.error
-    assert [call["run_label"] for call in runner.calls] == [
-        "planner.cycle9",
-        "planner.cycle9.schema-repair",
-        "planner.cycle9.task-contract-repair",
-    ]
-    assert verdict.schema_repair_attempted is True
-    assert verdict.schema_repair_succeeded is True
-    assert verdict.task_contract_repair_attempted is True
-    assert verdict.task_contract_repair_succeeded is True
-    assert verdict.input_tokens == 19
-    assert verdict.cached_input_tokens == 5
-    assert verdict.output_tokens == 10
-    payload = verdict.repair_event_payload()
-    assert payload["schema_repair_input_tokens"] == 4
-    assert payload["task_contract_repair_input_tokens"] == 5
+    assert [spec.key for spec in verdict.new_tasks] == ["all-plan"]
+    assert len(verdict.new_tasks[0].context_refs) == 12
 
 
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
@@ -1495,11 +1181,9 @@ def _prompt_for_stage(monkeypatch, tmp_path, stage: str) -> str:
 
 
 def test_prompt_has_concise_dynamic_host_policy(monkeypatch, tmp_path) -> None:
-    from argus_skill.planner.planner import MIN_PLANNER_IMPACT_SCORE
-
     prompt = _prompt_for_stage(monkeypatch, tmp_path, "research")
     assert "## Dynamic host policy" in prompt
-    assert f"`impact_score >= {MIN_PLANNER_IMPACT_SCORE}`" in prompt
+    assert "host does not reject tasks based on score" in prompt
     assert "provided planner schema" in prompt
     assert "JSON only" in prompt
     assert "Output a JSON object with this exact shape" not in prompt
@@ -1690,8 +1374,7 @@ def test_parse_planner_text_flat_task_has_empty_key_deps() -> None:
     assert v.new_tasks[0].deps == []
 
 
-def test_parse_planner_text_accepts_up_to_six_tasks() -> None:
-    """maxItems is now 6 (fan-out + fan-in); the parser must not cap at 3."""
+def test_parse_planner_text_does_not_cap_task_count() -> None:
     tasks = [
         {
             "key": f"k{i}",
@@ -1703,11 +1386,11 @@ def test_parse_planner_text_accepts_up_to_six_tasks() -> None:
             "scope": "bounded",
             "objective": f"do work {i} and write out/{i}.txt",
         }
-        for i in range(6)
+        for i in range(12)
     ]
-    txt = json.dumps({"project_done": False, "reason": "six", "new_tasks": tasks})
+    txt = json.dumps({"project_done": False, "reason": "many", "new_tasks": tasks})
     v = parse_planner_text(txt)
-    assert len(v.new_tasks) == 6
+    assert len(v.new_tasks) == 12
 
 
 def test_dag_teaching_section_in_role() -> None:
@@ -1744,10 +1427,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     plain flat batch (key/deps optional)."""
     import jsonschema
 
-    from argus_skill.planner.planner import (
-        MIN_PLANNER_IMPACT_SCORE,
-        PLANNER_SCHEMA_PATH,
-    )
+    from argus_skill.planner.planner import PLANNER_SCHEMA_PATH
 
     with open(PLANNER_SCHEMA_PATH, encoding="utf-8") as fh:
         schema = json.load(fh)
@@ -1839,21 +1519,11 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     # The parser below enforces waiting=true => object contract fail-closed.
     jsonschema.validate(dict(waiting, waiting_contract=None), schema)
 
-    # Six tasks validate (maxItems raised to 6); seven must fail.
-    six = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(6)])
-    jsonschema.validate(six, schema)
-    seven = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(7)])
-    with __import__("pytest").raises(jsonschema.ValidationError):
-        jsonschema.validate(seven, schema)
+    many = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(12)])
+    jsonschema.validate(many, schema)
 
-    # Structured output must enforce the same minimum as the host parser.
-    impact_schema = schema["properties"]["new_tasks"]["items"]["properties"][
-        "impact_score"
-    ]
-    assert impact_schema["minimum"] == MIN_PLANNER_IMPACT_SCORE
-    too_low = dict(
+    low_impact = dict(
         base,
-        new_tasks=[_task(impact_score=MIN_PLANNER_IMPACT_SCORE - 1)],
+        new_tasks=[_task(impact_score=0)],
     )
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(too_low, schema)
+    jsonschema.validate(low_impact, schema)

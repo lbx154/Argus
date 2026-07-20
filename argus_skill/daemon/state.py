@@ -322,10 +322,18 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
     # same way the role config is (env → persisted → codex), so it matches the
     # roles panel.
     try:
-        from ..agent_cli.runner_backend import normalize_runner_backend
+        from ..agent_cli.runner_backend import resolve_available_runner
         from ..core.knobs import resolve_role_backend
 
-        backend = normalize_runner_backend(resolve_role_backend("engineer"))
+        requested = resolve_role_backend("engineer")
+        configured = (
+            os.environ.get("ARGUS_SKILL_ENGINEER_RUNNER_BIN", "").strip()
+            or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
+        )
+        backend, _runner_bin = resolve_available_runner(
+            requested,
+            configured or None,
+        )
     except Exception:  # noqa: BLE001
         backend = config.backend
     from .protocol import daemon_protocol_metadata

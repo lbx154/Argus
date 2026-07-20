@@ -62,6 +62,22 @@ def test_backend_defaults_to_codex_when_unset():
     assert c.backend == "codex" and c.backend_label == "Codex"
 
 
+def test_backend_display_falls_back_when_codex_binary_is_missing(
+    tmp_path,
+    monkeypatch,
+):
+    copilot = tmp_path / "copilot"
+    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    copilot.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    c = resolve_role_config("engineer", env={})
+
+    assert c.backend == "copilot"
+    assert c.backend_label == "Copilot"
+
+
 def test_per_role_backend_overrides_runner_and_life():
     env = {
         "ARGUS_SKILL_LIFE_BACKEND": "codex",

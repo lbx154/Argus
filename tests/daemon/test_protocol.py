@@ -50,6 +50,30 @@ def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     assert daemon_protocol_compatibility(status) == (True, "")
 
 
+def test_daemon_status_reports_copilot_when_codex_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    copilot = tmp_path / "copilot"
+    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    copilot.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.core.knob_store.read_persisted_knobs",
+        lambda: {},
+    )
+
+    payload = _daemon_status_payload(
+        LifeWorkerConfig(life_dir=tmp_path, backend="codex"),
+        started_at_iso="2026-07-20T00:00:00+00:00",
+    )
+
+    assert payload["backend"] == "copilot"
+
+
 def test_clean_source_policy_rejects_dirty_runtime(monkeypatch) -> None:
     from types import SimpleNamespace
 

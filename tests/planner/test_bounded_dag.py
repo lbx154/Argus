@@ -61,15 +61,16 @@ def test_bounded_planner_rejects_cycle(tmp_path) -> None:
     assert "cycle" in plan.error
 
 
-def test_bounded_planner_rejects_token_wasting_five_node_plan(tmp_path) -> None:
+def test_bounded_planner_does_not_cap_node_count(tmp_path) -> None:
     runner = _Runner({
         "reason": "too many overlapping stages",
         "tasks": [
             {"key": str(index), "deps": [], "title": f"Task {index}", "objective": "work"}
-            for index in range(5)
+            for index in range(12)
         ],
     })
 
     plan = plan_bounded_dag(runner, "one cohesive change", workdir=tmp_path)
 
-    assert "no bounded task batch" in plan.error
+    assert not plan.error
+    assert len(plan.tasks) == 12

@@ -24,6 +24,12 @@ _BACKEND_ENVS = (
     "ARGUS_SKILL_PLANNER_BACKEND",
     "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_CURATOR_BACKEND",
+    "ARGUS_SKILL_RUNNER_BIN",
+    "ARGUS_SKILL_ENGINEER_RUNNER_BIN",
+    "ARGUS_SKILL_REVIEWER_RUNNER_BIN",
+    "ARGUS_SKILL_PLANNER_RUNNER_BIN",
+    "ARGUS_SKILL_MANAGER_RUNNER_BIN",
+    "ARGUS_SKILL_CURATOR_RUNNER_BIN",
 )
 
 
@@ -83,6 +89,19 @@ def test_unknown_value_fails_closed_to_probe(monkeypatch) -> None:
     # A typo'd backend must NOT silently disable the safety probe.
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "coldex")
     assert _preflight_route_on_codex("engineer") is True
+
+
+def test_missing_default_codex_uses_copilot_without_vault_probe(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    copilot = tmp_path / "copilot"
+    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    copilot.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert required_codex_routes() == []
 
 
 def test_text_route_follows_runner_default(monkeypatch) -> None:

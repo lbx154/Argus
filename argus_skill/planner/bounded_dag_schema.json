@@ -4,24 +4,22 @@
   "additionalProperties": false,
   "required": ["reason", "tasks"],
   "properties": {
-    "reason": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "reason": {"type": "string", "minLength": 1},
     "tasks": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 4,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["key", "deps", "title", "objective"],
         "properties": {
-          "key": {"type": "string", "minLength": 1, "maxLength": 80},
+          "key": {"type": "string", "minLength": 1},
           "deps": {
             "type": "array",
-            "maxItems": 5,
-            "items": {"type": "string", "minLength": 1, "maxLength": 80}
+            "items": {"type": "string", "minLength": 1}
           },
-          "title": {"type": "string", "minLength": 1, "maxLength": 160},
-          "objective": {"type": "string", "minLength": 1, "maxLength": 5000}
+          "title": {"type": "string", "minLength": 1},
+          "objective": {"type": "string", "minLength": 1}
         }
       }
     }

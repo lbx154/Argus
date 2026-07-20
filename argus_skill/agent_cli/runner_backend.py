@@ -50,3 +50,19 @@ def resolve_runner_bin(
         return str(user_local)
     return None
 
+
+def resolve_available_runner(
+    backend: RunnerBackend | str | None,
+    configured: str | None = None,
+) -> tuple[RunnerBackend, str]:
+    """Resolve the requested CLI, falling back only when Codex is absent."""
+    raw = str(backend or "").strip().lower()
+    chosen = normalize_runner_backend(backend)
+    resolved = resolve_runner_bin(chosen, configured)
+    if resolved:
+        return chosen, resolved
+    if chosen == BACKEND_CODEX and raw in ("", BACKEND_CODEX):
+        copilot = resolve_runner_bin(BACKEND_COPILOT)
+        if copilot:
+            return BACKEND_COPILOT, copilot
+    return chosen, str(configured or default_runner_bin(chosen)).strip()

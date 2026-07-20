@@ -41,7 +41,8 @@ def _prompt(objective: str) -> str:
         "the completed work and verification whether an independent Reviewer is "
         "useful; framework-required gates may still force review. Minimize total "
         "cost: default to ONE cohesive node for one code/deliverable change, and "
-        "use 2-4 only for genuinely independent artifacts or hard dependencies.\n"
+        "use multiple nodes only for genuinely independent artifacts or hard "
+        "dependencies.\n"
         "- Each node must fit one fresh Engineer session and, when the Engineer "
         "requests it or the framework requires it, one Reviewer plus at most a "
         "small Reviewer-requested repair budget.\n"
@@ -82,7 +83,7 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
         raise ValueError("planner output is not an object")
     reason = str(payload.get("reason") or "").strip()
     rows = payload.get("tasks")
-    if not reason or not isinstance(rows, list) or not 1 <= len(rows) <= 4:
+    if not reason or not isinstance(rows, list) or not rows:
         raise ValueError("planner output has no bounded task batch")
     nodes: list[BoundedDagNode] = []
     keys: set[str] = set()
