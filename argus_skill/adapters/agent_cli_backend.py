@@ -96,7 +96,7 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
 _RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
 _LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
@@ -1969,7 +1969,8 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
       * ``ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS`` — stdout/stderr soft-idle
         threshold, default disabled.
       * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — stdout/stderr hard-idle
-        threshold, default 900s.
+        threshold, default disabled. Set it explicitly when a deployment wants
+        a deadline for otherwise silent subprocesses.
     """
     import shlex
 

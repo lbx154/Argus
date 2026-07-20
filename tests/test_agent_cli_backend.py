@@ -1710,4 +1710,4 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     assert backend._argus_runner.backend == "codex"
     assert backend._argus_runner.default_extra_args == []
     assert backend._default_watchdog_soft_idle_seconds == 0
-    assert backend._default_watchdog_hard_idle_seconds == 3600
+    assert backend._default_watchdog_hard_idle_seconds == 0

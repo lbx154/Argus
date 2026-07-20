@@ -361,7 +361,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0,
             ),
             default_watchdog_hard_idle_seconds=_env_int(
-                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 3600,
+                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0,
             ),
             event_callback=_trampoline,
         )
@@ -423,7 +423,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                     "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0,
                 ),
                 default_watchdog_hard_idle_seconds=_env_int(
-                    "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 3600,
+                    "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0,
                 ),
                 event_callback=_trampoline,
             )

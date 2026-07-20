@@ -104,6 +104,25 @@ def _done_review() -> str:
     })
 
 
+def _scope_change_review() -> str:
+    return json.dumps({
+        "status": "continue",
+        "reason": "The baseline exposed a defect outside this mission's non-goals.",
+        "next_action": "Authorize a scoped correctness-repair mission before rerunning the baseline.",
+        "round_summary_markdown": "# Review Summary\n\n- A separate repair mission is required.\n",
+        "completion_summary_markdown": "",
+        "planner_report": {
+            "forward_progress": True,
+            "headline": "The baseline found a reproducible platform defect.",
+            "blocker": "Repair is outside the current mission contract.",
+            "recommended_next": "Insert a scoped correctness-repair mission.",
+            "plan_signal": "continue",
+            "plan_signal_reason": "",
+            "evidence_files": [],
+        },
+    })
+
+
 def _seed_skill(skills_dir: Path) -> None:
     store = SkillStore(skills_dir)
     store.save_distilled(
@@ -196,6 +215,36 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     store = SkillStore(skills_dir)
     summaries = store.list_summaries()
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
+
+
+def test_scope_changing_reviewer_guidance_escalates_without_second_engineer_round(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="reproduced a platform defect"))
+    backend.queue("reviewer", CannedResponse(message=_scope_change_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=3, skill_adapter_enabled=False),
+        on_event=events.append,
+    ).run("produce a baseline only", workdir=tmp_path)
+
+    assert outcome.status == "replan_requested"
+    assert outcome.round_count == 1
+    assert not any(label == "engineer-r2" for label, _prompt, _opts in backend.history)
+    review = outcome.rounds[-1].review
+    assert review.status == "replan_requested"
+    assert review.planner_report["plan_signal"] == "reconsider"
+    assert review.planner_report["stage_reconciliation_required"] is True
+    assert review.planner_report["mission_scope_change_required"] is True
+    assert any(event.get("type") == "round.review.scope_change_escalated" for event in events)
 
 
 def test_direct_work_escalates_engineer_effort_only_after_review(tmp_path: Path) -> None:

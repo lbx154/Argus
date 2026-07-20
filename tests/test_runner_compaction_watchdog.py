@@ -16,6 +16,7 @@ import pytest
 
 import argus_skill.engineer.runner as runner_module
 from argus_skill.engineer.runner import (
+    SupervisedConfig,
     _EffectiveProgressWatchdog,
     _is_codex_compaction_line,
     _is_effective_codex_session_line,
@@ -29,6 +30,16 @@ _RESPONSE = json.dumps(
     {"timestamp": "t", "type": "response_item", "payload": {"type": "message"}}
 )
 _TOKEN_COUNT = json.dumps({"timestamp": "t", "type": "token_count", "payload": {}})
+
+
+def test_long_running_experiments_have_no_default_idle_deadline(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", raising=False)
+
+    config = SupervisedConfig()
+
+    assert config.effective_progress_timeout_seconds == 0
+    assert config.runner_hard_idle_seconds == 0
 
 
 def _session_meta(workdir: Path) -> str:

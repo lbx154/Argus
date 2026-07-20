@@ -140,6 +140,34 @@ def test_prompt_treats_engineer_waiver_as_manager_judgment_input() -> None:
     assert "MAY ADVANCE" in prompt
 
 
+def test_prompt_routes_scope_change_through_manager_hold_or_rollback() -> None:
+    review = _review(checklist=[])
+    review.status = "replan_requested"
+    review.next_action = "Authorize a scoped correctness-repair mission."
+    review.planner_report = {
+        "forward_progress": True,
+        "headline": "A baseline defect needs a separate repair mission.",
+        "blocker": "Repair is outside the current mission contract.",
+        "recommended_next": "Planner should create a scoped repair mission.",
+        "plan_signal": "reconsider",
+        "plan_signal_reason": "Current mission non-goals forbid the repair.",
+        "mission_scope_change_required": True,
+    }
+
+    prompt = build_stage_decision_prompt(
+        current_stage="baseline",
+        next_stage="optimize",
+        earlier_stages=("scope", "environment"),
+        checklist_md="- [ ] baseline is complete",
+        review=review,
+    )
+
+    assert "Mission-scope arbitration" in prompt
+    assert "Reviewer advice is not authorization" in prompt
+    assert "HOLD the current stage" in prompt
+    assert "mission_scope_change_required: True" in prompt
+
+
 def _read_stage_status(root: Path, stage: str) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")

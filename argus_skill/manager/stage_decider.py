@@ -81,7 +81,15 @@ def _planner_report_lines(review: Any) -> str:
     report = getattr(review, "planner_report", None)
     if not isinstance(report, dict) or not report:
         return "(no structured planner report)"
-    keys = ("forward_progress", "headline", "blocker", "recommended_next")
+    keys = (
+        "forward_progress",
+        "headline",
+        "blocker",
+        "recommended_next",
+        "plan_signal",
+        "plan_signal_reason",
+        "mission_scope_change_required",
+    )
     lines = [f"{k}: {report.get(k)!r}" for k in keys if k in report]
     return "\n".join(lines) or "(no structured planner report)"
 
@@ -161,6 +169,24 @@ def build_stage_decision_prompt(
             f"Operator objective:\n{continuous_objective.strip()}\n\n"
         )
 
+    report = getattr(review, "planner_report", None)
+    mission_scope_change = bool(
+        isinstance(report, dict)
+        and report.get("mission_scope_change_required") is True
+    )
+    mission_scope_block = ""
+    if mission_scope_change:
+        mission_scope_block = (
+            "## Mission-scope arbitration\n"
+            "The Reviewer found that the proposed next work cannot legally run "
+            "as another Engineer round under the current mission contract. "
+            "Reviewer advice is not authorization. HOLD the current stage when "
+            "the repair belongs in this stage so Planner can replace the mission; "
+            "ROLL BACK only when earlier-stage evidence is genuinely broken; "
+            "ADVANCE only when the current checklist is independently complete. "
+            "Do not rewrite implementation details yourself.\n\n"
+        )
+
     wait_resolution_block = ""
     if planner_waiting:
         operator_boundary = (
@@ -224,6 +250,7 @@ def build_stage_decision_prompt(
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
         f"{wait_resolution_block}"
+        f"{mission_scope_block}"
         f"{open_ended_block}"
         f"{rendering_block.strip()}\n\n"
         "## Your decision\n"

@@ -49,6 +49,22 @@ the project adheres to semantic versioning once it leaves 0.x.
   distinct `❓ 需要你回复才能继续：` line whenever the field is non-empty.
 
 ### Fixed
+- **Scope-changing Reviewer advice no longer bypasses Manager/Planner and run
+  directly as the next Engineer round.** `continue` remains the fast lane for
+  repairs inside the current mission contract. Guidance that requests a new or
+  scoped mission, a replacement plan, or changes to objective/non-goals/
+  acceptance/stage/resources is promoted to `replan_requested`; the current
+  round-loop terminates, Manager arbitrates the stage boundary, and Planner
+  authors the replacement task. The handoff is one-way and fail-safe (Manager
+  errors HOLD), avoiding a new role-to-role waiting cycle.
+- **Long-running GPU and external experiments are no longer killed after one
+  silent hour by default.** The effective-progress watchdog and the runner
+  stdout/stderr hard-idle watchdog both defaulted to 3600 seconds, so a valid
+  multi-hour subprocess with no intermediate file writes could be mistaken for
+  a stuck Engineer round. Both deadlines are now disabled by default (`0`) and
+  remain available as explicit deployment opt-ins through
+  `ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS` and
+  `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`.
 - **qlib-cn OOS backtests no longer crash at the dump's calendar boundary.**
   Quarantined-test OOS trials died with `IndexError: index N out of bounds` —
   the evaluation window ended on the dump's *last* calendar day and qlib

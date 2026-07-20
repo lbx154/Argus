@@ -194,6 +194,40 @@ _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requ
 # ``argus_skill.tools.mission_control`` for the writer side of this signal.
 _OPERATOR_ABORT_INTERRUPT_RE = re.compile(r"^external interrupt:\s*operator abort requested\b")
 
+_REVIEW_SCOPE_CHANGE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:authorize|create|enqueue|insert|schedule|open|start)\b"
+        r".{0,100}\b(?:new|separate|scoped|replacement|repair)?\s*"
+        r"(?:mission|task|plan)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\b(?:new|separate|replacement|scoped)\s+(?:repair\s+)?"
+        r"(?:mission|task|plan)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\breturn\s+control\s+to\s+(?:the\s+)?(?:planner|manager)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:change|relax|replace|rewrite|expand|broaden|modify)\b"
+        r".{0,80}\b(?:scope|objective|acceptance|non[- ]?goals?|budget|"
+        r"resources?|stage)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"(?:新建|创建|插入|安排|授权|重新规划).{0,40}"
+        r"(?:任务|mission|计划|修复任务)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"(?:扩大|放宽|修改|替换|变更).{0,40}"
+        r"(?:范围|目标|验收|非目标|预算|资源|阶段)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+
 _EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
 _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
     "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
@@ -218,14 +252,14 @@ _CONTINUE_WORK_MAX_CHARS = 500
 # Engineer/Reviewer calls are always fresh, so no token roll is needed.
 _DEFAULT_THREAD_TOKEN_LIMIT = 0
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
-_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
+_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 0
 # A handful of ``compacted`` events within one fresh Engineer turn indicates an
 # in-turn re-read/re-emit loop. Keep this emergency detector independent of the
 # cross-round policy; every next round is fresh regardless.
 _DEFAULT_ROUND_COMPACTION_LIMIT = 3
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 _CODEX_SESSION_EVENT_IGNORED_PAYLOAD_TYPES = {"token_count"}
 # Top-level Codex session event type written when the agent auto-compacts its
 # context. A compaction is the *opposite* of progress (it discards context and
@@ -434,6 +468,61 @@ def _plan_signal_event(
         "confirmed": mode == "active" and streak >= confirm_rounds,
         "evidence_files": evidence_files if isinstance(evidence_files, list) else [],
     }
+
+
+def _review_scope_change_reason(review: ReviewDecision) -> str:
+    """Return why a Reviewer ``continue`` needs Manager/Planner arbitration.
+
+    ``continue`` is the fast same-mission repair lane.  A Reviewer that asks for
+    a new/scoped mission, a replacement plan, or a changed task contract must
+    not silently gain authorization by having its prose pasted into the next
+    Engineer prompt.  Structured ``plan_signal=reconsider`` is authoritative;
+    the conservative prose matcher protects older/misclassified verdicts.
+    """
+    if str(getattr(review, "status", "") or "").strip().lower() != "continue":
+        return ""
+    report = getattr(review, "planner_report", None)
+    report = report if isinstance(report, dict) else {}
+    if str(report.get("plan_signal") or "").strip().lower() == "reconsider":
+        reason = str(report.get("plan_signal_reason") or "").strip()
+        return reason or "Reviewer requested reconsideration of the current mission plan."
+
+    candidate_parts = (
+        str(getattr(review, "next_action", "") or ""),
+        str(report.get("recommended_next") or ""),
+    )
+    candidate = "\n".join(part for part in candidate_parts if part.strip())
+    if not candidate:
+        return ""
+    for pattern in _REVIEW_SCOPE_CHANGE_PATTERNS:
+        if pattern.search(candidate):
+            return (
+                "Reviewer guidance requests work outside the current mission's "
+                "same-scope repair lane; Manager authorization and Planner task "
+                "replacement are required."
+            )
+    return ""
+
+
+def _promote_scope_change_to_replan(
+    review: ReviewDecision,
+    *,
+    reason: str,
+) -> None:
+    """Promote a scope-changing ``continue`` into one terminal replan handoff."""
+    report = getattr(review, "planner_report", None)
+    report = dict(report) if isinstance(report, dict) else {}
+    report["plan_signal"] = "reconsider"
+    report["plan_signal_reason"] = reason
+    # This is not necessarily an upstream-stage defect, but it still needs the
+    # Manager's stage-boundary ruling before L4 replaces the mission.  A safe
+    # Manager failure is HOLD, after which Planner can replan in the same stage.
+    report["stage_reconciliation_required"] = True
+    report["mission_scope_change_required"] = True
+    if not str(report.get("recommended_next") or "").strip():
+        report["recommended_next"] = str(review.next_action or "").strip()
+    review.planner_report = report
+    review.status = "replan_requested"
 
 
 _EARLIEST_BROKEN_STAGE_PATTERNS = (
@@ -2382,6 +2471,24 @@ class SupervisedEngineer:
             # A real reviewer verdict arrived — reset the reviewer-backend streak.
             reviewer_backend_failure_streak = 0
             pending_secret_guard_notes.clear()
+            scope_change_reason = _review_scope_change_reason(review)
+            if scope_change_reason:
+                _promote_scope_change_to_replan(
+                    review,
+                    reason=scope_change_reason,
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.review.scope_change_escalated",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "reason": scope_change_reason,
+                        "next_action": str(review.next_action or ""),
+                        "text": (
+                            "Reviewer scope-changing guidance escalated to "
+                            "Manager/Planner arbitration; no direct Engineer retry"
+                        ),
+                    })
             progress_class = _review_progress_class(review)
             next_semantic_stall_streak = _next_decision_stall_streak(
                 review,
